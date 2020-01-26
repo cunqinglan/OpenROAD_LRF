@@ -34,7 +34,7 @@
 *
 ****************************************************************************/
 
-library (NangateOpenCellLibrary) {
+library (Nangate_typ) {
 
   /* Documentation Attributes */
   date                    		: "Thu 10 Feb 2011, 18:11:20";
