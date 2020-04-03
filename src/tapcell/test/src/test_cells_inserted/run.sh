@@ -48,12 +48,16 @@ testdir=$2
 
 $binary -no_init < run.tcl > test.log 2>&1
 
-obs_report=$(grep -e '---- Macro blocks found:' ./test.log)
+obs_report0=$(grep -e '---- #Endcaps inserted:' ./test.log)
+obs_report1=$(grep -e '---- #Endcaps inserted:' ./test.log)
 
-if grep -q -e "$obs_report" golden.macros
+mkdir -p ../../results/test_cells_inserted/
+cp test.log ../../results/test_cells_inserted/tapcell.log
+
+if grep -q -e "$obs_report0" golden.cells && grep -q -e "$obs_report1" golden.cells;
 then
 	exit $GREEN
 else
-        echo "     - [ERROR] Test failed. Check $testdir/src/check_macros/test.log and Check $testdir/src/check_macros/golden.macros"
+        echo "     - [ERROR] Test failed. Check $testdir/src/check_cells_inserted/test.log and Check $testdir/src/check_cells_inserted/golden.cells"
 	exit $RED
 fi
