@@ -3,17 +3,22 @@ Notice 0:     Created 22 technology layers
 Notice 0:     Created 27 technology vias
 Notice 0:     Created 134 library cells
 Notice 0: Finished LEF file:  nangate45/NangateOpenCellLibrary.mod.lef
+Notice 0: Reading LEF file:  tinyRocket/fakeram45_64x32.lef
+Notice 0:     Created 1 library cells
+Notice 0: Finished LEF file:  tinyRocket/fakeram45_64x32.lef
+Notice 0: Reading LEF file:  tinyRocket/fakeram45_1024x32.lef
+Notice 0:     Created 1 library cells
+Notice 0: Finished LEF file:  tinyRocket/fakeram45_1024x32.lef
 Notice 0: 
-Reading DEF file: gcd/floorplan.def
-Notice 0: Design: gcd
-Notice 0:     Created 54 pins.
-Notice 0:     Created 482 components and 2074 component-terminals.
-Notice 0:     Created 385 nets and 1110 connections.
-Notice 0: Finished DEF file: gcd/floorplan.def
+Reading DEF file: tinyRocket/2_5_floorplan_tapcell.def
+Notice 0: Design: RocketTile
+Notice 0:     Created 269 pins.
+Notice 0:     Created 41868 components and 209139 component-terminals.
+Notice 0:     Created 42811 nets and 125379 connections.
+Notice 0: Finished DEF file: tinyRocket/2_5_floorplan_tapcell.def
 [INFO] [PDNG-0016] Power Delivery Network Generator: Generating PDN
-[INFO] [PDNG-0016]   config: gcd/PDN.cfg
-[WARN] [PDNG-0035] No track information found for layer metal10
-[INFO] [PDNG-0008] Design Name is gcd
+[INFO] [PDNG-0016]   config: tinyRocket/PDN.cfg
+[INFO] [PDNG-0008] Design Name is RocketTile
 [INFO] [PDNG-0009] Reading technology data
 [INFO] [PDNG-0011] ****** INFO ******
 Type: stdcell, grid
@@ -36,5 +41,8 @@ Type: macro, macro_2
     Connect: {metal4_PIN_hor metal6} {metal6 metal7}
 [INFO] [PDNG-0012] **** END INFO ****
 [INFO] [PDNG-0013] Inserting stdcell grid - grid
+[INFO] [PDNG-0010] Inserting macro grid for 2 macros
+[INFO] [PDNG-0034]   - grid for instance dcache.data.data_arrays_0.data_arrays_0_ext.mem
+[INFO] [PDNG-0034]   - grid for instance frontend.icache.data_arrays_0.data_arrays_0_0_ext.mem
 [INFO] [PDNG-0015] Writing to database
-Differences found at line 82.
+No differences found.
