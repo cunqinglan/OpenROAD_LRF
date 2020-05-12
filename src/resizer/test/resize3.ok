@@ -21,23 +21,23 @@ Path Type: max
    0.00    0.00   clock clk (rise edge)
    0.00    0.00   clock network delay (ideal)
    0.00    0.00 ^ r2/CK (DFF_X1)
-   0.13    0.13 ^ r2/Q (DFF_X1)
-   0.08    0.21 ^ u1/Z (BUF_X1)
-   0.09    0.30 ^ u2/ZN (AND2_X1)
-   0.00    0.30 ^ r3/D (DFF_X1)
-           0.30   data arrival time
+   0.20    0.20 ^ r2/Q (DFF_X1)
+   0.15    0.35 ^ u1/Z (BUF_X1)
+   0.17    0.52 ^ u2/ZN (AND2_X1)
+   0.00    0.52 ^ r3/D (DFF_X1)
+           0.52   data arrival time
 
    1.00    1.00   clock clk (rise edge)
    0.00    1.00   clock network delay (ideal)
    0.00    1.00   clock reconvergence pessimism
            1.00 ^ r3/CK (DFF_X1)
-  -0.04    0.96   library setup time
-           0.96   data required time
+  -0.05    0.95   library setup time
+           0.95   data required time
 ---------------------------------------------------------
-           0.96   data required time
-          -0.30   data arrival time
+           0.95   data required time
+          -0.52   data arrival time
 ---------------------------------------------------------
-           0.66   slack (MET)
+           0.43   slack (MET)
 
 
 Resized 2 instances.
@@ -51,11 +51,11 @@ Path Type: max
    0.00    0.00   clock clk (rise edge)
    0.00    0.00   clock network delay (ideal)
    0.00    0.00 ^ r2/CK (DFF_X1)
-   0.13    0.13 ^ r2/Q (DFF_X1)
-   0.05    0.18 ^ u1/Z (BUF_X2)
-   0.06    0.24 ^ u2/ZN (AND2_X2)
-   0.00    0.24 ^ r3/D (DFF_X1)
-           0.24   data arrival time
+   0.21    0.21 ^ r2/Q (DFF_X1)
+   0.06    0.27 ^ u1/Z (BUF_X4)
+   0.06    0.33 ^ u2/ZN (AND2_X4)
+   0.00    0.33 ^ r3/D (DFF_X1)
+           0.33   data arrival time
 
    1.00    1.00   clock clk (rise edge)
    0.00    1.00   clock network delay (ideal)
@@ -65,9 +65,11 @@ Path Type: max
            0.96   data required time
 ---------------------------------------------------------
            0.96   data required time
-          -0.24   data arrival time
+          -0.33   data arrival time
 ---------------------------------------------------------
-           0.72   slack (MET)
+           0.63   slack (MET)
 
 
-No differences found.
+Differences found at line 7.
+DIEAREA ( -1000 -1000 ) ( 1000 1000 ) ;
+DIEAREA ( 0 0 ) ( 1000 1000 ) ;
