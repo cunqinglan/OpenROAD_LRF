@@ -1,9 +1,9 @@
 ############################################################################
 ##
-## BSD 3-Clause License
-##
-## Copyright (c) 2019, James Cherry, Parallax Software, Inc.
+## Copyright (c) 2019, OpenROAD
 ## All rights reserved.
+##
+## BSD 3-Clause License
 ##
 ## Redistribution and use in source and binary forms, with or without
 ## modification, are permitted provided that the following conditions are met:
@@ -33,40 +33,44 @@
 ##
 ############################################################################
 
-set(RESIZER_WRAP ${CMAKE_CURRENT_BINARY_DIR}/Resizer_wrap.cc)
-set(RESIZER_TCL_INIT ${CMAKE_CURRENT_BINARY_DIR}/ResizerTclInitVar.cc)
+namespace eval sta {
 
-add_custom_command(OUTPUT ${RESIZER_WRAP}
-  COMMAND ${SWIG_EXECUTABLE} -tcl8 -c++ -namespace -prefix sta -I${OPENROAD_HOME}/include -o ${RESIZER_WRAP} ${RESIZER_HOME}/src/Resizer.i
-  COMMAND ${OPENSTA_HOME}/etc/SwigCleanup.tcl ${RESIZER_WRAP}
-  WORKING_DIRECTORY ${RESIZER_HOME}/src
-  DEPENDS
-  ${RESIZER_HOME}/src/Resizer.i
-  ${RESIZER_HOME}/include/resizer/Resizer.hh
-  )
+define_cmd_args "highlight_path" {[-min|-max] pin ^|r|rise|v|f|fall}
 
-add_custom_command(OUTPUT ${RESIZER_TCL_INIT}
-  COMMAND ${OPENSTA_HOME}/etc/TclEncode.tcl ${RESIZER_TCL_INIT} resizer_tcl_inits Resizer.tcl
-  WORKING_DIRECTORY ${RESIZER_HOME}/src
-  DEPENDS Resizer.tcl ${OPENSTA_HOME}/etc/TclEncode.tcl
-  )
+proc highlight_path { args } {
+  parse_key_args "highlight_path" args keys {} \
+    flags {-max -min} 0
 
-add_library(resizer
-  MakeResizer.cc
-  Resizer.cc
-  Rebuffer.cc
-  SteinerTree.cc
-  ${RESIZER_WRAP}
-  ${RESIZER_TCL_INIT}
-  )
+  if { [info exists flags(-min)] && [info exists flags(-max)] } {
+    sta_error "-min and -max cannot both be specified."
+  } elseif [info exists flags(-min)] {
+    set min_max "min"
+  } elseif [info exists flags(-max)] {
+    set min_max "max"
+  } else {
+    # Default to max path.
+    set min_max "max"
+  }
+  check_argc_eq2 "highlight_path" $args
 
-target_include_directories(resizer
-  PUBLIC ${RESIZER_HOME}/include
-  PRIVATE
-  ${OPENROAD_HOME}/include
-  ${DBSTA_HOME}/include
-  ${OPENSTA_HOME}/include
-  ${OPENDB_HOME}/include
-  ${OPENROAD_HOME}/src/flute3
-  ${TCL_INCLUDE_PATH}
-  )
+  set pin_arg [lindex $args 0]
+  set tr [parse_rise_fall_arg [lindex $args 1]]
+
+  set pin [get_port_pin_error "pin" $pin_arg]
+  if { [$pin is_hierarchical] } {
+    sta_error "pin '$pin_arg' is hierarchical."
+  } else {
+    foreach vertex [$pin vertices] {
+      if { $vertex != "NULL" } {
+        set worst_path [vertex_worst_arrival_path_rf $vertex $tr $min_max]
+        if { $worst_path != "NULL" } {
+          highlight_path_cmd $worst_path
+          delete_path_ref $worst_path
+        }
+      }
+    }
+  }
+}
+
+# namespace
+}
