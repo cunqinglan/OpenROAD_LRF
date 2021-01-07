@@ -34725,237 +34725,930 @@ COMPONENTS 34184 ;
     - PHY_4883 FILLCELL_X1 + SOURCE DIST + FIXED ( 1867580 1464400 ) FN ;
 END COMPONENTS
 PINS 231 ;
-    - clk_i + NET clk_i + DIRECTION INPUT + USE SIGNAL + FIXED ( 961710 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - rst_ni + NET rst_ni + DIRECTION INPUT + USE SIGNAL + FIXED ( 570830 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - test_en_i + NET test_en_i + DIRECTION INPUT + USE SIGNAL + FIXED ( 1822990 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - core_id_i\[0\] + NET core_id_i\[0\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1514990 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - core_id_i\[1\] + NET core_id_i\[1\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1602350 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - core_id_i\[2\] + NET core_id_i\[2\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 262830 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - core_id_i\[3\] + NET core_id_i\[3\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 1103900 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - cluster_id_i\[0\] + NET cluster_id_i\[0\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 1368220 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - cluster_id_i\[1\] + NET cluster_id_i\[1\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 375900 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - cluster_id_i\[2\] + NET cluster_id_i\[2\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 174300 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - cluster_id_i\[3\] + NET cluster_id_i\[3\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1485870 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - cluster_id_i\[4\] + NET cluster_id_i\[4\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 319900 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - cluster_id_i\[5\] + NET cluster_id_i\[5\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 494620 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[0\] + NET boot_addr_i\[0\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 874350 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[1\] + NET boot_addr_i\[1\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 1336860 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[2\] + NET boot_addr_i\[2\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1706510 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[3\] + NET boot_addr_i\[3\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1648270 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[4\] + NET boot_addr_i\[4\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 844060 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[5\] + NET boot_addr_i\[5\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1153230 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[6\] + NET boot_addr_i\[6\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 641390 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[7\] + NET boot_addr_i\[7\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 233710 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[8\] + NET boot_addr_i\[8\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1078190 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[9\] + NET boot_addr_i\[9\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 46670 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[10\] + NET boot_addr_i\[10\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 437550 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[11\] + NET boot_addr_i\[11\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 1426460 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[12\] + NET boot_addr_i\[12\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1864430 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[13\] + NET boot_addr_i\[13\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 495790 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[14\] + NET boot_addr_i\[14\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1269710 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[15\] + NET boot_addr_i\[15\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 1453340 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[16\] + NET boot_addr_i\[16\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 1251740 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[17\] + NET boot_addr_i\[17\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 929180 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[18\] + NET boot_addr_i\[18\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 785820 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[19\] + NET boot_addr_i\[19\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1094990 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[20\] + NET boot_addr_i\[20\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 407260 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[21\] + NET boot_addr_i\[21\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 279630 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[22\] + NET boot_addr_i\[22\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 29870 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[23\] + NET boot_addr_i\[23\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 728750 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[24\] + NET boot_addr_i\[24\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 175470 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[25\] + NET boot_addr_i\[25\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1327950 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[26\] + NET boot_addr_i\[26\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 337870 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[27\] + NET boot_addr_i\[27\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 579740 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[28\] + NET boot_addr_i\[28\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 667100 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[29\] + NET boot_addr_i\[29\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 1164380 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[30\] + NET boot_addr_i\[30\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1065870 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - boot_addr_i\[31\] + NET boot_addr_i\[31\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1502670 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_req_o + NET instr_req_o + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 832910 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_gnt_i + NET instr_gnt_i + DIRECTION INPUT + USE SIGNAL + FIXED ( 554030 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rvalid_i + NET instr_rvalid_i + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 349020 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[0\] + NET instr_addr_o\[0\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 1193500 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[1\] + NET instr_addr_o\[1\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 1278620 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[2\] + NET instr_addr_o\[2\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 716430 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[3\] + NET instr_addr_o\[3\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1124110 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[4\] + NET instr_addr_o\[4\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 841820 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[5\] + NET instr_addr_o\[5\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1544110 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[6\] + NET instr_addr_o\[6\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1107310 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[7\] + NET instr_addr_o\[7\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 862030 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[8\] + NET instr_addr_o\[8\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 687310 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[9\] + NET instr_addr_o\[9\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 541710 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[10\] + NET instr_addr_o\[10\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 750 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[11\] + NET instr_addr_o\[11\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1223790 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[12\] + NET instr_addr_o\[12\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 163150 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[13\] + NET instr_addr_o\[13\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1777070 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[14\] + NET instr_addr_o\[14\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1718830 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[15\] + NET instr_addr_o\[15\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 774670 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[16\] + NET instr_addr_o\[16\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1660590 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[17\] + NET instr_addr_o\[17\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 1135260 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[18\] + NET instr_addr_o\[18\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 599950 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[19\] + NET instr_addr_o\[19\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 745550 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[20\] + NET instr_addr_o\[20\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 1397340 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[21\] + NET instr_addr_o\[21\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 812700 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[22\] + NET instr_addr_o\[22\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 524910 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[23\] + NET instr_addr_o\[23\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1340270 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[24\] + NET instr_addr_o\[24\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 698460 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[25\] + NET instr_addr_o\[25\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 754460 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[26\] + NET instr_addr_o\[26\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 891150 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[27\] + NET instr_addr_o\[27\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 1220380 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[28\] + NET instr_addr_o\[28\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 786990 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[29\] + NET instr_addr_o\[29\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1531790 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[30\] + NET instr_addr_o\[30\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 920270 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_addr_o\[31\] + NET instr_addr_o\[31\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 870940 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[0\] + NET instr_rdata_i\[0\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 783580 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[1\] + NET instr_rdata_i\[1\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 1077020 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[2\] + NET instr_rdata_i\[2\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 669340 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[3\] + NET instr_rdata_i\[3\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1386190 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[4\] + NET instr_rdata_i\[4\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 845230 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[5\] + NET instr_rdata_i\[5\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 346780 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[6\] + NET instr_rdata_i\[6\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 816110 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[7\] + NET instr_rdata_i\[7\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 116060 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[8\] + NET instr_rdata_i\[8\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 512590 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[9\] + NET instr_rdata_i\[9\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1194670 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[10\] + NET instr_rdata_i\[10\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 989660 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[11\] + NET instr_rdata_i\[11\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 117230 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[12\] + NET instr_rdata_i\[12\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1240590 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[13\] + NET instr_rdata_i\[13\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 873180 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[14\] + NET instr_rdata_i\[14\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 757870 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[15\] + NET instr_rdata_i\[15\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 58990 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[16\] + NET instr_rdata_i\[16\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 1280860 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[17\] + NET instr_rdata_i\[17\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1573230 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[18\] + NET instr_rdata_i\[18\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 990830 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[19\] + NET instr_rdata_i\[19\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 204590 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[20\] + NET instr_rdata_i\[20\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 902300 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[21\] + NET instr_rdata_i\[21\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1369390 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[22\] + NET instr_rdata_i\[22\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 290780 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[23\] + NET instr_rdata_i\[23\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 581980 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[24\] + NET instr_rdata_i\[24\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 900060 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[25\] + NET instr_rdata_i\[25\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 903470 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[26\] + NET instr_rdata_i\[26\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 699630 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[27\] + NET instr_rdata_i\[27\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 408430 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[28\] + NET instr_rdata_i\[28\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 978510 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[29\] + NET instr_rdata_i\[29\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 523740 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[30\] + NET instr_rdata_i\[30\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 142940 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - instr_rdata_i\[31\] + NET instr_rdata_i\[31\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 134030 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_req_o + NET data_req_o + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 1162140 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_gnt_i + NET data_gnt_i + DIRECTION INPUT + USE SIGNAL + FIXED ( 1747950 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_rvalid_i + NET data_rvalid_i + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 1018780 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_we_o + NET data_we_o + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 86940 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_be_o\[0\] + NET data_be_o\[0\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 1249500 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_be_o\[1\] + NET data_be_o\[1\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 629070 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_be_o\[2\] + NET data_be_o\[2\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 756700 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_be_o\[3\] + NET data_be_o\[3\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 172060 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[0\] + NET data_addr_o\[0\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 104910 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[1\] + NET data_addr_o\[1\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 203420 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[2\] + NET data_addr_o\[2\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1282030 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[3\] + NET data_addr_o\[3\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 17550 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[4\] + NET data_addr_o\[4\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 26460 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[5\] + NET data_addr_o\[5\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1456750 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[6\] + NET data_addr_o\[6\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 727580 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[7\] + NET data_addr_o\[7\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1677390 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[8\] + NET data_addr_o\[8\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 960540 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[9\] + NET data_addr_o\[9\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 550620 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[10\] + NET data_addr_o\[10\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 146350 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[11\] + NET data_addr_o\[11\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 1395100 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[12\] + NET data_addr_o\[12\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 1133020 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[13\] + NET data_addr_o\[13\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 1482460 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[14\] + NET data_addr_o\[14\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1881230 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[15\] + NET data_addr_o\[15\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 366990 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[16\] + NET data_addr_o\[16\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1298830 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[17\] + NET data_addr_o\[17\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 465500 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[18\] + NET data_addr_o\[18\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1357070 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[19\] + NET data_addr_o\[19\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 552860 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[20\] + NET data_addr_o\[20\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 88110 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[21\] + NET data_addr_o\[21\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1007630 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[22\] + NET data_addr_o\[22\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 221390 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[23\] + NET data_addr_o\[23\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1444430 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[24\] + NET data_addr_o\[24\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1019950 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[25\] + NET data_addr_o\[25\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 454350 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[26\] + NET data_addr_o\[26\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 1106140 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[27\] + NET data_addr_o\[27\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 145180 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[28\] + NET data_addr_o\[28\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 612270 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[29\] + NET data_addr_o\[29\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1689710 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[30\] + NET data_addr_o\[30\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 405020 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_addr_o\[31\] + NET data_addr_o\[31\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 250510 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[0\] + NET data_wdata_o\[0\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 1222620 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[1\] + NET data_wdata_o\[1\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 425230 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[2\] + NET data_wdata_o\[2\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 932590 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[3\] + NET data_wdata_o\[3\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 814940 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[4\] + NET data_wdata_o\[4\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 1074780 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[5\] + NET data_wdata_o\[5\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1590030 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[6\] + NET data_wdata_o\[6\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 113820 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[7\] + NET data_wdata_o\[7\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 670510 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[8\] + NET data_wdata_o\[8\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 75790 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[9\] + NET data_wdata_o\[9\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1311150 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[10\] + NET data_wdata_o\[10\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 1191260 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[11\] + NET data_wdata_o\[11\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 396110 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[12\] + NET data_wdata_o\[12\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 949390 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[13\] + NET data_wdata_o\[13\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 987420 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[14\] + NET data_wdata_o\[14\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 261660 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[15\] + NET data_wdata_o\[15\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 1016540 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[16\] + NET data_wdata_o\[16\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1793870 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[17\] + NET data_wdata_o\[17\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 321070 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[18\] + NET data_wdata_o\[18\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 317660 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[19\] + NET data_wdata_o\[19\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 696220 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[20\] + NET data_wdata_o\[20\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 958300 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[21\] + NET data_wdata_o\[21\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 611100 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[22\] + NET data_wdata_o\[22\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 288540 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[23\] + NET data_wdata_o\[23\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1893550 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[24\] + NET data_wdata_o\[24\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 803790 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[25\] + NET data_wdata_o\[25\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 378140 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[26\] + NET data_wdata_o\[26\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 1045660 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[27\] + NET data_wdata_o\[27\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 1455580 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[28\] + NET data_wdata_o\[28\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 492380 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[29\] + NET data_wdata_o\[29\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1252910 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[30\] + NET data_wdata_o\[30\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 1484700 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_wdata_o\[31\] + NET data_wdata_o\[31\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 84700 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[0\] + NET data_rdata_i\[0\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1036750 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[1\] + NET data_rdata_i\[1\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 466670 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[2\] + NET data_rdata_i\[2\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1398510 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[3\] + NET data_rdata_i\[3\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 379310 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[4\] + NET data_rdata_i\[4\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1473550 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[5\] + NET data_rdata_i\[5\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 931420 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[6\] + NET data_rdata_i\[6\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 725340 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[7\] + NET data_rdata_i\[7\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 521500 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[8\] + NET data_rdata_i\[8\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 1365980 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[9\] + NET data_rdata_i\[9\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1415310 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[10\] + NET data_rdata_i\[10\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1735630 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[11\] + NET data_rdata_i\[11\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1136430 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[12\] + NET data_rdata_i\[12\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 637980 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[13\] + NET data_rdata_i\[13\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 350190 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[14\] + NET data_rdata_i\[14\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 230300 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[15\] + NET data_rdata_i\[15\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1049070 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[16\] + NET data_rdata_i\[16\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 201180 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[17\] + NET data_rdata_i\[17\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 1047900 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[18\] + NET data_rdata_i\[18\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1764750 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[19\] + NET data_rdata_i\[19\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1631470 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[20\] + NET data_rdata_i\[20\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 658190 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[21\] + NET data_rdata_i\[21\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 463260 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[22\] + NET data_rdata_i\[22\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 483470 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[23\] + NET data_rdata_i\[23\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1165550 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[24\] + NET data_rdata_i\[24\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 1307740 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[25\] + NET data_rdata_i\[25\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1211470 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[26\] + NET data_rdata_i\[26\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1427630 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[27\] + NET data_rdata_i\[27\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 1424220 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[28\] + NET data_rdata_i\[28\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 192270 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[29\] + NET data_rdata_i\[29\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1619150 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[30\] + NET data_rdata_i\[30\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 259420 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - data_rdata_i\[31\] + NET data_rdata_i\[31\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 291950 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - data_err_i + NET data_err_i + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 55580 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - irq_i + NET irq_i + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 232540 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - irq_id_i\[0\] + NET irq_id_i\[0\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1852110 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - irq_id_i\[1\] + NET irq_id_i\[1\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 1309980 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - irq_id_i\[2\] + NET irq_id_i\[2\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1182350 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - irq_id_i\[3\] + NET irq_id_i\[3\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 140 640220 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - irq_id_i\[4\] + NET irq_id_i\[4\] + DIRECTION INPUT + USE SIGNAL + FIXED ( 1806190 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - irq_ack_o + NET irq_ack_o + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 1339100 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - irq_id_o\[0\] + NET irq_id_o\[0\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1835310 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - irq_id_o\[1\] + NET irq_id_o\[1\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1895860 608860 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - irq_id_o\[2\] + NET irq_id_o\[2\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 583150 140 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - irq_id_o\[3\] + NET irq_id_o\[3\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 1560910 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - irq_id_o\[4\] + NET irq_id_o\[4\] + DIRECTION OUTPUT + USE SIGNAL + FIXED ( 140 436380 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
-    - debug_req_i + NET debug_req_i + DIRECTION INPUT + USE SIGNAL + FIXED ( 308750 1495860 ) N + LAYER metal6 ( -140 -140 ) ( 140 140 ) ;
-    - fetch_enable_i + NET fetch_enable_i + DIRECTION INPUT + USE SIGNAL + FIXED ( 1895860 434140 ) N + LAYER metal5 ( -140 -140 ) ( 140 140 ) ;
+    - clk_i + NET clk_i + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 961710 140 ) N ;
+    - rst_ni + NET rst_ni + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 570830 1495860 ) N ;
+    - test_en_i + NET test_en_i + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1822990 1495860 ) N ;
+    - core_id_i\[0\] + NET core_id_i\[0\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1514990 140 ) N ;
+    - core_id_i\[1\] + NET core_id_i\[1\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1602350 140 ) N ;
+    - core_id_i\[2\] + NET core_id_i\[2\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 262830 140 ) N ;
+    - core_id_i\[3\] + NET core_id_i\[3\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 1103900 ) N ;
+    - cluster_id_i\[0\] + NET cluster_id_i\[0\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 1368220 ) N ;
+    - cluster_id_i\[1\] + NET cluster_id_i\[1\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 375900 ) N ;
+    - cluster_id_i\[2\] + NET cluster_id_i\[2\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 174300 ) N ;
+    - cluster_id_i\[3\] + NET cluster_id_i\[3\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1485870 140 ) N ;
+    - cluster_id_i\[4\] + NET cluster_id_i\[4\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 319900 ) N ;
+    - cluster_id_i\[5\] + NET cluster_id_i\[5\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 494620 ) N ;
+    - boot_addr_i\[0\] + NET boot_addr_i\[0\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 874350 140 ) N ;
+    - boot_addr_i\[1\] + NET boot_addr_i\[1\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 1336860 ) N ;
+    - boot_addr_i\[2\] + NET boot_addr_i\[2\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1706510 1495860 ) N ;
+    - boot_addr_i\[3\] + NET boot_addr_i\[3\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1648270 1495860 ) N ;
+    - boot_addr_i\[4\] + NET boot_addr_i\[4\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 844060 ) N ;
+    - boot_addr_i\[5\] + NET boot_addr_i\[5\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1153230 1495860 ) N ;
+    - boot_addr_i\[6\] + NET boot_addr_i\[6\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 641390 140 ) N ;
+    - boot_addr_i\[7\] + NET boot_addr_i\[7\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 233710 140 ) N ;
+    - boot_addr_i\[8\] + NET boot_addr_i\[8\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1078190 140 ) N ;
+    - boot_addr_i\[9\] + NET boot_addr_i\[9\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 46670 1495860 ) N ;
+    - boot_addr_i\[10\] + NET boot_addr_i\[10\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 437550 140 ) N ;
+    - boot_addr_i\[11\] + NET boot_addr_i\[11\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 1426460 ) N ;
+    - boot_addr_i\[12\] + NET boot_addr_i\[12\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1864430 140 ) N ;
+    - boot_addr_i\[13\] + NET boot_addr_i\[13\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 495790 140 ) N ;
+    - boot_addr_i\[14\] + NET boot_addr_i\[14\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1269710 1495860 ) N ;
+    - boot_addr_i\[15\] + NET boot_addr_i\[15\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 1453340 ) N ;
+    - boot_addr_i\[16\] + NET boot_addr_i\[16\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 1251740 ) N ;
+    - boot_addr_i\[17\] + NET boot_addr_i\[17\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 929180 ) N ;
+    - boot_addr_i\[18\] + NET boot_addr_i\[18\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 785820 ) N ;
+    - boot_addr_i\[19\] + NET boot_addr_i\[19\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1094990 1495860 ) N ;
+    - boot_addr_i\[20\] + NET boot_addr_i\[20\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 407260 ) N ;
+    - boot_addr_i\[21\] + NET boot_addr_i\[21\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 279630 1495860 ) N ;
+    - boot_addr_i\[22\] + NET boot_addr_i\[22\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 29870 140 ) N ;
+    - boot_addr_i\[23\] + NET boot_addr_i\[23\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 728750 140 ) N ;
+    - boot_addr_i\[24\] + NET boot_addr_i\[24\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 175470 140 ) N ;
+    - boot_addr_i\[25\] + NET boot_addr_i\[25\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1327950 1495860 ) N ;
+    - boot_addr_i\[26\] + NET boot_addr_i\[26\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 337870 1495860 ) N ;
+    - boot_addr_i\[27\] + NET boot_addr_i\[27\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 579740 ) N ;
+    - boot_addr_i\[28\] + NET boot_addr_i\[28\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 667100 ) N ;
+    - boot_addr_i\[29\] + NET boot_addr_i\[29\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 1164380 ) N ;
+    - boot_addr_i\[30\] + NET boot_addr_i\[30\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1065870 1495860 ) N ;
+    - boot_addr_i\[31\] + NET boot_addr_i\[31\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1502670 1495860 ) N ;
+    - instr_req_o + NET instr_req_o + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 832910 1495860 ) N ;
+    - instr_gnt_i + NET instr_gnt_i + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 554030 140 ) N ;
+    - instr_rvalid_i + NET instr_rvalid_i + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 349020 ) N ;
+    - instr_addr_o\[0\] + NET instr_addr_o\[0\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 1193500 ) N ;
+    - instr_addr_o\[1\] + NET instr_addr_o\[1\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 1278620 ) N ;
+    - instr_addr_o\[2\] + NET instr_addr_o\[2\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 716430 1495860 ) N ;
+    - instr_addr_o\[3\] + NET instr_addr_o\[3\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1124110 1495860 ) N ;
+    - instr_addr_o\[4\] + NET instr_addr_o\[4\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 841820 ) N ;
+    - instr_addr_o\[5\] + NET instr_addr_o\[5\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1544110 140 ) N ;
+    - instr_addr_o\[6\] + NET instr_addr_o\[6\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1107310 140 ) N ;
+    - instr_addr_o\[7\] + NET instr_addr_o\[7\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 862030 1495860 ) N ;
+    - instr_addr_o\[8\] + NET instr_addr_o\[8\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 687310 1495860 ) N ;
+    - instr_addr_o\[9\] + NET instr_addr_o\[9\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 541710 1495860 ) N ;
+    - instr_addr_o\[10\] + NET instr_addr_o\[10\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 750 140 ) N ;
+    - instr_addr_o\[11\] + NET instr_addr_o\[11\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1223790 140 ) N ;
+    - instr_addr_o\[12\] + NET instr_addr_o\[12\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 163150 1495860 ) N ;
+    - instr_addr_o\[13\] + NET instr_addr_o\[13\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1777070 140 ) N ;
+    - instr_addr_o\[14\] + NET instr_addr_o\[14\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1718830 140 ) N ;
+    - instr_addr_o\[15\] + NET instr_addr_o\[15\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 774670 1495860 ) N ;
+    - instr_addr_o\[16\] + NET instr_addr_o\[16\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1660590 140 ) N ;
+    - instr_addr_o\[17\] + NET instr_addr_o\[17\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 1135260 ) N ;
+    - instr_addr_o\[18\] + NET instr_addr_o\[18\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 599950 1495860 ) N ;
+    - instr_addr_o\[19\] + NET instr_addr_o\[19\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 745550 1495860 ) N ;
+    - instr_addr_o\[20\] + NET instr_addr_o\[20\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 1397340 ) N ;
+    - instr_addr_o\[21\] + NET instr_addr_o\[21\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 812700 ) N ;
+    - instr_addr_o\[22\] + NET instr_addr_o\[22\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 524910 140 ) N ;
+    - instr_addr_o\[23\] + NET instr_addr_o\[23\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1340270 140 ) N ;
+    - instr_addr_o\[24\] + NET instr_addr_o\[24\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 698460 ) N ;
+    - instr_addr_o\[25\] + NET instr_addr_o\[25\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 754460 ) N ;
+    - instr_addr_o\[26\] + NET instr_addr_o\[26\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 891150 1495860 ) N ;
+    - instr_addr_o\[27\] + NET instr_addr_o\[27\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 1220380 ) N ;
+    - instr_addr_o\[28\] + NET instr_addr_o\[28\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 786990 140 ) N ;
+    - instr_addr_o\[29\] + NET instr_addr_o\[29\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1531790 1495860 ) N ;
+    - instr_addr_o\[30\] + NET instr_addr_o\[30\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 920270 1495860 ) N ;
+    - instr_addr_o\[31\] + NET instr_addr_o\[31\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 870940 ) N ;
+    - instr_rdata_i\[0\] + NET instr_rdata_i\[0\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 783580 ) N ;
+    - instr_rdata_i\[1\] + NET instr_rdata_i\[1\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 1077020 ) N ;
+    - instr_rdata_i\[2\] + NET instr_rdata_i\[2\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 669340 ) N ;
+    - instr_rdata_i\[3\] + NET instr_rdata_i\[3\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1386190 1495860 ) N ;
+    - instr_rdata_i\[4\] + NET instr_rdata_i\[4\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 845230 140 ) N ;
+    - instr_rdata_i\[5\] + NET instr_rdata_i\[5\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 346780 ) N ;
+    - instr_rdata_i\[6\] + NET instr_rdata_i\[6\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 816110 140 ) N ;
+    - instr_rdata_i\[7\] + NET instr_rdata_i\[7\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 116060 ) N ;
+    - instr_rdata_i\[8\] + NET instr_rdata_i\[8\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 512590 1495860 ) N ;
+    - instr_rdata_i\[9\] + NET instr_rdata_i\[9\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1194670 140 ) N ;
+    - instr_rdata_i\[10\] + NET instr_rdata_i\[10\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 989660 ) N ;
+    - instr_rdata_i\[11\] + NET instr_rdata_i\[11\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 117230 140 ) N ;
+    - instr_rdata_i\[12\] + NET instr_rdata_i\[12\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1240590 1495860 ) N ;
+    - instr_rdata_i\[13\] + NET instr_rdata_i\[13\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 873180 ) N ;
+    - instr_rdata_i\[14\] + NET instr_rdata_i\[14\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 757870 140 ) N ;
+    - instr_rdata_i\[15\] + NET instr_rdata_i\[15\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 58990 140 ) N ;
+    - instr_rdata_i\[16\] + NET instr_rdata_i\[16\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 1280860 ) N ;
+    - instr_rdata_i\[17\] + NET instr_rdata_i\[17\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1573230 140 ) N ;
+    - instr_rdata_i\[18\] + NET instr_rdata_i\[18\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 990830 140 ) N ;
+    - instr_rdata_i\[19\] + NET instr_rdata_i\[19\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 204590 140 ) N ;
+    - instr_rdata_i\[20\] + NET instr_rdata_i\[20\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 902300 ) N ;
+    - instr_rdata_i\[21\] + NET instr_rdata_i\[21\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1369390 140 ) N ;
+    - instr_rdata_i\[22\] + NET instr_rdata_i\[22\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 290780 ) N ;
+    - instr_rdata_i\[23\] + NET instr_rdata_i\[23\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 581980 ) N ;
+    - instr_rdata_i\[24\] + NET instr_rdata_i\[24\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 900060 ) N ;
+    - instr_rdata_i\[25\] + NET instr_rdata_i\[25\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 903470 140 ) N ;
+    - instr_rdata_i\[26\] + NET instr_rdata_i\[26\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 699630 140 ) N ;
+    - instr_rdata_i\[27\] + NET instr_rdata_i\[27\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 408430 140 ) N ;
+    - instr_rdata_i\[28\] + NET instr_rdata_i\[28\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 978510 1495860 ) N ;
+    - instr_rdata_i\[29\] + NET instr_rdata_i\[29\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 523740 ) N ;
+    - instr_rdata_i\[30\] + NET instr_rdata_i\[30\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 142940 ) N ;
+    - instr_rdata_i\[31\] + NET instr_rdata_i\[31\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 134030 1495860 ) N ;
+    - data_req_o + NET data_req_o + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 1162140 ) N ;
+    - data_gnt_i + NET data_gnt_i + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1747950 140 ) N ;
+    - data_rvalid_i + NET data_rvalid_i + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 1018780 ) N ;
+    - data_we_o + NET data_we_o + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 86940 ) N ;
+    - data_be_o\[0\] + NET data_be_o\[0\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 1249500 ) N ;
+    - data_be_o\[1\] + NET data_be_o\[1\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 629070 1495860 ) N ;
+    - data_be_o\[2\] + NET data_be_o\[2\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 756700 ) N ;
+    - data_be_o\[3\] + NET data_be_o\[3\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 172060 ) N ;
+    - data_addr_o\[0\] + NET data_addr_o\[0\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 104910 1495860 ) N ;
+    - data_addr_o\[1\] + NET data_addr_o\[1\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 203420 ) N ;
+    - data_addr_o\[2\] + NET data_addr_o\[2\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1282030 140 ) N ;
+    - data_addr_o\[3\] + NET data_addr_o\[3\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 17550 1495860 ) N ;
+    - data_addr_o\[4\] + NET data_addr_o\[4\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 26460 ) N ;
+    - data_addr_o\[5\] + NET data_addr_o\[5\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1456750 140 ) N ;
+    - data_addr_o\[6\] + NET data_addr_o\[6\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 727580 ) N ;
+    - data_addr_o\[7\] + NET data_addr_o\[7\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1677390 1495860 ) N ;
+    - data_addr_o\[8\] + NET data_addr_o\[8\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 960540 ) N ;
+    - data_addr_o\[9\] + NET data_addr_o\[9\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 550620 ) N ;
+    - data_addr_o\[10\] + NET data_addr_o\[10\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 146350 140 ) N ;
+    - data_addr_o\[11\] + NET data_addr_o\[11\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 1395100 ) N ;
+    - data_addr_o\[12\] + NET data_addr_o\[12\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 1133020 ) N ;
+    - data_addr_o\[13\] + NET data_addr_o\[13\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 1482460 ) N ;
+    - data_addr_o\[14\] + NET data_addr_o\[14\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1881230 1495860 ) N ;
+    - data_addr_o\[15\] + NET data_addr_o\[15\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 366990 1495860 ) N ;
+    - data_addr_o\[16\] + NET data_addr_o\[16\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1298830 1495860 ) N ;
+    - data_addr_o\[17\] + NET data_addr_o\[17\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 465500 ) N ;
+    - data_addr_o\[18\] + NET data_addr_o\[18\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1357070 1495860 ) N ;
+    - data_addr_o\[19\] + NET data_addr_o\[19\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 552860 ) N ;
+    - data_addr_o\[20\] + NET data_addr_o\[20\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 88110 140 ) N ;
+    - data_addr_o\[21\] + NET data_addr_o\[21\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1007630 1495860 ) N ;
+    - data_addr_o\[22\] + NET data_addr_o\[22\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 221390 1495860 ) N ;
+    - data_addr_o\[23\] + NET data_addr_o\[23\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1444430 1495860 ) N ;
+    - data_addr_o\[24\] + NET data_addr_o\[24\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1019950 140 ) N ;
+    - data_addr_o\[25\] + NET data_addr_o\[25\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 454350 1495860 ) N ;
+    - data_addr_o\[26\] + NET data_addr_o\[26\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 1106140 ) N ;
+    - data_addr_o\[27\] + NET data_addr_o\[27\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 145180 ) N ;
+    - data_addr_o\[28\] + NET data_addr_o\[28\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 612270 140 ) N ;
+    - data_addr_o\[29\] + NET data_addr_o\[29\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1689710 140 ) N ;
+    - data_addr_o\[30\] + NET data_addr_o\[30\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 405020 ) N ;
+    - data_addr_o\[31\] + NET data_addr_o\[31\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 250510 1495860 ) N ;
+    - data_wdata_o\[0\] + NET data_wdata_o\[0\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 1222620 ) N ;
+    - data_wdata_o\[1\] + NET data_wdata_o\[1\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 425230 1495860 ) N ;
+    - data_wdata_o\[2\] + NET data_wdata_o\[2\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 932590 140 ) N ;
+    - data_wdata_o\[3\] + NET data_wdata_o\[3\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 814940 ) N ;
+    - data_wdata_o\[4\] + NET data_wdata_o\[4\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 1074780 ) N ;
+    - data_wdata_o\[5\] + NET data_wdata_o\[5\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1590030 1495860 ) N ;
+    - data_wdata_o\[6\] + NET data_wdata_o\[6\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 113820 ) N ;
+    - data_wdata_o\[7\] + NET data_wdata_o\[7\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 670510 140 ) N ;
+    - data_wdata_o\[8\] + NET data_wdata_o\[8\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 75790 1495860 ) N ;
+    - data_wdata_o\[9\] + NET data_wdata_o\[9\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1311150 140 ) N ;
+    - data_wdata_o\[10\] + NET data_wdata_o\[10\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 1191260 ) N ;
+    - data_wdata_o\[11\] + NET data_wdata_o\[11\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 396110 1495860 ) N ;
+    - data_wdata_o\[12\] + NET data_wdata_o\[12\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 949390 1495860 ) N ;
+    - data_wdata_o\[13\] + NET data_wdata_o\[13\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 987420 ) N ;
+    - data_wdata_o\[14\] + NET data_wdata_o\[14\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 261660 ) N ;
+    - data_wdata_o\[15\] + NET data_wdata_o\[15\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 1016540 ) N ;
+    - data_wdata_o\[16\] + NET data_wdata_o\[16\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1793870 1495860 ) N ;
+    - data_wdata_o\[17\] + NET data_wdata_o\[17\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 321070 140 ) N ;
+    - data_wdata_o\[18\] + NET data_wdata_o\[18\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 317660 ) N ;
+    - data_wdata_o\[19\] + NET data_wdata_o\[19\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 696220 ) N ;
+    - data_wdata_o\[20\] + NET data_wdata_o\[20\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 958300 ) N ;
+    - data_wdata_o\[21\] + NET data_wdata_o\[21\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 611100 ) N ;
+    - data_wdata_o\[22\] + NET data_wdata_o\[22\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 288540 ) N ;
+    - data_wdata_o\[23\] + NET data_wdata_o\[23\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1893550 140 ) N ;
+    - data_wdata_o\[24\] + NET data_wdata_o\[24\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 803790 1495860 ) N ;
+    - data_wdata_o\[25\] + NET data_wdata_o\[25\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 378140 ) N ;
+    - data_wdata_o\[26\] + NET data_wdata_o\[26\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 1045660 ) N ;
+    - data_wdata_o\[27\] + NET data_wdata_o\[27\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 1455580 ) N ;
+    - data_wdata_o\[28\] + NET data_wdata_o\[28\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 492380 ) N ;
+    - data_wdata_o\[29\] + NET data_wdata_o\[29\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1252910 140 ) N ;
+    - data_wdata_o\[30\] + NET data_wdata_o\[30\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 1484700 ) N ;
+    - data_wdata_o\[31\] + NET data_wdata_o\[31\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 84700 ) N ;
+    - data_rdata_i\[0\] + NET data_rdata_i\[0\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1036750 1495860 ) N ;
+    - data_rdata_i\[1\] + NET data_rdata_i\[1\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 466670 140 ) N ;
+    - data_rdata_i\[2\] + NET data_rdata_i\[2\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1398510 140 ) N ;
+    - data_rdata_i\[3\] + NET data_rdata_i\[3\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 379310 140 ) N ;
+    - data_rdata_i\[4\] + NET data_rdata_i\[4\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1473550 1495860 ) N ;
+    - data_rdata_i\[5\] + NET data_rdata_i\[5\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 931420 ) N ;
+    - data_rdata_i\[6\] + NET data_rdata_i\[6\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 725340 ) N ;
+    - data_rdata_i\[7\] + NET data_rdata_i\[7\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 521500 ) N ;
+    - data_rdata_i\[8\] + NET data_rdata_i\[8\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 1365980 ) N ;
+    - data_rdata_i\[9\] + NET data_rdata_i\[9\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1415310 1495860 ) N ;
+    - data_rdata_i\[10\] + NET data_rdata_i\[10\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1735630 1495860 ) N ;
+    - data_rdata_i\[11\] + NET data_rdata_i\[11\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1136430 140 ) N ;
+    - data_rdata_i\[12\] + NET data_rdata_i\[12\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 637980 ) N ;
+    - data_rdata_i\[13\] + NET data_rdata_i\[13\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 350190 140 ) N ;
+    - data_rdata_i\[14\] + NET data_rdata_i\[14\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 230300 ) N ;
+    - data_rdata_i\[15\] + NET data_rdata_i\[15\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1049070 140 ) N ;
+    - data_rdata_i\[16\] + NET data_rdata_i\[16\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 201180 ) N ;
+    - data_rdata_i\[17\] + NET data_rdata_i\[17\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 1047900 ) N ;
+    - data_rdata_i\[18\] + NET data_rdata_i\[18\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1764750 1495860 ) N ;
+    - data_rdata_i\[19\] + NET data_rdata_i\[19\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1631470 140 ) N ;
+    - data_rdata_i\[20\] + NET data_rdata_i\[20\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 658190 1495860 ) N ;
+    - data_rdata_i\[21\] + NET data_rdata_i\[21\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 463260 ) N ;
+    - data_rdata_i\[22\] + NET data_rdata_i\[22\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 483470 1495860 ) N ;
+    - data_rdata_i\[23\] + NET data_rdata_i\[23\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1165550 140 ) N ;
+    - data_rdata_i\[24\] + NET data_rdata_i\[24\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 1307740 ) N ;
+    - data_rdata_i\[25\] + NET data_rdata_i\[25\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1211470 1495860 ) N ;
+    - data_rdata_i\[26\] + NET data_rdata_i\[26\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1427630 140 ) N ;
+    - data_rdata_i\[27\] + NET data_rdata_i\[27\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 1424220 ) N ;
+    - data_rdata_i\[28\] + NET data_rdata_i\[28\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 192270 1495860 ) N ;
+    - data_rdata_i\[29\] + NET data_rdata_i\[29\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1619150 1495860 ) N ;
+    - data_rdata_i\[30\] + NET data_rdata_i\[30\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 259420 ) N ;
+    - data_rdata_i\[31\] + NET data_rdata_i\[31\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 291950 140 ) N ;
+    - data_err_i + NET data_err_i + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 55580 ) N ;
+    - irq_i + NET irq_i + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 232540 ) N ;
+    - irq_id_i\[0\] + NET irq_id_i\[0\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1852110 1495860 ) N ;
+    - irq_id_i\[1\] + NET irq_id_i\[1\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 1309980 ) N ;
+    - irq_id_i\[2\] + NET irq_id_i\[2\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1182350 1495860 ) N ;
+    - irq_id_i\[3\] + NET irq_id_i\[3\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 640220 ) N ;
+    - irq_id_i\[4\] + NET irq_id_i\[4\] + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1806190 140 ) N ;
+    - irq_ack_o + NET irq_ack_o + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 1339100 ) N ;
+    - irq_id_o\[0\] + NET irq_id_o\[0\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1835310 140 ) N ;
+    - irq_id_o\[1\] + NET irq_id_o\[1\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 608860 ) N ;
+    - irq_id_o\[2\] + NET irq_id_o\[2\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 583150 140 ) N ;
+    - irq_id_o\[3\] + NET irq_id_o\[3\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1560910 1495860 ) N ;
+    - irq_id_o\[4\] + NET irq_id_o\[4\] + DIRECTION OUTPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 140 436380 ) N ;
+    - debug_req_i + NET debug_req_i + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal6 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 308750 1495860 ) N ;
+    - fetch_enable_i + NET fetch_enable_i + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER metal5 ( -140 -140 ) ( 140 140 )
+        + FIXED ( 1895860 434140 ) N ;
 END PINS
 NETS 33171 ;
     - clk_i ( PIN clk_i ) ( _53276_ CK ) ( _53277_ CK ) ( _53278_ CK ) ( _53279_ CK ) ( _53280_ CK ) ( _53281_ CK )
