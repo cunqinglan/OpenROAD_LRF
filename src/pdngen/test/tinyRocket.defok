@@ -42551,1082 +42551,275 @@ COMPONENTS 41868 ;
     - PHY_3231 FILLCELL_X1 + FIXED ( 1769280 1531600 ) FS ;
 END COMPONENTS
 PINS 269 ;
-    - auto_int_in_xing_in_0_sync_0 + NET auto_int_in_xing_in_0_sync_0 + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1463950 70 ) N ;
-    - auto_int_in_xing_in_0_sync_1 + NET auto_int_in_xing_in_0_sync_1 + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 968940 ) N ;
-    - auto_int_in_xing_in_1_sync_0 + NET auto_int_in_xing_in_1_sync_0 + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 266140 ) N ;
-    - auto_intsink_in_sync_0 + NET auto_intsink_in_sync_0 + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1565900 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[0] + NET auto_tl_master_xing_out_a_bits_address[0] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 706860 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[10] + NET auto_tl_master_xing_out_a_bits_address[10] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 520030 1598730 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[11] + NET auto_tl_master_xing_out_a_bits_address[11] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1035020 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[12] + NET auto_tl_master_xing_out_a_bits_address[12] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1075590 70 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[13] + NET auto_tl_master_xing_out_a_bits_address[13] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 924700 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[14] + NET auto_tl_master_xing_out_a_bits_address[14] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1117390 1598730 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[15] + NET auto_tl_master_xing_out_a_bits_address[15] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1299340 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[16] + NET auto_tl_master_xing_out_a_bits_address[16] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1409100 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[17] + NET auto_tl_master_xing_out_a_bits_address[17] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 358150 70 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[18] + NET auto_tl_master_xing_out_a_bits_address[18] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 242060 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[19] + NET auto_tl_master_xing_out_a_bits_address[19] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 985910 70 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[1] + NET auto_tl_master_xing_out_a_bits_address[1] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1343020 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[20] + NET auto_tl_master_xing_out_a_bits_address[20] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 699390 1598730 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[21] + NET auto_tl_master_xing_out_a_bits_address[21] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1404670 70 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[22] + NET auto_tl_master_xing_out_a_bits_address[22] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 567910 70 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[23] + NET auto_tl_master_xing_out_a_bits_address[23] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 747270 70 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[24] + NET auto_tl_master_xing_out_a_bits_address[24] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 156380 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[25] + NET auto_tl_master_xing_out_a_bits_address[25] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1165270 70 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[26] + NET auto_tl_master_xing_out_a_bits_address[26] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1584030 70 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[27] + NET auto_tl_master_xing_out_a_bits_address[27] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1207070 1598730 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[28] + NET auto_tl_master_xing_out_a_bits_address[28] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1189020 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[29] + NET auto_tl_master_xing_out_a_bits_address[29] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 149150 70 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[2] + NET auto_tl_master_xing_out_a_bits_address[2] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 789070 1598730 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[30] + NET auto_tl_master_xing_out_a_bits_address[30] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1056860 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[31] + NET auto_tl_master_xing_out_a_bits_address[31] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 442540 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[3] + NET auto_tl_master_xing_out_a_bits_address[3] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1455580 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[4] + NET auto_tl_master_xing_out_a_bits_address[4] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1732990 70 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[5] + NET auto_tl_master_xing_out_a_bits_address[5] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 462140 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[6] + NET auto_tl_master_xing_out_a_bits_address[6] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 90300 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[7] + NET auto_tl_master_xing_out_a_bits_address[7] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 776910 70 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[8] + NET auto_tl_master_xing_out_a_bits_address[8] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 2380 ) N ;
-    - auto_tl_master_xing_out_a_bits_address[9] + NET auto_tl_master_xing_out_a_bits_address[9] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 998070 1598730 ) N ;
-    - auto_tl_master_xing_out_a_bits_corrupt + NET auto_tl_master_xing_out_a_bits_corrupt + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1411340 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[0] + NET auto_tl_master_xing_out_a_bits_data[0] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1144780 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[10] + NET auto_tl_master_xing_out_a_bits_data[10] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 484540 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[11] + NET auto_tl_master_xing_out_a_bits_data[11] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 990780 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[12] + NET auto_tl_master_xing_out_a_bits_data[12] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 792540 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[13] + NET auto_tl_master_xing_out_a_bits_data[13] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1505750 1598730 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[14] + NET auto_tl_master_xing_out_a_bits_data[14] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1213100 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[15] + NET auto_tl_master_xing_out_a_bits_data[15] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 956270 70 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[16] + NET auto_tl_master_xing_out_a_bits_data[16] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 250990 1598730 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[17] + NET auto_tl_master_xing_out_a_bits_data[17] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1494350 70 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[18] + NET auto_tl_master_xing_out_a_bits_data[18] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 836780 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[19] + NET auto_tl_master_xing_out_a_bits_data[19] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1477420 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[1] + NET auto_tl_master_xing_out_a_bits_data[1] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 716870 70 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[20] + NET auto_tl_master_xing_out_a_bits_data[20] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 376460 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[21] + NET auto_tl_master_xing_out_a_bits_data[21] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 440300 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[22] + NET auto_tl_master_xing_out_a_bits_data[22] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1103340 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[23] + NET auto_tl_master_xing_out_a_bits_data[23] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 858620 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[24] + NET auto_tl_master_xing_out_a_bits_data[24] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 263900 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[25] + NET auto_tl_master_xing_out_a_bits_data[25] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1225310 70 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[26] + NET auto_tl_master_xing_out_a_bits_data[26] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1587740 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[27] + NET auto_tl_master_xing_out_a_bits_data[27] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 993020 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[28] + NET auto_tl_master_xing_out_a_bits_data[28] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 190950 1598730 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[29] + NET auto_tl_master_xing_out_a_bits_data[29] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1167180 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[2] + NET auto_tl_master_xing_out_a_bits_data[2] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1057350 1598730 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[30] + NET auto_tl_master_xing_out_a_bits_data[30] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1389500 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[31] + NET auto_tl_master_xing_out_a_bits_data[31] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 286300 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[3] + NET auto_tl_master_xing_out_a_bits_data[3] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 772940 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[4] + NET auto_tl_master_xing_out_a_bits_data[4] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1080940 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[5] + NET auto_tl_master_xing_out_a_bits_data[5] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1276940 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[6] + NET auto_tl_master_xing_out_a_bits_data[6] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 806550 70 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[7] + NET auto_tl_master_xing_out_a_bits_data[7] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 728700 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[8] + NET auto_tl_master_xing_out_a_bits_data[8] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1553630 70 ) N ;
-    - auto_tl_master_xing_out_a_bits_data[9] + NET auto_tl_master_xing_out_a_bits_data[9] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 374220 ) N ;
-    - auto_tl_master_xing_out_a_bits_mask[0] + NET auto_tl_master_xing_out_a_bits_mask[0] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 370310 1598730 ) N ;
-    - auto_tl_master_xing_out_a_bits_mask[1] + NET auto_tl_master_xing_out_a_bits_mask[1] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 197820 ) N ;
-    - auto_tl_master_xing_out_a_bits_mask[2] + NET auto_tl_master_xing_out_a_bits_mask[2] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1267110 1598730 ) N ;
-    - auto_tl_master_xing_out_a_bits_mask[3] + NET auto_tl_master_xing_out_a_bits_mask[3] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 418460 ) N ;
-    - auto_tl_master_xing_out_a_bits_opcode[0] + NET auto_tl_master_xing_out_a_bits_opcode[0] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 508620 ) N ;
-    - auto_tl_master_xing_out_a_bits_opcode[1] + NET auto_tl_master_xing_out_a_bits_opcode[1] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 638540 ) N ;
-    - auto_tl_master_xing_out_a_bits_opcode[2] + NET auto_tl_master_xing_out_a_bits_opcode[2] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1045950 70 ) N ;
-    - auto_tl_master_xing_out_a_bits_param[0] + NET auto_tl_master_xing_out_a_bits_param[0] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 21980 ) N ;
-    - auto_tl_master_xing_out_a_bits_param[1] + NET auto_tl_master_xing_out_a_bits_param[1] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 109900 ) N ;
-    - auto_tl_master_xing_out_a_bits_param[2] + NET auto_tl_master_xing_out_a_bits_param[2] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1314990 70 ) N ;
-    - auto_tl_master_xing_out_a_bits_size[0] + NET auto_tl_master_xing_out_a_bits_size[0] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1367660 ) N ;
-    - auto_tl_master_xing_out_a_bits_size[1] + NET auto_tl_master_xing_out_a_bits_size[1] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1499820 ) N ;
-    - auto_tl_master_xing_out_a_bits_size[2] + NET auto_tl_master_xing_out_a_bits_size[2] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 550620 ) N ;
-    - auto_tl_master_xing_out_a_bits_size[3] + NET auto_tl_master_xing_out_a_bits_size[3] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1014860 ) N ;
-    - auto_tl_master_xing_out_a_bits_source + NET auto_tl_master_xing_out_a_bits_source + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 579310 1598730 ) N ;
-    - auto_tl_master_xing_out_a_ready + NET auto_tl_master_xing_out_a_ready + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 59470 70 ) N ;
-    - auto_tl_master_xing_out_a_valid + NET auto_tl_master_xing_out_a_valid + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 507870 70 ) N ;
-    - auto_tl_master_xing_out_d_bits_corrupt + NET auto_tl_master_xing_out_d_bits_corrupt + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1210860 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[0] + NET auto_tl_master_xing_out_d_bits_data[0] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 682780 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[10] + NET auto_tl_master_xing_out_d_bits_data[10] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 839020 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[11] + NET auto_tl_master_xing_out_d_bits_data[11] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 597550 70 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[12] + NET auto_tl_master_xing_out_d_bits_data[12] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1254950 70 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[13] + NET auto_tl_master_xing_out_d_bits_data[13] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1536150 1598730 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[14] + NET auto_tl_master_xing_out_d_bits_data[14] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 308140 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[15] + NET auto_tl_master_xing_out_d_bits_data[15] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1521660 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[16] + NET auto_tl_master_xing_out_d_bits_data[16] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1015550 70 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[17] + NET auto_tl_master_xing_out_d_bits_data[17] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 112140 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[18] + NET auto_tl_master_xing_out_d_bits_data[18] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1135630 70 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[19] + NET auto_tl_master_xing_out_d_bits_data[19] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 537510 70 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[1] + NET auto_tl_master_xing_out_d_bits_data[1] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 130910 1598730 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[20] + NET auto_tl_master_xing_out_d_bits_data[20] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 101270 1598730 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[21] + NET auto_tl_master_xing_out_d_bits_data[21] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1563100 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[22] + NET auto_tl_master_xing_out_d_bits_data[22] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 398300 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[23] + NET auto_tl_master_xing_out_d_bits_data[23] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1233260 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[24] + NET auto_tl_master_xing_out_d_bits_data[24] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1321180 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[25] + NET auto_tl_master_xing_out_d_bits_data[25] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1431500 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[26] + NET auto_tl_master_xing_out_d_bits_data[26] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1565790 1598730 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[27] + NET auto_tl_master_xing_out_d_bits_data[27] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 639350 1598730 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[28] + NET auto_tl_master_xing_out_d_bits_data[28] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1416070 1598730 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[29] + NET auto_tl_master_xing_out_d_bits_data[29] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1078700 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[2] + NET auto_tl_master_xing_out_d_bits_data[2] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1037260 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[30] + NET auto_tl_master_xing_out_d_bits_data[30] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1279180 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[31] + NET auto_tl_master_xing_out_d_bits_data[31] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1344630 70 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[3] + NET auto_tl_master_xing_out_d_bits_data[3] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 817180 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[4] + NET auto_tl_master_xing_out_d_bits_data[4] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 751100 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[5] + NET auto_tl_master_xing_out_d_bits_data[5] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 530460 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[6] + NET auto_tl_master_xing_out_d_bits_data[6] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 41230 1598730 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[7] + NET auto_tl_master_xing_out_d_bits_data[7] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 609710 1598730 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[8] + NET auto_tl_master_xing_out_d_bits_data[8] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 29830 70 ) N ;
-    - auto_tl_master_xing_out_d_bits_data[9] + NET auto_tl_master_xing_out_d_bits_data[9] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 332220 ) N ;
-    - auto_tl_master_xing_out_d_bits_denied + NET auto_tl_master_xing_out_d_bits_denied + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 310380 ) N ;
-    - auto_tl_master_xing_out_d_bits_opcode[0] + NET auto_tl_master_xing_out_d_bits_opcode[0] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1715510 1598730 ) N ;
-    - auto_tl_master_xing_out_d_bits_opcode[1] + NET auto_tl_master_xing_out_d_bits_opcode[1] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 818710 1598730 ) N ;
-    - auto_tl_master_xing_out_d_bits_opcode[2] + NET auto_tl_master_xing_out_d_bits_opcode[2] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1255100 ) N ;
-    - auto_tl_master_xing_out_d_bits_param[0] + NET auto_tl_master_xing_out_d_bits_param[0] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 220590 1598730 ) N ;
-    - auto_tl_master_xing_out_d_bits_param[1] + NET auto_tl_master_xing_out_d_bits_param[1] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 222460 ) N ;
-    - auto_tl_master_xing_out_d_bits_sink + NET auto_tl_master_xing_out_d_bits_sink + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 46060 ) N ;
-    - auto_tl_master_xing_out_d_bits_size[0] + NET auto_tl_master_xing_out_d_bits_size[0] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 89110 70 ) N ;
-    - auto_tl_master_xing_out_d_bits_size[1] + NET auto_tl_master_xing_out_d_bits_size[1] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 926940 ) N ;
-    - auto_tl_master_xing_out_d_bits_size[2] + NET auto_tl_master_xing_out_d_bits_size[2] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1446470 1598730 ) N ;
-    - auto_tl_master_xing_out_d_bits_size[3] + NET auto_tl_master_xing_out_d_bits_size[3] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1147030 1598730 ) N ;
-    - auto_tl_master_xing_out_d_bits_source + NET auto_tl_master_xing_out_d_bits_source + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 685020 ) N ;
-    - auto_tl_master_xing_out_d_ready + NET auto_tl_master_xing_out_d_ready + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 528220 ) N ;
-    - auto_tl_master_xing_out_d_valid + NET auto_tl_master_xing_out_d_valid + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 836950 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[0] + NET auto_tl_slave_xing_in_a_bits_address[0] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1763390 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[10] + NET auto_tl_slave_xing_in_a_bits_address[10] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1147020 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[11] + NET auto_tl_slave_xing_in_a_bits_address[11] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 328510 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[12] + NET auto_tl_slave_xing_in_a_bits_address[12] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1356790 1598730 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[13] + NET auto_tl_slave_xing_in_a_bits_address[13] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 399950 1598730 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[14] + NET auto_tl_slave_xing_in_a_bits_address[14] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1793030 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[15] + NET auto_tl_slave_xing_in_a_bits_address[15] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 506380 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[16] + NET auto_tl_slave_xing_in_a_bits_address[16] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 902860 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[17] + NET auto_tl_slave_xing_in_a_bits_address[17] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 154140 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[18] + NET auto_tl_slave_xing_in_a_bits_address[18] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 758670 1598730 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[19] + NET auto_tl_slave_xing_in_a_bits_address[19] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 814380 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[1] + NET auto_tl_slave_xing_in_a_bits_address[1] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 288540 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[20] + NET auto_tl_slave_xing_in_a_bits_address[20] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 572460 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[21] + NET auto_tl_slave_xing_in_a_bits_address[21] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1374270 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[22] + NET auto_tl_slave_xing_in_a_bits_address[22] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1284590 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[23] + NET auto_tl_slave_xing_in_a_bits_address[23] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 354620 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[24] + NET auto_tl_slave_xing_in_a_bits_address[24] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 310270 1598730 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[25] + NET auto_tl_slave_xing_in_a_bits_address[25] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 388550 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[26] + NET auto_tl_slave_xing_in_a_bits_address[26] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 340670 1598730 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[27] + NET auto_tl_slave_xing_in_a_bits_address[27] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1027710 1598730 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[28] + NET auto_tl_slave_xing_in_a_bits_address[28] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1805190 1598730 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[29] + NET auto_tl_slave_xing_in_a_bits_address[29] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1453340 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[2] + NET auto_tl_slave_xing_in_a_bits_address[2] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1191260 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[30] + NET auto_tl_slave_xing_in_a_bits_address[30] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 447830 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[31] + NET auto_tl_slave_xing_in_a_bits_address[31] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 948780 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[3] + NET auto_tl_slave_xing_in_a_bits_address[3] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 616700 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[4] + NET auto_tl_slave_xing_in_a_bits_address[4] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 175980 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[5] + NET auto_tl_slave_xing_in_a_bits_address[5] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 662620 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[6] + NET auto_tl_slave_xing_in_a_bits_address[6] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 24220 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[7] + NET auto_tl_slave_xing_in_a_bits_address[7] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1475180 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[8] + NET auto_tl_slave_xing_in_a_bits_address[8] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 119510 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_address[9] + NET auto_tl_slave_xing_in_a_bits_address[9] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1235500 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[0] + NET auto_tl_slave_xing_in_a_bits_data[0] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1613670 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[10] + NET auto_tl_slave_xing_in_a_bits_data[10] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1387260 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[11] + NET auto_tl_slave_xing_in_a_bits_data[11] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 880460 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[12] + NET auto_tl_slave_xing_in_a_bits_data[12] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1822670 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[13] + NET auto_tl_slave_xing_in_a_bits_data[13] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 478230 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[14] + NET auto_tl_slave_xing_in_a_bits_data[14] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1105230 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[15] + NET auto_tl_slave_xing_in_a_bits_data[15] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 860860 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[16] + NET auto_tl_slave_xing_in_a_bits_data[16] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 430350 1598730 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[17] + NET auto_tl_slave_xing_in_a_bits_data[17] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 131740 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[18] + NET auto_tl_slave_xing_in_a_bits_data[18] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 43820 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[19] + NET auto_tl_slave_xing_in_a_bits_data[19] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 418190 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[1] + NET auto_tl_slave_xing_in_a_bits_data[1] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 178790 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[20] + NET auto_tl_slave_xing_in_a_bits_data[20] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 552860 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[21] + NET auto_tl_slave_xing_in_a_bits_data[21] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 967670 1598730 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[22] + NET auto_tl_slave_xing_in_a_bits_data[22] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 161310 1598730 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[23] + NET auto_tl_slave_xing_in_a_bits_data[23] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1541260 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[24] + NET auto_tl_slave_xing_in_a_bits_data[24] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1345260 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[25] + NET auto_tl_slave_xing_in_a_bits_data[25] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 11590 1598730 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[26] + NET auto_tl_slave_xing_in_a_bits_data[26] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1643310 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[27] + NET auto_tl_slave_xing_in_a_bits_data[27] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1655470 1598730 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[28] + NET auto_tl_slave_xing_in_a_bits_data[28] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 794780 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[29] + NET auto_tl_slave_xing_in_a_bits_data[29] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 190 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[2] + NET auto_tl_slave_xing_in_a_bits_data[2] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1519420 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[30] + NET auto_tl_slave_xing_in_a_bits_data[30] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 627190 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[31] + NET auto_tl_slave_xing_in_a_bits_data[31] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 298870 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[3] + NET auto_tl_slave_xing_in_a_bits_data[3] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 660380 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[4] + NET auto_tl_slave_xing_in_a_bits_data[4] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1059100 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[5] + NET auto_tl_slave_xing_in_a_bits_data[5] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 596540 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[6] + NET auto_tl_slave_xing_in_a_bits_data[6] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 896230 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[7] + NET auto_tl_slave_xing_in_a_bits_data[7] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1434310 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[8] + NET auto_tl_slave_xing_in_a_bits_data[8] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1326390 1598730 ) N ;
-    - auto_tl_slave_xing_in_a_bits_data[9] + NET auto_tl_slave_xing_in_a_bits_data[9] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 848350 1598730 ) N ;
-    - auto_tl_slave_xing_in_a_bits_mask[0] + NET auto_tl_slave_xing_in_a_bits_mask[0] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1433740 ) N ;
-    - auto_tl_slave_xing_in_a_bits_mask[1] + NET auto_tl_slave_xing_in_a_bits_mask[1] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1365420 ) N ;
-    - auto_tl_slave_xing_in_a_bits_mask[2] + NET auto_tl_slave_xing_in_a_bits_mask[2] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 209190 70 ) N ;
-    - auto_tl_slave_xing_in_a_bits_mask[3] + NET auto_tl_slave_xing_in_a_bits_mask[3] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 489630 1598730 ) N ;
-    - auto_tl_slave_xing_in_a_bits_opcode[0] + NET auto_tl_slave_xing_in_a_bits_opcode[0] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1543500 ) N ;
-    - auto_tl_slave_xing_in_a_bits_opcode[1] + NET auto_tl_slave_xing_in_a_bits_opcode[1] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1296750 1598730 ) N ;
-    - auto_tl_slave_xing_in_a_bits_opcode[2] + NET auto_tl_slave_xing_in_a_bits_opcode[2] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1774790 1598730 ) N ;
-    - auto_tl_slave_xing_in_a_bits_param[0] + NET auto_tl_slave_xing_in_a_bits_param[0] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1125180 ) N ;
-    - auto_tl_slave_xing_in_a_bits_param[1] + NET auto_tl_slave_xing_in_a_bits_param[1] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 946540 ) N ;
-    - auto_tl_slave_xing_in_a_bits_param[2] + NET auto_tl_slave_xing_in_a_bits_param[2] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 770700 ) N ;
-    - auto_tl_slave_xing_in_a_bits_size[0] + NET auto_tl_slave_xing_in_a_bits_size[0] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 704620 ) N ;
-    - auto_tl_slave_xing_in_a_bits_size[1] + NET auto_tl_slave_xing_in_a_bits_size[1] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 88060 ) N ;
-    - auto_tl_slave_xing_in_a_bits_size[2] + NET auto_tl_slave_xing_in_a_bits_size[2] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 420700 ) N ;
-    - auto_tl_slave_xing_in_a_bits_source[0] + NET auto_tl_slave_xing_in_a_bits_source[0] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1625830 1598730 ) N ;
-    - auto_tl_slave_xing_in_a_bits_source[1] + NET auto_tl_slave_xing_in_a_bits_source[1] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 200060 ) N ;
-    - auto_tl_slave_xing_in_a_bits_source[2] + NET auto_tl_slave_xing_in_a_bits_source[2] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 68460 ) N ;
-    - auto_tl_slave_xing_in_a_bits_source[3] + NET auto_tl_slave_xing_in_a_bits_source[3] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 464380 ) N ;
-    - auto_tl_slave_xing_in_a_bits_source[4] + NET auto_tl_slave_xing_in_a_bits_source[4] + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 133980 ) N ;
-    - auto_tl_slave_xing_in_a_ready + NET auto_tl_slave_xing_in_a_ready + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1122940 ) N ;
-    - auto_tl_slave_xing_in_a_valid + NET auto_tl_slave_xing_in_a_valid + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 280630 1598730 ) N ;
-    - auto_tl_slave_xing_in_d_bits_corrupt + NET auto_tl_slave_xing_in_d_bits_corrupt + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1386430 1598730 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[0] + NET auto_tl_slave_xing_in_d_bits_data[0] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1177430 1598730 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[10] + NET auto_tl_slave_xing_in_d_bits_data[10] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 396060 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[11] + NET auto_tl_slave_xing_in_d_bits_data[11] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1685110 1598730 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[12] + NET auto_tl_slave_xing_in_d_bits_data[12] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 729030 1598730 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[13] + NET auto_tl_slave_xing_in_d_bits_data[13] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1012620 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[14] + NET auto_tl_slave_xing_in_d_bits_data[14] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1834830 1598730 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[15] + NET auto_tl_slave_xing_in_d_bits_data[15] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 238830 70 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[16] + NET auto_tl_slave_xing_in_d_bits_data[16] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 882700 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[17] + NET auto_tl_slave_xing_in_d_bits_data[17] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1476110 1598730 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[18] + NET auto_tl_slave_xing_in_d_bits_data[18] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 71630 1598730 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[19] + NET auto_tl_slave_xing_in_d_bits_data[19] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1745150 1598730 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[1] + NET auto_tl_slave_xing_in_d_bits_data[1] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 65660 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[20] + NET auto_tl_slave_xing_in_d_bits_data[20] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 908390 1598730 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[21] + NET auto_tl_slave_xing_in_d_bits_data[21] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1585500 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[22] + NET auto_tl_slave_xing_in_d_bits_data[22] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1595430 1598730 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[23] + NET auto_tl_slave_xing_in_d_bits_data[23] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1236710 1598730 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[24] + NET auto_tl_slave_xing_in_d_bits_data[24] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 866590 70 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[25] + NET auto_tl_slave_xing_in_d_bits_data[25] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 178220 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[26] + NET auto_tl_slave_xing_in_d_bits_data[26] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 352380 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[27] + NET auto_tl_slave_xing_in_d_bits_data[27] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1497020 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[28] + NET auto_tl_slave_xing_in_d_bits_data[28] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1194910 70 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[29] + NET auto_tl_slave_xing_in_d_bits_data[29] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1323420 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[2] + NET auto_tl_slave_xing_in_d_bits_data[2] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 329980 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[30] + NET auto_tl_slave_xing_in_d_bits_data[30] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 926630 70 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[31] + NET auto_tl_slave_xing_in_d_bits_data[31] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 486780 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[3] + NET auto_tl_slave_xing_in_d_bits_data[3] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1087750 1598730 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[4] + NET auto_tl_slave_xing_in_d_bits_data[4] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 549670 1598730 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[5] + NET auto_tl_slave_xing_in_d_bits_data[5] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 657590 70 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[6] + NET auto_tl_slave_xing_in_d_bits_data[6] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 268470 70 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[7] + NET auto_tl_slave_xing_in_d_bits_data[7] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 726460 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[8] + NET auto_tl_slave_xing_in_d_bits_data[8] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 687230 70 ) N ;
-    - auto_tl_slave_xing_in_d_bits_data[9] + NET auto_tl_slave_xing_in_d_bits_data[9] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1673710 70 ) N ;
-    - auto_tl_slave_xing_in_d_bits_denied + NET auto_tl_slave_xing_in_d_bits_denied + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 877990 1598730 ) N ;
-    - auto_tl_slave_xing_in_d_bits_opcode[0] + NET auto_tl_slave_xing_in_d_bits_opcode[0] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1257340 ) N ;
-    - auto_tl_slave_xing_in_d_bits_opcode[1] + NET auto_tl_slave_xing_in_d_bits_opcode[1] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 574700 ) N ;
-    - auto_tl_slave_xing_in_d_bits_opcode[2] + NET auto_tl_slave_xing_in_d_bits_opcode[2] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 905100 ) N ;
-    - auto_tl_slave_xing_in_d_bits_param[0] + NET auto_tl_slave_xing_in_d_bits_param[0] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 640780 ) N ;
-    - auto_tl_slave_xing_in_d_bits_param[1] + NET auto_tl_slave_xing_in_d_bits_param[1] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 220220 ) N ;
-    - auto_tl_slave_xing_in_d_bits_sink + NET auto_tl_slave_xing_in_d_bits_sink + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 971180 ) N ;
-    - auto_tl_slave_xing_in_d_bits_size[0] + NET auto_tl_slave_xing_in_d_bits_size[0] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1523990 70 ) N ;
-    - auto_tl_slave_xing_in_d_bits_size[1] + NET auto_tl_slave_xing_in_d_bits_size[1] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 938030 1598730 ) N ;
-    - auto_tl_slave_xing_in_d_bits_size[2] + NET auto_tl_slave_xing_in_d_bits_size[2] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 618940 ) N ;
-    - auto_tl_slave_xing_in_d_bits_source[0] + NET auto_tl_slave_xing_in_d_bits_source[0] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1301580 ) N ;
-    - auto_tl_slave_xing_in_d_bits_source[1] + NET auto_tl_slave_xing_in_d_bits_source[1] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 1101100 ) N ;
-    - auto_tl_slave_xing_in_d_bits_source[2] + NET auto_tl_slave_xing_in_d_bits_source[2] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 748300 ) N ;
-    - auto_tl_slave_xing_in_d_bits_source[3] + NET auto_tl_slave_xing_in_d_bits_source[3] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 668990 1598730 ) N ;
-    - auto_tl_slave_xing_in_d_bits_source[4] + NET auto_tl_slave_xing_in_d_bits_source[4] + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 459990 1598730 ) N ;
-    - auto_tl_slave_xing_in_d_ready + NET auto_tl_slave_xing_in_d_ready + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 594300 ) N ;
-    - auto_tl_slave_xing_in_d_valid + NET auto_tl_slave_xing_in_d_valid + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 1169420 ) N ;
-    - clock + NET clock + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1849770 244300 ) N ;
-    - reset + NET reset + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal2 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 1703350 70 ) N ;
+    - auto_int_in_xing_in_0_sync_0 + NET auto_int_in_xing_in_0_sync_0 + DIRECTION INPUT + USE SIGNAL + PLACED ( 1463950 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_int_in_xing_in_0_sync_1 + NET auto_int_in_xing_in_0_sync_1 + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 968940 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_int_in_xing_in_1_sync_0 + NET auto_int_in_xing_in_1_sync_0 + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 266140 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_intsink_in_sync_0 + NET auto_intsink_in_sync_0 + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 1565900 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[0] + NET auto_tl_master_xing_out_a_bits_address[0] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 706860 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[10] + NET auto_tl_master_xing_out_a_bits_address[10] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 520030 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[11] + NET auto_tl_master_xing_out_a_bits_address[11] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 1035020 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[12] + NET auto_tl_master_xing_out_a_bits_address[12] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1075590 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[13] + NET auto_tl_master_xing_out_a_bits_address[13] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 924700 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[14] + NET auto_tl_master_xing_out_a_bits_address[14] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1117390 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[15] + NET auto_tl_master_xing_out_a_bits_address[15] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 1299340 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[16] + NET auto_tl_master_xing_out_a_bits_address[16] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 1409100 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[17] + NET auto_tl_master_xing_out_a_bits_address[17] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 358150 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[18] + NET auto_tl_master_xing_out_a_bits_address[18] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 242060 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[19] + NET auto_tl_master_xing_out_a_bits_address[19] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 985910 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[1] + NET auto_tl_master_xing_out_a_bits_address[1] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 1343020 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[20] + NET auto_tl_master_xing_out_a_bits_address[20] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 699390 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[21] + NET auto_tl_master_xing_out_a_bits_address[21] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1404670 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[22] + NET auto_tl_master_xing_out_a_bits_address[22] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 567910 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[23] + NET auto_tl_master_xing_out_a_bits_address[23] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 747270 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[24] + NET auto_tl_master_xing_out_a_bits_address[24] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 156380 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[25] + NET auto_tl_master_xing_out_a_bits_address[25] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1165270 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[26] + NET auto_tl_master_xing_out_a_bits_address[26] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1584030 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[27] + NET auto_tl_master_xing_out_a_bits_address[27] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1207070 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[28] + NET auto_tl_master_xing_out_a_bits_address[28] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 1189020 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[29] + NET auto_tl_master_xing_out_a_bits_address[29] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 149150 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[2] + NET auto_tl_master_xing_out_a_bits_address[2] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 789070 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[30] + NET auto_tl_master_xing_out_a_bits_address[30] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 1056860 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[31] + NET auto_tl_master_xing_out_a_bits_address[31] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 442540 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[3] + NET auto_tl_master_xing_out_a_bits_address[3] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 1455580 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[4] + NET auto_tl_master_xing_out_a_bits_address[4] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1732990 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[5] + NET auto_tl_master_xing_out_a_bits_address[5] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 462140 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[6] + NET auto_tl_master_xing_out_a_bits_address[6] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 90300 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[7] + NET auto_tl_master_xing_out_a_bits_address[7] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 776910 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[8] + NET auto_tl_master_xing_out_a_bits_address[8] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 2380 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_address[9] + NET auto_tl_master_xing_out_a_bits_address[9] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 998070 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_corrupt + NET auto_tl_master_xing_out_a_bits_corrupt + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 1411340 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[0] + NET auto_tl_master_xing_out_a_bits_data[0] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 1144780 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[10] + NET auto_tl_master_xing_out_a_bits_data[10] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 484540 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[11] + NET auto_tl_master_xing_out_a_bits_data[11] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 990780 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[12] + NET auto_tl_master_xing_out_a_bits_data[12] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 792540 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[13] + NET auto_tl_master_xing_out_a_bits_data[13] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1505750 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[14] + NET auto_tl_master_xing_out_a_bits_data[14] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 1213100 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[15] + NET auto_tl_master_xing_out_a_bits_data[15] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 956270 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[16] + NET auto_tl_master_xing_out_a_bits_data[16] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 250990 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[17] + NET auto_tl_master_xing_out_a_bits_data[17] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1494350 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[18] + NET auto_tl_master_xing_out_a_bits_data[18] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 836780 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[19] + NET auto_tl_master_xing_out_a_bits_data[19] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 1477420 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[1] + NET auto_tl_master_xing_out_a_bits_data[1] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 716870 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[20] + NET auto_tl_master_xing_out_a_bits_data[20] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 376460 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[21] + NET auto_tl_master_xing_out_a_bits_data[21] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 440300 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[22] + NET auto_tl_master_xing_out_a_bits_data[22] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 1103340 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[23] + NET auto_tl_master_xing_out_a_bits_data[23] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 858620 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[24] + NET auto_tl_master_xing_out_a_bits_data[24] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 263900 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[25] + NET auto_tl_master_xing_out_a_bits_data[25] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1225310 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[26] + NET auto_tl_master_xing_out_a_bits_data[26] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 1587740 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[27] + NET auto_tl_master_xing_out_a_bits_data[27] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 993020 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[28] + NET auto_tl_master_xing_out_a_bits_data[28] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 190950 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[29] + NET auto_tl_master_xing_out_a_bits_data[29] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 1167180 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[2] + NET auto_tl_master_xing_out_a_bits_data[2] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1057350 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[30] + NET auto_tl_master_xing_out_a_bits_data[30] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 1389500 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[31] + NET auto_tl_master_xing_out_a_bits_data[31] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 286300 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[3] + NET auto_tl_master_xing_out_a_bits_data[3] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 772940 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[4] + NET auto_tl_master_xing_out_a_bits_data[4] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 1080940 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[5] + NET auto_tl_master_xing_out_a_bits_data[5] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 1276940 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[6] + NET auto_tl_master_xing_out_a_bits_data[6] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 806550 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[7] + NET auto_tl_master_xing_out_a_bits_data[7] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 728700 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[8] + NET auto_tl_master_xing_out_a_bits_data[8] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1553630 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_data[9] + NET auto_tl_master_xing_out_a_bits_data[9] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 374220 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_mask[0] + NET auto_tl_master_xing_out_a_bits_mask[0] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 370310 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_mask[1] + NET auto_tl_master_xing_out_a_bits_mask[1] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 197820 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_mask[2] + NET auto_tl_master_xing_out_a_bits_mask[2] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1267110 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_mask[3] + NET auto_tl_master_xing_out_a_bits_mask[3] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 418460 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_opcode[0] + NET auto_tl_master_xing_out_a_bits_opcode[0] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 508620 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_opcode[1] + NET auto_tl_master_xing_out_a_bits_opcode[1] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 638540 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_opcode[2] + NET auto_tl_master_xing_out_a_bits_opcode[2] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1045950 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_param[0] + NET auto_tl_master_xing_out_a_bits_param[0] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 21980 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_param[1] + NET auto_tl_master_xing_out_a_bits_param[1] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 109900 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_param[2] + NET auto_tl_master_xing_out_a_bits_param[2] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1314990 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_size[0] + NET auto_tl_master_xing_out_a_bits_size[0] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 1367660 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_size[1] + NET auto_tl_master_xing_out_a_bits_size[1] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 1499820 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_size[2] + NET auto_tl_master_xing_out_a_bits_size[2] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 550620 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_size[3] + NET auto_tl_master_xing_out_a_bits_size[3] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 1014860 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_bits_source + NET auto_tl_master_xing_out_a_bits_source + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 579310 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_ready + NET auto_tl_master_xing_out_a_ready + DIRECTION INPUT + USE SIGNAL + PLACED ( 59470 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_a_valid + NET auto_tl_master_xing_out_a_valid + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 507870 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_corrupt + NET auto_tl_master_xing_out_d_bits_corrupt + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 1210860 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[0] + NET auto_tl_master_xing_out_d_bits_data[0] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 682780 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[10] + NET auto_tl_master_xing_out_d_bits_data[10] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 839020 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[11] + NET auto_tl_master_xing_out_d_bits_data[11] + DIRECTION INPUT + USE SIGNAL + PLACED ( 597550 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[12] + NET auto_tl_master_xing_out_d_bits_data[12] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1254950 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[13] + NET auto_tl_master_xing_out_d_bits_data[13] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1536150 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[14] + NET auto_tl_master_xing_out_d_bits_data[14] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 308140 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[15] + NET auto_tl_master_xing_out_d_bits_data[15] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 1521660 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[16] + NET auto_tl_master_xing_out_d_bits_data[16] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1015550 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[17] + NET auto_tl_master_xing_out_d_bits_data[17] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 112140 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[18] + NET auto_tl_master_xing_out_d_bits_data[18] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1135630 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[19] + NET auto_tl_master_xing_out_d_bits_data[19] + DIRECTION INPUT + USE SIGNAL + PLACED ( 537510 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[1] + NET auto_tl_master_xing_out_d_bits_data[1] + DIRECTION INPUT + USE SIGNAL + PLACED ( 130910 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[20] + NET auto_tl_master_xing_out_d_bits_data[20] + DIRECTION INPUT + USE SIGNAL + PLACED ( 101270 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[21] + NET auto_tl_master_xing_out_d_bits_data[21] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 1563100 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[22] + NET auto_tl_master_xing_out_d_bits_data[22] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 398300 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[23] + NET auto_tl_master_xing_out_d_bits_data[23] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 1233260 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[24] + NET auto_tl_master_xing_out_d_bits_data[24] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 1321180 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[25] + NET auto_tl_master_xing_out_d_bits_data[25] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 1431500 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[26] + NET auto_tl_master_xing_out_d_bits_data[26] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1565790 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[27] + NET auto_tl_master_xing_out_d_bits_data[27] + DIRECTION INPUT + USE SIGNAL + PLACED ( 639350 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[28] + NET auto_tl_master_xing_out_d_bits_data[28] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1416070 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[29] + NET auto_tl_master_xing_out_d_bits_data[29] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 1078700 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[2] + NET auto_tl_master_xing_out_d_bits_data[2] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 1037260 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[30] + NET auto_tl_master_xing_out_d_bits_data[30] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 1279180 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[31] + NET auto_tl_master_xing_out_d_bits_data[31] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1344630 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[3] + NET auto_tl_master_xing_out_d_bits_data[3] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 817180 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[4] + NET auto_tl_master_xing_out_d_bits_data[4] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 751100 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[5] + NET auto_tl_master_xing_out_d_bits_data[5] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 530460 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[6] + NET auto_tl_master_xing_out_d_bits_data[6] + DIRECTION INPUT + USE SIGNAL + PLACED ( 41230 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[7] + NET auto_tl_master_xing_out_d_bits_data[7] + DIRECTION INPUT + USE SIGNAL + PLACED ( 609710 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[8] + NET auto_tl_master_xing_out_d_bits_data[8] + DIRECTION INPUT + USE SIGNAL + PLACED ( 29830 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_data[9] + NET auto_tl_master_xing_out_d_bits_data[9] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 332220 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_denied + NET auto_tl_master_xing_out_d_bits_denied + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 310380 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_opcode[0] + NET auto_tl_master_xing_out_d_bits_opcode[0] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1715510 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_opcode[1] + NET auto_tl_master_xing_out_d_bits_opcode[1] + DIRECTION INPUT + USE SIGNAL + PLACED ( 818710 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_opcode[2] + NET auto_tl_master_xing_out_d_bits_opcode[2] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 1255100 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_param[0] + NET auto_tl_master_xing_out_d_bits_param[0] + DIRECTION INPUT + USE SIGNAL + PLACED ( 220590 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_param[1] + NET auto_tl_master_xing_out_d_bits_param[1] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 222460 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_sink + NET auto_tl_master_xing_out_d_bits_sink + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 46060 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_size[0] + NET auto_tl_master_xing_out_d_bits_size[0] + DIRECTION INPUT + USE SIGNAL + PLACED ( 89110 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_size[1] + NET auto_tl_master_xing_out_d_bits_size[1] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 926940 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_size[2] + NET auto_tl_master_xing_out_d_bits_size[2] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1446470 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_size[3] + NET auto_tl_master_xing_out_d_bits_size[3] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1147030 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_bits_source + NET auto_tl_master_xing_out_d_bits_source + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 685020 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_ready + NET auto_tl_master_xing_out_d_ready + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 528220 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_master_xing_out_d_valid + NET auto_tl_master_xing_out_d_valid + DIRECTION INPUT + USE SIGNAL + PLACED ( 836950 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[0] + NET auto_tl_slave_xing_in_a_bits_address[0] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1763390 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[10] + NET auto_tl_slave_xing_in_a_bits_address[10] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 1147020 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[11] + NET auto_tl_slave_xing_in_a_bits_address[11] + DIRECTION INPUT + USE SIGNAL + PLACED ( 328510 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[12] + NET auto_tl_slave_xing_in_a_bits_address[12] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1356790 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[13] + NET auto_tl_slave_xing_in_a_bits_address[13] + DIRECTION INPUT + USE SIGNAL + PLACED ( 399950 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[14] + NET auto_tl_slave_xing_in_a_bits_address[14] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1793030 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[15] + NET auto_tl_slave_xing_in_a_bits_address[15] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 506380 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[16] + NET auto_tl_slave_xing_in_a_bits_address[16] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 902860 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[17] + NET auto_tl_slave_xing_in_a_bits_address[17] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 154140 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[18] + NET auto_tl_slave_xing_in_a_bits_address[18] + DIRECTION INPUT + USE SIGNAL + PLACED ( 758670 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[19] + NET auto_tl_slave_xing_in_a_bits_address[19] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 814380 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[1] + NET auto_tl_slave_xing_in_a_bits_address[1] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 288540 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[20] + NET auto_tl_slave_xing_in_a_bits_address[20] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 572460 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[21] + NET auto_tl_slave_xing_in_a_bits_address[21] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1374270 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[22] + NET auto_tl_slave_xing_in_a_bits_address[22] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1284590 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[23] + NET auto_tl_slave_xing_in_a_bits_address[23] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 354620 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[24] + NET auto_tl_slave_xing_in_a_bits_address[24] + DIRECTION INPUT + USE SIGNAL + PLACED ( 310270 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[25] + NET auto_tl_slave_xing_in_a_bits_address[25] + DIRECTION INPUT + USE SIGNAL + PLACED ( 388550 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[26] + NET auto_tl_slave_xing_in_a_bits_address[26] + DIRECTION INPUT + USE SIGNAL + PLACED ( 340670 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[27] + NET auto_tl_slave_xing_in_a_bits_address[27] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1027710 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[28] + NET auto_tl_slave_xing_in_a_bits_address[28] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1805190 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[29] + NET auto_tl_slave_xing_in_a_bits_address[29] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 1453340 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[2] + NET auto_tl_slave_xing_in_a_bits_address[2] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 1191260 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[30] + NET auto_tl_slave_xing_in_a_bits_address[30] + DIRECTION INPUT + USE SIGNAL + PLACED ( 447830 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[31] + NET auto_tl_slave_xing_in_a_bits_address[31] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 948780 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[3] + NET auto_tl_slave_xing_in_a_bits_address[3] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 616700 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[4] + NET auto_tl_slave_xing_in_a_bits_address[4] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 175980 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[5] + NET auto_tl_slave_xing_in_a_bits_address[5] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 662620 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[6] + NET auto_tl_slave_xing_in_a_bits_address[6] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 24220 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[7] + NET auto_tl_slave_xing_in_a_bits_address[7] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 1475180 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[8] + NET auto_tl_slave_xing_in_a_bits_address[8] + DIRECTION INPUT + USE SIGNAL + PLACED ( 119510 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_address[9] + NET auto_tl_slave_xing_in_a_bits_address[9] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 1235500 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[0] + NET auto_tl_slave_xing_in_a_bits_data[0] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1613670 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[10] + NET auto_tl_slave_xing_in_a_bits_data[10] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 1387260 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[11] + NET auto_tl_slave_xing_in_a_bits_data[11] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 880460 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[12] + NET auto_tl_slave_xing_in_a_bits_data[12] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1822670 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[13] + NET auto_tl_slave_xing_in_a_bits_data[13] + DIRECTION INPUT + USE SIGNAL + PLACED ( 478230 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[14] + NET auto_tl_slave_xing_in_a_bits_data[14] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1105230 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[15] + NET auto_tl_slave_xing_in_a_bits_data[15] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 860860 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[16] + NET auto_tl_slave_xing_in_a_bits_data[16] + DIRECTION INPUT + USE SIGNAL + PLACED ( 430350 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[17] + NET auto_tl_slave_xing_in_a_bits_data[17] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 131740 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[18] + NET auto_tl_slave_xing_in_a_bits_data[18] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 43820 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[19] + NET auto_tl_slave_xing_in_a_bits_data[19] + DIRECTION INPUT + USE SIGNAL + PLACED ( 418190 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[1] + NET auto_tl_slave_xing_in_a_bits_data[1] + DIRECTION INPUT + USE SIGNAL + PLACED ( 178790 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[20] + NET auto_tl_slave_xing_in_a_bits_data[20] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 552860 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[21] + NET auto_tl_slave_xing_in_a_bits_data[21] + DIRECTION INPUT + USE SIGNAL + PLACED ( 967670 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[22] + NET auto_tl_slave_xing_in_a_bits_data[22] + DIRECTION INPUT + USE SIGNAL + PLACED ( 161310 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[23] + NET auto_tl_slave_xing_in_a_bits_data[23] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 1541260 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[24] + NET auto_tl_slave_xing_in_a_bits_data[24] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 1345260 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[25] + NET auto_tl_slave_xing_in_a_bits_data[25] + DIRECTION INPUT + USE SIGNAL + PLACED ( 11590 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[26] + NET auto_tl_slave_xing_in_a_bits_data[26] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1643310 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[27] + NET auto_tl_slave_xing_in_a_bits_data[27] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1655470 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[28] + NET auto_tl_slave_xing_in_a_bits_data[28] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 794780 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[29] + NET auto_tl_slave_xing_in_a_bits_data[29] + DIRECTION INPUT + USE SIGNAL + PLACED ( 190 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[2] + NET auto_tl_slave_xing_in_a_bits_data[2] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 1519420 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[30] + NET auto_tl_slave_xing_in_a_bits_data[30] + DIRECTION INPUT + USE SIGNAL + PLACED ( 627190 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[31] + NET auto_tl_slave_xing_in_a_bits_data[31] + DIRECTION INPUT + USE SIGNAL + PLACED ( 298870 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[3] + NET auto_tl_slave_xing_in_a_bits_data[3] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 660380 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[4] + NET auto_tl_slave_xing_in_a_bits_data[4] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 1059100 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[5] + NET auto_tl_slave_xing_in_a_bits_data[5] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 596540 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[6] + NET auto_tl_slave_xing_in_a_bits_data[6] + DIRECTION INPUT + USE SIGNAL + PLACED ( 896230 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[7] + NET auto_tl_slave_xing_in_a_bits_data[7] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1434310 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[8] + NET auto_tl_slave_xing_in_a_bits_data[8] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1326390 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_data[9] + NET auto_tl_slave_xing_in_a_bits_data[9] + DIRECTION INPUT + USE SIGNAL + PLACED ( 848350 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_mask[0] + NET auto_tl_slave_xing_in_a_bits_mask[0] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 1433740 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_mask[1] + NET auto_tl_slave_xing_in_a_bits_mask[1] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 1365420 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_mask[2] + NET auto_tl_slave_xing_in_a_bits_mask[2] + DIRECTION INPUT + USE SIGNAL + PLACED ( 209190 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_mask[3] + NET auto_tl_slave_xing_in_a_bits_mask[3] + DIRECTION INPUT + USE SIGNAL + PLACED ( 489630 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_opcode[0] + NET auto_tl_slave_xing_in_a_bits_opcode[0] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 1543500 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_opcode[1] + NET auto_tl_slave_xing_in_a_bits_opcode[1] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1296750 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_opcode[2] + NET auto_tl_slave_xing_in_a_bits_opcode[2] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1774790 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_param[0] + NET auto_tl_slave_xing_in_a_bits_param[0] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 1125180 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_param[1] + NET auto_tl_slave_xing_in_a_bits_param[1] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 946540 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_param[2] + NET auto_tl_slave_xing_in_a_bits_param[2] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 770700 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_size[0] + NET auto_tl_slave_xing_in_a_bits_size[0] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 704620 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_size[1] + NET auto_tl_slave_xing_in_a_bits_size[1] + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 88060 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_size[2] + NET auto_tl_slave_xing_in_a_bits_size[2] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 420700 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_source[0] + NET auto_tl_slave_xing_in_a_bits_source[0] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1625830 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_source[1] + NET auto_tl_slave_xing_in_a_bits_source[1] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 200060 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_source[2] + NET auto_tl_slave_xing_in_a_bits_source[2] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 68460 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_source[3] + NET auto_tl_slave_xing_in_a_bits_source[3] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 464380 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_bits_source[4] + NET auto_tl_slave_xing_in_a_bits_source[4] + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 133980 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_ready + NET auto_tl_slave_xing_in_a_ready + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 1122940 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_a_valid + NET auto_tl_slave_xing_in_a_valid + DIRECTION INPUT + USE SIGNAL + PLACED ( 280630 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_corrupt + NET auto_tl_slave_xing_in_d_bits_corrupt + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1386430 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[0] + NET auto_tl_slave_xing_in_d_bits_data[0] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1177430 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[10] + NET auto_tl_slave_xing_in_d_bits_data[10] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 396060 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[11] + NET auto_tl_slave_xing_in_d_bits_data[11] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1685110 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[12] + NET auto_tl_slave_xing_in_d_bits_data[12] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 729030 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[13] + NET auto_tl_slave_xing_in_d_bits_data[13] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 1012620 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[14] + NET auto_tl_slave_xing_in_d_bits_data[14] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1834830 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[15] + NET auto_tl_slave_xing_in_d_bits_data[15] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 238830 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[16] + NET auto_tl_slave_xing_in_d_bits_data[16] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 882700 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[17] + NET auto_tl_slave_xing_in_d_bits_data[17] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1476110 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[18] + NET auto_tl_slave_xing_in_d_bits_data[18] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 71630 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[19] + NET auto_tl_slave_xing_in_d_bits_data[19] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1745150 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[1] + NET auto_tl_slave_xing_in_d_bits_data[1] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 65660 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[20] + NET auto_tl_slave_xing_in_d_bits_data[20] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 908390 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[21] + NET auto_tl_slave_xing_in_d_bits_data[21] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 1585500 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[22] + NET auto_tl_slave_xing_in_d_bits_data[22] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1595430 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[23] + NET auto_tl_slave_xing_in_d_bits_data[23] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1236710 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[24] + NET auto_tl_slave_xing_in_d_bits_data[24] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 866590 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[25] + NET auto_tl_slave_xing_in_d_bits_data[25] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 178220 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[26] + NET auto_tl_slave_xing_in_d_bits_data[26] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 352380 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[27] + NET auto_tl_slave_xing_in_d_bits_data[27] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 1497020 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[28] + NET auto_tl_slave_xing_in_d_bits_data[28] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1194910 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[29] + NET auto_tl_slave_xing_in_d_bits_data[29] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 1323420 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[2] + NET auto_tl_slave_xing_in_d_bits_data[2] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 329980 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[30] + NET auto_tl_slave_xing_in_d_bits_data[30] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 926630 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[31] + NET auto_tl_slave_xing_in_d_bits_data[31] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 486780 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[3] + NET auto_tl_slave_xing_in_d_bits_data[3] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1087750 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[4] + NET auto_tl_slave_xing_in_d_bits_data[4] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 549670 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[5] + NET auto_tl_slave_xing_in_d_bits_data[5] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 657590 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[6] + NET auto_tl_slave_xing_in_d_bits_data[6] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 268470 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[7] + NET auto_tl_slave_xing_in_d_bits_data[7] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 726460 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[8] + NET auto_tl_slave_xing_in_d_bits_data[8] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 687230 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_data[9] + NET auto_tl_slave_xing_in_d_bits_data[9] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1673710 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_denied + NET auto_tl_slave_xing_in_d_bits_denied + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 877990 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_opcode[0] + NET auto_tl_slave_xing_in_d_bits_opcode[0] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 1257340 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_opcode[1] + NET auto_tl_slave_xing_in_d_bits_opcode[1] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 574700 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_opcode[2] + NET auto_tl_slave_xing_in_d_bits_opcode[2] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 905100 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_param[0] + NET auto_tl_slave_xing_in_d_bits_param[0] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 640780 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_param[1] + NET auto_tl_slave_xing_in_d_bits_param[1] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 220220 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_sink + NET auto_tl_slave_xing_in_d_bits_sink + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 971180 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_size[0] + NET auto_tl_slave_xing_in_d_bits_size[0] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1523990 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_size[1] + NET auto_tl_slave_xing_in_d_bits_size[1] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 938030 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_size[2] + NET auto_tl_slave_xing_in_d_bits_size[2] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 618940 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_source[0] + NET auto_tl_slave_xing_in_d_bits_source[0] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 1301580 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_source[1] + NET auto_tl_slave_xing_in_d_bits_source[1] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 1101100 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_source[2] + NET auto_tl_slave_xing_in_d_bits_source[2] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 70 748300 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_source[3] + NET auto_tl_slave_xing_in_d_bits_source[3] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 668990 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_bits_source[4] + NET auto_tl_slave_xing_in_d_bits_source[4] + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 459990 1598730 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_ready + NET auto_tl_slave_xing_in_d_ready + DIRECTION INPUT + USE SIGNAL + PLACED ( 70 594300 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - auto_tl_slave_xing_in_d_valid + NET auto_tl_slave_xing_in_d_valid + DIRECTION OUTPUT + USE SIGNAL + PLACED ( 1849770 1169420 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - clock + NET clock + DIRECTION INPUT + USE SIGNAL + PLACED ( 1849770 244300 ) N + LAYER metal3 ( -70 -70 ) ( 70 70 ) ;
+    - reset + NET reset + DIRECTION INPUT + USE SIGNAL + PLACED ( 1703350 70 ) N + LAYER metal2 ( -70 -70 ) ( 70 70 ) ;
 END PINS
 SPECIALNETS 2 ;
     - VDD ( * VDD ) + USE POWER
