@@ -1,4 +1,4 @@
-///////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////
 //
 // BSD 3-Clause License
 //
@@ -33,20 +33,21 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-#pragma once
+#include "PartitionMgr.h"
 
 namespace par {
-class PartitionMgr;
+
+void
+PartOptions::setRandomSeed(int seed) {
+  seedGenerator_.seed(seed);
 }
 
-namespace ord {
+void
+PartOptions::generateSeeds(int seeds) {
+  _seeds.clear();
 
-class OpenRoad;
+  while (_seeds.size() < seeds)
+    _seeds.insert(getNewSeed());
+}
 
-par::PartitionMgr* makePartitionMgr();
-
-void initPartitionMgr(OpenRoad* openroad);
-
-void deletePartitionMgr(par::PartitionMgr* partitionmgr);
-
-}  // namespace ord
+}  // namespace par
