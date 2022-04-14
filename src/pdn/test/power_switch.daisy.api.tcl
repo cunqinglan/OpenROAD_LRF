@@ -29,7 +29,7 @@ add_global_connection -net VSS -pin_pattern VNB
 
 define_power_switch_cell -name POWER_SWITCH -control SLEEP -acknowledge SLEEP_OUT -power_switchable VDD -power VDDG -ground VGND
 
-define_pdn_grid -name grid -switch_cell POWER_SWITCH -power_control nPWRUP -power_control_network STAR
+define_pdn_grid -name grid -switch_cell POWER_SWITCH -power_control nPWRUP -power_control_network DAISY
 add_pdn_stripe -layer met1 -width 0.48 -offset 0 -followpins
 add_pdn_stripe -layer met4 -width 1.600 -pitch 27.140 -offset 13.570
 add_pdn_stripe -layer met5 -width 1.600 -pitch 27.200 -offset 13.600
@@ -46,7 +46,7 @@ add_pdn_connect -layers {met4 met5}
 
 pdngen -verbose
 
-set def_file results/power_switch.api.def
+set def_file results/power_switch.daisy.api.def
 write_def $def_file 
 
-diff_files $def_file power_switch.defok
+diff_files $def_file power_switch.daisy.api.defok
