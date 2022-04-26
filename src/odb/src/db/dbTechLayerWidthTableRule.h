@@ -1,7 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 // BSD 3-Clause License
 //
-// Copyright (c) 2019, Nefelus Inc
+// Copyright (c) 2020, The Regents of the University of California
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,67 +30,63 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-#include "odb/ZException.h"
+// Generator Code Begin Header
+#pragma once
 
-#include <stdarg.h>
-#include <stdlib.h>
-#include <string.h>
+#include "dbCore.h"
+#include "dbVector.h"
+#include "odb.h"
+// User Code Begin Includes
+// User Code End Includes
 
 namespace odb {
 
-ZException::ZException()
-{
-  _msg = NULL;
-  _free_msg = true;
-}
+class dbIStream;
+class dbOStream;
+class dbDiff;
+class _dbDatabase;
+// User Code Begin Classes
+// User Code End Classes
 
-ZException::ZException(const char* fmt, ...)
+struct dbTechLayerWidthTableRuleFlags
 {
-  char buffer[8192];
-  va_list args;
-  va_start(args, fmt);
-  vsnprintf(buffer, 8192, fmt, args);
-  va_end(args);
-  _msg = strdup(buffer);
-  ZALLOCATED(_msg);
-  _free_msg = true;
-}
+  bool wrong_direction_ : 1;
+  bool orthogonal_ : 1;
+  uint spare_bits_ : 30;
+};
+// User Code Begin Structs
+// User Code End Structs
 
-ZException::ZException(const ZException& ex)
+class _dbTechLayerWidthTableRule : public _dbObject
 {
-  _msg = strdup(ex._msg);
-  ZALLOCATED(_msg);
-  _free_msg = true;
-}
+ public:
+  // User Code Begin Enums
+  // User Code End Enums
 
-ZException::~ZException()
-{
-  if (_free_msg && _msg)
-    free((void*) _msg);
-}
+  dbTechLayerWidthTableRuleFlags flags_;
+  dbVector<int> width_tbl_;
 
-ZIOError::ZIOError(int err)
-{
-  char buffer[8192];
-  snprintf(buffer, 8192, "system io error (%s).", strerror(err));
-  _msg = strdup(buffer);
-  ZALLOCATED(_msg);
-}
-
-ZIOError::ZIOError(int err, const char* msg)
-{
-  char buffer[8192];
-  snprintf(buffer, 8192, "%s (%s).", msg, strerror(err));
-  _msg = strdup(buffer);
-  ZALLOCATED(_msg);
-}
-
-ZAssert::ZAssert(const char* expr, const char* file, int line)
-{
-  char buffer[8192];
-  snprintf(buffer, 8192, "assert(%s) in %s at %d", expr, file, line);
-  _msg = strdup(buffer);
-  ZALLOCATED(_msg);
-}
-
+  // User Code Begin Fields
+  // User Code End Fields
+  _dbTechLayerWidthTableRule(_dbDatabase*, const _dbTechLayerWidthTableRule& r);
+  _dbTechLayerWidthTableRule(_dbDatabase*);
+  ~_dbTechLayerWidthTableRule();
+  bool operator==(const _dbTechLayerWidthTableRule& rhs) const;
+  bool operator!=(const _dbTechLayerWidthTableRule& rhs) const
+  {
+    return !operator==(rhs);
+  }
+  bool operator<(const _dbTechLayerWidthTableRule& rhs) const;
+  void differences(dbDiff& diff,
+                   const char* field,
+                   const _dbTechLayerWidthTableRule& rhs) const;
+  void out(dbDiff& diff, char side, const char* field) const;
+  // User Code Begin Methods
+  // User Code End Methods
+};
+dbIStream& operator>>(dbIStream& stream, _dbTechLayerWidthTableRule& obj);
+dbOStream& operator<<(dbOStream& stream, const _dbTechLayerWidthTableRule& obj);
+// User Code Begin General
+// User Code End General
 }  // namespace odb
+   // Generator Code End Header
