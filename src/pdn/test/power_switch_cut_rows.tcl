@@ -1,11 +1,11 @@
-# test for power switch, which is not implemented
+# test the insertion of power switches into a design with rows that have been cut.
 source "helpers.tcl"
 
 read_lef sky130hd/sky130hd.tlef 
 read_lef sky130hd/sky130_fd_sc_hd_merged.lef 
 read_lef sky130_power_switch/power_switch.lef 
 
-read_def sky130_power_switch/floorplan.def
+read_def sky130_power_switch/floorplan_cut_rows.def
 
 add_global_connection -defer_connection -net VDD -power -pin_pattern "^VDDG$"
 add_global_connection -defer_connection -net VDD_SW -power -pin_pattern "^VPB$"
@@ -25,4 +25,8 @@ add_pdn_connect -layers {met1 met4}
 add_pdn_connect -layers {met2 met4} 
 add_pdn_connect -layers {met4 met5}
 
-pdngen -report_only
+pdngen
+
+set def_file [make_result_file power_switch_cut_rows.def]
+write_def $def_file
+diff_files power_switch_cut_rows.defok $def_file

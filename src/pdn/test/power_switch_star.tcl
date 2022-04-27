@@ -1,4 +1,4 @@
-# test for power switch, which is not implemented
+# test the insertion of power switches into a design. The power switch control is connected in a STAR configuration
 source "helpers.tcl"
 
 read_lef sky130hd/sky130hd.tlef 
@@ -16,7 +16,7 @@ global_connect
 
 set_voltage_domain -power VDD -ground VSS -switched_power VDD_SW
 define_power_switch_cell -name POWER_SWITCH -control SLEEP -acknowledge SLEEP_OUT -power_switchable VPWR -power VDDG -ground VGND
-define_pdn_grid -name "Core" -power_switch_cell POWER_SWITCH -power_control nPWRUP -power_control_network DAISY
+define_pdn_grid -name "Core" -power_switch_cell POWER_SWITCH -power_control nPWRUP -power_control_network STAR
 
 add_pdn_stripe -layer met1 -width 0.48 -offset 0 -followpins
 add_pdn_stripe -layer met4 -width 1.600 -pitch 27.140 -offset 13.570
@@ -25,4 +25,8 @@ add_pdn_connect -layers {met1 met4}
 add_pdn_connect -layers {met2 met4} 
 add_pdn_connect -layers {met4 met5}
 
-pdngen -report_only
+pdngen
+
+set def_file [make_result_file power_switch_star.def]
+write_def $def_file
+diff_files power_switch_star.defok $def_file
