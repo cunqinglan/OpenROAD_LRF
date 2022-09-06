@@ -34,7 +34,6 @@
 #pragma once
 
 #include "dbCore.h"
-#include "dbSet.h"
 #include "dbVector.h"
 #include "odb.h"
 // User Code Begin Includes
@@ -46,46 +45,39 @@ class dbIStream;
 class dbOStream;
 class dbDiff;
 class _dbDatabase;
-class _dbNet;
-class _dbPowerDomain;
 // User Code Begin Classes
 // User Code End Classes
 
 // User Code Begin Structs
 // User Code End Structs
 
-class _dbPowerSwitch : public _dbObject
+class _dbLogicPort : public _dbObject
 {
  public:
   // User Code Begin Enums
   // User Code End Enums
 
   char* _name;
-  dbId<_dbPowerSwitch> _next_entry;
-  char* _in_supply_port;
-  char* _out_supply_port;
-  dbVector<std::string> _control_port;
-  dbVector<std::string> _on_state;
-  dbId<_dbNet> _control_net;
-  dbId<_dbPowerDomain> _power_domain;
+  dbId<_dbLogicPort> _next_entry;
+  char* direction;
 
   // User Code Begin Fields
   // User Code End Fields
-  _dbPowerSwitch(_dbDatabase*, const _dbPowerSwitch& r);
-  _dbPowerSwitch(_dbDatabase*);
-  ~_dbPowerSwitch();
-  bool operator==(const _dbPowerSwitch& rhs) const;
-  bool operator!=(const _dbPowerSwitch& rhs) const { return !operator==(rhs); }
-  bool operator<(const _dbPowerSwitch& rhs) const;
+  _dbLogicPort(_dbDatabase*, const _dbLogicPort& r);
+  _dbLogicPort(_dbDatabase*);
+  ~_dbLogicPort();
+  bool operator==(const _dbLogicPort& rhs) const;
+  bool operator!=(const _dbLogicPort& rhs) const { return !operator==(rhs); }
+  bool operator<(const _dbLogicPort& rhs) const;
   void differences(dbDiff& diff,
                    const char* field,
-                   const _dbPowerSwitch& rhs) const;
+                   const _dbLogicPort& rhs) const;
   void out(dbDiff& diff, char side, const char* field) const;
   // User Code Begin Methods
   // User Code End Methods
 };
-dbIStream& operator>>(dbIStream& stream, _dbPowerSwitch& obj);
-dbOStream& operator<<(dbOStream& stream, const _dbPowerSwitch& obj);
+dbIStream& operator>>(dbIStream& stream, _dbLogicPort& obj);
+dbOStream& operator<<(dbOStream& stream, const _dbLogicPort& obj);
 // User Code Begin General
 // User Code End General
 }  // namespace odb

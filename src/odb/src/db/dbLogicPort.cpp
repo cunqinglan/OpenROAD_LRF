@@ -31,7 +31,7 @@
 // POSSIBILITY OF SUCH DAMAGE.
 
 // Generator Code Begin Cpp
-#include "dbPowerDomain.h"
+#include "dbLogicPort.h"
 
 #include "db.h"
 #include "dbBlock.h"
@@ -48,9 +48,9 @@
 // User Code End Includes
 namespace odb {
 
-template class dbTable<_dbPowerDomain>;
+template class dbTable<_dbLogicPort>;
 
-bool _dbPowerDomain::operator==(const _dbPowerDomain& rhs) const
+bool _dbLogicPort::operator==(const _dbLogicPort& rhs) const
 {
   if (_name != rhs._name)
     return false;
@@ -58,87 +58,77 @@ bool _dbPowerDomain::operator==(const _dbPowerDomain& rhs) const
   if (_next_entry != rhs._next_entry)
     return false;
 
-  if (_power_switch != rhs._power_switch)
-    return false;
-
-  if (_isolation != rhs._isolation)
+  if (direction != rhs.direction)
     return false;
 
   // User Code Begin ==
   // User Code End ==
   return true;
 }
-bool _dbPowerDomain::operator<(const _dbPowerDomain& rhs) const
+bool _dbLogicPort::operator<(const _dbLogicPort& rhs) const
 {
   // User Code Begin <
   // User Code End <
   return true;
 }
-void _dbPowerDomain::differences(dbDiff& diff,
-                                 const char* field,
-                                 const _dbPowerDomain& rhs) const
+void _dbLogicPort::differences(dbDiff& diff,
+                               const char* field,
+                               const _dbLogicPort& rhs) const
 {
   DIFF_BEGIN
 
   DIFF_FIELD(_name);
   DIFF_FIELD(_next_entry);
-  DIFF_FIELD(_power_switch);
-  DIFF_FIELD(_isolation);
+  DIFF_FIELD(direction);
   // User Code Begin Differences
   // User Code End Differences
   DIFF_END
 }
-void _dbPowerDomain::out(dbDiff& diff, char side, const char* field) const
+void _dbLogicPort::out(dbDiff& diff, char side, const char* field) const
 {
   DIFF_OUT_BEGIN
   DIFF_OUT_FIELD(_name);
   DIFF_OUT_FIELD(_next_entry);
-  DIFF_OUT_FIELD(_power_switch);
-  DIFF_OUT_FIELD(_isolation);
+  DIFF_OUT_FIELD(direction);
 
   // User Code Begin Out
   // User Code End Out
   DIFF_END
 }
-_dbPowerDomain::_dbPowerDomain(_dbDatabase* db)
+_dbLogicPort::_dbLogicPort(_dbDatabase* db)
 {
   // User Code Begin Constructor
   // User Code End Constructor
 }
-_dbPowerDomain::_dbPowerDomain(_dbDatabase* db, const _dbPowerDomain& r)
+_dbLogicPort::_dbLogicPort(_dbDatabase* db, const _dbLogicPort& r)
 {
   _name = r._name;
   _next_entry = r._next_entry;
-  _power_switch = r._power_switch;
-  _isolation = r._isolation;
+  direction = r.direction;
   // User Code Begin CopyConstructor
   // User Code End CopyConstructor
 }
 
-dbIStream& operator>>(dbIStream& stream, _dbPowerDomain& obj)
+dbIStream& operator>>(dbIStream& stream, _dbLogicPort& obj)
 {
   stream >> obj._name;
   stream >> obj._next_entry;
-  stream >> obj._elements;
-  stream >> obj._power_switch;
-  stream >> obj._isolation;
+  stream >> obj.direction;
   // User Code Begin >>
   // User Code End >>
   return stream;
 }
-dbOStream& operator<<(dbOStream& stream, const _dbPowerDomain& obj)
+dbOStream& operator<<(dbOStream& stream, const _dbLogicPort& obj)
 {
   stream << obj._name;
   stream << obj._next_entry;
-  stream << obj._elements;
-  stream << obj._power_switch;
-  stream << obj._isolation;
+  stream << obj.direction;
   // User Code Begin <<
   // User Code End <<
   return stream;
 }
 
-_dbPowerDomain::~_dbPowerDomain()
+_dbLogicPort::~_dbLogicPort()
 {
   if (_name)
     free((void*) _name);
@@ -151,78 +141,46 @@ _dbPowerDomain::~_dbPowerDomain()
 
 ////////////////////////////////////////////////////////////////////
 //
-// dbPowerDomain - Methods
+// dbLogicPort - Methods
 //
 ////////////////////////////////////////////////////////////////////
 
-const char* dbPowerDomain::getName() const
+const char* dbLogicPort::getName() const
 {
-  _dbPowerDomain* obj = (_dbPowerDomain*) this;
+  _dbLogicPort* obj = (_dbLogicPort*) this;
   return obj->_name;
 }
 
-void dbPowerDomain::setPowerSwitch(dbPowerSwitch* power_switch)
+const char* dbLogicPort::getDirection() const
 {
-  _dbPowerDomain* obj = (_dbPowerDomain*) this;
-
-  obj->_power_switch = power_switch->getImpl()->getOID();
+  _dbLogicPort* obj = (_dbLogicPort*) this;
+  return obj->direction;
 }
 
-dbPowerSwitch* dbPowerDomain::getPowerSwitch() const
-{
-  _dbPowerDomain* obj = (_dbPowerDomain*) this;
-  if (obj->_power_switch == 0)
-    return NULL;
-  _dbBlock* par = (_dbBlock*) obj->getOwner();
-  return (dbPowerSwitch*) par->_powerswitch_tbl->getPtr(obj->_power_switch);
-}
+// User Code Begin dbLogicPortPublicMethods
 
-void dbPowerDomain::setIsolation(dbIsolation* isolation)
-{
-  _dbPowerDomain* obj = (_dbPowerDomain*) this;
-
-  obj->_isolation = isolation->getImpl()->getOID();
-}
-
-dbIsolation* dbPowerDomain::getIsolation() const
-{
-  _dbPowerDomain* obj = (_dbPowerDomain*) this;
-  if (obj->_isolation == 0)
-    return NULL;
-  _dbBlock* par = (_dbBlock*) obj->getOwner();
-  return (dbIsolation*) par->_isolation_tbl->getPtr(obj->_isolation);
-}
-
-// User Code Begin dbPowerDomainPublicMethods
-dbPowerDomain* dbPowerDomain::create(dbBlock* block,
-                                     const char* name)
+dbLogicPort* dbLogicPort::create(dbBlock* block,
+                                 const char* name,
+                                 const char* direction)
 {
   _dbBlock* _block = (_dbBlock*) block;
-  if (_block->_powerdomain_hash.hasMember(name))
+  if (_block->_logicport_hash.hasMember(name))
     return nullptr;
-  _dbPowerDomain* pd = _block->_powerdomain_tbl->create();
-  pd->_name = strdup(name);
-  ZALLOCATED(pd->_name);
+  _dbLogicPort* lp = _block->_logicport_tbl->create();
+  lp->_name = strdup(name);
+  ZALLOCATED(lp->_name);
 
-  _block->_powerdomain_hash.insert(pd);
-  return (dbPowerDomain*) pd;
+  lp->direction = strdup(direction);
+
+  _block->_logicport_hash.insert(lp);
+  return (dbLogicPort*) lp;
 }
 
-void dbPowerDomain::destroy(dbPowerDomain* pd)
+void dbLogicPort::destroy(dbLogicPort* lp)
 {
   // TODO
 }
 
-void dbPowerDomain::addElement(const char* element){
-  _dbPowerDomain* obj = (_dbPowerDomain*) this;
-  obj->_elements.push_back(std::string(element));
-}
-
-std::vector<std::string> dbPowerDomain::getElements(){
-  _dbPowerDomain* obj = (_dbPowerDomain*) this;
-  return obj->_elements; 
-}
-
-// User Code End dbPowerDomainPublicMethods
+// User Code End dbLogicPortPublicMethods
 }  // namespace odb
    // Generator Code End Cpp
