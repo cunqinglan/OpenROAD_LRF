@@ -34,62 +34,79 @@
 #pragma once
 
 #include <algorithm>
+#include <fstream>
 #include <iostream>
+#include <map>
 #include <random>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "SimulatedAnnealingCore.h"
 #include "db_sta/dbReadVerilog.hh"
 #include "db_sta/dbSta.hh"
+#include "object.h"
 #include "odb/db.h"
+#include "odb/dbTypes.h"
+#include "sta/Bfs.hh"
+#include "sta/Graph.hh"
+#include "sta/Liberty.hh"
 #include "sta/Sta.hh"
 #include "utl/Logger.h"
 
 namespace mpl {
 
-class MacroPlacer2
+// Class SimulatedAnnealingCore is a base class
+// It will have two derived classes:
+// 1) SACoreHardMacro : SA for hard macros.  It will be called by ShapeEngine
+// and PinAlignEngine 2) SACoreSoftMacro : SA for soft macros.  It will be
+// called by MacroPlaceEngine
+class SACoreHardMacro : public SimulatedAnnealingCore<HardMacro>
 {
  public:
-  void init(ord::dbNetwork* network,
-            odb::dbDatabase* db,
-            sta::dbSta* sta,
-            utl::Logger* logger);
+  SACoreHardMacro(){};
+  SACoreHardMacro(float outline_width,
+                  float outline_height,  // boundary constraints
+                  const std::vector<HardMacro>& macros,
+                  // weight for different penalty
+                  float area_weight,
+                  float outline_weight,
+                  float wirelength_weight,
+                  float guidance_weight,
+                  float fence_weight,  // each blockage will be modeled by a
+                                       // macro with fences
+                  // probability of each action
+                  float pos_swap_prob,
+                  float neg_swap_prob,
+                  float double_swap_prob,
+                  float exchange_prob,
+                  float flip_prob,
+                  // Fast SA hyperparameter
+                  float init_prob,
+                  int max_num_step,
+                  int num_perturb_per_step,
+                  int k,
+                  int c,
+                  unsigned seed = 0,
+                  utl::Logger* logger_ = nullptr);
 
-  bool place(const int max_num_macro,
-             const int min_num_macro,
-             const int max_num_inst,
-             const int min_num_inst,
-             const float tolerance,
-             const int max_num_level,
-             const float coarsening_ratio,
-             const int num_bundled_ios,
-             const int large_net_threshold,
-             const int signature_net_threshold,
-             const float halo_width,
-             const float fence_lx,
-             const float fence_ly,
-             const float fence_ux,
-             const float fence_uy,
-             const float area_weight,
-             const float outline_weight,
-             const float wirelength_weight,
-             const float guidance_weight,
-             const float fence_weight,
-             const float boundary_weight,
-             const float notch_weight,
-             const float pin_access_th,
-             const float target_util,
-             const float target_dead_space,
-             const float min_ar,
-             const int snap_layer,
-             const char* report_directory);
+  // Initialize the SA worker
+  void Initialize();
+  void FillDeadSpace() {}
+  // print results
+  void PrintResults();
 
  private:
-  ord::dbNetwork* network_ = nullptr;
-  sta::dbSta* sta_ = nullptr;
-  odb::dbDatabase* db_ = nullptr;
-  utl::Logger* logger_ = nullptr;
+  float CalNormCost();
+  void CalPenalty();
+  void Shrink() {}
+
+  void Perturb();
+  void Restore();
+  // actions used
+  void FlipMacro();  // flip hard macros
+
+  float flip_prob_ = 0.0;
 };
 
 }  // namespace mpl
