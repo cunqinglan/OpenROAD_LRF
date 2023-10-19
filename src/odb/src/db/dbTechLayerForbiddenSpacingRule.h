@@ -1,7 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 // BSD 3-Clause License
 //
-// Copyright (c) 2023, Precision Innovations Inc.
+// Copyright (c) 2023, The Regents of the University of California
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,50 +30,45 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
+// Generator Code Begin Header
 #pragma once
 
-#include <iostream>
-#include <vector>
+#include "dbCore.h"
+#include "odb.h"
 
-#include "odb/db.h"
+namespace odb {
+class dbIStream;
+class dbOStream;
+class dbDiff;
+class _dbDatabase;
 
-namespace pdn {
-
-class PdnGen;
-class VoltageDomain;
-
-class SRoute
+class _dbTechLayerForbiddenSpacingRule : public _dbObject
 {
  public:
-  SRoute(PdnGen* pdngen, odb::dbDatabase* db, utl::Logger* logger);
+  _dbTechLayerForbiddenSpacingRule(_dbDatabase*,
+                                   const _dbTechLayerForbiddenSpacingRule& r);
+  _dbTechLayerForbiddenSpacingRule(_dbDatabase*);
+  ~_dbTechLayerForbiddenSpacingRule();
 
-  void createSrouteWires(const char* net_name,
-                         const char* outer_net_name,
-                         odb::dbTechLayer* layer0,
-                         odb::dbTechLayer* layer1,
-                         int cut_pitch_x,
-                         int cut_pitch_y,
-                         const std::vector<odb::dbTechViaGenerateRule*>& vias,
-                         const std::vector<odb::dbTechVia*>& techvias,
-                         int max_rows,
-                         int max_columns,
-                         const std::vector<odb::dbTechLayer*>& ongrid,
-                         const std::vector<int>& metalwidths,
-                         const std::vector<int>& metalspaces,
-                         const std::vector<odb::dbInst*>& insts);
+  bool operator==(const _dbTechLayerForbiddenSpacingRule& rhs) const;
+  bool operator!=(const _dbTechLayerForbiddenSpacingRule& rhs) const
+  {
+    return !operator==(rhs);
+  }
+  bool operator<(const _dbTechLayerForbiddenSpacingRule& rhs) const;
+  void differences(dbDiff& diff,
+                   const char* field,
+                   const _dbTechLayerForbiddenSpacingRule& rhs) const;
+  void out(dbDiff& diff, char side, const char* field) const;
 
- private:
-  void addSrouteInst(odb::dbNet* net,
-                     odb::dbInst* inst,
-                     const char* iterm_name,
-                     const std::vector<odb::dbSBox*>& ring);
-  std::vector<odb::dbSBox*> findRingShapes(odb::dbNet* net, uint& Hdy);
-  std::vector<VoltageDomain*> getDomains() const;
-
-  utl::Logger* logger_;
-  PdnGen* pdngen_;
-  odb::dbDatabase* db_;
-  std::vector<std::vector<odb::dbITerm*>> sroute_itermss_;
+  std::pair<int, int> forbidden_spacing_;
+  int width_;
+  int within_;
+  int prl_;
+  int two_edges_;
 };
-
-}  // namespace pdn
+dbIStream& operator>>(dbIStream& stream, _dbTechLayerForbiddenSpacingRule& obj);
+dbOStream& operator<<(dbOStream& stream,
+                      const _dbTechLayerForbiddenSpacingRule& obj);
+}  // namespace odb
+   // Generator Code End Header
