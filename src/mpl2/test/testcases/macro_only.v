@@ -1,5 +1,5 @@
 
-module mp_test1 ( i1, i2, i3, i4, o1, o2, o3, o4 );
+module macro_only ( i1, i2, i3, i4, o1, o2, o3, o4 );
   input i1, i2, i3, i4;
   output o1, o2, o3, o4;
   wire   w1, w2, w3, w4;
