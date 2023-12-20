@@ -1,7 +1,7 @@
 VERSION 5.8 ;
 DIVIDERCHAR "/" ;
 BUSBITCHARS "[]" ;
-DESIGN mp_test1 ;
+DESIGN macro_only ;
 UNITS DISTANCE MICRONS 2000 ;
 DIEAREA ( 0 0 ) ( 900000 900000 ) ;
 ROW ROW_0 FreePDK45_38x28_10R_NP_162NW_34O 9880 8400 N DO 2316 BY 1 STEP 380 0 ;
@@ -339,74 +339,15 @@ TRACKS Y 140 DO 282 STEP 3200 LAYER metal9 ;
 TRACKS X 190 DO 282 STEP 3200 LAYER metal10 ;
 TRACKS Y 140 DO 282 STEP 3200 LAYER metal10 ;
 COMPONENTS 10 ;
-    - U1 HM_100x400_4x4 + FIXED ( 19880 17640 ) N ;
-    - U10 HM_100x100_1x1 + FIXED ( 680040 238280 ) FN ;
-    - U2 HM_100x100_1x1 + FIXED ( 239960 238280 ) N ;
-    - U3 HM_100x100_1x1 + FIXED ( 239960 18480 ) N ;
-    - U4 HM_100x100_1x1 + FIXED ( 239960 677600 ) N ;
-    - U5 HM_100x100_1x1 + FIXED ( 239960 458360 ) N ;
-    - U6 HM_100x400_4x4 + FIXED ( 460040 17640 ) N ;
-    - U7 HM_100x100_1x1 + FIXED ( 679840 458360 ) N ;
-    - U8 HM_100x100_1x1 + FIXED ( 680040 18480 ) FN ;
-    - U9 HM_100x100_1x1 + FIXED ( 680040 677600 ) FN ;
+    - U1 HM_100x400_4x4 ;
+    - U10 HM_100x100_1x1 ;
+    - U2 HM_100x100_1x1 ;
+    - U3 HM_100x100_1x1 ;
+    - U4 HM_100x100_1x1 ;
+    - U5 HM_100x100_1x1 ;
+    - U6 HM_100x400_4x4 ;
+    - U7 HM_100x100_1x1 ;
+    - U8 HM_100x100_1x1 ;
+    - U9 HM_100x100_1x1 ;
 END COMPONENTS
-PINS 8 ;
-    - i1 + NET i1 + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 483980 ) N ;
-    - i2 + NET i2 + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 443660 ) N ;
-    - i3 + NET i3 + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 463820 ) N ;
-    - i4 + NET i4 + DIRECTION INPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 70 423500 ) N ;
-    - o1 + NET o1 + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 899930 483980 ) N ;
-    - o2 + NET o2 + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 899930 443660 ) N ;
-    - o3 + NET o3 + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 899930 423500 ) N ;
-    - o4 + NET o4 + DIRECTION OUTPUT + USE SIGNAL
-      + PORT
-        + LAYER metal3 ( -70 -70 ) ( 70 70 )
-        + PLACED ( 899930 463820 ) N ;
-END PINS
-NETS 23 ;
-    - i1 ( PIN i1 ) ( U1 I1 ) + USE SIGNAL ;
-    - i2 ( PIN i2 ) ( U1 I2 ) + USE SIGNAL ;
-    - i3 ( PIN i3 ) ( U1 I3 ) + USE SIGNAL ;
-    - i4 ( PIN i4 ) ( U1 I4 ) + USE SIGNAL ;
-    - n22 ( U8 I1 ) + USE SIGNAL ;
-    - n32 ( U9 I1 ) + USE SIGNAL ;
-    - n42 ( U10 I1 ) + USE SIGNAL ;
-    - o1 ( PIN o1 ) ( U7 O1 ) + USE SIGNAL ;
-    - o2 ( PIN o2 ) ( U8 O1 ) + USE SIGNAL ;
-    - o3 ( PIN o3 ) ( U9 O1 ) + USE SIGNAL ;
-    - o4 ( PIN o4 ) ( U10 O1 ) + USE SIGNAL ;
-    - w1 ( U2 I1 ) ( U1 O1 ) + USE SIGNAL ;
-    - w11 ( U6 I1 ) ( U2 O1 ) + USE SIGNAL ;
-    - w12 ( U7 I1 ) ( U6 O1 ) + USE SIGNAL ;
-    - w2 ( U3 I1 ) ( U1 O2 ) + USE SIGNAL ;
-    - w21 ( U6 I2 ) ( U3 O1 ) + USE SIGNAL ;
-    - w22 ( U6 O2 ) + USE SIGNAL ;
-    - w3 ( U4 I1 ) ( U1 O3 ) + USE SIGNAL ;
-    - w31 ( U6 I3 ) ( U4 O1 ) + USE SIGNAL ;
-    - w32 ( U6 O3 ) + USE SIGNAL ;
-    - w4 ( U5 I1 ) ( U1 O4 ) + USE SIGNAL ;
-    - w41 ( U6 I4 ) ( U5 O1 ) + USE SIGNAL ;
-    - w42 ( U6 O4 ) + USE SIGNAL ;
-END NETS
 END DESIGN
