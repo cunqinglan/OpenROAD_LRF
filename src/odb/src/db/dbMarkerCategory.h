@@ -1,7 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 // BSD 3-Clause License
 //
-// Copyright (c) 2022, The Regents of the University of California
+// Copyright (c) 2024, The Regents of the University of California
 // All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
@@ -34,56 +34,68 @@
 #pragma once
 
 #include "dbCore.h"
-#include "dbVector.h"
-#include "odb/geom.h"
+#include "dbHashTable.h"
 #include "odb/odb.h"
+// User Code Begin Includes
+#include <boost/property_tree/json_parser.hpp>
+#include <fstream>
+#include <set>
+// User Code End Includes
 
 namespace odb {
 class dbIStream;
 class dbOStream;
 class dbDiff;
 class _dbDatabase;
+class _dbMarker;
+template <class T>
+class dbTable;
+class _dbMarkerCategory;
 
-class _dbGDSElement : public _dbObject
+class _dbMarkerCategory : public _dbObject
 {
  public:
-  _dbGDSElement(_dbDatabase*, const _dbGDSElement& r);
-  _dbGDSElement(_dbDatabase*);
+  _dbMarkerCategory(_dbDatabase*, const _dbMarkerCategory& r);
+  _dbMarkerCategory(_dbDatabase*);
 
-  ~_dbGDSElement() = default;
+  ~_dbMarkerCategory();
 
-  bool operator==(const _dbGDSElement& rhs) const;
-  bool operator!=(const _dbGDSElement& rhs) const { return !operator==(rhs); }
-  bool operator<(const _dbGDSElement& rhs) const;
+  bool operator==(const _dbMarkerCategory& rhs) const;
+  bool operator!=(const _dbMarkerCategory& rhs) const
+  {
+    return !operator==(rhs);
+  }
+  bool operator<(const _dbMarkerCategory& rhs) const;
   void differences(dbDiff& diff,
                    const char* field,
-                   const _dbGDSElement& rhs) const;
+                   const _dbMarkerCategory& rhs) const;
   void out(dbDiff& diff, char side, const char* field) const;
+  dbObjectTable* getObjectTable(dbObjectType type);
   // User Code Begin Methods
+  using PropertyTree = boost::property_tree::ptree;
+  bool isTopCategory() const;
+  bool hasMaxMarkerLimit() const;
 
-  virtual std::string to_string()
-  {
-    std::string str = "LAYER " + std::to_string(_layer) + " DATATYPE "
-                      + std::to_string(_datatype) + " XY [";
-    for (int i = 0; i < _xy.size(); i++) {
-      str += std::to_string(_xy[i].x()) + "," + std::to_string(_xy[i].y());
-      if (i != _xy.size() - 1) {
-        str += ",";
-      }
-    }
-    return str + "]";
-  }
-
-  _dbGDSElement() = default;
-
+  _dbBlock* getBlock() const;
+  void populatePTree(PropertyTree& tree) const;
+  void fromPTree(const PropertyTree& tree);
+  static void writeJSON(std::ofstream& report,
+                        const std::set<_dbMarkerCategory*>& categories);
+  void writeTR(std::ofstream& report) const;
   // User Code End Methods
 
-  int16_t _layer;
-  int16_t _datatype;
-  std::vector<Point> _xy;
-  std::vector<std::pair<std::int16_t, std::string>> _propattr;
+  char* _name;
+  std::string description_;
+  std::string source_;
+  int max_markers_;
+
+  dbTable<_dbMarker>* marker_tbl_;
+
+  dbTable<_dbMarkerCategory>* categories_tbl_;
+  dbHashTable<_dbMarkerCategory> categories_hash_;
+  dbId<_dbMarkerCategory> _next_entry;
 };
-dbIStream& operator>>(dbIStream& stream, _dbGDSElement& obj);
-dbOStream& operator<<(dbOStream& stream, const _dbGDSElement& obj);
+dbIStream& operator>>(dbIStream& stream, _dbMarkerCategory& obj);
+dbOStream& operator<<(dbOStream& stream, const _dbMarkerCategory& obj);
 }  // namespace odb
    // Generator Code End Header
