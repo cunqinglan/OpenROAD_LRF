@@ -52104,7 +52104,7 @@ COMPONENTS 51385 ;
     - u_aes_2/us33/_1470_ sky130_fd_sc_hd__nor4_1 + PLACED ( 316020 568480 ) FN ;
     - u_aes_2/us33/_1471_ sky130_fd_sc_hd__nand3_1 + PLACED ( 315560 557600 ) FN ;
 END COMPONENTS
-PINS 394 ;
+PINS 395 ;
     - clk + NET clk + DIRECTION INPUT + USE SIGNAL
       + PORT
         + LAYER met3 ( -400 -150 ) ( 400 150 )
@@ -52649,6 +52649,10 @@ PINS 394 ;
       + PORT
         + LAYER met2 ( -70 -242 ) ( 70 243 )
         + PLACED ( 3910 242 ) N ;
+    - power_down_aes_2 + NET power_down_aes_2 + DIRECTION INPUT + USE SIGNAL
+      + PORT
+        + LAYER met2 ( -70 -242 ) ( 70 243 )
+        + PLACED ( 4830 242 ) N ;
     - rst + NET rst + DIRECTION INPUT + USE SIGNAL
       + PORT
         + LAYER met3 ( -400 -150 ) ( 400 150 )
@@ -53682,7 +53686,7 @@ PINS 394 ;
         + LAYER met3 ( -400 -150 ) ( 400 150 )
         + PLACED ( 400 805460 ) N ;
 END PINS
-NETS 51670 ;
+NETS 51671 ;
     - _0000_ ( _1313_ B ) ( _1280_ Y ) + USE SIGNAL ;
     - _0001_ ( _1285_ A ) ( _1281_ Y ) + USE SIGNAL ;
     - _0002_ ( _1285_ B ) ( _1282_ Y ) + USE SIGNAL ;
@@ -54881,6 +54885,7 @@ NETS 51670 ;
       ( u_aes_1/_2402_ D ) ( u_aes_1/_1008_ A ) ( u_aes_0/u0/r0/_040_ A ) ( u_aes_0/u0/_339_ A ) ( u_aes_0/_2402_ D ) ( u_aes_0/_1008_ A ) + USE SIGNAL ;
     - pd_request ( PIN pd_request ) + USE SIGNAL ;
     - power_down_aes_1 ( PIN power_down_aes_1 ) + USE SIGNAL ;
+    - power_down_aes_2 ( PIN power_down_aes_2 ) + USE SIGNAL ;
     - rst ( PIN rst ) ( u_aes_2/_2013_ B1 ) ( u_aes_2/_2010_ B1_N ) ( u_aes_2/_2007_ B1 ) ( u_aes_2/_2005_ D_N ) ( u_aes_1/_2013_ B1 ) ( u_aes_1/_2010_ B1_N )
       ( u_aes_1/_2007_ B1 ) ( u_aes_1/_2005_ D_N ) ( u_aes_0/_2013_ B1 ) ( u_aes_0/_2010_ B1_N ) ( u_aes_0/_2007_ B1 ) ( u_aes_0/_2005_ D_N ) + USE SIGNAL ;
     - text_in[0] ( PIN text_in[0] ) ( u_aes_2/_1864_ A1 ) ( u_aes_1/_1864_ A1 ) ( u_aes_0/_1864_ A1 ) + USE SIGNAL ;
