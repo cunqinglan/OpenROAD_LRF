@@ -367,7 +367,7 @@ LogicCut LogicExtractorFactory::BuildLogicCut(AbcLibrary& abc_network)
 {
   open_sta_->ensureGraph();
   open_sta_->ensureLevelized();
-
+  // Backward BFS from the endpoints, collecting vertices in fanin cones.
   std::vector<sta::Vertex*> cut_vertices = GetCutVertices(abc_network);
   // Dealing with constant cells 1/0 and disabled timing paths.
   cut_vertices = AddMissingVertices(cut_vertices, abc_network);

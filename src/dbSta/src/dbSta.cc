@@ -199,16 +199,22 @@ dbSta::dbSta(Tcl_Interp* tcl_interp, odb::dbDatabase* db, utl::Logger* logger)
 {
   std::call_once(init_sta_flag, []() { sta::initSta(); });
   initVars(tcl_interp, db, logger);
-  if (!sta::Sta::sta()) {
-    sta::Sta::setSta(this);
+  if (!sta::IncreSta::increSta()) {
+    sta::IncreSta::setIncreSta(this);
   }
+  // if (!sta::Sta::sta()) {
+  //   sta::Sta::setSta(this);
+  // }
 }
 
 dbSta::~dbSta()
 {
-  if (sta::Sta::sta() == this) {
-    sta::Sta::setSta(nullptr);
+  if (sta::IncreSta::increSta() == this) {
+    sta::IncreSta::setIncreSta(nullptr);
   }
+  // if (sta::Sta::sta() == this) {
+  //   sta::Sta::setSta(nullptr);
+  // }
 }
 
 void dbSta::initVars(Tcl_Interp* tcl_interp,
@@ -230,7 +236,7 @@ void dbSta::initVars(Tcl_Interp* tcl_interp,
 
 void dbSta::updateComponentsState()
 {
-  Sta::updateComponentsState();
+  IncreSta::updateComponentsState();
   for (auto& state : sta_states_) {
     state->copyState(this);
   }

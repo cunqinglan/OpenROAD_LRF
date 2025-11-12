@@ -194,11 +194,21 @@ class Design
   // use cases and is not ordinarily required.
   static odb::dbDatabase* createDetachedDb();
 
+  /////////////////////////////////////////////////////////////
+  // Functions for LR sizing
+  /////////////////////////////////////////////////////////////
+  std::vector<odb::dbInst*> sortedInstances();
+  /////////////////////////////////////////////////////////////
+  // End functions for LR sizing
+  /////////////////////////////////////////////////////////////
+
  private:
   sta::dbSta* getSta();
   sta::LibertyCell* getLibertyCell(odb::dbMaster* master);
 
   Tech* tech_;
+
+  std::vector<odb::dbInst*> sorted_instances_;
 
   // Single-thread access to the interpreter in evalTclString
   static std::mutex interp_mutex;

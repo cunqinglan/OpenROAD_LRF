@@ -26,6 +26,7 @@
 #include "sta/TimingArc.hh"
 #include "sta/TimingRole.hh"
 #include "utl/Logger.h"
+#include "sta/DcalcAnalysisPt.hh"
 
 namespace ord {
 
@@ -423,4 +424,84 @@ std::vector<odb::dbMaster*> Timing::equivCells(odb::dbMaster* master)
   }
   return master_seq;
 }
+
+//////////////////////////////////////////
+// Functions for LR sizing
+//////////////////////////////////////////
+float 
+Timing::getTns(bool minmax) {
+  // minmax: true for min, false for max
+  sta::dbSta* sta = getSta();
+  if (minmax) {
+    float tns = sta->totalNegativeSlack(sta::MinMax::min());
+    return tns;
+  }
+  float tns = sta->totalNegativeSlack(sta::MinMax::max());
+  return tns;
+}
+
+float
+Timing::getLmDelaySum(odb::dbInst* inst, const sta::MinMax *minmax) {
+  sta::dbSta* sta = getSta();
+  sta::dbNetwork* network = sta->getDbNetwork();
+  sta::Instance* sta_inst = network->dbToSta(inst);
+  float delay_lambda_sum = 0.0;
+  sta->delayLmSum(sta_inst, minmax, delay_lambda_sum);
+  return delay_lambda_sum;
+}
+
+bool
+Timing::checkErcViolations(odb::dbInst* inst, sta::Corner* corner) {
+  bool violated = false;
+  sta::dbSta* sta = getSta();
+  sta::dbNetwork* network = sta->getDbNetwork();
+  sta::Instance* sta_inst = network->dbToSta(inst);
+
+  sta::InstancePinIterator* pin_iterator = sta->network()->pinIterator(sta_inst);
+  while (pin_iterator->hasNext()) {
+    sta::Pin* pin = pin_iterator->next();
+    // Check max slew
+    float limit = sta->maxInputSlew(pin, corner);
+    for (const sta::RiseFall* rf : sta::RiseFall::range()) {
+      if (network->isLoad(pin)) {
+        sta::Vertex *vertex = sta->graph()->pinLoadVertex(pin);
+        const sta::DcalcAnalysisPt* dcalc_ap = corner->findDcalcAnalysisPt(sta::MinMax::max());
+        float actual_slew = sta->graph()->slew(vertex, rf, dcalc_ap->index());
+        if (actual_slew > limit) {
+          violated = true;
+          printf("ERC Violation: Instance %s Pin %s exceeds max slew limit %.3f with actual slew %.3f\n",
+                  inst->getName(),
+                  network->name(pin),
+                  limit,
+                  actual_slew);
+                  fflush(stdout);
+        }
+      }
+    }
+    // Check max capacitance
+    if (network->isDriver(pin)) {
+      const sta::Corner* corner1 = nullptr;
+      float cap1, max_cap1, cap_slack1;
+      const sta::RiseFall* rf;
+      sta->checkCapacitance(pin, corner, sta::MinMax::max(), corner1, rf, cap1, max_cap1, cap_slack1);
+      if (cap_slack1 < 0.0) {
+        violated = true;
+        printf("ERC Violation: Instance %s Pin %s exceeds max capacitance limit %.3f with actual capacitance %.3f\n",
+                inst->getName(),
+                network->name(pin),
+                max_cap1,
+                cap1);
+                fflush(stdout);
+      }
+    }
+  }
+  return violated;
+}
+
+void 
+Timing::lmUpdate() {
+  sta::dbSta* sta = getSta();
+  sta->lmUpdate();
+}
+
 }  // namespace ord
