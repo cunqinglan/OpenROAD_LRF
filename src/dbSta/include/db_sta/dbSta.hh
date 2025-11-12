@@ -11,6 +11,7 @@
 #include "odb/dbBlockCallBackObj.h"
 #include "odb/dbDatabaseObserver.h"
 #include "sta/Sta.hh"
+#include "sta/IncreSta.hh"
 
 namespace ord {
 class OpenRoad;
@@ -121,7 +122,7 @@ class BufferUseAnalyser
   std::unique_ptr<sta::PatternMatch> clkbuf_pattern_;
 };
 
-class dbSta : public Sta, public odb::dbDatabaseObserver
+class dbSta : public IncreSta, public odb::dbDatabaseObserver
 {
  public:
   dbSta(Tcl_Interp* tcl_interp, odb::dbDatabase* db, utl::Logger* logger);

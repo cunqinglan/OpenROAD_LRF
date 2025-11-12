@@ -390,9 +390,11 @@ AbcLibrary AbcLibraryFactory::Build()
   std::vector<sta::LibertyCell*> liberty_cells
       = GetLibertyCellsFromCorner(corner_);
 
+  // Copy cell data (pins, leakage power, area, output and input pins)
   PopulateAbcSclLibFromSta(
       abc_library, liberty_cells, default_library->units());
 
+  // Finalize the library for use.
   abc::Abc_SclLibNormalize(abc_library);
   abc::Abc_SclHashCells(abc_library);
   abc::Abc_SclLinkCells(abc_library);

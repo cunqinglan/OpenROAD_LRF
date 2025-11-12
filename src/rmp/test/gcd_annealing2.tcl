@@ -26,8 +26,16 @@ report_checks
 report_wns
 report_tns
 
-puts "-- After --\n"
+# puts "-- repair timing --\n"
+# global_placement
+# repair_timing
+# report_timing_histogram
+# report_cell_usage
+# report_checks
+# report_wns
+# report_tns
 
+puts "-- After --\n"
 resynth_annealing -corner fast -temp 1e-10
 report_timing_histogram
 report_cell_usage

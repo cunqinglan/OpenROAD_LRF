@@ -82,6 +82,20 @@ class Timing
   void makeEquivCells();
   std::vector<odb::dbMaster*> equivCells(odb::dbMaster* master);
 
+  /////////////////////////////////////////////////////////////
+  // Functions for LR sizing
+  /////////////////////////////////////////////////////////////
+  float getTns(bool minmax = false);
+
+  float getLmDelaySum(odb::dbInst* inst, const sta::MinMax *minmax = sta::MinMax::max());
+    
+  bool checkErcViolations(odb::dbInst* inst, sta::Corner* corner);
+
+  void lmUpdate();
+  /////////////////////////////////////////////////////////////
+  // End functions for LR sizing
+  /////////////////////////////////////////////////////////////
+
  private:
   sta::dbSta* getSta();
   const sta::MinMax* getMinMax(MinMax type);

@@ -320,6 +320,7 @@ void Restructure::postABC(float worst_slack)
   // Leave the parasitics up to date.
   estimate_parasitics_->estimateWireParasitics();
 }
+// Get end points with negative slacks
 void Restructure::getEndPoints(sta::PinSet& ends,
                                bool area_mode,
                                unsigned max_depth)

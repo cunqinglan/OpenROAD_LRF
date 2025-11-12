@@ -42,6 +42,8 @@ odb::dbBlock* Design::getBlock()
 
 void Design::readVerilog(const std::string& file_name)
 {
+  // DB will change; clear any cached instance list
+  sorted_instances_.clear();
   auto chip = tech_->getDB()->getChip();
   if (chip && chip->getBlock()) {
     getLogger()->error(utl::ORD, 36, "A block already exists in the db");
@@ -56,6 +58,8 @@ void Design::readDef(const std::string& file_name,
                      bool incremental          // = false
 )
 {
+  // DB will change; clear any cached instance list
+  sorted_instances_.clear();
   if (floorplan_init && incremental) {
     getLogger()->error(utl::ORD,
                        101,
@@ -75,16 +79,22 @@ void Design::readDef(const std::string& file_name,
 
 void Design::link(const std::string& design_name)
 {
+  // linking may change the working db/design; clear cache
+  sorted_instances_.clear();
   getOpenRoad()->linkDesign(design_name.c_str(), false);
 }
 
 void Design::readDb(std::istream& stream)
 {
+  // DB will change; clear any cached instance list
+  sorted_instances_.clear();
   getOpenRoad()->readDb(stream);
 }
 
 void Design::readDb(const std::string& file_name)
 {
+  // DB will change; clear any cached instance list
+  sorted_instances_.clear();
   getOpenRoad()->readDb(file_name.c_str());
 }
 
@@ -350,5 +360,45 @@ odb::dbDatabase* Design::createDetachedDb()
   db->setLogger(app->getLogger());
   return db;
 }
+
+/////////////////////////////////////////////////////////////
+// Functions for LR sizing
+/////////////////////////////////////////////////////////////
+std::vector<odb::dbInst*> Design::sortedInstances()
+{
+  // Note: returns a Python-friendly container via SWIG std_vector wrapper
+  // or a typemap; see Design.i for vector exposure.
+  printf("Design::sortedInstances called\n");
+  fflush(stdout);
+  sta::dbSta* sta = getSta();
+  sta->searchPreamble();
+  sta::dbNetwork* network = sta->getDbNetwork();
+
+  sta::InstanceSeq &sorted_instances = sta->getSortedInstances();
+  std::vector<odb::dbInst*> instances;
+  instances.reserve(sorted_instances.size());
+  for (auto* inst : sorted_instances) {
+    odb::dbInst* db_inst = network->staToDb(inst);
+    if (db_inst == nullptr) {
+      // STA instance has no DB mapping; skip safely
+      printf("Warning: staToDb returned nullptr for an instance %s\n",
+             network->name(inst));
+      continue;
+    }
+    odb::dbMaster* master = db_inst->getMaster();
+    if (master) {
+      instances.push_back(db_inst);
+    }
+  }
+  // Cache the result so subsequent calls don't recompute unless the
+  // database/design changes (see places that clear the cache above).
+  sorted_instances_ = instances;
+  return sorted_instances_;
+}
+
+
+/////////////////////////////////////////////////////////////
+// End functions for LR sizing
+/////////////////////////////////////////////////////////////
 
 }  // namespace ord
