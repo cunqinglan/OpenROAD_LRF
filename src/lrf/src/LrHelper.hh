@@ -6,31 +6,28 @@
 
 #include "lrf/LrfClass.hh"
 #include "sta/SearchPred.hh"
+#include "db_sta/dbSta.hh"
 
 
-namespace lrf
-{
-class Graph;
-class Vertex;
-class Edge;
-class Sta;
-class SortVertexVisitor;
+namespace lrf {
+using namespace sta;
+
+
 
 typedef std::map<DcalcAnalysisPt const*, LMValue> DcalcAPToLMValueMap;
 typedef std::map<DcalcAnalysisPt const*, LMValueSeq> DcalcAPToLMValueSeqMap;
 
-using sta::SearchPredNonLatch2;
-using sta::BfsFwdIterator;
-
-class LRHelper: public dbStaState
+class LRHelper: public StaState
 {
 public:
-  LRHelper(dbStaState *sta);
+  LRHelper(StaState *sta);
   ~LRHelper();
 
-  VertexSeq &ensureSorted();
-  bool KKTProjection();
-  void updateAllEdgeLms(dbSta *sta);
+  virtual void copyState(const StaState *sta);
+
+  VertexSeq &ensureSorted(Sta *sta);
+  bool KKTProjection(Sta *sta);
+  void updateAllEdgeLms(Sta *sta);
   void enqueueVertex(Vertex *vertex);
 
 protected:
@@ -47,16 +44,17 @@ protected:
   void topoSort(LRHelper *lr_helper, VertexSeq &sorted_vertices);
   void updateEdgeLms(Edge *edge, Sta *sta);
   void updateArcLms(Edge *edge, TimingArc *arc, Sta *sta);
+  void BFSSort();
+  void levelSort(Sta *sta);
 
   SearchPredNonLatch2* search_non_latch_pred_;
   BfsFwdIterator* iter_;
   VertexSeq sorted_lm_vertices_;
-  bool levelized_;
+  bool levelized_valid_;
 
-  
 private:
-  friend class sta::Graph;
+  friend class Graph;
   friend class SortVertexVisitor;
 };
 
-} // namespace sta
+} // namespace lrf

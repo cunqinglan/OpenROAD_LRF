@@ -46,6 +46,8 @@ target_link_libraries(est_lib
     OpenSTA
     dbSta_lib
     grt_lib
+    # Ensure spef writer (from dbSta) and any lrf symbols are available
+    lrf_lib
     utl_lib
 )
 
