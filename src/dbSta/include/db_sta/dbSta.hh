@@ -11,7 +11,6 @@
 #include "odb/dbBlockCallBackObj.h"
 #include "odb/dbDatabaseObserver.h"
 #include "sta/Sta.hh"
-#include "sta/IncreSta.hh"
 
 namespace ord {
 class OpenRoad;
@@ -19,6 +18,10 @@ class OpenRoad;
 
 namespace utl {
 class Logger;
+}
+
+namespace lrf {
+class IncreSta;
 }
 
 namespace sta {
@@ -122,7 +125,7 @@ class BufferUseAnalyser
   std::unique_ptr<sta::PatternMatch> clkbuf_pattern_;
 };
 
-class dbSta : public IncreSta, public odb::dbDatabaseObserver
+class dbSta : public Sta, public odb::dbDatabaseObserver
 {
  public:
   dbSta(Tcl_Interp* tcl_interp, odb::dbDatabase* db, utl::Logger* logger);
@@ -176,6 +179,10 @@ class dbSta : public IncreSta, public odb::dbDatabaseObserver
   // Creates a dbSta instance for the given dbBlock using the same context as
   // this dbSta instance (e.g. TCL interpreter, units, etc.)
   std::unique_ptr<dbSta> makeBlockSta(odb::dbBlock* block);
+
+  // Create incremental STA engine
+  void makeIncreSta();
+  lrf::IncreSta* getIncreSta() { return incre_sta_; }
 
   dbDatabase* db() { return db_; }
   dbNetwork* getDbNetwork() { return db_network_; }
@@ -246,6 +253,8 @@ class dbSta : public IncreSta, public odb::dbDatabaseObserver
   dbStaReport* db_report_ = nullptr;
   std::unique_ptr<dbStaCbk> db_cbk_;
   std::set<dbStaState*> sta_states_;
+
+  lrf::IncreSta* incre_sta_ = nullptr;
 
   std::unique_ptr<BufferUseAnalyser> buffer_use_analyser_;
 };

@@ -2483,6 +2483,7 @@ void MBFF::ReadPaths()
                                                    20,
                                                    num_paths_,
                                                    true,
+                                                   false, /* unique_edges */
                                                    -sta::INF,
                                                    sta::INF,
                                                    true,

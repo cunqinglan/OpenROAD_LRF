@@ -1,20 +1,48 @@
 
-#include "sta/Bfs.hh"
+// Simplified helper implementation for initial lrf build.
+#include "lrf/LrfClass.hh"
 #include "LrHelper.hh"
-#include "SearchPred.hh"
+#include "sta/DcalcAnalysisPt.hh"
+#include "sta/TimingArc.hh"
+#include "sta/Graph.hh"
+#include "sta/Sta.hh"
+#include "sta/Network.hh"
+#include "sta/Bfs.hh"
 #include "search/Levelize.hh"
+#include "sta/SearchPred.hh"
 #include "sta/Corner.hh"
-#include "DcalcAnalysisPt.hh"
-#include "TimingArc.hh"
-#include "VertexVisitor.hh"
-#include "Sta.hh"
-
+#include "sta/TimingRole.hh"
 
 namespace lrf {
-using sta::ClockEdge;
-using sta::VertexVisitor;
+using namespace sta;
 
-static const sta::ClockEdge *clk_edge_wildcard = reinterpret_cast<ClockEdge*>(1);
+static const ClockEdge *clk_edge_wildcard = reinterpret_cast<ClockEdge*>(1);
+
+class VertexLevelLess
+{
+ public:
+  VertexLevelLess(const Network* network);
+  bool operator()(const Vertex* vertex1, const Vertex* vertex2) const;
+
+ protected:
+  const Network* network_;
+};
+
+VertexLevelLess::VertexLevelLess(const Network* network) : network_(network)
+{
+}
+
+bool VertexLevelLess::operator()(const Vertex* vertex1,
+                                 const Vertex* vertex2) const
+{
+  Level level1 = vertex1->level();
+  Level level2 = vertex2->level();
+  return (level1 < level2)
+         || (level1 == level2
+             // Break ties for stable results.
+             && stringLess(network_->pathName(vertex1->pin()),
+                           network_->pathName(vertex2->pin())));
+}
 
 //////////////////////////////////////////////////////////////////////
 // SortVertexVisitor (define before use)
@@ -55,11 +83,11 @@ SortVertexVisitor::copy() const
 //////////////////////////////////////////////////////////////////////
 // LRHelper
 
-LRHelper::LRHelper(sta* sta) :
+LRHelper::LRHelper(StaState* sta) :
   StaState(sta),
   search_non_latch_pred_(new SearchPredNonLatch2(sta)),
   iter_(new BfsFwdIterator(BfsIndex::topo, search_non_latch_pred_, sta)),
-  levelized_(false)
+  levelized_valid_(false)
 {
 }
 
@@ -68,11 +96,36 @@ LRHelper::~LRHelper() {
   delete iter_;
 }
 
+void
+LRHelper::copyState(const StaState *sta) {
+  StaState::copyState(sta);
+  // Notify sub-components.
+  iter_->copyState(sta);
+}
+
 VertexSeq &
-LRHelper::ensureSorted() {
-  if (levelized_)
-    return sorted_lm_vertices_;
-  
+LRHelper::ensureSorted(Sta *sta) {
+  sta->ensureLevelized();
+  copyState(sta);
+  levelSort(sta);
+  return sorted_lm_vertices_;
+}
+
+void
+LRHelper::levelSort(Sta *sta) {
+  sta->ensureLevelized();
+  sorted_lm_vertices_.clear();
+  VertexIterator iter(sta->graph());
+  while (iter.hasNext()) {
+    Vertex *vertex = iter.next();
+    sorted_lm_vertices_.push_back(vertex);
+  }
+  sort(sorted_lm_vertices_, VertexLevelLess(sta->network()));
+}
+
+void
+LRHelper::BFSSort() {
+  sorted_lm_vertices_.clear();
   levelize_->ensureLevelized();
   iter_->clear();
 
@@ -83,17 +136,16 @@ LRHelper::ensureSorted() {
     iter_->enqueue(root);
   }
   iter_->visit(max_level, &visitor);
-  levelized_ = true;
-  return sorted_lm_vertices_;
+  levelized_valid_ = true;
 }
 
 // KKTProjection performs the Karush-Kuhn-Tucker projection step.
 bool
-LRHelper::KKTProjection() {
+LRHelper::KKTProjection(Sta *sta) {
   printf("LRHelper::KKTProjection()\n");
   fflush(stdout);
   // Ensure vertices are sorted in topological order
-  const VertexSeq &sorted_vertices = ensureSorted();
+  const VertexSeq &sorted_vertices = ensureSorted(sta);
 
   // Map from analysis point to in LM sums of early/late
   DcalcAPToLMValueSeqMap ap_lm_seq_map;
@@ -107,6 +159,9 @@ LRHelper::KKTProjection() {
        vertex_it != sorted_vertices.rend(); ++vertex_it) {
     in_sum_index--;
     Vertex *vertex = *vertex_it;
+    if (vertex->isRoot()) {
+      continue;
+    }
     LMValueSeq out_lm_sums = computeOutLmSum(vertex);
     distributeLmOutToIn(vertex, out_lm_sums,
                         ap_lm_seq_map, in_sum_index);
@@ -133,6 +188,9 @@ LRHelper::checkKKTForAllVertices() {
       VertexOutEdgeIterator out_edge_iter(*vertex_it, graph_);
       while (out_edge_iter.hasNext()) {
         Edge *out_edge = out_edge_iter.next();
+        if (out_edge->role()->isTimingCheck()) {
+          continue;
+        }
         // printf("LRHelper::checkKKTForAllVertices: vertex %s processing out edge %s\n",
         //        (*vertex_it)->to_string(graph_).c_str(),
         //        out_edge->to_string(graph_).c_str());
@@ -160,6 +218,9 @@ LRHelper::checkKKTForAllVertices() {
       size_t in_edge_count = 0;
       while (in_edge_iter.hasNext()) {
         Edge *in_edge = in_edge_iter.next();
+        if (in_edge->role()->isTimingCheck()) {
+          continue;
+        }
         LMValue const *lms = in_edge->arcLms();
         // printf("LRHelper::checkKKTForAllVertices: vertex %s processing in edge %s\n",
         //        (*vertex_it)->to_string(graph_).c_str(),
@@ -200,14 +261,24 @@ LRHelper::distributeLmOutToIn(Vertex *vertex,
   VertexInEdgeIterator in_edge_iter(vertex, graph_);
   while (in_edge_iter.hasNext()) {
     Edge *in_edge = in_edge_iter.next();
+    if (in_edge->role()->isTimingCheck()) {
+      continue;
+    }
     LMValue *lms = in_edge->arcLms();
     for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
       const size_t ap_index = dcalc_ap->index();
       LMValue out_lm_sum = out_lm_sums[ap_index];
       LMValue in_lm_sum = in_lm_seq_map[dcalc_ap][in_sum_index];
+      if (out_lm_sum == 0.0) {
+        // No output LM to distribute
+        continue;
+      }
       if (in_lm_sum == 0.0) {
-        printf("LRHelper::distributeLmOutToIn: vertex %s has zero in LM sum, skipping distribution\n",
-               vertex->to_string(graph_).c_str());
+        printf("LRHelper::distributeLmOutToIn: vertex %s edge %s AP corner %s, delay min/max %s: in LM sum is zero, skipping distribution\n",
+               vertex->to_string(graph_).c_str(),
+               in_edge->to_string(graph_).c_str(),
+               dcalc_ap->corner()->name(),
+               dcalc_ap->delayMinMax()->to_string().c_str());
                fflush(stdout);
         continue;
       }
@@ -226,7 +297,16 @@ LRHelper::computeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_map)
   const VertexSeq &ordered = sorted_lm_vertices_;
   for (auto vertex_it = ordered.begin(); 
   vertex_it != ordered.end(); ++vertex_it) {
-      Vertex *vertex = *vertex_it;
+    Vertex *vertex = *vertex_it;
+
+    if (vertex->isRoot()) {
+      for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
+        ap_lm_map[dcalc_ap].push_back(1.0);
+      }
+      in_sum_index++;
+      continue;
+    }
+
     for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
       const size_t ap_index = dcalc_ap->index();
 
@@ -234,7 +314,10 @@ LRHelper::computeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_map)
       VertexInEdgeIterator in_edge_iter(vertex, graph_);
       size_t in_edge_count = 0;
       while (in_edge_iter.hasNext()) {
-        Edge *in_edge = in_edge_iter.next();
+        const Edge *in_edge = in_edge_iter.next();
+        if (in_edge->role()->isTimingCheck()) {
+          continue;
+        }
         LMValue const *lms = in_edge->arcLms();
 
         for (TimingArc *arc : in_edge->timingArcSet()->arcs()) {
@@ -262,8 +345,16 @@ LRHelper::computeOutLmSum(Vertex *vertex) const
 {
   LMValueSeq out_lm_sums(graph_->apCount(), 0.0);
   VertexOutEdgeIterator out_edge_iter(vertex, graph_);
+  if (!vertex->hasFanout()) {
+    // No outputs, return zero sums。 In fact, if no outputs, the out_lm_sums
+    // will not be used.
+    return out_lm_sums;
+  }
   while (out_edge_iter.hasNext()) {
     Edge *out_edge = out_edge_iter.next();
+    if (out_edge->role()->isTimingCheck()) {
+      continue;
+    }
     LMValue const *lms = out_edge->arcLms();
     for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
       const size_t ap_index = dcalc_ap->index();
@@ -279,14 +370,18 @@ LRHelper::computeOutLmSum(Vertex *vertex) const
 
 void
 LRHelper::updateAllEdgeLms(Sta *sta) {
-  printf("LRHelper::updateAllEdgeLms()\n");
+  printf("Size of sorted_lm_vertices_: %zu\n", sorted_lm_vertices_.size());
   fflush(stdout);
+  copyState(sta);
   for (auto vertex_it = sorted_lm_vertices_.begin(); 
        vertex_it != sorted_lm_vertices_.end(); ++vertex_it) {
     Vertex *vertex = *vertex_it;
     VertexOutEdgeIterator out_edge_iter(vertex, graph_);
     while (out_edge_iter.hasNext()) {
       Edge *out_edge = out_edge_iter.next();
+      if (out_edge->role()->isTimingCheck()) {
+        continue;
+      }
       updateEdgeLms(out_edge, sta);
     }
   }
@@ -316,9 +411,22 @@ LRHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta) {
         clk_edge_wildcard, nullptr,  delay_minmax);
     Delay delay = sta->arcDelay(edge, arc, dcalc_ap);
     LMValue *lms = edge->arcLms();
-    lms[lm_idx] = (delay_minmax == MinMax::max()) ?
-                  (lms[lm_idx] * (aat + delay) / rat) :
-                  (lms[lm_idx] * rat / (aat + delay));
+    LMValue origin = lms[lm_idx];
+    if (delay_minmax == MinMax::max()) {
+      if (rat == 0.0) rat = 1.0e-12;
+      lms[lm_idx] = lms[lm_idx] * (aat + delay) / rat;
+    } else {
+      if (aat + delay == 0.0) aat = 1.0e-12;
+      lms[lm_idx] = lms[lm_idx] * rat / (aat + delay);
+    }
+    // printf("LRHelper::updateArcLms: edge %s AP corner %s delay min/max %s: updated LM from %.6f to %.6f\n",
+    //        edge->to_string(graph_).c_str(),
+    //        dcalc_ap->corner()->name(),
+    //        delay_minmax->to_string().c_str(),
+    //        origin, lms[lm_idx]);
+    // printf("  with aat %.6f, rat %.6f, delay %.6f\n",
+    //        aat * 1.0e12, rat * 1.0e12, delay * 1.0e12);
+    // fflush(stdout);
   }
 }
 
@@ -329,4 +437,4 @@ LRHelper::enqueueVertex(Vertex *vertex) {
 }
 
 
-}
+} // namespace lrf

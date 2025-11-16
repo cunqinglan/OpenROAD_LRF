@@ -20,6 +20,8 @@
 #include "ord/Tech.h"
 #include "tcl.h"
 #include "utl/Logger.h"
+#include "rsz/Resizer.hh"
+#include "est/EstimateParasitics.h"
 
 namespace ord {
 
@@ -396,7 +398,15 @@ std::vector<odb::dbInst*> Design::sortedInstances()
   return sorted_instances_;
 }
 
-
+bool
+Design::swapInstMaster(odb::dbInst* inst, odb::dbMaster* new_master)
+{
+  rsz::Resizer *resizer = getResizer();
+  est::EstimateParasitics *estimator = resizer->getEstimateParasitics();
+  est::IncrementalParasiticsGuard guard(estimator);
+  bool swapped = inst->swapMaster(new_master);
+  return swapped;
+}
 /////////////////////////////////////////////////////////////
 // End functions for LR sizing
 /////////////////////////////////////////////////////////////

@@ -1,0 +1,640 @@
+#include "PtGraph.hh"
+#include "Sta.hh"
+#include <algorithm>
+#include <numeric>
+#include <deque>
+#include <vector>
+#include "DcalcAnalysisPt.hh"
+#include "Corner.hh"
+#include "TimingRole.hh"
+
+namespace lrf {
+
+using sta::ArcDelay;
+using sta::DcalcAPIndex;
+using sta::Edge;
+using sta::EdgeId;
+using sta::Graph;
+using sta::Instance;
+using sta::InstanceSet;
+using sta::Level;
+using sta::MinMax;
+using sta::RiseFall;
+using sta::VertexId;
+using sta::Vertex;
+
+class PtVertexIdLevelLess
+{
+ public:
+  PtVertexIdLevelLess(const PtGraph* pt_graph);
+  bool operator()(const VertexId &pt_vertex1, const VertexId &pt_vertex2) const;
+
+ private:
+  const PtGraph *pt_graph_;
+};
+
+PtVertexIdLevelLess::PtVertexIdLevelLess(const PtGraph* pt_graph) : pt_graph_(pt_graph)
+{
+}
+
+bool PtVertexIdLevelLess::operator()(const VertexId &pt_vertex1,
+                                      const VertexId &pt_vertex2) const
+{
+  sta::Level level1 = pt_graph_->vertexLevel(pt_vertex1);
+  sta::Level level2 = pt_graph_->vertexLevel(pt_vertex2);
+  return (level1 < level2)
+         || (level1 == level2
+             && pt_vertex1 < pt_vertex2);
+}
+
+PtGraph::PtGraph(sta::Sta *sta) :
+  sta_(sta),
+  pt_edges_(1),           // reserve sentinel at index 0
+  pt_vertices_(1),
+  ap_count_(sta->graph()->apCount()),
+  slew_rf_count_(sta::Vertex::transitionCount())
+{
+  graph_made_ = false;
+  sorted_ = false;
+  sorted_vertex_ids_.clear();
+  roots_.clear();
+  vertex_map_.clear();
+}
+
+PtGraph::~PtGraph()
+{
+}
+
+sta::Level
+PtGraph::vertexLevel(VertexId vertex_id) const
+{
+  if (vertex_id == sta::object_id_null)
+    return -1;
+  const PtVertex &pt_vertex = pt_vertices_[vertex_id];
+  const Vertex *vertex = pt_vertex.vertex();
+  return vertex->level();
+}
+
+void
+PtGraph::makeGraph(sta::InstanceSet &inst_seq, sta::Instance *ref_inst)
+{
+  ref_inst_ = ref_inst;
+  makePtVertexAndPtEdge(inst_seq);
+  setGraphMade(true);
+  initVertexAndEdges();
+  createParasiticsNetworks();
+}
+
+void 
+PtGraph::createParasiticsNetworks()
+{
+  // Placeholder
+}
+
+void
+PtGraph::makePtVertexAndPtEdge(sta::InstanceSet &inst_seq)
+{
+  sta::Graph *graph = sta_->graph();
+  sta::Network *network = sta_->network();
+  for (const sta::Instance *inst : inst_seq) {
+    sta::InstancePinIterator *pin_iter = network->pinIterator(const_cast<sta::Instance*>(inst));
+    while (pin_iter->hasNext()) {
+      sta::Pin *pin = pin_iter->next();
+      sta::Vertex *vertex, *bidirect_vertex;
+      graph->pinVertices(pin, vertex, bidirect_vertex);
+      if (bidirect_vertex) {
+        printf("Error: bidirect drvr in local fanin instances not supported\n");
+        fflush(stdout);
+      }
+      if (vertex) {
+        VertexId pt_vertex_id = makeVertex(vertex);
+        vertex_map_[vertex] = pt_vertex_id;
+      }
+    }
+    delete pin_iter;
+  }
+
+  for (auto const &pair : vertex_map_) {
+    sta::Vertex *vertex = pair.first;
+    VertexId pt_vertex_id = pair.second;
+    if (network->isDriver(vertex->pin())) {
+      makePtInstEdge(vertex, pt_vertex_id);
+      makePtWireEdge(vertex, pt_vertex_id);
+    }
+  }
+}
+
+void 
+PtGraph::makePtInstEdge(sta::Vertex *drvr_vertex, VertexId drvr_pt_id)
+{
+  sta::Graph *graph = sta_->graph();
+  sta::VertexInEdgeIterator in_edge_iter(drvr_vertex, graph);
+  while (in_edge_iter.hasNext()) {
+    sta::Edge *in_edge = in_edge_iter.next();
+    auto it_from = vertex_map_.find(in_edge->from(graph));
+    if (it_from != vertex_map_.end()) {
+      VertexId from_pt_id = it_from->second;
+      makeEdge(in_edge, from_pt_id, drvr_pt_id);
+    }
+  }
+}
+
+void 
+PtGraph::makePtWireEdge(sta::Vertex *drvr_vertex, VertexId drvr_pt_id)
+{
+  sta::Graph *graph = sta_->graph();
+  sta::VertexOutEdgeIterator out_edge_iter(drvr_vertex, graph);
+  while (out_edge_iter.hasNext()) {
+    sta::Edge *out_edge = out_edge_iter.next();
+    if (out_edge->isWire()) {
+      sta::Vertex *load_vertex = out_edge->to(graph);
+      auto it_to = vertex_map_.find(load_vertex);
+      if (it_to != vertex_map_.end()) {
+        VertexId to_pt_id = it_to->second;
+        makeEdge(out_edge, drvr_pt_id, to_pt_id);
+      }
+    }
+  }
+}
+
+VertexId
+PtGraph::makeVertex(sta::Vertex *vertex)
+{
+  pt_vertices_.emplace_back();
+  PtVertex &pt_vertex = pt_vertices_.back();
+  VertexId vertex_id = static_cast<VertexId>(pt_vertices_.size() - 1);
+  pt_vertex.setObjectIdx(vertex_id);
+  pt_vertex.init(vertex);
+  return vertex_id;
+}
+
+EdgeId
+PtGraph::makeEdge(sta::Edge *edge, 
+  VertexId pt_from, 
+  VertexId pt_to)  
+{
+  pt_edges_.emplace_back();
+  PtEdge &pt_edge = pt_edges_.back();
+  EdgeId edge_id = static_cast<EdgeId>(pt_edges_.size() - 1);
+  if (edge_id == pt_edge_id_null) {
+    printf("PtGraph::makeEdge: edge id overflow\n");
+    fflush(stdout);
+  }
+  pt_edge.setObjectIdx(edge_id);
+  pt_edge.init(edge, pt_from, pt_to);
+
+  EdgeId next = pt_vertices_[pt_from].out_edges_;
+  pt_edge.vertex_out_next_ = next;
+  pt_edge.vertex_out_prev_ = pt_edge_id_null;
+  if (next != pt_edge_id_null)
+    pt_edges_[next].vertex_out_prev_ = edge_id;
+  pt_vertices_[pt_from].out_edges_ = edge_id;
+
+  pt_edge.vertex_in_link_ = pt_vertices_[pt_to].in_edges_;
+  pt_vertices_[pt_to].in_edges_ = edge_id;
+
+  return edge_id;
+}
+
+bool
+PtGraph::topoSortVertices()
+{
+  if (sorted_)
+    return sorted_;
+  if (graph_made_) {
+    size_t n = (pt_vertices_.size() > 1) ? pt_vertices_.size() - 1 : 0;
+    sorted_vertex_ids_.resize(n);
+    if (n > 0)
+      std::iota(sorted_vertex_ids_.begin(), sorted_vertex_ids_.end(), static_cast<VertexId>(1));
+    for (auto &pt_vertex : pt_vertices_) {
+      if (pt_vertex.vertex() == nullptr)
+        continue;
+      std::stable_sort(sorted_vertex_ids_.begin(), sorted_vertex_ids_.end(),
+                       PtVertexIdLevelLess(this));
+    }
+    sorted_ = true;
+  }
+  return false;
+}
+
+std::vector<size_t> &
+PtGraph::sortedVertexIds()
+{
+  topoSortVertices();
+  return sorted_vertex_ids_;
+}
+
+void
+PtGraph::setSlew(PtVertex &pt_vertex, const RiseFall *rf,
+               DcalcAPIndex ap_index, const sta::Slew &slew)
+{
+  const size_t slew_rf_count = 2;
+  if (pt_vertex.slewCount() == 0) {
+    size_t slew_count = slew_rf_count * ap_count_;
+    pt_vertex.resizeSlews(slew_count);
+  }
+  sta::Slew *slews = pt_vertex.slews();
+  size_t slew_index = (slew_rf_count == 1) 
+    ? ap_index : ap_index * slew_rf_count + rf->index();
+  slews[slew_index] = slew;
+}
+
+
+void
+PtGraph::initLoadSlews(PtVertex &pt_vertex)
+{
+  PtVertexOutEdgeIterator out_iter(pt_vertex.objectIdx(), this);
+  while (out_iter.hasNext()) {
+    PtEdge &pt_edge = out_iter.next();
+    if (pt_edge.edge()->isWire()) {
+      VertexId to_id = pt_edge.ptToId();
+      PtVertex &load_pt_vertex = pt_vertices_[to_id];
+      for (const sta::DcalcAnalysisPt *dcalc_ap : sta_->corners()->dcalcAnalysisPts()) {
+        const sta::MinMax *slew_min_max = dcalc_ap->slewMinMax();
+        sta::Slew slew_init_value(slew_min_max->initValue());
+        sta::DcalcAPIndex ap_index = dcalc_ap->index();
+        for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+          setSlew(load_pt_vertex, rf, ap_index, slew_init_value);
+        }
+      }
+    }
+  }
+}
+
+void
+PtGraph::initWireDelays(PtVertex &drvr_pt_vertex)
+{
+  PtVertexOutEdgeIterator out_iter(drvr_pt_vertex.objectIdx(), this);
+  while (out_iter.hasNext()) {
+    PtEdge &out_pt_edge = out_iter.next();
+    if (out_pt_edge.edge()->isWire()) {
+      for (const sta::DcalcAnalysisPt * dcalc_ap : sta_->corners()->dcalcAnalysisPts()) {
+        const sta::MinMax *delay_min_max = dcalc_ap->delayMinMax();
+        sta::Delay delay_init_value(delay_min_max->initValue());
+        sta::DcalcAPIndex ap_index = dcalc_ap->index();
+        for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+          setWireArcDelay(out_pt_edge, rf, ap_index, delay_init_value);
+        }
+      }
+    }
+  }
+}
+
+void 
+PtGraph::setWireArcDelay(PtEdge &pt_edge, 
+                         const sta::RiseFall *rf,
+                         sta::DcalcAPIndex ap_index,
+                         const sta::ArcDelay &delay)
+{
+  ArcDelay *arc_delays = pt_edge.arcDelays();
+  size_t index = rf->index() * ap_count_ + ap_index;
+  arc_delays[index] = delay;
+}
+
+const sta::Slew &
+PtGraph::slew(const PtVertex &pt_vertex,
+                   const sta::RiseFall *rf,
+                   sta::DcalcAPIndex ap_index)
+{
+  if (!slew_rf_count_) {
+    static sta::Slew zero_slew(0.0);
+    return zero_slew;
+  }
+
+  const sta::Slew *slews = pt_vertex.slews();
+  size_t slew_index = ap_index * slew_rf_count_ + rf->index();
+  return slews[slew_index];
+}
+
+const sta::ArcDelay &
+PtGraph::arcDelay(const PtEdge &pt_edge,
+                  const sta::TimingArc *arc,
+                  sta::DcalcAPIndex ap_index)
+{
+  const ArcDelay *arc_delays = pt_edge.arcDelays();
+  size_t index = arc->index() * ap_count_ + ap_index;
+  return arc_delays[index];
+}
+
+const sta::ArcDelay &
+PtGraph::wireArcDelay(const PtEdge &pt_edge,
+                         const sta::RiseFall *rf,
+                         sta::DcalcAPIndex ap_index)
+{
+  const ArcDelay *arc_delays = pt_edge.arcDelays();
+  size_t index = rf->index() * ap_count_ + ap_index;
+  return arc_delays[index];
+}
+
+void
+PtGraph::setArcDelay(PtEdge &pt_edge, 
+                    const sta::TimingArc *arc,
+                    sta::DcalcAPIndex ap_index,
+                    const sta::ArcDelay &delay)
+{
+  ArcDelay *arc_delays = pt_edge.arcDelays();
+  size_t index = arc->index() * ap_count_ + ap_index;
+  arc_delays[index] = delay;
+}
+
+std::string
+PtGraph::to_string()
+{
+  std::string graph_descri;
+  graph_descri += "Showing PtGraph:\n";
+  for (size_t vid = 1; vid < pt_vertices_.size(); vid++) {
+    PtVertex &pt_vertex = pt_vertices_[vid];
+    graph_descri += "PtVertex " + std::to_string(vid) + " (Vertex " + std::to_string(pt_vertex.objectIdx()) + "):\n";
+    PtVertexOutEdgeIterator out_iter(vid, this);
+    while (out_iter.hasNext()) {
+      PtEdge &pt_edge = out_iter.next();
+      Edge *edge = pt_edge.edge();
+      graph_descri += "  PtEdge " + std::to_string(pt_edge.objectIdx()) + " (Edge " + edge->to_string(sta_->graph()) + ")\n";
+    }
+  }
+  graph_descri += "End of PtGraph\n";
+  return graph_descri;
+}
+
+void PtGraph::initVertexAndEdges()
+{
+  if (!graph_made_) {
+    printf("PtGraph::initVertexAndEdges: graph not made yet\n");
+    fflush(stdout);
+    return;
+  }
+  int iter_cnt = 0;
+  for (PtVertex &pt_vertex : pt_vertices_) {
+    if (iter_cnt++ == 0)
+      continue;
+    pt_vertex.copyInfoFromVertex(ap_count_, slew_rf_count_);
+  }
+  iter_cnt = 0;
+  for (PtEdge &pt_edge : pt_edges_) {
+    if (iter_cnt++ == 0)
+      continue;
+    pt_edge.copyInfoFromEdge(ap_count_);
+  }
+}
+
+void 
+PtGraph::setAllArcDelaysZero()
+{
+  for (PtEdge &pt_edge : pt_edges_) {
+    if (pt_edge.objectIdx() == pt_edge_id_null)
+      continue;
+
+    size_t delay_count = slew_rf_count_ * ap_count_;
+    if (pt_edge.arcDelays() == nullptr)
+      continue;
+    for (size_t i = 0; i < delay_count; i++) {
+      pt_edge.arcDelays()[i] = ArcDelay(0.0f);
+    }
+  }
+}
+
+void 
+PtGraph::delayLmSum(const sta::MinMax *minmax, float &delay_lambda_sum, bool avoid_check)
+{
+  delay_lambda_sum = 0.0f;
+  for (PtEdge &pt_edge : pt_edges_) {
+    if (pt_edge.edge() == nullptr)
+      continue;
+    for (sta::DcalcAnalysisPt *dcalc_ap : sta_->corners()->dcalcAnalysisPts()) {
+      sta::DcalcAPIndex ap_index = dcalc_ap->index();
+      const sta::MinMax *delay_min_max = dcalc_ap->delayMinMax();
+      if (delay_min_max != minmax)
+        continue;
+  for (sta::TimingArc *timing_arc : pt_edge.edge()->timingArcSet()->arcs()) {
+        size_t lm_index = dcalc_ap->index() * ap_count_ + timing_arc->index();
+        const ArcDelay &arc_delay = arcDelay(pt_edge, timing_arc, ap_index);
+        Edge *edge = pt_edge.edge();
+        if (avoid_check && (edge->role()->isTimingCheck()))
+          continue;
+  sta::LMValue *lms = edge->arcLms();
+        if (lms == nullptr) {
+          printf("PtGraph::delayLmSum: edge %s has no lm values\n",
+                 edge->to_string(sta_->graph()).c_str());
+          fflush(stdout);
+          continue;
+        }
+  sta::LMValue arc_lm = lms[lm_index];
+        delay_lambda_sum += arc_delay * arc_lm;
+      }
+    }
+  }
+}
+
+void 
+PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap, 
+                    float &delay_lambda_sum,
+                    bool avoid_check)
+{
+  const sta::MinMax *minmax = dcalc_ap->delayMinMax();
+  const sta::DcalcAPIndex ap_index = dcalc_ap->index();
+  delay_lambda_sum = 0.0f;
+  for (PtEdge &pt_edge : pt_edges_) {
+    if (pt_edge.edge() == nullptr)
+      continue;
+  for (sta::TimingArc *timing_arc : pt_edge.edge()->timingArcSet()->arcs()) {
+      size_t lm_index = ap_index * ap_count_ + timing_arc->index();
+      const ArcDelay &arc_delay = arcDelay(pt_edge, timing_arc, ap_index);
+      Edge *edge = pt_edge.edge();
+      if (avoid_check && (edge->role()->isTimingCheck()))
+        continue;
+  sta::LMValue *lms = edge->arcLms();
+      if (lms == nullptr) {
+        printf("PtGraph::delayLmSum: edge %s has no lm values\n",
+               edge->to_string(sta_->graph()).c_str());
+        fflush(stdout);
+        continue;
+      }
+  sta::LMValue arc_lm = lms[lm_index];
+      delay_lambda_sum += arc_delay * arc_lm;
+    }
+  }
+}
+
+sta::Level
+PtGraph::topVertexLevel()
+{
+  sta::Level max_level = -1;
+  for (auto const &pair : vertex_map_) {
+    sta::Vertex *vertex = pair.first;
+    sta::Level level = vertex->level();
+    if (level > max_level)
+      max_level = level;
+  }
+  return max_level;
+}
+
+////////////////////////////////////////////////////////////////
+// PtEdge
+////////////////////////////////////////////////////////////////
+PtEdge::PtEdge() :
+  edge_(nullptr),
+  vertex_out_next_(pt_edge_id_null),
+  vertex_out_prev_(pt_edge_id_null),
+  vertex_in_link_(pt_edge_id_null)
+{
+  object_idx_ = pt_edge_id_null;
+}
+
+void
+PtEdge::setObjectIdx(EdgeId idx)
+{
+  object_idx_ = idx;
+}
+
+void
+PtEdge::init(sta::Edge *edge, 
+            VertexId pt_from, 
+            VertexId pt_to)
+{
+  edge_ = edge;
+  pt_from_ = pt_from;
+  pt_to_ = pt_to;
+}
+
+void
+PtEdge::setArcDelays(ArcDelay *arc_delay, size_t delay_count)
+{
+  if (delay_count > 0) {
+    if (arc_delay)
+      arc_delays_.assign(arc_delay, arc_delay + delay_count);
+    else
+      arc_delays_.resize(delay_count, 0);
+  } else {
+    arc_delays_.clear();
+  }
+}
+
+void
+PtEdge::copyInfoFromEdge(size_t ap_count)
+{
+  size_t delay_count = edge_->timingArcSet()->arcCount() * ap_count;
+  ArcDelay *src_arc_delays = edge_->arcDelays();
+  if (src_arc_delays && delay_count > 0)
+    arc_delays_.assign(src_arc_delays, src_arc_delays + delay_count);
+  else
+    arc_delays_.clear();
+}
+
+//////////////////////////////////////////////////////////////////
+// PtVertex
+//////////////////////////////////////////////////////////////////
+PtVertex::PtVertex() :
+  vertex_(nullptr),
+  out_edges_(pt_edge_id_null),
+  in_edges_(pt_edge_id_null),
+  is_root_(false)
+{
+  object_idx_ = pt_vertex_id_null;
+}
+void
+PtVertex::init(sta::Vertex *vertex)
+{
+  vertex_ = vertex;
+  out_edges_ = pt_edge_id_null;
+  in_edges_ = pt_edge_id_null;
+  is_root_ = false;
+  arrivals_.clear();
+  slews_.clear();
+}
+
+void
+PtVertex::setObjectIdx(VertexId idx)
+{
+  object_idx_ = idx;
+}
+
+void
+PtVertex::resizeSlews(size_t slew_count)
+{
+  if (slew_count == 0)
+    slews_.clear();
+  else
+  slews_.assign(slew_count, sta::Slew());
+}
+
+void 
+PtVertex::copyInfoFromVertex(size_t ap_count, size_t slew_rf_count)
+{
+  sta::Slew *src_slews = vertex_->slews();
+  size_t slew_count = slew_rf_count * ap_count;
+  if (src_slews) {
+    slews_.assign(src_slews, src_slews + slew_count);
+  } else {
+    slews_.clear();
+  }
+}
+
+//////////////////////////////////////////////////////////////////
+// PtVertexInEdgeIterator
+//////////////////////////////////////////////////////////////////
+PtVertexInEdgeIterator::PtVertexInEdgeIterator(VertexId vertex_id,
+                                                PtGraph *pt_graph) :
+  pt_graph_(pt_graph)
+{
+  if (pt_graph_ && pt_graph_->pt_vertices_.size() > vertex_id) {
+    next_ = pt_graph_->vertex(vertex_id).in_edges_;
+  } else {
+    printf("PtVertexInEdgeIterator: invalid vertex id %u\n", vertex_id);
+    next_ = pt_edge_id_null;
+  }
+}
+
+PtEdge &
+PtVertexInEdgeIterator::next()
+{
+  EdgeId current = next_;
+  if (current != pt_edge_id_null) {
+    next_ = pt_graph_->edge(current).vertex_in_link_;
+  }
+  return pt_graph_->edge(current);
+}
+
+bool 
+PtVertexInEdgeIterator::hasNext()
+{
+  return next_ != pt_edge_id_null;
+}
+
+
+//////////////////////////////////////////////////////////////////
+// PtVertexOutEdgeIterator
+//////////////////////////////////////////////////////////////////
+PtVertexOutEdgeIterator::PtVertexOutEdgeIterator(VertexId vertex_id,
+                                               PtGraph *pt_graph) :
+  vertex_id_(vertex_id),
+  pt_graph_(pt_graph)
+{
+  next_ = pt_graph_->vertex(vertex_id_).out_edges_;
+}
+
+PtVertexOutEdgeIterator::PtVertexOutEdgeIterator(PtVertex &pt_vertex,
+                                               PtGraph *pt_graph) :
+  vertex_id_(pt_vertex.objectIdx()),
+  pt_graph_(pt_graph)
+{
+  next_ = pt_graph_->vertex(vertex_id_).out_edges_;
+}
+
+PtEdge &
+PtVertexOutEdgeIterator::next()
+{
+  EdgeId current = next_;
+  if (current != pt_edge_id_null) {
+    next_ = pt_graph_->pt_edges_[current].vertex_out_next_;
+  }
+  return pt_graph_->pt_edges_[current];
+}
+
+bool
+PtVertexOutEdgeIterator::hasNext()
+{
+  return next_ != pt_edge_id_null;
+}
+
+
+} // namespace lrf
