@@ -1,0 +1,257 @@
+LocalSta::LocalSta created
+OpenROAD v2.0-25933-g0a02c54 
+Features included (+) or not (-): +GPU +GUI +Python
+This program is licensed under the BSD-3 license. See the LICENSE file for details.
+Components of this program may be licensed under more restrictive licenses which must be honored.
+[WARNING ORD-0039] .openroad ignored with -python
+LocalSta::LocalSta created
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SRAM_TT_nldm_211120.lib line 13178, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SRAM_TT_nldm_211120.lib line 13211, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SRAM_TT_nldm_211120.lib line 13244, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SRAM_TT_nldm_211120.lib line 13277, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SRAM_TT_nldm_211120.lib line 13310, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SRAM_TT_nldm_211120.lib line 13343, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SRAM_TT_nldm_211120.lib line 13376, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SRAM_TT_nldm_211120.lib line 14772, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SRAM_TT_nldm_211120.lib line 14805, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SRAM_TT_nldm_211120.lib line 14838, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib line 13178, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib line 13211, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib line 13244, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib line 13277, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib line 13310, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib line 13343, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib line 13376, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib line 14772, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib line 14805, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib line 14838, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SLVT_TT_nldm_211120.lib line 13178, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SLVT_TT_nldm_211120.lib line 13211, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SLVT_TT_nldm_211120.lib line 13244, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SLVT_TT_nldm_211120.lib line 13277, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SLVT_TT_nldm_211120.lib line 13310, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SLVT_TT_nldm_211120.lib line 13343, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SLVT_TT_nldm_211120.lib line 13376, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SLVT_TT_nldm_211120.lib line 14772, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SLVT_TT_nldm_211120.lib line 14805, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SLVT_TT_nldm_211120.lib line 14838, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13178, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13211, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13244, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13277, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13310, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13343, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13376, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 14772, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 14805, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 14838, timing group from output port.
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/asap7_tech_1x_201209_tech.lef, created 24 layers, 9 vias
+[WARNING ODB-0217] duplicate VIARULE (Pad_M9) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M9_M8) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M8_M7) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M7_M6) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M6_M5) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M3_M2widePWR0p936) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M4_M3widePWR0p864) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M5_M4widePWR0p864) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M6_M5widePWR1p152) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M7_M6widePWR1p152) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M2_M1) ignoring...
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/asap7_tech_1x_201209.lef
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/asap7sc7p5t_28_R_1x_220121a.lef, created 212 library cells
+[INFO ODB-0394] Duplicate site asap7sc7p5t in asap7sc7p5t_28_L_1x_220121a already seen in asap7sc7p5t_28_R_1x_220121a
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/asap7sc7p5t_28_L_1x_220121a.lef, created 212 library cells
+[WARNING ODB-0176] error: undefined layer (OVERLAP) referenced
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/sram_asap7_64x256_1rw.lef, created 1 library cells
+[WARNING ODB-0176] error: undefined layer (OVERLAP) referenced
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/sram_asap7_16x256_1rw.lef, created 1 library cells
+[WARNING ODB-0176] error: undefined layer (OVERLAP) referenced
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/sram_asap7_64x64_1rw.lef, created 1 library cells
+[WARNING ODB-0176] error: undefined layer (OVERLAP) referenced
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/sram_asap7_32x256_1rw.lef, created 1 library cells
+[WARNING ODB-0217] duplicate VIARULE (Pad_M9) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M9_M8) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M8_M7) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M7_M6) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M6_M5) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M3_M2widePWR0p936) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M4_M3widePWR0p864) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M5_M4widePWR0p864) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M6_M5widePWR1p152) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M7_M6widePWR1p152) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M2_M1) ignoring...
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/asap7_tech_1x_201209_tech.lef
+[INFO ODB-0394] Duplicate site asap7sc7p5t in asap7sc7p5t_28_SL_1x_220121a already seen in asap7sc7p5t_28_R_1x_220121a
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/asap7sc7p5t_28_SL_1x_220121a.lef, created 212 library cells
+[INFO ODB-0394] Duplicate site asap7sc7p5t in asap7sc7p5t_28_SRAM_1x_220121a already seen in asap7sc7p5t_28_R_1x_220121a
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/asap7sc7p5t_28_SRAM_1x_220121a.lef, created 212 library cells
+[WARNING ODB-0217] duplicate VIARULE (Pad_M9) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M9_M8) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M8_M7) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M7_M6) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M6_M5) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M3_M2widePWR0p936) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M4_M3widePWR0p864) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M5_M4widePWR0p864) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M6_M5widePWR1p152) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M7_M6widePWR1p152) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M2_M1) ignoring...
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/asap7_tech_1x_201209.lef
+[INFO ODB-0127] Reading DEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/designs/aes_cipher_top/EDA_files/aes_cipher_top_fp.def.gz
+[INFO ODB-0128] Design: aes_cipher_top
+[WARNING ODB-0247] skipping undefined pin VDD encountered in FLOORPLAN DEF
+[WARNING ODB-0247] skipping undefined pin VSS encountered in FLOORPLAN DEF
+[WARNING ODB-0249] skipping undefined net VDD encountered in FLOORPLAN DEF
+[WARNING ODB-0249] skipping undefined net VSS encountered in FLOORPLAN DEF
+[INFO ODB-0252]     Updated 388 pins.
+[INFO ODB-0134] Finished DEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/designs/aes_cipher_top/EDA_files/aes_cipher_top_fp.def.gz
+[INFO GPL-0005] Execute conjugate gradient initial placement.
+[INFO GPL-0002] DBU: 1000
+[INFO GPL-0003] SiteSize: (  0.054  0.270 ) um
+[INFO GPL-0004] CoreBBox: (  1.008  1.008 ) ( 41.886 41.508 ) um
+[INFO GPL-0032] Initializing region: Top-level
+[INFO GPL-0006] Number of instances:             10965
+[INFO GPL-0007] Movable instances:               10965
+[INFO GPL-0008] Fixed instances:                     0
+[INFO GPL-0009] Dummy instances:                     0
+[INFO GPL-0010] Number of nets:                  11226
+[INFO GPL-0011] Number of pins:                  39841
+[INFO GPL-0012] Die BBox:  (  0.000  0.000 ) ( 42.912 42.516 ) um
+[INFO GPL-0013] Core BBox: (  1.008  1.008 ) ( 41.886 41.508 ) um
+[INFO GPL-0016] Core area:                    1655.559 um^2
+[INFO GPL-0014] Region name: top-level.
+[INFO GPL-0015] Region area:                  1655.559 um^2
+[INFO GPL-0017] Fixed instances area:            0.000 um^2
+[INFO GPL-0018] Movable instances area:        993.642 um^2
+[INFO GPL-0019] Utilization:                    60.018 %
+[INFO GPL-0020] Standard cells area:           993.642 um^2
+[INFO GPL-0021] Large instances area:            0.000 um^2
+[InitialPlace]  Iter: 1 conjugate gradient residual: 0.00000180 HPWL: 25129448
+[InitialPlace]  Iter: 2 conjugate gradient residual: 0.00000042 HPWL: 18573009
+[InitialPlace]  Iter: 3 conjugate gradient residual: 0.00000273 HPWL: 18397903
+[InitialPlace]  Iter: 4 conjugate gradient residual: 0.00000049 HPWL: 18447715
+[InitialPlace]  Iter: 5 conjugate gradient residual: 0.00000057 HPWL: 18413812
+[INFO GPL-0033] Initializing Nesterov region: Top-level
+[INFO GPL-0023] Placement target density:       0.7000
+[INFO GPL-0024] Movable insts average area:      0.091 um^2
+[INFO GPL-0025] Ideal bin area:                  0.129 um^2
+[INFO GPL-0026] Ideal bin count:                 12788
+[INFO GPL-0027] Total bin area:               1655.559 um^2
+[INFO GPL-0028] Bin count (X, Y):          64 ,     64
+[INFO GPL-0029] Bin size (W * H):       0.639 *  0.633 um
+[INFO GPL-0030] Number of bins:                   4096
+[INFO GPL-0007] Execute nesterov global placement.
+[INFO GPL-0031] HPWL: Half-Perimeter Wirelength
+Iteration | Overflow |     HPWL (um) |  HPWL(%) |   Penalty | Group
+---------------------------------------------------------------
+        0 |   0.9474 |  1.791268e+04 |   +0.00% |  4.48e-10 |      
+       10 |   0.8534 |  1.642160e+04 |   -8.32% |  7.30e-10 |      
+       20 |   0.8506 |  1.642283e+04 |   +0.01% |  1.19e-09 |      
+       30 |   0.8435 |  1.681019e+04 |   +2.36% |  1.94e-09 |      
+       40 |   0.8335 |  1.735782e+04 |   +3.26% |  3.16e-09 |      
+       50 |   0.8167 |  1.816341e+04 |   +4.64% |  5.14e-09 |      
+       60 |   0.7958 |  1.915673e+04 |   +5.47% |  8.37e-09 |      
+       70 |   0.7689 |  2.024798e+04 |   +5.70% |  1.36e-08 |      
+       80 |   0.7462 |  2.151124e+04 |   +6.24% |  2.22e-08 |      
+       90 |   0.7186 |  2.278886e+04 |   +5.94% |  3.62e-08 |      
+      100 |   0.6894 |  2.391992e+04 |   +4.96% |  5.89e-08 |      
+      110 |   0.6616 |  2.499423e+04 |   +4.49% |  9.59e-08 |      
+      120 |   0.6281 |  2.594803e+04 |   +3.82% |  1.56e-07 |      
+[INFO GPL-0038] Routability snapshot saved at iter = 129
+      128 |   0.5986 |  2.681807e+04 |          |           |      
+      130 |   0.5919 |  2.697113e+04 |   +3.94% |  2.54e-07 |      
+      140 |   0.5548 |  2.789617e+04 |   +3.43% |  4.14e-07 |      
+      150 |   0.5188 |  2.882385e+04 |   +3.33% |  6.75e-07 |      
+      160 |   0.4817 |  2.967550e+04 |   +2.95% |  1.10e-06 |      
+      170 |   0.4432 |  3.070567e+04 |   +3.47% |  1.79e-06 |      
+      180 |   0.3992 |  3.170259e+04 |   +3.25% |  2.92e-06 |      
+      190 |   0.3501 |  3.282201e+04 |   +3.53% |  4.75e-06 |      
+      200 |   0.3024 |  3.379231e+04 |   +2.96% |  7.14e-06 |      
+[INFO GPL-0040] Routability iteration: 1
+[INFO GPL-0041] Total routing overflow: 0.0000
+[INFO GPL-0042] Number of overflowed tiles: 0 (0.00%)
+[INFO GPL-0043] Average top 0.5% routing congestion: 0.6550
+[INFO GPL-0044] Average top 1.0% routing congestion: 0.6346
+[INFO GPL-0045] Average top 2.0% routing congestion: 0.6117
+[INFO GPL-0046] Average top 5.0% routing congestion: 0.5706
+[INFO GPL-0047] Routability iteration weighted routing congestion: 0.6448
+[INFO GPL-0050] Weighted routing congestion is lower than target routing congestion(1.0100), end routability optimization.
+[INFO GPL-0090] Routability finished. Target routing congestion achieved succesfully.
+Iteration | Overflow |     HPWL (um) |  HPWL(%) |   Penalty | Group
+---------------------------------------------------------------
+      210 |   0.2498 |  3.484123e+04 |   +3.10% |  1.05e-05 |      
+      220 |   0.2007 |  3.573595e+04 |   +2.57% |  1.55e-05 |      
+      230 |   0.1633 |  3.645596e+04 |   +2.01% |  2.28e-05 |      
+      240 |   0.1307 |  3.699571e+04 |   +1.48% |  3.36e-05 |      
+      250 |   0.1052 |  3.738399e+04 |   +1.05% |  4.95e-05 |      
+      253 |   0.0984 |  3.748543e+04 |          |  5.78e-05 |      
+---------------------------------------------------------------
+[INFO GPL-1001] Global placement finished at iteration 253
+[INFO GPL-1003] Routability mode iteration count: 72
+[INFO GPL-1005] Routability final weighted congestion: 0.5420
+[INFO GPL-1002] Placed Cell Area              993.6416
+[INFO GPL-1003] Available Free Area          1655.5590
+[INFO GPL-1004] Minimum Feasible Density        0.6100 (cell_area / free_area)
+[INFO GPL-1006]   Suggested Target Densities:
+[INFO GPL-1007]     - For 90% usage of free space: 0.6669
+[INFO GPL-1008]     - For 80% usage of free space: 0.7502
+[INFO GPL-1011] Original area (um^2): 993.64
+[INFO GPL-1012] Total routability artificial inflation: 0.00 (+0.00%)
+[INFO GPL-1014] Final placement area: 993.64 (+0.00%)
+wns max -149.78
+tns max -14006.40
+Startpoint: ld (input port clocked by clk)
+Endpoint: text_in_r_reg[99] (rising edge-triggered flip-flop clocked by clk)
+Path Group: clk
+Path Type: max
+
+   Delay     Time   Description
+-----------------------------------------------------------
+   0.000    0.000   clock clk (rise edge)
+   0.000    0.000   clock network delay (ideal)
+  26.000   26.000 v input external delay
+   0.000   26.000 v ld (in)
+  98.143  124.143 ^ g111231/Y (INVxp67_ASAP7_75t_R)
+  82.151  206.293 v g111230/Y (INVxp67_ASAP7_75t_R)
+ 196.996  403.289 ^ drc_bufs111259/Y (INVxp33_ASAP7_75t_R)
+  48.579  451.869 v g110309/Y (AOI22xp33_ASAP7_75t_R)
+   0.028  451.897 v text_in_r_reg[99]/D (DFFHQNx1_ASAP7_75t_R)
+          451.897   data arrival time
+
+ 320.000  320.000   clock clk (rise edge)
+   0.000  320.000   clock network delay (ideal)
+   0.000  320.000   clock reconvergence pessimism
+          320.000 ^ text_in_r_reg[99]/CLK (DFFHQNx1_ASAP7_75t_R)
+ -17.887  302.113   library setup time
+          302.113   data required time
+-----------------------------------------------------------
+          302.113   data required time
+         -451.897   data arrival time
+-----------------------------------------------------------
+         -149.783   slack (VIOLATED)
+
+
+the id of design: 140658051382688
+###run global placement###
+Average delay on critical path: 4.518966451039219e-11 s
+Initializing LR Sizing Agent...
+All instances minimized to lowest leakage sizes.
+LocalSta::LocalSta created
+LocalSta::LocalSta created
+LocalSta::LocalSta created
+LocalSta::LocalSta created
+LocalSta::LocalSta created
+LocalSta::LocalSta created
+LocalSta::LocalSta created
+LocalSta::LocalSta created
+LocalSta::LocalSta created
+LocalSta::LocalSta created
+Iteration |   Area    | Resized | Buffers | Nets repaired | Remaining
+---------------------------------------------------------------------
+        0 |     +0.0% |       0 |       0 |             0 |     11226
+    final |     +0.3% |      26 |      17 |           160 |         0
+---------------------------------------------------------------------
+[INFO RSZ-0034] Found 160 slew violations.
+[INFO RSZ-0039] Resized 26 instances.
+[INFO RSZ-0038] Inserted 17 buffers in 160 nets.
+current design stage: grt

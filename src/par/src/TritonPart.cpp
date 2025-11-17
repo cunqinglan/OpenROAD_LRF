@@ -1569,21 +1569,22 @@ void TritonPart::BuildTimingPaths()
       get_max ? sta::MinMaxAll::max()
               : sta::MinMaxAll::min(),  // return max/min paths checks
       // group_count, endpoint_count, unique_pins
-      group_count,     // number of paths in total
-      endpoint_count,  // number of paths for each endpoint
-      true,
-      -sta::INF,
-      sta::INF,  // slack_min, slack_max,
-      true,      // sort_by_slack
-      nullptr,   // group_names
-      // setup, hold, recovery, removal,
-      get_max,
-      !get_max,
-      false,
-      false,
-      // clk_gating_setup, clk_gating_hold
-      false,
-      false);
+  group_count,     // number of paths in total
+  endpoint_count,  // number of paths for each endpoint
+  true,
+  false,           /* unique_edges */
+  -sta::INF,
+  sta::INF,  // slack_min, slack_max,
+  true,      // sort_by_slack
+  nullptr,   // group_names
+  // setup, hold, recovery, removal,
+  get_max,
+  !get_max,
+  false,
+  false,
+  // clk_gating_setup, clk_gating_hold
+  false,
+  false);
 
   // check all the timing paths
   for (auto& path_end : path_ends) {

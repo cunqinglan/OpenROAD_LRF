@@ -27,6 +27,7 @@
 #include "sta/TimingRole.hh"
 #include "utl/Logger.h"
 #include "sta/DcalcAnalysisPt.hh"
+#include "lrf/IncreSta.hh"
 
 namespace ord {
 
@@ -446,7 +447,7 @@ Timing::getLmDelaySum(odb::dbInst* inst, const sta::MinMax *minmax) {
   sta::dbNetwork* network = sta->getDbNetwork();
   sta::Instance* sta_inst = network->dbToSta(inst);
   float delay_lambda_sum = 0.0;
-  sta->delayLmSum(sta_inst, minmax, delay_lambda_sum);
+  sta->getIncreSta()->delayLmSum(sta_inst, minmax, delay_lambda_sum);
   return delay_lambda_sum;
 }
 
@@ -461,7 +462,7 @@ Timing::checkErcViolations(odb::dbInst* inst, sta::Corner* corner) {
   while (pin_iterator->hasNext()) {
     sta::Pin* pin = pin_iterator->next();
     // Check max slew
-    float limit = sta->maxInputSlew(pin, corner);
+    float limit = sta->getIncreSta()->maxInputSlew(pin, corner);
     for (const sta::RiseFall* rf : sta::RiseFall::range()) {
       if (network->isLoad(pin)) {
         sta::Vertex *vertex = sta->graph()->pinLoadVertex(pin);
@@ -469,12 +470,14 @@ Timing::checkErcViolations(odb::dbInst* inst, sta::Corner* corner) {
         float actual_slew = sta->graph()->slew(vertex, rf, dcalc_ap->index());
         if (actual_slew > limit) {
           violated = true;
-          printf("ERC Violation: Instance %s Pin %s exceeds max slew limit %.3f with actual slew %.3f\n",
-                  inst->getName(),
-                  network->name(pin),
-                  limit,
-                  actual_slew);
-                  fflush(stdout);
+          // Use the project's logger (fmt-style) instead of printf to avoid
+          // format-string/type mismatches and integrate with logging.
+          design_->getLogger()->report(
+            "ERC Violation: Instance {} Pin {} exceeds max slew limit {:.3f} with actual slew {:.3f}",
+            inst->getName(),
+            network->name(pin),
+            limit,
+            actual_slew);
         }
       }
     }
@@ -486,12 +489,12 @@ Timing::checkErcViolations(odb::dbInst* inst, sta::Corner* corner) {
       sta->checkCapacitance(pin, corner, sta::MinMax::max(), corner1, rf, cap1, max_cap1, cap_slack1);
       if (cap_slack1 < 0.0) {
         violated = true;
-        printf("ERC Violation: Instance %s Pin %s exceeds max capacitance limit %.3f with actual capacitance %.3f\n",
-                inst->getName(),
-                network->name(pin),
-                max_cap1,
-                cap1);
-                fflush(stdout);
+        design_->getLogger()->report(
+          "ERC Violation: Instance {} Pin {} exceeds max capacitance limit {:.3f} with actual capacitance {:.3f}",
+          inst->getName(),
+          network->name(pin),
+          max_cap1,
+          cap1);
       }
     }
   }
@@ -501,7 +504,13 @@ Timing::checkErcViolations(odb::dbInst* inst, sta::Corner* corner) {
 void 
 Timing::lmUpdate() {
   sta::dbSta* sta = getSta();
-  sta->lmUpdate();
+  sta->getIncreSta()->lmUpdate();
+}
+
+float 
+Timing::averageDelayOnCritPath() {
+  sta::dbSta* sta = getSta();
+  return sta->getIncreSta()->averageDelayOnCritPath();
 }
 
 }  // namespace ord

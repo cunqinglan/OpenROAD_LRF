@@ -16,6 +16,10 @@ target_include_directories(dbSta_lib
   PUBLIC
     ../include
     ${PROJECT_SOURCE_DIR}/include
+    # For lrf headers like lrf/IncreSta.hh
+    ${PROJECT_SOURCE_DIR}/src/lrf/include
+    # For internal lrf headers included relatively (e.g., "LocalSta.hh")
+    ${PROJECT_SOURCE_DIR}/src/lrf/src
 )
 
 
@@ -23,6 +27,8 @@ target_link_libraries(dbSta_lib
   PUBLIC
     odb
     OpenSTA
+    # Provide lrf symbols (e.g., lrf::IncreSta) used by dbSta_lib
+    lrf_lib
   PRIVATE
     utl_lib
 )
@@ -72,6 +78,10 @@ target_include_directories(dbSta
   PUBLIC
     ../include
     ${PROJECT_SOURCE_DIR}/include
+    # For lrf headers like lrf/IncreSta.hh
+    ${PROJECT_SOURCE_DIR}/src/lrf/include/lrf
+    # For internal lrf headers included relatively (e.g., "LocalSta.hh")
+    ${PROJECT_SOURCE_DIR}/src/lrf/src
 
   PRIVATE
     # Unfortunate side-effect of swig include StaTcl.i
@@ -85,6 +95,8 @@ target_link_libraries(dbSta
     odb
     utl_lib
     dbSta_lib
+    # Link lrf implementation to resolve lrf::IncreSta symbols used by dbSta
+    lrf_lib
 )
 
 messages(

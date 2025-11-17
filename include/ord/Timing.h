@@ -92,6 +92,8 @@ class Timing
   bool checkErcViolations(odb::dbInst* inst, sta::Corner* corner);
 
   void lmUpdate();
+
+  float averageDelayOnCritPath();
   /////////////////////////////////////////////////////////////
   // End functions for LR sizing
   /////////////////////////////////////////////////////////////

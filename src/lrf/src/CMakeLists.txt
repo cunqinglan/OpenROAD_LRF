@@ -14,12 +14,18 @@ add_library(lrf_lib
     LrHelper.cc
     LrfMgr.cc
     LrSizer.cc
+    PtGraph.cc
+    LocalSta.cc
+  IncreSta.cc
 )
 
 target_sources(lrf
   PRIVATE
     # Graphics.cc
     MakeLrf.cc
+    # LrHelper.cc
+    # LocalSta.cc
+    # PtGraph.cc
 )
 
 target_include_directories(lrf
@@ -45,7 +51,7 @@ target_include_directories(lrf_lib
 
 target_link_libraries(lrf_lib
   PUBLIC
-    est_lib
+    # est_lib
     stt_lib
     odb
     OpenSTA
@@ -66,6 +72,8 @@ target_link_libraries(lrf
     gui
     utl_lib
 )
+
+target_include_directories(lrf PUBLIC ${CMAKE_SOURCE_DIR}/src/lrf/include)
 
 messages(
   TARGET lrf
