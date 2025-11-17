@@ -138,6 +138,7 @@ protected:
   float delayLmSum(Instance *inst, const MinMax *minmax);
   float delayLmSum(PtGraph *pt_graph, DcalcAnalysisPt *dcalc_ap);
   void graphPop();
+  void setSta(Sta *sta) { sta_ = sta; }
   
   // Not finished function
   // ArcDcalcArgSeq makeArcDcalcArgs(PtVertex &drvr_pt_vertex,

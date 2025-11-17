@@ -12,6 +12,7 @@
 #include "sta/ClkNetwork.hh"
 
 namespace lrf {
+using namespace sta;
 
 LocalSta::LocalSta(Sta *sta) :
   GraphDelayCalc(sta),
@@ -39,7 +40,6 @@ LocalSta::copyState(const Sta *sta)
 {
   GraphDelayCalc::copyState(sta);
   sorted_ = false;
-  *sta_ = *sta;
 }
 
 void 
@@ -69,7 +69,7 @@ void
 LocalSta::collectLocalFanouts(Pin *drvr_pin, InstanceSet &local_instances)
 {
   if (graph_ == nullptr) {
-    printf("LocalSta::collectLocalFanouts graph is nullptr\n");
+    printf("LocalSta::collectLocalFanouts graph pointer is nullptr\n");
     fflush(stdout);
     return;
   }

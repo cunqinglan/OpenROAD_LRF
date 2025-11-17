@@ -15,7 +15,7 @@ class IncreSta : public dbStaState
 public:
   IncreSta(dbSta *db_sta);
   ~IncreSta();
-  void reInit();
+  void init();
   virtual void copyState(const dbSta *sta);
 
   LocalSta *localSta() { return local_sta_; };
@@ -39,6 +39,7 @@ protected:
   void makeLocalSta();
   void makeLRHelper();
   void checkeTopoOrder(InstanceSeq &);
+  void ensureLocalSta();
 
   LocalSta *local_sta_;
   LRHelper *lr_helper_;
