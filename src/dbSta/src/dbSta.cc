@@ -45,6 +45,7 @@
 #include "sta/Units.hh"
 #include "utl/Logger.h"
 #include "utl/histogram.h"
+#include "lrf/IncreSta.hh"
 
 ////////////////////////////////////////////////////////////////
 
@@ -199,22 +200,16 @@ dbSta::dbSta(Tcl_Interp* tcl_interp, odb::dbDatabase* db, utl::Logger* logger)
 {
   std::call_once(init_sta_flag, []() { sta::initSta(); });
   initVars(tcl_interp, db, logger);
-  if (!sta::IncreSta::increSta()) {
-    sta::IncreSta::setIncreSta(this);
+  if (!sta::Sta::sta()) {
+    sta::Sta::setSta(this);
   }
-  // if (!sta::Sta::sta()) {
-  //   sta::Sta::setSta(this);
-  // }
 }
 
 dbSta::~dbSta()
 {
-  if (sta::IncreSta::increSta() == this) {
-    sta::IncreSta::setIncreSta(nullptr);
+  if (sta::Sta::sta() == this) {
+    sta::Sta::setSta(nullptr);
   }
-  // if (sta::Sta::sta() == this) {
-  //   sta::Sta::setSta(nullptr);
-  // }
 }
 
 void dbSta::initVars(Tcl_Interp* tcl_interp,
@@ -225,6 +220,7 @@ void dbSta::initVars(Tcl_Interp* tcl_interp,
   db->addObserver(this);
   logger_ = logger;
   makeComponents();
+  makeIncreSta();
   if (tcl_interp) {
     setTclInterp(tcl_interp);
   }
@@ -236,7 +232,7 @@ void dbSta::initVars(Tcl_Interp* tcl_interp,
 
 void dbSta::updateComponentsState()
 {
-  IncreSta::updateComponentsState();
+  Sta::updateComponentsState();
   for (auto& state : sta_states_) {
     state->copyState(this);
   }
@@ -279,6 +275,13 @@ void dbSta::makeNetwork()
 void dbSta::makeSdcNetwork()
 {
   sdc_network_ = new dbSdcNetwork(network_);
+}
+
+void dbSta::makeIncreSta()
+{
+  if (incre_sta_)
+    delete incre_sta_;
+  incre_sta_ = new lrf::IncreSta(this);
 }
 
 void dbSta::postReadLef(dbTech* tech, dbLib* library)

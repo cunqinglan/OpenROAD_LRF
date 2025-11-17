@@ -577,6 +577,7 @@ void EstimateParasitics::estimateWireParasitic(const Net* net,
   PinSet* drivers = network_->drivers(net);
   if (drivers && !drivers->empty()) {
     PinSet::Iterator drvr_iter(drivers);
+    // What about multiple drivers?
     const Pin* drvr_pin = drvr_iter.next();
     estimateWireParasitic(drvr_pin, net, spef_writer);
   }

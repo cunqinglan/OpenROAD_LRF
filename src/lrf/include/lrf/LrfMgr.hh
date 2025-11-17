@@ -63,51 +63,51 @@ using sta::LibertyCell;
 using sta::LibertyCellSeq;
 using sta::Pin;
 
-class LrfMgr : public dbStaState, public dbNetworkObserver
-{
- public:
-  LrfMgr(utl::Logger* logger,
-          odb::dbDatabase* db,
-          sta::dbSta* sta,
-          SteinerTreeBuilder* stt_builder,
-          GlobalRouter* global_router,
-          dpl::Opendp* opendp,
-          est::EstimateParasitics* estimate_parasitics);
-  ~LrfMgr() override;
+// class LrfMgr : public dbStaState, public dbNetworkObserver
+// {
+//  public:
+//   LrfMgr(utl::Logger* logger,
+//           odb::dbDatabase* db,
+//           sta::dbSta* sta,
+//           SteinerTreeBuilder* stt_builder,
+//           GlobalRouter* global_router,
+//           dpl::Opendp* opendp,
+//           est::EstimateParasitics* estimate_parasitics);
+//   ~LrfMgr() override;
 
-  // API for Lagrangian optimization
-  void LagrangianOpt(int threads = 1);
+//   // API for Lagrangian optimization
+//   void LagrangianOpt(int threads = 1);
   
 
 
-  // General API for geting db and sta pointers
-  dbNetwork* getDbNetwork() const { return db_network_; }
-  sta::dbSta* getDbSta() const { return sta_; }
+//   // General API for geting db and sta pointers
+//   dbNetwork* getDbNetwork() const { return db_network_; }
+//   sta::dbSta* getDbSta() const { return sta_; }
 
-protected:
-  void transformInstance(Instance* inst,
-                         LibertyCell* new_cell);
+// protected:
+//   void transformInstance(Instance* inst,
+//                          LibertyCell* new_cell);
 
                          
-private:
-  // from sta::dbNetworkObserver callbacks
-  void postReadLiberty() override;
+// private:
+//   // from sta::dbNetworkObserver callbacks
+//   void postReadLiberty() override;
 
-  Logger* logger_ = nullptr;
-  est::EstimateParasitics* estimate_parasitics_ = nullptr;
-  SteinerTreeBuilder* stt_builder_ = nullptr;
-  GlobalRouter* global_router_ = nullptr;
-  dbNetwork* db_network_ = nullptr;
-  dbDatabase* db_ = nullptr;
-  dbBlock* block_ = nullptr;
-  int dbu_ = 0;
-  const Pin* debug_pin_ = nullptr;
+//   Logger* logger_ = nullptr;
+//   est::EstimateParasitics* estimate_parasitics_ = nullptr;
+//   SteinerTreeBuilder* stt_builder_ = nullptr;
+//   GlobalRouter* global_router_ = nullptr;
+//   dbNetwork* db_network_ = nullptr;
+//   dbDatabase* db_ = nullptr;
+//   dbBlock* block_ = nullptr;
+//   int dbu_ = 0;
+//   const Pin* debug_pin_ = nullptr;
 
-  odb::Rect core_;
-  bool core_exists_ = false;
-  sta::dbSta* sta_ = nullptr;
-  std::unordered_map<LibertyCell*, LibertyCellSeq> swappable_cells_cache_;
-};
+//   odb::Rect core_;
+//   bool core_exists_ = false;
+//   sta::dbSta* sta_ = nullptr;
+//   std::unordered_map<LibertyCell*, LibertyCellSeq> swappable_cells_cache_;
+// };
 
 
 }  // namespace lrf
