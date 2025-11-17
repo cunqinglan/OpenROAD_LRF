@@ -27,6 +27,7 @@
 #include "sta/TimingRole.hh"
 #include "utl/Logger.h"
 #include "sta/DcalcAnalysisPt.hh"
+#include "lrf/IncreSta.hh"
 
 namespace ord {
 
@@ -446,7 +447,7 @@ Timing::getLmDelaySum(odb::dbInst* inst, const sta::MinMax *minmax) {
   sta::dbNetwork* network = sta->getDbNetwork();
   sta::Instance* sta_inst = network->dbToSta(inst);
   float delay_lambda_sum = 0.0;
-  sta->delayLmSum(sta_inst, minmax, delay_lambda_sum);
+  sta->getIncreSta()->delayLmSum(sta_inst, minmax, delay_lambda_sum);
   return delay_lambda_sum;
 }
 
@@ -461,7 +462,7 @@ Timing::checkErcViolations(odb::dbInst* inst, sta::Corner* corner) {
   while (pin_iterator->hasNext()) {
     sta::Pin* pin = pin_iterator->next();
     // Check max slew
-    float limit = sta->maxInputSlew(pin, corner);
+    float limit = sta->getIncreSta()->maxInputSlew(pin, corner);
     for (const sta::RiseFall* rf : sta::RiseFall::range()) {
       if (network->isLoad(pin)) {
         sta::Vertex *vertex = sta->graph()->pinLoadVertex(pin);
@@ -503,13 +504,13 @@ Timing::checkErcViolations(odb::dbInst* inst, sta::Corner* corner) {
 void 
 Timing::lmUpdate() {
   sta::dbSta* sta = getSta();
-  sta->lmUpdate();
+  sta->getIncreSta()->lmUpdate();
 }
 
-float
-Timing::averageArcDelay() {
+float 
+Timing::averageDelayOnCritPath() {
   sta::dbSta* sta = getSta();
-  return 0.0;
+  return sta->getIncreSta()->averageDelayOnCritPath();
 }
 
 }  // namespace ord

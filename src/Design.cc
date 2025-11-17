@@ -22,6 +22,7 @@
 #include "utl/Logger.h"
 #include "rsz/Resizer.hh"
 #include "est/EstimateParasitics.h"
+#include "lrf/IncreSta.hh"
 
 namespace ord {
 
@@ -376,7 +377,7 @@ std::vector<odb::dbInst*> Design::sortedInstances()
   sta->searchPreamble();
   sta::dbNetwork* network = sta->getDbNetwork();
 
-  sta::InstanceSeq &sorted_instances = sta->getSortedInstances();
+  sta::InstanceSeq &sorted_instances = sta->getIncreSta()->getSortedInstances();
   std::vector<odb::dbInst*> instances;
   instances.reserve(sorted_instances.size());
   for (auto* inst : sorted_instances) {

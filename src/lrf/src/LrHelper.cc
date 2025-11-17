@@ -167,6 +167,12 @@ LRHelper::KKTProjection(Sta *sta) {
                         ap_lm_seq_map, in_sum_index);
   }
   bool kkt_satisfied = checkKKTForAllVertices();
+  if (kkt_satisfied) {
+    printf("LRHelper::KKTProjection(): KKT conditions satisfied\n");
+  } else {
+    printf("LRHelper::KKTProjection(): KKT conditions NOT satisfied\n");
+  }
+  fflush(stdout);
 
   return kkt_satisfied;
 }

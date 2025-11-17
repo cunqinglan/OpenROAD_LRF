@@ -51,7 +51,7 @@ target_include_directories(lrf_lib
 
 target_link_libraries(lrf_lib
   PUBLIC
-    est_lib
+    # est_lib
     stt_lib
     odb
     OpenSTA

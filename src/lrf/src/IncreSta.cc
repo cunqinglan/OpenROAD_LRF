@@ -23,10 +23,11 @@ IncreSta::IncreSta(dbSta *db_sta)
 }
 
 void
-IncreSta::reInit()
+IncreSta::init()
 {
-  makeLocalSta();
-  makeLRHelper();
+  sta_->ensureLevelized();
+  local_sta_->copyState(sta_);
+  lr_helper_->copyState(sta_);
 }
 
 IncreSta::~IncreSta()
@@ -49,6 +50,7 @@ IncreSta::makeLocalSta()
   if (local_sta_)
     delete local_sta_;
   local_sta_ = new LocalSta(sta_);
+  local_sta_->setSta(sta_);
 }
 
 void 
@@ -86,6 +88,7 @@ IncreSta::checkeTopoOrder(InstanceSeq &) {
 void
 IncreSta::delayLmSum(Instance *inst, const MinMax *minmax, float &delay_lambda_sum)
 {
+  init();
   delay_lambda_sum = 0.0;
   delay_lambda_sum = local_sta_->delayLmSum(inst, minmax);
 }
@@ -93,6 +96,7 @@ IncreSta::delayLmSum(Instance *inst, const MinMax *minmax, float &delay_lambda_s
 void 
 IncreSta::lmUpdate()
 {
+  init();
   if (projected_) {
     lr_helper_->updateAllEdgeLms(sta_);
     lr_helper_->KKTProjection(sta_);

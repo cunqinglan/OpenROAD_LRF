@@ -93,8 +93,6 @@ target_link_libraries(dpl_test
     GTest::gtest
     GTest::gtest_main
     dpl_lib
-    # ensure lrf symbols (IncreSta) available to tests that indirectly use it
-    lrf_lib
     tst
 )
 
