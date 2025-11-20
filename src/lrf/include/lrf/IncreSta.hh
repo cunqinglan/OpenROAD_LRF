@@ -4,6 +4,10 @@
 #include "sta/Sta.hh"
 #include "lrf/LrfClass.hh"
 
+namespace est {
+  class EstimateParasitics;
+}
+
 namespace lrf {
 using namespace sta;
 
@@ -20,6 +24,8 @@ public:
 
   LocalSta *localSta() { return local_sta_; };
   LRHelper *lrHelper() { return lr_helper_; };
+  void setLocalStaParasiticsEst(est::EstimateParasitics *estimate_parasitics);
+
   InstanceSeq &getSortedInstances();
   void resetSortedInstances() { sorted_instances_.clear(); }
   void delayLmSum(Instance *inst, const MinMax *minmax, float &delay_lambda_sum);

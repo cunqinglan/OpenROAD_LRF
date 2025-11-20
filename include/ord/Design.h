@@ -200,6 +200,8 @@ class Design
   std::vector<odb::dbInst*> sortedInstances();
 
   bool swapInstMaster(odb::dbInst* inst, odb::dbMaster* new_master);
+
+  void updateParasiticsNoDeleteNetwork();
   /////////////////////////////////////////////////////////////
   // End functions for LR sizing
   /////////////////////////////////////////////////////////////

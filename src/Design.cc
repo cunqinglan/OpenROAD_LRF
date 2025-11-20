@@ -402,11 +402,44 @@ std::vector<odb::dbInst*> Design::sortedInstances()
 bool
 Design::swapInstMaster(odb::dbInst* inst, odb::dbMaster* new_master)
 {
+  auto db_iterms = inst->getITerms();
+  for (auto *db_iterm : db_iterms) {
+    if (db_iterm) {
+      int x, y;
+      db_iterm->getAvgXY(&x, &y);
+      printf("Warning: Instance %s ITerm %s at (%d, %d) has no STA mapping\n",
+              inst->getName().c_str(),
+              db_iterm->getName().c_str(),
+              x,
+              y);
+              fflush(stdout);
+    }
+  }
   rsz::Resizer *resizer = getResizer();
   est::EstimateParasitics *estimator = resizer->getEstimateParasitics();
   est::IncrementalParasiticsGuard guard(estimator);
   bool swapped = inst->swapMaster(new_master);
+  printf("After swapMaster\n");
+  fflush(stdout);
+  for (auto *db_iterm : db_iterms) {
+    if (db_iterm) {
+      int x, y;
+      db_iterm->getAvgXY(&x, &y);
+      printf("Warning: Instance %s ITerm %s at (%d, %d) has no STA mapping\n",
+              inst->getName().c_str(),
+              db_iterm->getName().c_str(),
+              x,
+              y);
+              fflush(stdout);
+    }
+  }
   return swapped;
+}
+
+void Design::updateParasiticsNoDeleteNetwork() 
+{
+  est::EstimateParasitics *estimator = getResizer()->getEstimateParasitics();
+  estimator->updateWireParasiticsNoDeleteNetwork();
 }
 /////////////////////////////////////////////////////////////
 // End functions for LR sizing

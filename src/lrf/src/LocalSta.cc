@@ -43,7 +43,7 @@ LocalSta::copyState(const Sta *sta)
 }
 
 void 
-LocalSta::setParasitics(est::EstimateParasitics *estimate_parasitics) {
+LocalSta::setParasiticsEst(est::EstimateParasitics *estimate_parasitics) {
   estimate_parasitics_ = estimate_parasitics;
   parasitics_set_ = true;
 }
