@@ -40,7 +40,7 @@ public:
   void findLocalDelays(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
   float maxInputSlew(const Pin* input,
                             const Corner* corner) const;
-  void setParasitics(est::EstimateParasitics *estimate_parasitics);
+  void setParasiticsEst(est::EstimateParasitics *estimate_parasitics);
 
 protected:
   void collectLocalFanouts(Pin *drvr_pin, InstanceSet &local_instances);

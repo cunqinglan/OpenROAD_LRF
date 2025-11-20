@@ -157,5 +157,10 @@ IncreSta::averageDelayOnCritPath() {
   return (worst_arrival / path_length);
 }
 
-
+void 
+IncreSta::setLocalStaParasiticsEst(est::EstimateParasitics *estimate_parasitics)
+{
+  local_sta_->setParasiticsEst(estimate_parasitics);
 }
+
+} // namespace lrf

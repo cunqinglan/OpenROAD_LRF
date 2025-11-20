@@ -222,6 +222,16 @@ class EstimateParasitics : public dbStaState
   void ensureWireParasitic(const Pin* drvr_pin, const Net* net);
   void highlightSteiner(const Pin* drvr);
 
+  //////////////////////////////////////////////////
+  // API for LR ISTA
+  void updateParasiticsNoDeleteNetwork(const Net* net);
+  void updateWireParasiticsNoDeleteNetwork();
+  void estimateWireParasiticNoDeleteNetwork(const Net* net);      
+  void estimateWireParasiticSteinerNoDeleteNetwork(const Pin* drvr_pin,
+                                                   const Net* net);
+  void checkIfParasiticsNetworkExists(const Net* net);
+  /////////////////////////////////////////////////
+
   dbNetwork* getDbNetwork() { return db_network_; }
   odb::dbBlock* getBlock() { return block_; }
   GlobalRouter* getGlobalRouter() { return global_router_; }
