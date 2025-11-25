@@ -10,16 +10,22 @@
 #include "sta/SearchPred.hh"
 #include "sta/TimingRole.hh"
 #include "sta/ClkNetwork.hh"
+#include "LocalParasitics.hh"
+#include "sta/Corner.hh"
+#include "sta/Parasitics.hh"
+#include "parasitics/ConcreteParasiticsPvt.hh"
 
 namespace lrf {
 using namespace sta;
+
 
 LocalSta::LocalSta(Sta *sta) :
   GraphDelayCalc(sta),
   sta_(sta),
   collected_(false),
   sorted_(false),
-  estimate_parasitics_(nullptr)
+  estimate_parasitics_(nullptr),
+  local_parasitics_(new LocalParasitics(sta))
 {
   printf("LocalSta::LocalSta created\n");
   fflush(stdout);
@@ -140,6 +146,9 @@ LocalSta::topoSortVertices(PtGraph *pt_graph)
 void
 LocalSta::findLocalDelays(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc)
 {
+  printf("LocalSta::findLocalDelays recomputing local parasitics\n");
+  fflush(stdout);
+  recomputeLocalParasitics(pt_graph);
   for (VertexId vertex_id : pt_graph->sortedVertexIds()) {
     findVertexDelays(vertex_id,  arc_delay_calc, pt_graph);
   }
@@ -212,7 +221,7 @@ LocalSta::findVertexDelays(VertexId pt_vertex_id,
                            ArcDelayCalc *arc_delay_calc,
                            PtGraph *pt_graph)
 {
-  PtVertex &pt_vertex = pt_graph->vertex(pt_vertex_id);
+  PtVertex &pt_vertex = pt_graph->ptVertex(pt_vertex_id);
   Vertex *vertex = pt_vertex.vertex();
   if (pt_vertex.isRoot()) {
     seedRootSlew(pt_vertex, pt_graph);
@@ -222,6 +231,8 @@ LocalSta::findVertexDelays(VertexId pt_vertex_id,
       if (vertex->isDriver(network_)) {
         LoadPinIndexMap load_pin_index_map = makeLoadPinIndexMap(vertex);
         DrvrLoadSlews load_slews_prev;
+        // For a gate, compute its delay in different 
+        // [arcs, corners, rise/fall].
         findDriverDelays(pt_vertex, arc_delay_calc,
                          load_pin_index_map, pt_graph);
         
@@ -238,6 +249,7 @@ LocalSta::findDriverDelays(PtVertex &drvr_pt_vertex,
                            PtGraph *pt_graph)
 {
   initLoadSlews(drvr_pt_vertex, pt_graph);
+  // Compute delays for each arc from the driver vertex.
   findDriverDelays1(drvr_pt_vertex, nullptr, arc_delay_calc, 
                     load_pin_index_map, pt_graph);
 }
@@ -269,7 +281,7 @@ LocalSta::findDriverDelays1(PtVertex &drvr_pt_vertex,
   while (in_edge_iter.hasNext()) {
     PtEdge &pt_edge = in_edge_iter.next();
     Edge *edge = pt_edge.edge();
-    Vertex *from_vertex = pt_graph->vertex(pt_edge.ptFromId()).vertex();
+    Vertex *from_vertex = pt_graph->ptVertex(pt_edge.ptFromId()).vertex();
 
     if (search_pred_->searchFrom(from_vertex)
 	&& search_pred_->searchThru(edge)
@@ -306,7 +318,7 @@ LocalSta::zeroSlewAndWireDelays(PtVertex &drvr_pt_vertex,
       PtEdge &pt_edge = edge_iter.next();
       Edge *wire_edge = pt_edge.edge();
       if (wire_edge->isWire()) {
-        PtVertex &load_pt_vertex = pt_graph->vertex(pt_edge.ptToId());
+        PtVertex &load_pt_vertex = pt_graph->ptVertex(pt_edge.ptToId());
         Vertex *load_vertex = load_pt_vertex.vertex();
         if (!graph_->wireDelayAnnotated(wire_edge, rf, ap_index)) {
           pt_graph->setWireArcDelay(pt_edge, rf, ap_index, delay_zero);
@@ -373,11 +385,11 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
     const Pin *drvr_pin = drvr_vertex->pin();
     const Parasitic *parasitic;
     float load_cap;
-    parasiticLoad(drvr_pin, drvr_rf, dcalc_ap, multi_drvr_net, 
-                  arc_delay_calc, load_cap, parasitic);
+    localParasiticLoad(drvr_pin, drvr_rf, dcalc_ap, multi_drvr_net, 
+                       load_cap, parasitic);
 
     if (multi_drvr_net == nullptr) {
-      PtVertex &from_pt_vertex = pt_graph->vertex(pt_edge.ptFromId());
+      PtVertex &from_pt_vertex = pt_graph->ptVertex(pt_edge.ptFromId());
       const Slew in_slew = edgeFromSlew(from_pt_vertex, from_rf, pt_edge, 
                                         dcalc_ap, pt_graph);
       ArcDcalcResult dcalc_result = arc_delay_calc->gateDelay(
@@ -409,7 +421,7 @@ LocalSta::annotateDelaysSlews(PtEdge &pt_edge,
                   dcalc_result.drvrSlew(), dcalc_ap, pt_graph);
   Edge *edge = pt_edge.edge();
   if (!edge->role()->isLatchDtoQ()) {
-    PtVertex &to_pt_vertex = pt_graph->vertex(pt_edge.ptToId());
+    PtVertex &to_pt_vertex = pt_graph->ptVertex(pt_edge.ptToId());
     delay_changed |= annotateLoadDelays(to_pt_vertex, arc->toEdge()->asRiseFall(),
                        dcalc_result, load_pin_index_map,
                        delay_zero, true, dcalc_ap, pt_graph);
@@ -436,7 +448,7 @@ LocalSta::annotateLoadDelays(PtVertex &drvr_pt_vertex,
     PtEdge &wire_pt_edge = edge_iter.next();
     Edge *wire_edge = wire_pt_edge.edge();
     if (wire_edge->isWire()) {
-      PtVertex &load_pt_vertex = pt_graph->vertex(wire_pt_edge.ptToId());
+      PtVertex &load_pt_vertex = pt_graph->ptVertex(wire_pt_edge.ptToId());
       Vertex *load_vertex = load_pt_vertex.vertex();
       Pin *load_pin = load_vertex->pin();
       size_t load_idx = load_pin_index_map[load_pin];
@@ -480,7 +492,7 @@ LocalSta::annotateDelaySlew(PtEdge &pt_edge,
   bool delay_changed = false;
   Edge *edge = pt_edge.edge();
   DcalcAPIndex ap_index = dcalc_ap->index();
-  PtVertex &drvr_pt_vertex = pt_graph->vertex(pt_edge.ptToId());
+  PtVertex &drvr_pt_vertex = pt_graph->ptVertex(pt_edge.ptToId());
   Vertex *drvr_vertex = drvr_pt_vertex.vertex();
   const RiseFall *drvr_rf = arc->toEdge()->asRiseFall();
   const Slew drvr_slew = pt_graph->slew(drvr_pt_vertex, drvr_rf, ap_index);
@@ -640,6 +652,63 @@ LocalSta::maxInputSlew(const Pin* input_pin,
   return limit;
 }
 
+LocalCost
+LocalSta::initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc)
+{
+  printf("LocalSta::initAndGetLocalTimingCost computing local delays\n");
+  fflush(stdout);
+  // During pt graph creation, delays from original graph are copied 
+  // to pt graph. So here we just need to sum up the delays.
+  const Corner *corner = corners_->findCorner("default");
+  DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
+  return delayLmSum(pt_graph, dcalc_ap);
+}
+
+LocalCost
+LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc)
+{
+  printf("LocalSta::increAndGetLocalTimingCost recomputing local delays\n");
+  fflush(stdout);
+  findLocalDelays(pt_graph, arc_delay_calc);
+  const Corner *corner = corners_->findCorner("default");
+  DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
+  return delayLmSum(pt_graph, dcalc_ap);
+}
+
+// Recompute local parasitics after cell swap
+void 
+LocalSta::recomputeLocalParasitics(PtGraph *pt_graph)
+{
+  local_parasitics_->recomputeLocalParasitics(pt_graph);
+}
+
+void 
+LocalSta::localParasiticLoad(const Pin *drvr_pin,
+                          const RiseFall *rf,
+                          const DcalcAnalysisPt *dcalc_ap,
+                          const MultiDrvrNet *multi_drvr_net,
+                          // Return values
+                          float &load_cap,
+                          const Parasitic *&parasitic) const
+{
+  bool has_net_load;
+  float fanout;
+  float pin_cap, wire_cap;
+  netCaps(drvr_pin, rf, dcalc_ap, multi_drvr_net,
+          pin_cap, wire_cap, fanout, has_net_load);
+
+  parasitic = local_parasitics_->findLocalParasitic(drvr_pin, rf, dcalc_ap);
+  if (!has_net_load && parasitic != nullptr) {
+    if (!local_parasitics_->isPiModel(parasitic)) {
+      printf("LocalSta::localParasiticLoad: Non-PI model parasitic found for pin %s\n",
+             network_->name(drvr_pin));
+      fflush(stdout);
+      return;
+    }
+    load_cap = local_parasitics_->capacitance(parasitic);
+  }
+}
+
 /////////////////////////////////////////////////////
 // LRSInstanceVisitor methods
 /////////////////////////////////////////////////////
@@ -670,5 +739,15 @@ LRSInstanceVisitor
 {
   return new LRSInstanceVisitor(local_sta_);
 }
+
+void 
+LocalSta::virtualSwapCell(PtGraph *pt_graph, Instance *inst, LibertyCell *new_cell)
+{
+  pt_graph->setRefGate(new_cell);
+}
+
+
+
+
 
 } // namespace lrf

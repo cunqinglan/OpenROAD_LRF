@@ -3,6 +3,18 @@
 #include "db_sta/dbSta.hh"
 #include "sta/Sta.hh"
 #include "lrf/LrfClass.hh"
+// #include "LocalSta.hh"
+
+namespace rsz {
+  class Resizer;
+}
+
+namespace sta {
+  class ConcreteParasitic;
+  class Parasitic; // forward declare individual parasitic object
+  class Parasitics;
+  class ParasiticAnalysisPt;
+}
 
 namespace est {
   class EstimateParasitics;
@@ -24,11 +36,12 @@ public:
 
   LocalSta *localSta() { return local_sta_; };
   LRHelper *lrHelper() { return lr_helper_; };
-  void setLocalStaParasiticsEst(est::EstimateParasitics *estimate_parasitics);
+  
 
   InstanceSeq &getSortedInstances();
   void resetSortedInstances() { sorted_instances_.clear(); }
   void delayLmSum(Instance *inst, const MinMax *minmax, float &delay_lambda_sum);
+
   // float averageDelayOnCriPath();
 
   // KKT projection and LM update
@@ -40,6 +53,9 @@ public:
   float maxInputSlew(const Pin* input_pin,
                             const Corner* corner) const;
   float averageDelayOnCritPath();
+
+  // APIs for parasitics estimation
+  void setLocalStaParasiticsEst(est::EstimateParasitics *estimate_parasitics);
 
 protected:
   void makeLocalSta();

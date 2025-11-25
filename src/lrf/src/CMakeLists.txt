@@ -5,9 +5,9 @@ include("openroad")
 
 swig_lib(NAME      lrf
          NAMESPACE lrf
-         I_FILE    LRFW.i
+         I_FILE    LRF.i
          SWIG_INCLUDES ${OPENSTA_HOME}
-         SCRIPTS   LRFW.tcl
+         SCRIPTS   LRF.tcl
 )
 
 add_library(lrf_lib
@@ -16,6 +16,8 @@ add_library(lrf_lib
     LrSizer.cc
     PtGraph.cc
     LocalSta.cc
+    LocalParasitics.cc
+    LocalReduceParasitic.cc
   IncreSta.cc
 )
 

@@ -9,6 +9,7 @@
 #include "sta/PathAnalysisPt.hh"
 #include "sta/TimingRole.hh"
 #include "lrf/LrfClass.hh"
+#include "parasitics/ConcreteParasitics.hh"
 
 namespace lrf {
 // All logic is handled via dbStaState base; nothing additional yet.
@@ -162,5 +163,9 @@ IncreSta::setLocalStaParasiticsEst(est::EstimateParasitics *estimate_parasitics)
 {
   local_sta_->setParasiticsEst(estimate_parasitics);
 }
+
+//////////////////////////////////////////////////////////
+// APIs for parasitics estimation
+///////////////////////////////////////////////////////////
 
 } // namespace lrf
