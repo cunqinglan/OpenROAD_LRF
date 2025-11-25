@@ -26,8 +26,13 @@
 #include "sta/TimingArc.hh"
 #include "sta/TimingRole.hh"
 #include "utl/Logger.h"
+
+
 #include "sta/DcalcAnalysisPt.hh"
+#include "sta/ArcDelayCalc.hh"
 #include "lrf/IncreSta.hh"
+#include "lrf/TestLrf.hh"
+
 
 namespace ord {
 
@@ -511,6 +516,17 @@ float
 Timing::averageDelayOnCritPath() {
   sta::dbSta* sta = getSta();
   return sta->getIncreSta()->averageDelayOnCritPath();
+}
+
+
+
+////////////////////////////////////////////
+// Functions of testing IncreSta
+////////////////////////////////////////////
+void 
+Timing::testLocalDelayCompute() {
+  rsz::Resizer* resizer = design_->getResizer();
+  lrf::testLocalDelayCompute(resizer);
 }
 
 }  // namespace ord

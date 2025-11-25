@@ -7,6 +7,8 @@
 #include "DcalcAnalysisPt.hh"
 #include "Corner.hh"
 #include "TimingRole.hh"
+#include "sta/Liberty.hh"
+#include "sta/Sdc.hh"
 
 namespace lrf {
 
@@ -83,6 +85,7 @@ PtGraph::makeGraph(sta::InstanceSet &inst_seq, sta::Instance *ref_inst)
   setGraphMade(true);
   initVertexAndEdges();
   createParasiticsNetworks();
+  annotateRefFaninVertices();
 }
 
 void 
@@ -241,9 +244,9 @@ PtGraph::setSlew(PtVertex &pt_vertex, const RiseFall *rf,
 
 
 void
-PtGraph::initLoadSlews(PtVertex &pt_vertex)
+PtGraph::initLoadSlews(PtVertex &drvr_pt_vertex)
 {
-  PtVertexOutEdgeIterator out_iter(pt_vertex.objectIdx(), this);
+  PtVertexOutEdgeIterator out_iter(drvr_pt_vertex.objectIdx(), this);
   while (out_iter.hasNext()) {
     PtEdge &pt_edge = out_iter.next();
     if (pt_edge.edge()->isWire()) {
@@ -354,6 +357,24 @@ PtGraph::to_string()
   }
   graph_descri += "End of PtGraph\n";
   return graph_descri;
+}
+
+void
+PtGraph::printDelays()
+{
+  for (PtEdge &pt_edge : pt_edges_) {
+    if (pt_edge.edge()) {
+      printf("PtEdge %u (Edge %s) delays:\n",
+             pt_edge.objectIdx(),
+             pt_edge.edge()->to_string(sta_->graph()).c_str());
+      size_t delay_count = slew_rf_count_ * ap_count_;
+      ArcDelay *arc_delays = pt_edge.arcDelays();
+      for (size_t i = 0; i < delay_count; i++) {
+        printf("  Delay[%zu]: %f\n", i, arc_delays[i]);
+      }
+    }
+  }
+  fflush(stdout);
 }
 
 void PtGraph::initVertexAndEdges()
@@ -468,6 +489,89 @@ PtGraph::topVertexLevel()
   return max_level;
 }
 
+void
+PtGraph::annotateRefFaninVertices()
+{
+  if (ref_inst_ == nullptr)
+    return;
+
+  sta::InstancePinIterator *pin_iter = sta_->network()->pinIterator(ref_inst_);
+  while(pin_iter->hasNext()) {
+    sta::Pin *pin = pin_iter->next();
+    if (!sta_->network()->isLoad(pin))
+      continue;
+    sta::Vertex *load_vertex = sta_->graph()->pinLoadVertex(pin);
+    if (load_vertex == nullptr)
+      continue;
+   
+    auto it = vertex_map_.find(load_vertex);
+    if (it == vertex_map_.end()) {
+      printf("PtGraph::annotateRefFaninVertices: load vertex not found in vertex_map_\n");
+      fflush(stdout);
+      continue;
+    }
+    ptVertex(it->second).setType(PtVertexType::RefInput);
+
+    PtVertexInEdgeIterator in_edge_iter(it->second, this);
+    while (in_edge_iter.hasNext()) {
+      PtEdge &pt_edge = in_edge_iter.next();
+      VertexId from_pt_id = pt_edge.ptFromId();
+      ptVertex(from_pt_id).setType(PtVertexType::RefDriver);
+    }
+  }
+  delete pin_iter;
+}
+
+const PtVertex &
+PtGraph::pinToPtVertex(const sta::Pin *pin) const
+{
+  Vertex *vertex, *bidirect_vertex;
+  sta_->graph()->pinVertices(pin, vertex, bidirect_vertex);
+  if (vertex) {
+    auto it = vertex_map_.find(vertex);
+    if (it != vertex_map_.end()) {
+      VertexId pt_vertex_id = it->second;
+      return ptVertex(pt_vertex_id);
+    }
+    else {
+      printf("PtGraph::pinToPtVertex: vertex not found in vertex_map_\n");
+      fflush(stdout);
+    }
+  } else {
+    printf("PtGraph::pinToPtVertex: no vertex for pin %s\n", sta_->network()->name(pin));
+    fflush(stdout);
+  }
+}
+
+float
+PtGraph::getRefPinCapacitance(const PtVertex &pt_vertex,
+                              const sta::RiseFall *rf,
+                              const sta::Corner *corner,
+                              const sta::MinMax *min_max) const
+{
+  float port_cap = 0.0f;
+  if (pt_vertex.type() != PtVertexType::RefInput && 
+      pt_vertex.type() != PtVertexType::RefOutput) {
+    printf("PtGraph::getRefPinCapacitance: pt_vertex is not RefInput type\n");
+    fflush(stdout);
+    return 0.0f;
+  }
+  const sta::Pin *pin = pt_vertex.vertex()->pin();
+  const char* pin_name = sta_->network()->portName(pin);
+  sta::LibertyPort *lib_port = ref_lib_cell_->findLibertyPort(pin_name);
+  if (lib_port == nullptr) {
+    printf("PtGraph::getRefPinCapacitance: no lib port for pin %s\n", pin_name);
+    fflush(stdout);
+    return 0.0f;
+  }
+  port_cap = sta_->sdc()->portCapacitance(ref_inst_,
+                                          lib_port,
+                                          rf,
+                                          corner,
+                                          min_max);
+}
+  
+
 ////////////////////////////////////////////////////////////////
 // PtEdge
 ////////////////////////////////////////////////////////////////
@@ -577,7 +681,7 @@ PtVertexInEdgeIterator::PtVertexInEdgeIterator(VertexId vertex_id,
   pt_graph_(pt_graph)
 {
   if (pt_graph_ && pt_graph_->pt_vertices_.size() > vertex_id) {
-    next_ = pt_graph_->vertex(vertex_id).in_edges_;
+    next_ = pt_graph_->ptVertex(vertex_id).in_edges_;
   } else {
     printf("PtVertexInEdgeIterator: invalid vertex id %u\n", vertex_id);
     next_ = pt_edge_id_null;
@@ -609,7 +713,7 @@ PtVertexOutEdgeIterator::PtVertexOutEdgeIterator(VertexId vertex_id,
   vertex_id_(vertex_id),
   pt_graph_(pt_graph)
 {
-  next_ = pt_graph_->vertex(vertex_id_).out_edges_;
+  next_ = pt_graph_->ptVertex(vertex_id_).out_edges_;
 }
 
 PtVertexOutEdgeIterator::PtVertexOutEdgeIterator(PtVertex &pt_vertex,
@@ -617,7 +721,7 @@ PtVertexOutEdgeIterator::PtVertexOutEdgeIterator(PtVertex &pt_vertex,
   vertex_id_(pt_vertex.objectIdx()),
   pt_graph_(pt_graph)
 {
-  next_ = pt_graph_->vertex(vertex_id_).out_edges_;
+  next_ = pt_graph_->ptVertex(vertex_id_).out_edges_;
 }
 
 PtEdge &

@@ -7,6 +7,8 @@
 #include "sta/StaState.hh"
 #include "est/EstimateParasitics.h"
 #include "lrf/LrfClass.hh"
+#include "sta/Map.hh"
+#include "LocalParasitics.hh"
 
 #include <map>
 #include <vector>
@@ -23,7 +25,15 @@ namespace lrf {
 
 using namespace sta;
 
+class ConcreteParasitic;
+class ConcreteParasiticNetwork;
+typedef Map<const Pin*, ConcreteParasitic**> ConcreteParasiticMap;
+typedef Map<const Net*, ConcreteParasiticNetwork**> ConcreteParasiticNetworkMap;
 typedef std::map<Vertex*, VertexId> VertexPtToIdMap;
+
+typedef float LocalCost;
+
+class LocalParasitics;
 
 class LocalSta: public GraphDelayCalc {
 public:
@@ -33,14 +43,19 @@ public:
   virtual void copyState(const Sta *sta);
 
   void collectLocalGraph(Instance *inst, InstanceSet &local_instances);
+  
   void makePtGraph(PtGraph *pt_graph, Instance *inst);
+  PtGraph *makePtGraph(Instance *inst, bool update_timing_first = false);
+
   Sta *getSta() { return sta_; }
 
   // Delay calculation methods
   void findLocalDelays(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
+  void initLocalDelays(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
   float maxInputSlew(const Pin* input,
                             const Corner* corner) const;
   void setParasiticsEst(est::EstimateParasitics *estimate_parasitics);
+  void setAnalysisPoints(const std::vector<const DcalcAnalysisPt*> &dcalc_ap_set);
 
 protected:
   void collectLocalFanouts(Pin *drvr_pin, InstanceSet &local_instances);
@@ -134,11 +149,44 @@ protected:
                           bool merge,
                           const DcalcAnalysisPt *dcalc_ap,
                           PtGraph *pt_graph);
-  PtGraph *makePtGraph(Instance *inst, bool update_timing_first = false);
+  
   float delayLmSum(Instance *inst, const MinMax *minmax);
   float delayLmSum(PtGraph *pt_graph, DcalcAnalysisPt *dcalc_ap);
   void graphPop();
   void setSta(Sta *sta) { sta_ = sta; }
+  LocalCost initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
+  LocalCost increAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
+  void localParasiticLoad(const Pin *drvr_pin,
+                          const RiseFall *rf,
+                          const DcalcAnalysisPt *dcalc_ap,
+                          const MultiDrvrNet *multi_drvr_net,
+                          // Return values
+                          float &load_cap,
+                          const Parasitic *&parasitic) const;
+
+  ////////////////////////////////////////////////////////
+  // Deal with parasitics
+  ////////////////////////////////////////////////////////
+  // Each time a cell is swapped, the pi model of its fanin 
+  // will change largely. So the parasitic network and its
+  // reduced pi model need to be recomputed.
+  void recomputeLocalParasitics(PtGraph *pt_graph);
+
+  ////////////////////////////////////////////////////////
+  // Swapping cells virtually
+  ////////////////////////////////////////////////////////
+  void setEquivCellsMade(bool made) { equiv_cells_made_ = made; }
+  bool equiv_cells_made() const { return equiv_cells_made_; }
+  void virtualSwapCell(PtGraph *pt_graph, Instance *inst, LibertyCell *new_cell);
+  void loadLocalParasitics(const Pin *drvr_pin,
+                           const RiseFall *rf,
+                           const DcalcAnalysisPt *dcalc_ap,
+                           const MultiDrvrNet *multi_drvr_net,
+                           ArcDelayCalc *arc_delay_calc,
+                           float *load_cap,
+                           const Parasitic *&parasitic) const;
+
+  void AnnotateRefFaninVertex(PtGraph *pt_graph);
   
   // Not finished function
   // ArcDcalcArgSeq makeArcDcalcArgs(PtVertex &drvr_pt_vertex,
@@ -164,6 +212,8 @@ private:
   VertexSeq root_vertices_;
   std::vector<PtGraph*> local_graphs_;
   est::EstimateParasitics *estimate_parasitics_;
+  LocalParasitics *local_parasitics_;
+  bool equiv_cells_made_ = false;
 
   friend class IncreSta;
 };
@@ -181,6 +231,11 @@ protected:
   Instance *inst_;
   PtGraph *local_graph_;
   ArcDelayCalc *delay_arc_calc_;
+
+  // Containers for parasitics
+  ConcreteParasiticMap drvr_parasitic_map_;
+  ConcreteParasiticNetworkMap parasitic_network_map_;
+  std::vector<DcalcAnalysisPt*> dcalc_ap_set_;
 };
 
 
