@@ -1,3 +1,4 @@
+cd /home/culan/Desktop/workspace/OpenROAD-flow-scripts/tools/OpenROAD/src/rmp/test
 source "helpers.tcl"
 
 define_corners fast slow
