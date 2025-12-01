@@ -119,7 +119,7 @@ ExtractFaninConeOfBadEndPoints::extractBottleneck(SeqRemapper& remapper)
       GetEndpoints(remapper.getSta(), remapper.getResizer(), remapper.getSlackThreshold());
   if (candidate_endpoints.empty()) {
     remapper.getLogger()->info(
-        utl::RES, 32, "No negative slack endpoints found for remapping.");
+        utl::RES, 306, "No negative slack endpoints found for remapping.");
     return cut::LogicCut({}, {}, {});
   }
 
@@ -165,7 +165,7 @@ ExtractLocalWindow::collectAdjacentInsts(sta::Instance* inst,
     sta::Vertex *vertex, *bidirect_vertex;
     sta_->graph()->pinVertices(pin, vertex, bidirect_vertex);
     if (vertex == nullptr || bidirect_vertex != nullptr) {
-      logger_->error(utl::RES, 34, "Pin of ref gate {} has bidirectional or no vertex.", network->name(pin));
+      logger_->error(utl::RES, 308, "Pin of ref gate {} has bidirectional or no vertex.", network->name(pin));
       return;
     }
     cut_vertices.insert(vertex);
@@ -212,7 +212,7 @@ ExtractLocalWindow::collectFaninVerticesInWindow(sta::Vertex* input_vertex,
       sta::Vertex *adj_vertex, *bidirect_vertex;
       graph->pinVertices(pin, adj_vertex, bidirect_vertex);
       if (adj_vertex == nullptr || bidirect_vertex != nullptr) {
-        logger_->error(utl::RMP, 39, "Pin of adjacent gate {} has bidirectional or no vertex.", network->name(pin));
+        logger_->error(utl::RES, 310, "Pin of adjacent gate {} has bidirectional or no vertex.", network->name(pin));
         fanin_vertices_set.clear();
         break;
       }
@@ -263,7 +263,7 @@ ExtractLocalWindow::collectFanoutVerticesInWindow(sta::Vertex* output_vertex,
       sta::Vertex *adj_vertex, *bidirect_vertex;
       graph->pinVertices(pin, adj_vertex, bidirect_vertex);
       if (adj_vertex == nullptr || bidirect_vertex != nullptr) {
-        logger_->error(utl::RMP, 36, "Pin of adjacent gate {} has bidirectional or no vertex.", network->name(pin));
+        logger_->error(utl::RES, 309, "Pin of adjacent gate {} has bidirectional or no vertex.", network->name(pin));
         fanout_vertices_set.clear();
         break;
       }
@@ -287,7 +287,7 @@ ExtractLocalWindow::extractBottleneck(SeqRemapper& remapper)
 {
   if (ref_gate_ == nullptr) {
     remapper.getLogger()->error(
-        utl::RMP, 33, "Reference gate not set for ExtractLocalWindow strategy.");
+        utl::RES, 307, "Reference gate not set for ExtractLocalWindow strategy.");
   }
 
   sta_ = remapper.getSta();
