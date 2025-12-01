@@ -29,6 +29,18 @@ class LogicCut;
 
 namespace rmp {
 
+class SearchABCCompatiblePred : public cut::SearchPredNonReg2AbcSupport
+{
+ public:
+  SearchABCCompatiblePred(sta::dbSta* open_sta,
+                          cut::AbcLibrary* abc_library,
+                          sta::Graph* graph)
+      : cut::SearchPredNonReg2AbcSupport(open_sta, abc_library, graph)
+  {
+  }
+  bool searchThru(sta::Edge* edge) override;
+};
+
 // Forward declaration
 class SeqRemapper;
 
@@ -103,7 +115,7 @@ public:
   private:
     sta::dbSta* sta_;
     cut::AbcLibrary* abc_library_;
-    size_t window_size_;
+    size_t window_size_ = 1;
     sta::SearchPred *abc_search_pred_ = nullptr;
     sta::Instance* ref_gate_ = nullptr;
 };

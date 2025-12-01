@@ -23,6 +23,38 @@
 
 
 namespace rmp {
+
+
+
+bool 
+SearchABCCompatiblePred::searchThru(sta::Edge* edge) {
+  sta::Network* network = sta_->network();
+  sta::Instance* to_inst = network->instance(edge->to(graph_)->pin());
+  if (to_inst == nullptr) {
+    return false;
+  }
+  sta::Instance* from_inst = network->instance(edge->from(graph_)->pin());
+  if (from_inst == nullptr) {
+    return false;
+  }
+  sta::LibertyCell* cell = network->libertyCell(to_inst);
+  if (cell == nullptr) {
+    return false;
+  }
+  if (!abc_library_->IsSupportedCell(cell->name())) {
+    return false;
+  }
+  cell = network->libertyCell(from_inst);
+  if (cell == nullptr) {
+    return false;
+  }
+  if (!abc_library_->IsSupportedCell(cell->name())) {
+    return false;
+  }
+
+  return sta::SearchPredNonReg2::searchThru(edge);
+}
+
 LogicExtractorFactoryPro::LogicExtractorFactoryPro(sta::dbSta* sta, utl::Logger* logger)
     : cut::LogicExtractorFactory(sta, logger) 
 {
@@ -141,9 +173,9 @@ ExtractLocalWindow::collectAdjacentInsts(sta::Instance* inst,
     // Collect fanin vertices if vertex is a gate output
     // or fanout vertices if vertex is a gate input
     if (network->direction(pin)->isOutput())   // difference between driver and output?
-      collectFanoutVerticesInWindow(vertex, window_size_, cut_vertices);
+      collectFanoutVerticesInWindow(vertex, window_size, cut_vertices);
     else if (network->direction(pin)->isInput()) // difference between load and input?
-      collectFaninVerticesInWindow(vertex, window_size_, cut_vertices);
+      collectFaninVerticesInWindow(vertex, window_size, cut_vertices);
   }
   delete pin_iter;
 }
@@ -156,6 +188,8 @@ ExtractLocalWindow::collectFaninVerticesInWindow(sta::Vertex* input_vertex,
 {
   sta::dbNetwork* network = sta_->getDbNetwork();
   sta::Graph* graph = sta_->graph();
+  printf("collectFaninVerticesInWindow depth=%zu at vertex %s\n", current_depth, input_vertex->name(network));
+  fflush(stdout);
   if (current_depth == 0) {
     return;
   }
@@ -205,6 +239,8 @@ ExtractLocalWindow::collectFanoutVerticesInWindow(sta::Vertex* output_vertex,
 {
   sta::dbNetwork* network = sta_->getDbNetwork();
   sta::Graph* graph = sta_->graph();
+  printf("collectFanoutVerticesInWindow depth=%zu at vertex %s\n", current_depth, output_vertex->name(network));
+  fflush(stdout);
   if (current_depth == 0) {
     return;
   }
@@ -256,12 +292,11 @@ ExtractLocalWindow::extractBottleneck(SeqRemapper& remapper)
 
   sta_ = remapper.getSta();
   abc_library_ = remapper.getAbcLibrary();
-  window_size_ = 1;
-  abc_search_pred_ = new cut::SearchPredNonReg2AbcSupport(sta_, abc_library_, sta_->graph());
+  abc_search_pred_ = new SearchABCCompatiblePred(sta_, abc_library_, sta_->graph());
 
   sta::Graph* graph = sta_->graph();
   sta::VertexSet cut_vertices(graph);
-  collectAdjacentInsts(ref_gate_, 3, cut_vertices);
+  collectAdjacentInsts(ref_gate_, 2, cut_vertices);
   LogicExtractorFactoryPro logic_extractor(sta_, logger_);
   cut::LogicCut cut = logic_extractor.buildLogicCutFromCutVertices(cut_vertices, *remapper.getAbcLibrary());
   return cut;
