@@ -82,10 +82,10 @@ void
 Operator::runOptOperator(abc::Gia_Man_t*& gia, int action, utl::Logger* logger)
 {
   if (action >= action_count_) {
-    logger->info(utl::RMP, 3, "Action {} is out of range [0, {})", action, action_count_);
+    logger->info(utl::RES, 301, "Action {} is out of range [0, {})", action, action_count_);
   }
   if (action < 0) {
-    logger->error(utl::RMP, 4, "Action {} is negative", action);
+    logger->error(utl::RES, 302, "Action {} is negative", action);
   }
 }
 
@@ -93,10 +93,10 @@ void
 Operator::runOptOperator(abc::Abc_Ntk_t*& ntk, int action, utl::Logger* logger)
 {
   if (action >= action_count_) {
-    logger->info(utl::RMP, 1, "Action {} is out of range [0, {})", action, action_count_);
+    logger->info(utl::RES, 303, "Action {} is out of range [0, {})", action, action_count_);
   }
   if (action < 0) {
-    logger->error(utl::RMP, 2, "Action {} is negative", action);
+    logger->error(utl::RES, 304, "Action {} is negative", action);
   }
 }
 
@@ -108,7 +108,7 @@ GiaOp GiaOptOperator::getRehashOp(utl::Logger* logger)
 {
   return [logger](auto& gia) {
     // &st
-    logger->info(utl::RES, 226, "Starting rehashing");
+    logger->info(utl::RES, 317, "Starting rehashing");
     replaceGia(gia, Gia_ManRehash(gia, false));
   };
 }
@@ -125,7 +125,7 @@ GiaOp GiaOptOperator::getDchOp(utl::Logger* logger)
       Dch_ManSetDefaultParams(&pars);
       replaceGia(gia, Gia_ManPerformDch(gia, &pars));
     }
-    debugPrint(logger, utl::RMP, "gia_ops", 1, "Starting equiv reduce");
+    debugPrint(logger, utl::RES, "gia_ops", 1, "Starting equiv reduce");
     replaceGia(gia, Gia_ManEquivReduce(gia, true, false, false, false));
   };
 }
@@ -134,7 +134,7 @@ GiaOp GiaOptOperator::getSyn2Op(utl::Logger* logger)
 {
   return [logger](auto& gia) {
     // &syn2
-    logger->info(utl::RES, 228, "Starting syn2");
+    logger->info(utl::RES, 319, "Starting syn2");
     replaceGia(gia,
                Gia_ManAigSyn2(gia, false, true, 0, 20, 0, false, false));
   };
@@ -144,7 +144,7 @@ GiaOp GiaOptOperator::getSyn3Op(utl::Logger* logger)
 {
   return [logger](auto& gia) {
     // &syn3
-    logger->info(utl::RES, 229, "Starting syn3");
+    logger->info(utl::RES, 320, "Starting syn3");
     replaceGia(gia, Gia_ManAigSyn3(gia, false, false));
   };
 }
@@ -153,7 +153,7 @@ GiaOp GiaOptOperator::getSyn4Op(utl::Logger* logger)
 {
   return [logger](auto& gia) {
     // &syn4
-    logger->info(utl::RES, 230, "Starting syn4");
+    logger->info(utl::RES, 321, "Starting syn4");
     replaceGia(gia, Gia_ManAigSyn4(gia, false, false));
   };
 }
@@ -162,7 +162,7 @@ GiaOp GiaOptOperator::getRetimeOp(utl::Logger* logger)
 {
   return [logger](auto& gia) {
     // &retime
-    logger->info(utl::RES, 231, "Starting retime");
+    logger->info(utl::RES, 322, "Starting retime");
     replaceGia(gia, Gia_ManRetimeForward(gia, 100, false));
   };
 }
@@ -171,7 +171,7 @@ GiaOp GiaOptOperator::getCompress2Op(utl::Logger* logger)
 {
   return [logger](auto& gia) {
     // &dc2
-    logger->info(utl::RES, 232, "Starting heavy rewriting");
+    logger->info(utl::RES, 323, "Starting heavy rewriting");
     replaceGia(gia, Gia_ManCompress2(gia, true, false));
   };
 }
@@ -180,7 +180,7 @@ GiaOp GiaOptOperator::getAreaBalanceOp(utl::Logger* logger)
 {
   return [logger](auto& gia) {
     // &b
-    logger->info(utl::RES, 233, "Starting &b");
+    logger->info(utl::RES, 324, "Starting &b");
     replaceGia(
         gia, Gia_ManAreaBalance(gia, false, ABC_INFINITY, false, false));
   };
@@ -190,7 +190,7 @@ GiaOp GiaOptOperator::getBalanceOp(utl::Logger* logger)
 {
   return [logger](auto& gia) {
     // &b -d
-    logger->info(utl::RES, 234, "Starting &b -d");
+    logger->info(utl::RES, 325, "Starting &b -d");
     replaceGia(gia, Gia_ManBalance(gia, false, false, false));
   };
 }
@@ -199,7 +199,7 @@ GiaOp GiaOptOperator::getFalsePathOp(utl::Logger* logger)
 {
   return [logger](auto& gia) {
     // &false
-    logger->info(utl::RES, 235, "Starting false path elimination");
+    logger->info(utl::RES, 326, "Starting false path elimination");
     utl::SuppressStdout nostdout(logger);
     replaceGia(gia, Gia_ManCheckFalse(gia, 0, 0, false, false));
   };
@@ -211,7 +211,7 @@ GiaOp GiaOptOperator::getEquivReduceOp(utl::Logger* logger)
     // &reduce
     if (!gia->pReprs) {
       debugPrint(logger,
-                 utl::RMP,
+                 utl::RES,
                  "gia_ops",
                  1,
                  "Computing choices before equiv reduce");
@@ -219,7 +219,7 @@ GiaOp GiaOptOperator::getEquivReduceOp(utl::Logger* logger)
       Dch_ManSetDefaultParams(&pars);
       replaceGia(gia, Gia_ManPerformDch(gia, &pars));
     }
-    logger->info(utl::RES, 236, "Starting equiv reduce and remap");
+    logger->info(utl::RES, 327, "Starting equiv reduce and remap");
     replaceGia(gia, Gia_ManEquivReduceAndRemap(gia, true, false));
   };
 }
@@ -230,7 +230,7 @@ GiaOp GiaOptOperator::getSopBalancingOp(utl::Logger* logger)
     // &if -g -K 6
     if (Gia_ManHasMapping(gia)) {
       debugPrint(logger,
-                 utl::RMP,
+                 utl::RES,
                  "gia_ops",
                  1,
                  "GIA has mapping - rehashing before mapping");
@@ -243,7 +243,7 @@ GiaOp GiaOptOperator::getSopBalancingOp(utl::Logger* logger)
     pars.fTruth = true;
     pars.fCutMin = true;
     pars.fExpRed = false;
-    logger->info(utl::RES, 237, "Starting SOP balancing");
+    logger->info(utl::RES, 328, "Starting SOP balancing");
     replaceGia(gia, Gia_ManPerformMapping(gia, &pars));
   };
 }
@@ -255,7 +255,7 @@ GiaOp GiaOptOperator::getSynch2Op(utl::Logger* logger)
     abc::Dch_Pars_t pars = {};
     Dch_ManSetDefaultParams(&pars);
     pars.nBTLimit = 100;
-    logger->info(utl::RES, 238, "Starting synch2");
+    logger->info(utl::RES, 329, "Starting synch2");
     replaceGia(gia, Gia_ManAigSynch2(gia, &pars, 6, 20));
   };
 }

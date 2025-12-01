@@ -115,7 +115,7 @@ void
 MappingResult::show(utl::Logger* logger)
 {
   // Use existing RMP tool category instead of undefined RES.
-  logger->info(utl::RMP, 7, "Mapping Result: WNS = {:.3f}, TNS = {:.3f}, Area = {:.3f}, Power = {:.3f}",
+  logger->info(utl::RES, 305, "Mapping Result: WNS = {:.3f}, TNS = {:.3f}, Area = {:.3f}, Power = {:.3f}",
                wns * 1e12, tns * 1e12, area, power);
 }
 
@@ -136,7 +136,7 @@ SeqRemapper::SeqRemapper(sta::dbSta* sta, odb::dbDatabase* db,
   buildAbcLibrary(); 
   block_ = db_->getChip()->getBlock();
   if (est_ == nullptr) {
-    logger_->error(utl::RMP, 201, "EstimateParasitics is null in SeqRemapper");
+    logger_->error(utl::RES, 311, "EstimateParasitics is null in SeqRemapper");
   }
   checkTracksAndRows();
 }
@@ -175,7 +175,7 @@ SeqRemapper::extractBottleneck(Strategy *strategy)
   sta::Instance* ref_gate = network->findInstance("g218487");  // 示例实例名，可替换为实际需要的名称
   if (ref_gate == nullptr) {
     logger_->error(
-        utl::RMP, 34, "Reference gate 'ref_gate' not found in the design.");
+        utl::RES, 308, "Reference gate 'ref_gate' not found in the design.");
   }
   strategy->setRefGate(ref_gate);
   return strategy->extractBottleneck(*this);
@@ -282,7 +282,7 @@ SeqRemapper::checkTracksAndRows()
     }
   }
   if (!has_valid_site) {
-    logger_->warn(utl::RMP, 233, "No valid site found for GPL, skipping incremental global placement");
+    logger_->warn(utl::RES, 324, "No valid site found for GPL, skipping incremental global placement");
     return;
   }
 }
@@ -318,25 +318,25 @@ SeqRemapper::giaToAig(abc::Gia_Man_t* gia)
   } else {
     if (Gia_ManHasDangling(gia) != 0) {
       debugPrint(
-          logger_, utl::RMP, "annealing", 6, "Rehashing before conversion");
+          logger_, utl::RES, "annealing", 6, "Rehashing before conversion");
       replaceGia(gia, Gia_ManRehash(gia, false));
     }
     assert(Gia_ManHasDangling(gia) == 0);
     auto aig = Gia_ManToAig(gia, false);
     if (aig == nullptr) {
-      logger_->error(utl::RMP, 204, "Gia_ManToAig returned null");
+      logger_->error(utl::RES, 314, "Gia_ManToAig returned null");
     }
     // Debug: print AIG statistics before calling Abc_NtkFromAigPhase
     printNtkInfo(aig, logger_);
 
     // Check if AIG is valid
     if (abc::Aig_ManObjNum(aig) == 0) {
-      logger_->warn(utl::RMP, 211, "AIG has 0 objects, network may be empty");
+      logger_->warn(utl::RES, 316, "AIG has 0 objects, network may be empty");
     }
     aig_ntk = WrapUnique(Abc_NtkFromAigPhase(aig));
     if (aig_ntk == nullptr) {
       Aig_ManStop(aig);
-      logger_->error(utl::RMP, 205, "Abc_NtkFromAigPhase returned null");
+      logger_->error(utl::RES, 315, "Abc_NtkFromAigPhase returned null");
     }
     aig_ntk->pName = abc::Extra_UtilStrsav(aig->pName);
     Aig_ManStop(aig);
@@ -459,7 +459,7 @@ void
 SeqRemapper::performIncreGpl(cut::LogicCut& logic_cut, gpl::Replace *gpl)
 {
   if (gpl == nullptr) {
-    logger_->warn(utl::RMP, 232, "GPL is nullptr, cannot perform incremental global placement");
+    logger_->warn(utl::RES, 323, "GPL is nullptr, cannot perform incremental global placement");
     return;
   }
   
@@ -468,14 +468,14 @@ SeqRemapper::performIncreGpl(cut::LogicCut& logic_cut, gpl::Replace *gpl)
 
   setIncrePlaceParam(PlaceMode::ROUTE_DRIVEN, 0.5, 10);
   gpl->doNesterovPlace(thread_count);
-  logger_->info(utl::RMP, 202, "Incremental global placement completed");
+  logger_->info(utl::RES, 312, "Incremental global placement completed");
 }
 
 void
 SeqRemapper::performIncreDpl(cut::LogicCut& logic_cut, dpl::Opendp* dpl)
 {
   if (dpl == nullptr) {
-    logger_->warn(utl::RMP, 234, "DPL is nullptr, cannot perform incremental detailed placement");
+    logger_->warn(utl::RES, 325, "DPL is nullptr, cannot perform incremental detailed placement");
     return;
   }
   // TODO: develop incremental DPL placement in two steps:
@@ -497,7 +497,7 @@ SeqRemapper::performIncreDpl(cut::LogicCut& logic_cut, dpl::Opendp* dpl)
       dpl->legalCellPos(db_inst);
     }
   }
-  logger_->info(utl::RMP, 235, "Incremental detailed placement completed");
+  logger_->info(utl::RES, 326, "Incremental detailed placement completed");
 }
 
 void 
@@ -523,7 +523,7 @@ SeqRemapper::TryOptWithAig(utl::UniquePtrWithDeleter<abc::Abc_Ntk_t>& aig_ntk,
     auto gia = aigToGia(aig_ntk);
     for (size_t i = 0; i < action && i < ops.size(); ++i) {
       ops[i](gia);
-      logger_->info(utl::RMP, 203, "Applied GiaOp {}", i);
+      logger_->info(utl::RES, 313, "Applied GiaOp {}", i);
     }
     aig_ntk = giaToAig(gia);
     evaluateTemporary(aig_ntk, logic_cut);
