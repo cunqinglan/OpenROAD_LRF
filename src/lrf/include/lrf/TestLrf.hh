@@ -11,6 +11,10 @@ class Resizer;
 namespace lrf
 {
 
-void 
-testLocalDelayCompute(rsz::Resizer *resizer);
+class  TestLrf
+{
+public:
+  void testLocalDelayCompute(char *inst_name, sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
+};
+
 }  // namespace lrf

@@ -68,7 +68,9 @@ LocalParasitics::initParasiticMapFromBase()
       }
       local_drvr_parasitic_map_[pin] = local_array;
     }
-    // TODO: Copy parasitic_network_map_ if needed
+    // Since we don't use anything in origin concrete parasitics, 
+    // we can just copy the parasitic network map pointer.
+    local_parasitic_network_map_ = global->parasiticNetworkMap();
   }
 }
 
@@ -83,8 +85,6 @@ LocalParasitics::reduceToLocalPiElmore(const Parasitic *parasitic_network,
                                        const MinMax *cnst_min_max,
                                        const ParasiticAnalysisPt *ap)
 {
-  printf("LocalParasitics::reduceToPiElmore called\n");
-  fflush(stdout);
   ParasiticNode *drvr_node =
     parasitics_->findParasiticNode(parasitic_network, drvr_pin);
   if (drvr_node) {
@@ -156,19 +156,49 @@ LocalParasitics::recomputeLocalParasitics(PtGraph *pt_graph)
       const Net *net = network_->net(pt_vertex.vertex()->pin());
       for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
     ParasiticAnalysisPt *ap = dcalc_ap->parasiticAnalysisPt();
+    // Use global parasitics to find the parasitic network
     Parasitic *drvr_parsitic_network = 
-        findParasiticNetwork(net, ap);
+        findLocalParasiticNetwork(net, ap);
     if (drvr_parsitic_network) {
       reduceLocalParasitic(drvr_parsitic_network, pt_graph, pt_vertex, 
                            dcalc_ap);
     } else {
-      printf("Warning: LocalParasitics::recomputeLocalParasitics: No parasitic network found for driver pin %s\n",
-             network_->name(pt_vertex.vertex()->pin()));
+      printf("Warning: LocalParasitics::recomputeLocalParasitics: No parasitic network found for driver net %s\n",
+             network_->name(net));
       fflush(stdout);
     }
       }
     }
   }
+}
+
+Parasitic *
+LocalParasitics::findLocalParasiticNetwork(const Net *net, const ParasiticAnalysisPt *ap) const
+{
+  if (!local_parasitic_network_map_.empty()) {
+    ConcreteParasiticNetwork **parasitic_array = 
+      local_parasitic_network_map_.findKey(net);
+    if (!parasitic_array) {
+      printf("Error: LocalParasitics::findLocalParasiticNetwork: No parasitic array found for net %s\n",
+             network_->name(net));
+      fflush(stdout);
+      return nullptr;
+    }
+    ConcreteParasiticNetwork *parasitic = parasitic_array[ap->index()];
+    if (!parasitic) {
+      parasitic = parasitic_array[ap->indexMax()];
+      if (parasitic == nullptr) {
+        printf("Error: LocalParasitics::findLocalParasiticNetwork: No parasitic found for net %s\n",
+               network_->name(net));
+        fflush(stdout);
+        return nullptr;
+      }
+    }
+    return parasitic;
+  }
+  printf("Error: LocalParasitics::findLocalParasiticNetwork: local_parasitic_network_map_ is empty\n");
+  fflush(stdout);
+  return nullptr;
 }
 
 void 

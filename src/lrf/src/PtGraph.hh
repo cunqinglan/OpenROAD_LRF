@@ -30,11 +30,11 @@ class PtVertex;
 
 typedef std::vector<PtEdge> PtEdgeSeq;
 typedef std::vector<PtVertex> PtVertexSeq;
-typedef std::map<sta::Vertex*, sta::VertexId> VertexPtToIdMap;
+typedef std::map<const sta::Vertex*, sta::VertexId> VertexPtToIdMap;
 
 
 enum class PtVertexType : uint8_t {
-  RefDriver, // driver vertex of the reference instance, should update parasitics of the these vertices
+  RefDriver, // vertices that drive the reference instance, should update parasitics of the these vertices
   RefInput,  // fanin vertices of the reference instance
   RefOutput, // fanout vertices of the reference instance
   None
@@ -61,6 +61,13 @@ public:
   const PtVertex &ptVertex(sta::VertexId vertex_id) const {
      return pt_vertices_[vertex_id];
   }
+  PtVertex &ptVertex(const sta::Vertex *vertex) {
+    auto it = vertex_map_.find(vertex);
+    if (it == vertex_map_.end()) {
+      throw std::runtime_error("PtGraph::ptVertex: vertex not found in map");
+    }
+    return pt_vertices_[it->second];
+  }
 
   void setGraphMade(bool made) { graph_made_ = made; }
   bool topoSortVertices();
@@ -68,6 +75,13 @@ public:
   void setSlew(PtVertex &pt_vertex, const sta::RiseFall *rf,
                sta::DcalcAPIndex ap_index, const sta::Slew &slew);
   void initLoadSlews(PtVertex &pt_vertex);
+  sta::Path *makePaths(sta::VertexId vertex_id, size_t path_count);
+  void deletePaths(sta::VertexId vertex_id);
+  // Not sure if this initialization is necessary
+  // Just copy paths from sta::Vertex to PtVertex
+  void initPaths(sta::VertexId vertex_id);
+  void initPaths(PtVertex &pt_vertex);
+
   std::vector<size_t> &sortedVertexIds();
   void initWireDelays(PtVertex &drvr_pt_vertex);
   void setWireArcDelay(PtEdge &pt_edge,
@@ -78,9 +92,9 @@ public:
                    const sta::TimingArc *arc,
                    sta::DcalcAPIndex ap_index,
                    const sta::ArcDelay &delay);
-  const sta::ArcDelay &arcDelay(const PtEdge &pt_edge,
+  sta::ArcDelay arcDelay (const PtEdge &pt_edge,
                                 const sta::TimingArc *arc,
-                                sta::DcalcAPIndex ap_index);
+                                sta::DcalcAPIndex ap_index) const;
   const sta::Slew &slew(const PtVertex &pt_vertex,
                         const sta::RiseFall *rf,
                         sta::DcalcAPIndex ap_index);
@@ -107,10 +121,13 @@ public:
   // For virtual cell swap
   void setRefGate(sta::LibertyCell *lib_cell) { ref_lib_cell_ = lib_cell; }
   const sta::LibertyCell *refGate() const { return ref_lib_cell_; }
+  
+  // Find timing arc set in ref_cell that matches the original edge's from/to ports
+  const sta::TimingArcSet *findRefTimingArcSet(const sta::Edge *orig_edge) const;
 
 protected:
   void initVertexAndEdges();
-  void annotateRefFaninVertices();
+  void annotateVerticesType();
 
   sta::Sta *sta_;
   PtEdgeSeq pt_edges_;
@@ -148,9 +165,11 @@ public:
   const sta::Edge *edge() const { return edge_; }
   sta::VertexId ptFromId() const { return pt_from_; }
   sta::VertexId ptToId() const { return pt_to_; }
+  const sta::TimingRole *role() const { return edge_->role(); }
 
   sta::EdgeId objectIdx() const { return object_idx_; }
   void setObjectIdx(sta::EdgeId idx);
+  sta::TimingArcSet *timingArcSet() { return edge_->timingArcSet(); }
 
 protected:
   void setArcDelays(sta::ArcDelay *arc_delay, size_t delay_count);
@@ -182,8 +201,11 @@ public:
   sta::VertexId objectIdx() const { return object_idx_; }
   void setObjectIdx(sta::VertexId idx);
   sta::Vertex *vertex() { return vertex_; }
+  sta::Pin *pin() { return vertex_->pin(); }
   sta::Vertex *vertex() const { return vertex_; }
   sta::Slew *slews() { return slews_.empty() ? nullptr : slews_.data(); }
+  bool hasFanin() const;
+  bool hasFanout() const;
   const sta::Slew *slews() const { return slews_.empty() ? nullptr : slews_.data(); }
   size_t slewCount() const { return slews_.size(); }
   void resizeSlews(size_t slew_count);
@@ -191,6 +213,11 @@ public:
   void copyInfoFromVertex(size_t ap_count, size_t slew_rf_count);
   void setType(PtVertexType type) { type_ = type; }
   PtVertexType type() const { return type_; }
+  sta::Pin *pin() const { return vertex_->pin(); }
+  void setTagGroupIndex(size_t index) { tag_group_index_ = index; }
+  size_t tagGroupIndex() const { return tag_group_index_; }
+  sta::Path *paths() const { return paths_; }
+  void setPaths(sta::Path *paths);
 
 protected:
   sta::Vertex *vertex_{};
@@ -201,6 +228,8 @@ protected:
   std::vector<sta::Slew> slews_;
   bool is_root_{};
   PtVertexType type_{PtVertexType::None};
+  size_t tag_group_index_ {};
+  sta::Path *paths_ = nullptr;
 
 private:
   friend class PtGraph;

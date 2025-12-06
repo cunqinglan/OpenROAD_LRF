@@ -56,6 +56,11 @@ public:
 
   // APIs for parasitics estimation
   void setLocalStaParasiticsEst(est::EstimateParasitics *estimate_parasitics);
+  void makeSwappableCellsCache();
+  void getSwappableCells(LibertyCell* source_cell);
+                           
+
+  // APIs for gate swapping
 
 protected:
   void makeLocalSta();
@@ -68,6 +73,7 @@ protected:
 
   InstanceSeq sorted_instances_;
   bool projected_ = false;
+  std::unordered_map<LibertyCell*, LibertyCellSeq> swappable_cells_cache_;
 };
 
 } // namespace lrf

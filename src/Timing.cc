@@ -525,8 +525,11 @@ Timing::averageDelayOnCritPath() {
 ////////////////////////////////////////////
 void 
 Timing::testLocalDelayCompute() {
+  design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
-  lrf::testLocalDelayCompute(resizer);
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testLocalDelayCompute("ref_gate", sta, resizer, design_->getBlock());
 }
 
 }  // namespace ord

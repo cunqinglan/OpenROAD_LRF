@@ -29,7 +29,6 @@ class ConcreteParasitic;
 class ConcreteParasiticNetwork;
 typedef Map<const Pin*, ConcreteParasitic**> ConcreteParasiticMap;
 typedef Map<const Net*, ConcreteParasiticNetwork**> ConcreteParasiticNetworkMap;
-typedef std::map<Vertex*, VertexId> VertexPtToIdMap;
 
 typedef float LocalCost;
 
@@ -197,6 +196,12 @@ protected:
   //                          ArcDelayCalc *arc_delay_calc,
   //                          PtGraph *pt_graph);
 
+  //////////////////////////////////////////////////////////////
+  // Functions for Searching arrivals and required times
+  //////////////////////////////////////////////////////////////
+  // Use tagGroup of search to initialize paths_ of PtGraph
+  void initPtGraphPaths(PtGraph *pt_graph);
+
 private:
   Sta *sta_;
 
@@ -206,7 +211,6 @@ private:
 
   InstanceSet local_fanins_;
   InstanceSet local_fanout_siblings_;
-  VertexPtToIdMap vertex_map_;
 
   VertexSeq local_vertices_;
   VertexSeq root_vertices_;
@@ -216,6 +220,7 @@ private:
   bool equiv_cells_made_ = false;
 
   friend class IncreSta;
+  friend class TestLrf;
 };
 
 
@@ -236,6 +241,9 @@ protected:
   ConcreteParasiticMap drvr_parasitic_map_;
   ConcreteParasiticNetworkMap parasitic_network_map_;
   std::vector<DcalcAnalysisPt*> dcalc_ap_set_;
+
+private:
+  friend class TestLrf;
 };
 
 

@@ -18,7 +18,10 @@ add_library(lrf_lib
     LocalSta.cc
     LocalParasitics.cc
     LocalReduceParasitic.cc
-  IncreSta.cc
+    IncreSta.cc
+    TestLrf.cc
+    LocalSearch.cc
+    LocalPath.cc
 )
 
 target_sources(lrf
