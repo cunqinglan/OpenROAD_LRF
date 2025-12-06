@@ -9,6 +9,8 @@
 #include "TimingRole.hh"
 #include "sta/Liberty.hh"
 #include "sta/Sdc.hh"
+#include "sta/Search.hh"
+#include "search/TagGroup.hh"
 
 namespace lrf {
 
@@ -81,11 +83,17 @@ void
 PtGraph::makeGraph(sta::InstanceSet &inst_seq, sta::Instance *ref_inst)
 {
   ref_inst_ = ref_inst;
+  ref_lib_cell_ = sta_->network()->libertyCell(ref_inst);
+  if (ref_lib_cell_ == nullptr) {
+    printf("Warning: PtGraph::makeGraph: ref_inst %s has no liberty cell\n",
+           sta_->network()->name(ref_inst));
+    fflush(stdout);
+  }
   makePtVertexAndPtEdge(inst_seq);
   setGraphMade(true);
   initVertexAndEdges();
   createParasiticsNetworks();
-  annotateRefFaninVertices();
+  annotateVerticesType();
 }
 
 void 
@@ -118,7 +126,7 @@ PtGraph::makePtVertexAndPtEdge(sta::InstanceSet &inst_seq)
   }
 
   for (auto const &pair : vertex_map_) {
-    sta::Vertex *vertex = pair.first;
+    sta::Vertex *vertex = const_cast<sta::Vertex*>(pair.first);
     VertexId pt_vertex_id = pair.second;
     if (network->isDriver(vertex->pin())) {
       makePtInstEdge(vertex, pt_vertex_id);
@@ -197,6 +205,56 @@ PtGraph::makeEdge(sta::Edge *edge,
   pt_vertices_[pt_to].in_edges_ = edge_id;
 
   return edge_id;
+}
+
+sta::Path *
+PtGraph::makePaths(sta::VertexId vertex_id, size_t path_count)
+{
+  if (vertex_id >= pt_vertices_.size()) {
+    throw std::out_of_range("PtGraph::makePaths: invalid vertex id");
+    return nullptr;
+  }
+  sta::Path *paths = new sta::Path[path_count];
+  pt_vertices_[vertex_id].setPaths(paths);
+  return paths;
+}
+
+void 
+PtGraph::deletePaths(sta::VertexId vertex_id)
+{
+  if (vertex_id >= pt_vertices_.size()) {
+    throw std::out_of_range("PtGraph::deletePaths: invalid vertex id");
+    return;
+  }
+  pt_vertices_[vertex_id].setPaths(nullptr);
+   pt_vertices_[vertex_id].tag_group_index_ = sta::tag_group_index_max;
+}
+
+void
+PtGraph::initPaths(sta::VertexId vertex_id)
+{
+  if (vertex_id >= pt_vertices_.size()) {
+    throw std::out_of_range("PtGraph::initPaths: invalid vertex id");
+    return;
+  }
+  PtVertex &pt_vertex = pt_vertices_[vertex_id];
+  initPaths(pt_vertex);
+}
+
+void 
+PtGraph::initPaths(PtVertex &pt_vertex)
+{
+  sta::Vertex *vertex = pt_vertex.vertex();
+  sta::TagGroup *tag_group = sta_->search()->tagGroup(vertex);
+  size_t path_count = tag_group->pathCount();
+  sta::Path *paths = vertex->paths();
+  sta::Path *new_paths = new sta::Path[path_count];
+  if (!pt_vertex.hasFanin()) {
+    for (size_t i = 0; i < path_count; i++) {
+      new_paths[i] = paths[i];
+    }
+  }
+  pt_vertex.setPaths(new_paths);
 }
 
 bool
@@ -309,10 +367,10 @@ PtGraph::slew(const PtVertex &pt_vertex,
   return slews[slew_index];
 }
 
-const sta::ArcDelay &
+sta::ArcDelay
 PtGraph::arcDelay(const PtEdge &pt_edge,
                   const sta::TimingArc *arc,
-                  sta::DcalcAPIndex ap_index)
+                  sta::DcalcAPIndex ap_index) const
 {
   const ArcDelay *arc_delays = pt_edge.arcDelays();
   size_t index = arc->index() * ap_count_ + ap_index;
@@ -370,7 +428,7 @@ PtGraph::printDelays()
       size_t delay_count = slew_rf_count_ * ap_count_;
       ArcDelay *arc_delays = pt_edge.arcDelays();
       for (size_t i = 0; i < delay_count; i++) {
-        printf("  Delay[%zu]: %f\n", i, arc_delays[i]);
+        printf("  Delay[%zu]: %f\n", i, arc_delays[i] * 1e12);
       }
     }
   }
@@ -389,6 +447,7 @@ void PtGraph::initVertexAndEdges()
     if (iter_cnt++ == 0)
       continue;
     pt_vertex.copyInfoFromVertex(ap_count_, slew_rf_count_);
+    initPaths(pt_vertex);
   }
   iter_cnt = 0;
   for (PtEdge &pt_edge : pt_edges_) {
@@ -426,22 +485,22 @@ PtGraph::delayLmSum(const sta::MinMax *minmax, float &delay_lambda_sum, bool avo
       const sta::MinMax *delay_min_max = dcalc_ap->delayMinMax();
       if (delay_min_max != minmax)
         continue;
-  for (sta::TimingArc *timing_arc : pt_edge.edge()->timingArcSet()->arcs()) {
-        size_t lm_index = dcalc_ap->index() * ap_count_ + timing_arc->index();
-        const ArcDelay &arc_delay = arcDelay(pt_edge, timing_arc, ap_index);
-        Edge *edge = pt_edge.edge();
-        if (avoid_check && (edge->role()->isTimingCheck()))
-          continue;
+for (sta::TimingArc *timing_arc : pt_edge.edge()->timingArcSet()->arcs()) {
+  size_t lm_index = dcalc_ap->index() * ap_count_ + timing_arc->index();
+  const ArcDelay &arc_delay = arcDelay(pt_edge, timing_arc, ap_index);
+  Edge *edge = pt_edge.edge();
+  if (avoid_check && (edge->role()->isTimingCheck()))
+    continue;
   sta::LMValue *lms = edge->arcLms();
-        if (lms == nullptr) {
-          printf("PtGraph::delayLmSum: edge %s has no lm values\n",
-                 edge->to_string(sta_->graph()).c_str());
-          fflush(stdout);
-          continue;
-        }
+  if (lms == nullptr) {
+    printf("PtGraph::delayLmSum: edge %s has no lm values\n",
+            edge->to_string(sta_->graph()).c_str());
+    fflush(stdout);
+    continue;
+  }
   sta::LMValue arc_lm = lms[lm_index];
-        delay_lambda_sum += arc_delay * arc_lm;
-      }
+  delay_lambda_sum += arc_delay * arc_lm;
+}
     }
   }
 }
@@ -451,7 +510,6 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
                     float &delay_lambda_sum,
                     bool avoid_check)
 {
-  const sta::MinMax *minmax = dcalc_ap->delayMinMax();
   const sta::DcalcAPIndex ap_index = dcalc_ap->index();
   delay_lambda_sum = 0.0f;
   for (PtEdge &pt_edge : pt_edges_) {
@@ -480,8 +538,8 @@ sta::Level
 PtGraph::topVertexLevel()
 {
   sta::Level max_level = -1;
-  for (auto const &pair : vertex_map_) {
-    sta::Vertex *vertex = pair.first;
+  for (auto &pair : vertex_map_) {
+    sta::Vertex *vertex = const_cast<sta::Vertex*>(pair.first);
     sta::Level level = vertex->level();
     if (level > max_level)
       max_level = level;
@@ -490,7 +548,7 @@ PtGraph::topVertexLevel()
 }
 
 void
-PtGraph::annotateRefFaninVertices()
+PtGraph::annotateVerticesType()
 {
   if (ref_inst_ == nullptr)
     return;
@@ -498,25 +556,36 @@ PtGraph::annotateRefFaninVertices()
   sta::InstancePinIterator *pin_iter = sta_->network()->pinIterator(ref_inst_);
   while(pin_iter->hasNext()) {
     sta::Pin *pin = pin_iter->next();
-    if (!sta_->network()->isLoad(pin))
-      continue;
-    sta::Vertex *load_vertex = sta_->graph()->pinLoadVertex(pin);
-    if (load_vertex == nullptr)
-      continue;
-   
-    auto it = vertex_map_.find(load_vertex);
-    if (it == vertex_map_.end()) {
-      printf("PtGraph::annotateRefFaninVertices: load vertex not found in vertex_map_\n");
-      fflush(stdout);
-      continue;
-    }
-    ptVertex(it->second).setType(PtVertexType::RefInput);
+    if (sta_->network()->isLoad(pin)) {
+      sta::Vertex *load_vertex = sta_->graph()->pinLoadVertex(pin);
+      if (load_vertex == nullptr)
+        continue;
+      auto it = vertex_map_.find(load_vertex);
+      if (it == vertex_map_.end()) {
+        printf("PtGraph::annotateRefFaninVertices: load vertex not found in vertex_map_\n");
+        fflush(stdout);
+        continue;
+      }
+      ptVertex(it->second).setType(PtVertexType::RefInput);
 
-    PtVertexInEdgeIterator in_edge_iter(it->second, this);
-    while (in_edge_iter.hasNext()) {
-      PtEdge &pt_edge = in_edge_iter.next();
-      VertexId from_pt_id = pt_edge.ptFromId();
-      ptVertex(from_pt_id).setType(PtVertexType::RefDriver);
+      PtVertexInEdgeIterator in_edge_iter(it->second, this);
+      while (in_edge_iter.hasNext()) {
+        PtEdge &pt_edge = in_edge_iter.next();
+        VertexId from_pt_id = pt_edge.ptFromId();
+        ptVertex(from_pt_id).setType(PtVertexType::RefDriver);
+      }
+    } 
+    if (sta_->network()->isDriver(pin)) {
+      sta::Vertex *drvr_vertex = sta_->graph()->pinDrvrVertex(pin);
+      if (drvr_vertex == nullptr)
+        continue;
+      auto it = vertex_map_.find(drvr_vertex);
+      if (it == vertex_map_.end()) {
+        printf("PtGraph::annotateRefFaninVertices: drvr vertex not found in vertex_map_\n");
+        fflush(stdout);
+        continue;
+      }
+      ptVertex(it->second).setType(PtVertexType::RefOutput);
     }
   }
   delete pin_iter;
@@ -556,19 +625,101 @@ PtGraph::getRefPinCapacitance(const PtVertex &pt_vertex,
     fflush(stdout);
     return 0.0f;
   }
-  const sta::Pin *pin = pt_vertex.vertex()->pin();
-  const char* pin_name = sta_->network()->portName(pin);
-  sta::LibertyPort *lib_port = ref_lib_cell_->findLibertyPort(pin_name);
-  if (lib_port == nullptr) {
-    printf("PtGraph::getRefPinCapacitance: no lib port for pin %s\n", pin_name);
+  
+  if (ref_lib_cell_ == nullptr) {
+    printf("PtGraph::getRefPinCapacitance: ref_lib_cell_ is nullptr\n");
     fflush(stdout);
     return 0.0f;
   }
+  
+  const sta::Pin *pin = pt_vertex.vertex()->pin();
+  if (pin == nullptr) {
+    printf("PtGraph::getRefPinCapacitance: pin is nullptr\n");
+    fflush(stdout);
+    return 0.0f;
+  }
+  
+  const char* pin_name = sta_->network()->portName(pin);
+  if (pin_name == nullptr) {
+    printf("PtGraph::getRefPinCapacitance: pin_name is nullptr for pin\n");
+    fflush(stdout);
+    return 0.0f;
+  }
+  
+  sta::LibertyPort *lib_port = ref_lib_cell_->findLibertyPort(pin_name);
+  if (lib_port == nullptr) {
+    printf("PtGraph::getRefPinCapacitance: no lib port for pin %s in cell %s\n", 
+           pin_name, ref_lib_cell_->name());
+    fflush(stdout);
+    return 0.0f;
+  }
+  
   port_cap = sta_->sdc()->portCapacitance(ref_inst_,
                                           lib_port,
                                           rf,
                                           corner,
                                           min_max);
+  return port_cap;
+}
+
+const sta::TimingArcSet *
+PtGraph::findRefTimingArcSet(const sta::Edge *orig_edge) const
+{
+  if (ref_lib_cell_ == nullptr) {
+    printf("PtGraph::findRefTimingArcSet: ref_lib_cell_ is nullptr\n");
+    fflush(stdout);
+    return nullptr;
+  }
+
+  // Get the original timing arc set from the edge
+  const sta::TimingArcSet *orig_arc_set = orig_edge->timingArcSet();
+  if (orig_arc_set == nullptr) {
+    return nullptr;
+  }
+
+  // Get the from/to port names from the original arc set
+  const sta::LibertyPort *orig_from_port = orig_arc_set->from();
+  const sta::LibertyPort *orig_to_port = orig_arc_set->to();
+  
+  if (orig_from_port == nullptr || orig_to_port == nullptr) {
+    return nullptr;
+  }
+
+  const char *from_port_name = orig_from_port->name();
+  const char *to_port_name = orig_to_port->name();
+
+  // Find the corresponding ports in the ref_cell by name
+  sta::LibertyPort *ref_from_port = ref_lib_cell_->findLibertyPort(from_port_name);
+  sta::LibertyPort *ref_to_port = ref_lib_cell_->findLibertyPort(to_port_name);
+
+  if (ref_from_port == nullptr) {
+    printf("PtGraph::findRefTimingArcSet: Cannot find port '%s' in ref cell '%s'\n",
+           from_port_name, ref_lib_cell_->name());
+    fflush(stdout);
+    return nullptr;
+  }
+
+  if (ref_to_port == nullptr) {
+    printf("PtGraph::findRefTimingArcSet: Cannot find port '%s' in ref cell '%s'\n",
+           to_port_name, ref_lib_cell_->name());
+    fflush(stdout);
+    return nullptr;
+  }
+
+  // Get timing arc sets from ref_cell with matching from/to ports
+  const sta::TimingArcSetSeq &ref_arc_sets = 
+      ref_lib_cell_->timingArcSets(ref_from_port, ref_to_port);
+  
+  if (ref_arc_sets.empty()) {
+    printf("PtGraph::findRefTimingArcSet: No timing arc sets found from '%s' to '%s' in cell '%s'\n",
+           from_port_name, to_port_name, ref_lib_cell_->name());
+    fflush(stdout);
+    return nullptr;
+  }
+
+  // Return the first matching arc set (typically there's only one)
+  // If there are multiple arc sets (e.g., conditional arcs), you may need more logic
+  return ref_arc_sets[0];
 }
   
 
@@ -646,6 +797,18 @@ PtVertex::init(sta::Vertex *vertex)
   slews_.clear();
 }
 
+bool
+PtVertex::hasFanin() const
+{
+  return in_edges_ != pt_edge_id_null;
+}
+
+bool
+PtVertex::hasFanout() const
+{
+  return out_edges_ != pt_edge_id_null;
+}
+
 void
 PtVertex::setObjectIdx(VertexId idx)
 {
@@ -671,6 +834,13 @@ PtVertex::copyInfoFromVertex(size_t ap_count, size_t slew_rf_count)
   } else {
     slews_.clear();
   }
+}
+
+void
+PtVertex::setPaths(sta::Path *paths)
+{
+  delete[] paths_;
+  paths_ = paths;
 }
 
 //////////////////////////////////////////////////////////////////

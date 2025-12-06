@@ -59,7 +59,7 @@ public:
                                const PtGraph *pt_graph,
                                const MinMax *min_max,
                                const ParasiticAnalysisPt *ap);
-  Parasitic *findLocalParasiticNetwork(const Net *net);
+  Parasitic *findLocalParasiticNetwork(const Net *net, const ParasiticAnalysisPt *ap) const;
   Parasitic *findLocalParasiticNetwork(const Pin *drvr_pin);
   Parasitic *findLocalParasitic(const Pin *drvr_pin, const RiseFall *rf, const DcalcAnalysisPt *ap);
   // When run this in parallel, pt graph should be conflicted graph

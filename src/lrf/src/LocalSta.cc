@@ -137,6 +137,20 @@ LocalSta::makePtGraph(PtGraph *pt_graph, Instance *inst)
   pt_graph->makeGraph(local_instances, inst);
 }
 
+PtGraph *
+LocalSta::makePtGraph(Instance *inst, bool update_timing_first)
+{
+  PtGraph *pt_graph = new PtGraph(sta_);
+  makePtGraph(pt_graph, inst);
+  if (update_timing_first) {
+    Level top_level = pt_graph->topVertexLevel();
+    findDelays(top_level);
+    pt_graph->initVertexAndEdges();
+  }
+  local_graphs_.push_back(pt_graph);
+  return pt_graph;
+}
+
 void
 LocalSta::topoSortVertices(PtGraph *pt_graph)
 {
@@ -146,8 +160,6 @@ LocalSta::topoSortVertices(PtGraph *pt_graph)
 void
 LocalSta::findLocalDelays(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc)
 {
-  printf("LocalSta::findLocalDelays recomputing local parasitics\n");
-  fflush(stdout);
   recomputeLocalParasitics(pt_graph);
   for (VertexId vertex_id : pt_graph->sortedVertexIds()) {
     findVertexDelays(vertex_id,  arc_delay_calc, pt_graph);
@@ -341,7 +353,33 @@ LocalSta::findDriverEdgeDelays(PtVertex &drvr_pt_vertex,
                                PtGraph *pt_graph)
 {
   // PtVertex &from_pt_vertex = pt_graph->vertex(pt_edge.ptFromId());
-  const TimingArcSet *arc_set = pt_edge.edge()->timingArcSet();
+  
+  // Check if we should use ref cell's timing arc set (for virtual swap)
+  const sta::TimingArcSet *arc_set = nullptr;
+  PtVertex &from_pt_vertex = pt_graph->ptVertex(pt_edge.ptFromId());
+  PtVertex &to_pt_vertex = pt_graph->ptVertex(pt_edge.ptToId());
+  
+  // If both vertices belong to ref instance, use ref cell's timing
+  if (from_pt_vertex.type() == PtVertexType::RefInput && 
+      to_pt_vertex.type() == PtVertexType::RefOutput) {
+    arc_set = pt_graph->findRefTimingArcSet(pt_edge.edge());
+    if (arc_set) {
+      printf("LocalSta::findDriverEdgeDelays: Using ref cell '%s' timing arc set for edge %s->%s\n",
+             pt_graph->refGate() ? pt_graph->refGate()->name() : "null",
+             from_pt_vertex.vertex()->to_string(sta_).c_str(),
+             to_pt_vertex.vertex()->to_string(sta_).c_str());
+      fflush(stdout);
+    }
+    else {
+      printf("LocalSta::findDriverEdgeDelays: Ref cell timing arc set not found for edge %s->%s\n",
+             from_pt_vertex.vertex()->to_string(graph_).c_str(),
+             to_pt_vertex.vertex()->to_string(graph_).c_str());
+      fflush(stdout);
+    }
+  } else {
+    arc_set = pt_edge.edge()->timingArcSet();
+  }
+  
   for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
     for (const TimingArc *arc : arc_set->arcs()) {
       findDriverArcDelays(drvr_pt_vertex, multi_drvr_net, pt_edge, 
@@ -387,7 +425,13 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
     float load_cap;
     localParasiticLoad(drvr_pin, drvr_rf, dcalc_ap, multi_drvr_net, 
                        load_cap, parasitic);
-
+    printf("LocalSTA: GraphDelayCalc::for edge %s, arc %s -> %s,"
+           " load cap %f\n",
+           pt_edge.edge()->to_string(this).c_str(),
+           from_rf->to_string().c_str(),
+           drvr_rf->to_string().c_str(),
+           load_cap * 1e15);
+    fflush(stdout);
     if (multi_drvr_net == nullptr) {
       PtVertex &from_pt_vertex = pt_graph->ptVertex(pt_edge.ptFromId());
       const Slew in_slew = edgeFromSlew(from_pt_vertex, from_rf, pt_edge, 
@@ -586,20 +630,6 @@ LocalSta::edgeFromSlew(const PtVertex &from_pt_vertex,
   }
 }
 
-PtGraph *
-LocalSta::makePtGraph(Instance *inst, bool update_timing_first)
-{
-  PtGraph *pt_graph = new PtGraph(sta_);
-  makePtGraph(pt_graph, inst);
-  if (update_timing_first) {
-    Level top_level = pt_graph->topVertexLevel();
-    findDelays(top_level);
-    pt_graph->initVertexAndEdges();
-  }
-  local_graphs_.push_back(pt_graph);
-  return pt_graph;
-}
-
 void
 LocalSta::graphPop()
 {
@@ -679,6 +709,8 @@ LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_
 void 
 LocalSta::recomputeLocalParasitics(PtGraph *pt_graph)
 {
+  printf("LocalSta::recomputeLocalParasitics recomputing local parasitics\n");
+  fflush(stdout);
   local_parasitics_->recomputeLocalParasitics(pt_graph);
 }
 
