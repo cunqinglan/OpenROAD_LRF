@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <memory>
 #include <set>
@@ -154,6 +155,10 @@ class GlobalRouter
   void setResistanceAware(bool resistance_aware);
   void setMacroExtension(int macro_extension);
   void setUseCUGR(bool use_cugr) { use_cugr_ = use_cugr; };
+  void setSkipLargeFanoutNets(int skip_large_fanout)
+  {
+    skip_large_fanout_ = skip_large_fanout;
+  };
 
   // flow functions
   void readGuides(const char* file_name);
@@ -433,6 +438,8 @@ class GlobalRouter
   void computeCapacities(int max_layer);
   void findTrackPitches(int max_layer);
   std::vector<Net*> findNets(bool init_clock_nets);
+  void findClockNets(const std::vector<Net*>& nets,
+                     std::set<odb::dbNet*>& clock_nets);
   void computeObstructionsAdjustments();
   void findLayerExtensions(std::vector<int>& layer_extensions);
   int findObstructions(odb::Rect& die_area);
@@ -481,7 +488,7 @@ class GlobalRouter
   std::vector<RoutingTracks> routing_tracks_;
 
   // Flow variables
-  bool is_incremental;
+  bool is_incremental_;
   float adjustment_;
   int layer_for_guide_dimension_;
   int congestion_iterations_{50};
@@ -495,6 +502,7 @@ class GlobalRouter
   int total_diodes_count_;
   bool is_congested_{false};
   bool use_cugr_{false};
+  int skip_large_fanout_{std::numeric_limits<int>::max()};
 
   // Region adjustment variables
   std::vector<RegionAdjustment> region_adjustments_;

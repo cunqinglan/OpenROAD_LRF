@@ -15,8 +15,12 @@
 #include <utility>  // pair
 #include <vector>
 
-#include "boost/geometry/geometry.hpp"
+#include "boost/geometry/core/cs.hpp"
+#include "boost/geometry/geometries/box.hpp"
+#include "boost/geometry/geometries/point_xy.hpp"
 #include "boost/geometry/index/rtree.hpp"
+// NOLINTNEXTLINE
+#include "boost/geometry/strategies/strategies.hpp"  // Required implictly by rtree
 #include "odb/db.h"
 #include "odb/dbTypes.h"
 #include "odb/geom.h"
@@ -147,7 +151,7 @@ class Opendp
 
   using MasterByImplant = std::map<odb::dbTechLayer*, dbMasterSeq>;
 
-  using YCoordToGap = std::map<DbuY, std::vector<GapInfo*>>;
+  using YCoordToGap = std::map<DbuY, std::vector<std::unique_ptr<GapInfo>>>;
 
   friend class OpendpTest_IsPlaced_Test;
   friend class Graphics;
@@ -290,7 +294,7 @@ class Opendp
   void insertDecapInPos(odb::dbMaster* master,
                         const DbuX& pos_x,
                         const DbuY& pos_y);
-  void insertDecapInRow(const std::vector<GapInfo*>& gaps,
+  void insertDecapInRow(const std::vector<std::unique_ptr<GapInfo>>& gaps,
                         DbuY gap_y,
                         DbuX irdrop_x,
                         DbuY irdrop_y,
@@ -333,7 +337,7 @@ class Opendp
   bool have_fillers_ = false;
 
   // Decap placement.
-  std::vector<DecapCell*> decap_masters_;
+  std::vector<std::unique_ptr<DecapCell>> decap_masters_;
   int decap_count_ = 0;
   YCoordToGap gaps_;
 
