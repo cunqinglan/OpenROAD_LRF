@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2019-2025, The OpenROAD Authors
 
-#include "triton_route/TritonRoute.h"
+#include "drt/TritonRoute.h"
 
 #include <algorithm>
 #include <fstream>
@@ -1106,17 +1106,30 @@ void TritonRoute::pinAccess(const std::vector<odb::dbInst*>& target_insts)
   writer.updateDb(db_, router_cfg_.get(), true);
 }
 
-void TritonRoute::deleteInstancePAData(frInst* inst)
+void TritonRoute::deleteInstancePAData(frInst* inst, bool delete_inst)
 {
   if (pa_) {
-    pa_->deleteInst(inst);
+    pa_->removeFromInstsSet(inst);
+    if (delete_inst) {
+      pa_->deleteInst(inst);
+    }
   }
 }
 
 void TritonRoute::addInstancePAData(frInst* inst)
 {
   if (pa_) {
-    pa_->addInst(inst);
+    pa_->addDirtyInst(inst);
+  }
+}
+
+void TritonRoute::updateDirtyPAData()
+{
+  if (pa_) {
+    design_->getTopBlock()->removeDeletedObjects();
+    pa_->updateDirtyInsts();
+    io::Writer writer(getDesign(), logger_);
+    writer.updateDb(getDb(), getRouterConfiguration(), true);
   }
 }
 

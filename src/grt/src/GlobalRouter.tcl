@@ -12,21 +12,21 @@ proc set_global_routing_layer_adjustment { args } {
     lassign $args layer adj
 
     if { $layer == "*" } {
-      sta::check_positive_float "adjustment" $adj
+      sta::check_float "adjustment" $adj
       grt::set_capacity_adjustment $adj
     } elseif { [regexp -all {([^-]+)-([^ ]+)} $layer] } {
       lassign [grt::parse_layer_range "set_global_routing_layer_adjustment" \
         $layer] first_layer last_layer
       for { set l $first_layer } { $l <= $last_layer } { incr l } {
         grt::check_routing_layer $l
-        sta::check_positive_float "adjustment" $adj
+        sta::check_float "adjustment" $adj
 
         grt::add_layer_adjustment $l $adj
       }
     } else {
       set layer_idx [grt::parse_layer_name $layer]
       grt::check_routing_layer $layer_idx
-      sta::check_positive_float "adjustment" $adj
+      sta::check_float "adjustment" $adj
 
       grt::add_layer_adjustment $layer_idx $adj
     }
@@ -48,7 +48,7 @@ proc set_global_routing_region_adjustment { args } {
     utl::error GRT 47 "Missing dbTech."
   }
   set tech [ord::get_db_tech]
-  set lef_units [$tech getLefUnits]
+  set lef_units [$tech getDbUnitsPerMicron]
 
   if { [info exists keys(-layer)] } {
     set layer $keys(-layer)
@@ -146,6 +146,7 @@ sta::define_cmd_args "global_route" {[-guide_file out_file] \
                                   [-congestion_report_iter_step steps] \
                                   [-grid_origin origin] \
                                   [-critical_nets_percentage percent] \
+                                  [-skip_large_fanout_nets fanout] \
                                   [-allow_congestion] \
                                   [-verbose] \
                                   [-start_incremental] \
@@ -157,7 +158,8 @@ sta::define_cmd_args "global_route" {[-guide_file out_file] \
 proc global_route { args } {
   sta::parse_key_args "global_route" args \
     keys {-guide_file -congestion_iterations -congestion_report_file \
-          -grid_origin -critical_nets_percentage -congestion_report_iter_step
+          -grid_origin -critical_nets_percentage -congestion_report_iter_step\
+          -skip_large_fanout_nets
          } \
     flags {-allow_congestion -resistance_aware -verbose -start_incremental -end_incremental \
           -use_cugr}
@@ -213,6 +215,12 @@ proc global_route { args } {
   }
 
   grt::set_use_cugr [info exists flags(-use_cugr)]
+
+  if { [info exists keys(-skip_large_fanout_nets)] } {
+    set fanout $keys(-skip_large_fanout_nets)
+    sta::check_positive_integer "-skip_large_fanout_nets" $fanout
+    grt::set_skip_large_fanout $fanout
+  }
 
   set allow_congestion [info exists flags(-allow_congestion)]
   grt::set_allow_congestion $allow_congestion

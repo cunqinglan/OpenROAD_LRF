@@ -97,14 +97,14 @@ static void message_handler(QtMsgType type,
       debugPrint(logger, utl::GUI, "qt", 1, print_msg);
       break;
     case QtInfoMsg:
-      logger->info(utl::GUI, 75, print_msg);
+      logger->info(utl::GUI, 75, "{}", print_msg);
       break;
     case QtWarningMsg:
-      logger->warn(utl::GUI, 76, print_msg);
+      logger->warn(utl::GUI, 76, "{}", print_msg);
       break;
     case QtCriticalMsg:
     case QtFatalMsg:
-      logger->error(utl::GUI, 77, print_msg);
+      logger->error(utl::GUI, 77, "{}", print_msg);
       break;
   }
 }
@@ -779,7 +779,7 @@ void Gui::saveImage(const std::string& filename,
     if (tech == nullptr) {
       logger_->error(utl::GUI, 16, "No design loaded.");
     }
-    const double dbu_per_micron = tech->getLefUnits();
+    const double dbu_per_micron = tech->getDbUnitsPerMicron();
 
     std::string save_cmds;
     // build display control commands
@@ -1553,7 +1553,7 @@ void Gui::gifEnd()
 
   if (gif_->writer == nullptr) {
     logger_->warn(utl::GUI,
-                  75,
+                  107,
                   "Nothing to save to {}. No frames added to gif.",
                   gif_->filename);
     gif_ = nullptr;
