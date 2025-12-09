@@ -17,6 +17,10 @@ PtVertexPathIterator::PtVertexPathIterator(PtVertex &pt_vertex,
   paths_ = pt_vertex.paths();
 }
 
+PtVertexPathIterator::~PtVertexPathIterator()
+{
+}
+
 void 
 PtVertexPathIterator::findNext()
 {

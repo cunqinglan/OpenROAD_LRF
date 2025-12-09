@@ -249,10 +249,8 @@ PtGraph::initPaths(PtVertex &pt_vertex)
   size_t path_count = tag_group->pathCount();
   sta::Path *paths = vertex->paths();
   sta::Path *new_paths = new sta::Path[path_count];
-  if (!pt_vertex.hasFanin()) {
-    for (size_t i = 0; i < path_count; i++) {
-      new_paths[i] = paths[i];
-    }
+  for (size_t i = 0; i < path_count; i++) {
+    new_paths[i] = paths[i];
   }
   pt_vertex.setPaths(new_paths);
 }
@@ -720,6 +718,30 @@ PtGraph::findRefTimingArcSet(const sta::Edge *orig_edge) const
   // Return the first matching arc set (typically there's only one)
   // If there are multiple arc sets (e.g., conditional arcs), you may need more logic
   return ref_arc_sets[0];
+}
+
+void 
+PtGraph::printSlews()
+{
+  // Placeholder
+}
+
+void
+PtGraph::printCapacitances()
+{
+  // Placeholder
+}
+
+void 
+PtGraph::printArrivals()
+{
+  // Placeholder
+}
+
+void 
+PtGraph::printRequireds()
+{
+  // Placeholder
 }
   
 

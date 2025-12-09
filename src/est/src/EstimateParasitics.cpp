@@ -1276,8 +1276,6 @@ EstimateParasitics::updateWireParasiticsNoDeleteNetwork()
 
     for (auto db_net : nets) {
       Net *net = db_network_->dbToSta(db_net);
-      printf("Checking parasitics for net %s\n", network_->name(net));
-      fflush(stdout);
       checkIfParasiticsNetworkExists(net);
     }
   }
