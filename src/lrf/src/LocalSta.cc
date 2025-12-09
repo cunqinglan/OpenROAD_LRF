@@ -1,4 +1,3 @@
-
 #include "sta/Sta.hh"
 #include "sta/Corner.hh"
 #include "sta/MinMax.hh"
@@ -59,6 +58,7 @@ LocalSta::setParasiticsEst(est::EstimateParasitics *estimate_parasitics) {
 void 
 LocalSta::collectLocalGraph(Instance *inst, InstanceSet &local_instances)
 {
+  local_instances.insert(inst);
   InstancePinIterator *pin_iter = network_->pinIterator(inst);
   PinSet visited_pins(network_);
   while (pin_iter->hasNext()) {
@@ -237,7 +237,7 @@ LocalSta::findVertexDelays(VertexId pt_vertex_id,
 {
   PtVertex &pt_vertex = pt_graph->ptVertex(pt_vertex_id);
   Vertex *vertex = pt_vertex.vertex();
-  if (pt_vertex.isRoot()) {
+  if (!pt_vertex.hasFanin()) {
     seedRootSlew(pt_vertex, pt_graph);
   } else {
     Pin *pin = vertex->pin();
@@ -354,36 +354,20 @@ LocalSta::findDriverEdgeDelays(PtVertex &drvr_pt_vertex,
                                std::array<bool, RiseFall::index_count> &delay_exists,
                                PtGraph *pt_graph)
 {
-  // PtVertex &from_pt_vertex = pt_graph->vertex(pt_edge.ptFromId());
-  
-  // Check if we should use ref cell's timing arc set (for virtual swap)
-  const sta::TimingArcSet *arc_set = nullptr;
   PtVertex &from_pt_vertex = pt_graph->ptVertex(pt_edge.ptFromId());
   PtVertex &to_pt_vertex = pt_graph->ptVertex(pt_edge.ptToId());
   
   // If both vertices belong to ref instance, use ref cell's timing
-  if (from_pt_vertex.type() == PtVertexType::RefInput && 
-      to_pt_vertex.type() == PtVertexType::RefOutput) {
-    arc_set = pt_graph->findRefTimingArcSet(pt_edge.edge());
-    if (arc_set) {
-      printf("LocalSta::findDriverEdgeDelays: Using ref cell '%s' timing arc set for edge %s->%s\n",
-             pt_graph->refGate() ? pt_graph->refGate()->name() : "null",
-             from_pt_vertex.vertex()->to_string(sta_).c_str(),
-             to_pt_vertex.vertex()->to_string(sta_).c_str());
-      fflush(stdout);
-    }
-    else {
-      printf("LocalSta::findDriverEdgeDelays: Ref cell timing arc set not found for edge %s->%s\n",
-             from_pt_vertex.vertex()->to_string(graph_).c_str(),
-             to_pt_vertex.vertex()->to_string(graph_).c_str());
-      fflush(stdout);
-    }
-  } else {
-    arc_set = pt_edge.edge()->timingArcSet();
+  TimingArcSet *ref_arc_set = pt_edge.timingArcSet();
+  if (ref_arc_set == nullptr){
+    printf("LocalSta::findDriverEdgeDelays: timingArcSet is nullptr for edge %s\n",
+           pt_edge.edge()->to_string(graph_).c_str());
+           fflush(stdout);
+    ref_arc_set = pt_edge.edge()->timingArcSet();
   }
   
   for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
-    for (const TimingArc *arc : arc_set->arcs()) {
+    for (const TimingArc *arc : ref_arc_set->arcs()) {
       findDriverArcDelays(drvr_pt_vertex, multi_drvr_net, pt_edge, 
                          arc, dcalc_ap, arc_delay_calc,
                          load_pin_index_map, pt_graph);
@@ -418,6 +402,20 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
                               LoadPinIndexMap &load_pin_index_map,
                               PtGraph *pt_graph)
 {
+  Instance *drvr_inst = network_->instance(drvr_pt_vertex.vertex()->pin());
+  std::string debug_info = "";
+  bool debug = false;
+  if (std::string(network_->name(drvr_inst)) == "g213657")
+    debug = true;
+  if (debug) {
+   debug_info = std::string("LOCALSTACHECK: Driver Instance: ") 
+             + network_->name(drvr_inst)
+             + " LibCell: " + pt_graph->refGate()->name()
+             + ", Arc: " + arc->to_string() 
+             + "DcalcAP: " + std::to_string(dcalc_ap->index());
+  }
+    
+
   Vertex *drvr_vertex = drvr_pt_vertex.vertex();
   const RiseFall *from_rf = arc->fromEdge()->asRiseFall();
   const RiseFall *drvr_rf = arc->toEdge()->asRiseFall();
@@ -427,6 +425,10 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
     float load_cap;
     localParasiticLoad(drvr_pin, drvr_rf, dcalc_ap, multi_drvr_net, 
                        load_cap, parasitic);
+    if (debug) {
+      debug_info += ", Load Cap: " + std::to_string(local_parasitics_->capacitance(parasitic) * 1e15) + "fF";
+    }
+
     if (multi_drvr_net == nullptr) {
       PtVertex &from_pt_vertex = pt_graph->ptVertex(pt_edge.ptFromId());
       const Slew in_slew = edgeFromSlew(from_pt_vertex, from_rf, pt_edge, 
@@ -436,6 +438,11 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
                           load_pin_index_map, dcalc_ap);
       annotateDelaysSlews(pt_edge, arc, dcalc_result,
                           load_pin_index_map, dcalc_ap, pt_graph);
+      if (debug) {
+        debug_info += ", In Slew: " + std::to_string(1e12 * in_slew)
+                      + ", Gate Delay: " + std::to_string(1e12 * (dcalc_result.gateDelay()))
+                      + ", Drvr Slew: " + std::to_string(1e12 * (dcalc_result.drvrSlew())) + "\n";
+      }
     } else {
       // ArcDcalcArg dcalc_args = makeArcDcalcArgs(drvr_pt_vertex,
                                   // multi_drvr_net, pt_edge, arc,
@@ -445,6 +452,7 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
     }
     arc_delay_calc->finishDrvrPin();
   }
+  debug_info_.push_back(debug_info);  
 }
 
 bool
@@ -834,7 +842,8 @@ LocalSta::printLocalRequireds(PtGraph *pt_graph) const
   fflush(stdout);
 }
 
-void LocalSta::printLocalTiming(PtGraph *pt_graph) const
+void 
+LocalSta::printLocalTiming(PtGraph *pt_graph) const
 {
   for (auto& pt_vertex : pt_graph->ptVertices()) {
     if (pt_vertex.vertex() == nullptr)
@@ -852,6 +861,28 @@ void LocalSta::printLocalTiming(PtGraph *pt_graph) const
   }
   fflush(stdout);
 }
+
+void
+LocalSta::printLocalSlews(PtGraph *pt_graph) const
+{
+  printf("LocalSta::printLocalSlews: \n");
+  for (auto& pt_vertex : pt_graph->ptVertices()) {
+    if (pt_vertex.vertex() == nullptr)
+      continue;
+    for (const RiseFall *rf : RiseFall::range()) {
+      for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
+        Slew slew = pt_graph->slew(pt_vertex, rf, dcalc_ap->index());
+        printf("Vertex %s, RF %s, AP %u, slew = %f\n",
+               pt_vertex.vertex()->to_string(graph_).c_str(),
+               rf->to_string().c_str(),
+               dcalc_ap->index(),
+               slew * 1.0e12);
+      }
+    }
+  }
+  fflush(stdout);
+}
+
 
 /////////////////////////////////////////////////////
 // LRSInstanceVisitor methods
@@ -888,6 +919,7 @@ void
 LocalSta::virtualSwapCell(PtGraph *pt_graph, Instance *inst, LibertyCell *new_cell)
 {
   pt_graph->setRefGate(new_cell);
+  pt_graph->updateTimingArcSets();
 }
 
 void 
