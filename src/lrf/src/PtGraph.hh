@@ -47,6 +47,7 @@ public:
   ~PtGraph();
 
   const PtVertexSeq &ptVertices() const { return pt_vertices_; }
+  PtVertexSeq &ptVertices() { return pt_vertices_; }
   const PtEdgeSeq &ptEdges() const { return pt_edges_; }
 
   void makeGraph(sta::InstanceSet &inst_seq, sta::Instance *ref_inst);
@@ -101,8 +102,14 @@ public:
   const sta::ArcDelay &wireArcDelay(const PtEdge &pt_edge,
                                     const sta::RiseFall *rf,
                                     sta::DcalcAPIndex ap_index);
+  // Output informations of the PtGraph for debug purpose
   std::string to_string();
   void printDelays();
+  void printSlews();
+  void printCapacitances();
+  void printArrivals();
+  void printRequireds();
+  
   void setAllArcDelaysZero();
 
   void delayLmSum(const sta::MinMax *minmax, float &delay_lambda_sum,

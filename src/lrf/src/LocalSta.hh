@@ -56,6 +56,24 @@ public:
   void setParasiticsEst(est::EstimateParasitics *estimate_parasitics);
   void setAnalysisPoints(const std::vector<const DcalcAnalysisPt*> &dcalc_ap_set);
 
+  // Functions for Searching arrivals and required times
+  void findLocalArrivals(PtGraph *pt_graph);
+  void findLocalRequireds(PtGraph *pt_graph);
+  void localParasiticLoad(const Pin *drvr_pin,
+                          const RiseFall *rf,
+                          const DcalcAnalysisPt *dcalc_ap,
+                          const MultiDrvrNet *multi_drvr_net,
+                          // Return values
+                          float &load_cap,
+                          const Parasitic *&parasitic) const;
+
+  // print informations of local graphs for debug purpose
+  void printLocalParasitics(PtGraph *pt_graph) const;
+  void printParasitics(PtGraph *pt_graph) const;
+  void printLocalArrivals(PtGraph *pt_graph) const;
+  void printLocalRequireds(PtGraph *pt_graph) const;
+  void printLocalTiming(PtGraph *pt_graph) const;
+
 protected:
   void collectLocalFanouts(Pin *drvr_pin, InstanceSet &local_instances);
   void collectLocalFaninSiblings(Pin *pin, PinSet &visited_pins, 
@@ -155,13 +173,6 @@ protected:
   void setSta(Sta *sta) { sta_ = sta; }
   LocalCost initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
   LocalCost increAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
-  void localParasiticLoad(const Pin *drvr_pin,
-                          const RiseFall *rf,
-                          const DcalcAnalysisPt *dcalc_ap,
-                          const MultiDrvrNet *multi_drvr_net,
-                          // Return values
-                          float &load_cap,
-                          const Parasitic *&parasitic) const;
 
   ////////////////////////////////////////////////////////
   // Deal with parasitics

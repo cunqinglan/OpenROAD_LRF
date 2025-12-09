@@ -524,12 +524,21 @@ Timing::averageDelayOnCritPath() {
 // Functions of testing IncreSta
 ////////////////////////////////////////////
 void 
-Timing::testLocalDelayCompute() {
+Timing::testLocalDelayCompute(char *inst_name) {
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
   sta::dbSta* sta = getSta();
   lrf::TestLrf test_lrf;
-  test_lrf.testLocalDelayCompute("ref_gate", sta, resizer, design_->getBlock());
+  test_lrf.testLocalDelayCompute(inst_name, sta, resizer, design_->getBlock());
+}
+
+void 
+Timing::testLocalArrivalCompute(char *inst_name) {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testLocalArrivalCompute(inst_name, sta, resizer, design_->getBlock());
 }
 
 }  // namespace ord

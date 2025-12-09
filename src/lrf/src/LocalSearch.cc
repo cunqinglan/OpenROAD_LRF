@@ -8,6 +8,7 @@
 #include "sta/Network.hh"
 #include "sta/Sdc.hh"
 #include "sta/PathAnalysisPt.hh"
+#include "sta/Debug.hh"
 
 
 #include "PtGraph.hh"
@@ -36,6 +37,13 @@ LocalArrivalVisitor::LocalArrivalVisitor(StaState *state, PtGraph *pt_graph)
   LocalArrivalVisitor::init();
 }
 
+VertexVisitor *
+LocalPathVisitor::copy() const
+{
+  throw std::runtime_error("LocalPathVisitor::copy: Not implemented yet");
+  return nullptr;
+}
+
 LocalArrivalVisitor::~LocalArrivalVisitor()
 {
 }
@@ -57,6 +65,13 @@ LocalArrivalVisitor::findLocalArrivals()
   for (VertexId vertex_id : pt_graph_->sortedVertexIds()) {
     findVertexArrival(vertex_id);
   }
+}
+
+void 
+LocalArrivalVisitor::visit(Vertex *vertex)
+{
+  PtVertex &pt_vertex = pt_graph_->ptVertex(vertex);
+  findVertexArrival(pt_vertex);
 }
   
 void
@@ -221,6 +236,7 @@ LocalPathVisitor::localVisitArc(PtVertex &from_pt_vertex,
                                 path_ap);
     
   }
+  return true;
 }
 
 bool 
@@ -236,8 +252,8 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
                                   const MinMax *min_max,
                                   const PathAnalysisPt *path_ap)
 {
-  Vertex *from_vertex = from_pt_vertex.vertex();
-  Vertex *to_vertex = to_pt_vertex.vertex();
+  // Vertex *from_vertex = from_pt_vertex.vertex();
+  // Vertex *to_vertex = to_pt_vertex.vertex();
   Edge *edge = pt_edge.edge();
 
   const TimingRole *role = edge->role();
@@ -339,9 +355,26 @@ LocalArrivalVisitor::localSetVertexArrivals(PtVertex &pt_vertex, TagGroupBldr *t
   // Local graph extraction phase).
 }
 
+void 
+LocalArrivalVisitor::printArrivals()
+{
+  for (auto& pt_vertex : pt_graph_->ptVertices()) {
+    PtVertexPathIterator path_iter(pt_vertex, search_);
+    size_t path_num = 0;
+    while (path_iter.hasNext()) {
+      Path *path = path_iter.next();
+      Arrival arrival = path->arrival();
+      printf("Vertex %s Path %zu Arrival: %f\n",
+             network_->name(pt_vertex.pin()),
+             path_num,
+             arrival);
+      path_num++;
+    }
+  }
+}
 
 ////////////////////////////////////////////////////
-// Functions of LocalRetardVisitor
+// Functions of LocalRequiredCmp and LocalRequiredVisitor
 ////////////////////////////////////////////////////
 LocalRequiredCmp::LocalRequiredCmp() : have_requireds_(false)
 {
@@ -366,6 +399,42 @@ LocalRequiredCmp::requiredsInit(PtVertex &pt_vertex,
     return;
   }
   have_requireds_ = false;
+}
+
+void
+LocalRequiredCmp::requiredSet(size_t path_index,
+			 Required &required,
+			 const MinMax *min_max,
+			 const StaState *sta)
+{
+  if (delayGreater(required, requireds_[path_index], min_max, sta)) {
+    requireds_[path_index] = required;
+    have_requireds_ = true;
+  }
+}
+
+Required
+LocalRequiredCmp::required(size_t path_index)
+{
+  return requireds_[path_index];
+}
+
+bool
+LocalRequiredCmp::requiredsSave(Vertex *vertex,
+			   const StaState *sta)
+{
+  bool requireds_changed = false;
+  VertexPathIterator path_iter(vertex, sta);
+  while (path_iter.hasNext()) {
+    Path *path = path_iter.next();
+    size_t path_index = path->pathIndex(sta);
+    Required req = requireds_[path_index];
+    Required &prev_req = path->required();
+    bool changed = !delayEqual(prev_req, req);
+    requireds_changed |= changed;
+    path->setRequired(req);
+  }
+  return requireds_changed;
 }
 
 
@@ -415,6 +484,13 @@ LocalRequiredVisitor::findVertexRequired(PtVertex &pt_vertex)
 
 }
 
+void
+LocalRequiredVisitor::visit(Vertex *vertex)
+{
+  PtVertex &pt_vertex = pt_graph_->ptVertex(vertex);
+  findVertexRequired(pt_vertex);
+}
+
 bool LocalRequiredVisitor::localVisitFromToPath(
                     PtVertex &from_pt_vertex,
                     const RiseFall *from_rf,
@@ -451,7 +527,23 @@ bool LocalRequiredVisitor::localVisitFromToPath(
   return true;
 }
 
-
+void
+LocalRequiredVisitor::printRequireds()
+{
+  for (auto& pt_vertex : pt_graph_->ptVertices()) {
+    PtVertexPathIterator path_iter(pt_vertex, search_);
+    size_t path_num = 0;
+    while (path_iter.hasNext()) {
+      Path *path = path_iter.next();
+      Required required = path->required();
+      printf("Vertex %s Path %zu Required: %f\n",
+             network_->name(pt_vertex.pin()),
+             path_num,
+             required);
+      path_num++;
+    }
+  }
+}
 
 
 } // namespace lrf

@@ -77,6 +77,8 @@ class LocalPathVisitor : public PathVisitor
 public:
   LocalPathVisitor(StaState *state, PtGraph *pt_graph);
   virtual ~LocalPathVisitor();
+
+  virtual VertexVisitor *copy() const override;
   void localVisitFaninPaths(PtVertex &to_pt_vertex);
   void localVisitFanoutPaths(PtVertex &from_pt_vertex);
   bool localVisitEdge(PtVertex &from_pt_vertex, 
@@ -116,6 +118,22 @@ public:
                 Arrival &to_arrival,
                 const MinMax *min_max,
                 const PathAnalysisPt *path_ap) = 0;
+  // Just delete this implementation
+  virtual bool visitFromToPath(const Pin *from_pin,
+			       Vertex *from_vertex,
+			       const RiseFall *from_rf,
+			       Tag *from_tag,
+			       Path *from_path,
+                              const Arrival &from_arrival,
+			       Edge *edge,
+			       TimingArc *arc,
+			       ArcDelay arc_delay,
+			       Vertex *to_vertex,
+			       const RiseFall *to_rf,
+			       Tag *to_tag,
+			       Arrival &to_arrival,
+			       const MinMax *min_max,
+			       const PathAnalysisPt *path_ap) override { return false; }
 
 protected:
   StaState *sta_;
@@ -129,6 +147,8 @@ public:
   LocalArrivalVisitor(StaState *state, PtGraph *pt_graph);
   ~LocalArrivalVisitor();
   void init();
+
+  virtual void visit(Vertex *vertex) override;
 
   // Find arrivals in the local graph
   void findLocalArrivals();
@@ -155,6 +175,7 @@ public:
                 Arrival &to_arrival,
                 const MinMax *min_max,
                 const PathAnalysisPt *path_ap) override;
+  void printArrivals();
 
 protected:
   void localSetVertexArrivals(PtVertex &vertex, TagGroupBldr *tag_bldr);
@@ -194,6 +215,8 @@ public:
   LocalRequiredVisitor(StaState *state, PtGraph *pt_graph);
   ~LocalRequiredVisitor();
 
+  virtual void visit(Vertex *vertex) override;
+
   // Find requireds in the local graph
   void findLocalRequireds();
   // visit given vertex, compute its required
@@ -215,6 +238,7 @@ public:
                 Arrival &to_arrival,
                 const MinMax *min_max,
                 const PathAnalysisPt *path_ap) override;
+  void printRequireds();
 protected:
   void seedLocalRootRequireds(PtVertex &pt_vertex);
 
