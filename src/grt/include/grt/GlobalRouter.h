@@ -150,6 +150,8 @@ class GlobalRouter
   void setCongestionIterations(int iterations);
   void setCongestionReportIterStep(int congestion_report_iter_step);
   void setCongestionReportFile(const char* file_name);
+  void reportCongestion();
+  int getOverflow(int layer = -1);
   void setGridOrigin(int x, int y);
   void setAllowCongestion(bool allow_congestion);
   void setResistanceAware(bool resistance_aware);
