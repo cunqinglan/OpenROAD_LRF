@@ -73,6 +73,7 @@ public:
   void printLocalArrivals(PtGraph *pt_graph) const;
   void printLocalRequireds(PtGraph *pt_graph) const;
   void printLocalTiming(PtGraph *pt_graph) const;
+  void printLocalSlews(PtGraph *pt_graph) const;
 
 protected:
   void collectLocalFanouts(Pin *drvr_pin, InstanceSet &local_instances);

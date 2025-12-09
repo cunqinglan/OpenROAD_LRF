@@ -24,11 +24,18 @@ public:
 
   void testLocalArrivalCompute(char *inst_name, sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
 
-  void printLocalStaAndOpenSta(char *inst_name, sta::dbSta* sta, 
+  void printLocalDelaysAndCap(char *inst_name, sta::dbSta* sta, 
                        LocalSta *local_sta, odb::dbInst *db_inst, 
                        sta::Instance *sta_inst, sta::dbNetwork *db_network);
 
   void testLocalRequiredCompute(char *inst_name, sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
+
+  void printSlewComparison(char *inst_name, sta::dbSta* sta, 
+                       LocalSta *local_sta, odb::dbInst *db_inst, 
+                       sta::Instance *sta_inst, sta::dbNetwork *db_network);
+
+  void testLocalSlewCompute(char *inst_name, sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
+
 };
 
 }  // namespace lrf

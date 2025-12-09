@@ -94,6 +94,7 @@ PtGraph::makeGraph(sta::InstanceSet &inst_seq, sta::Instance *ref_inst)
   initVertexAndEdges();
   createParasiticsNetworks();
   annotateVerticesType();
+  annotateEdgesType();
 }
 
 void 
@@ -255,6 +256,41 @@ PtGraph::initPaths(PtVertex &pt_vertex)
   pt_vertex.setPaths(new_paths);
 }
 
+void
+PtGraph::updateTimingArcSets()
+{
+  if (ref_lib_cell_ == nullptr) {
+    printf("PtGraph::findRefTimingArcSet: ref_lib_cell_ is nullptr\n");
+    fflush(stdout);
+    return;
+  }
+
+  for (PtEdge &pt_edge : pt_edges_) {
+    if (pt_edge.edge() == nullptr)
+      continue;
+    if (pt_edge.type() == PtEdgeType::RefInstEdge) {
+      sta::TimingArcSet *ref_arc_set = pt_edge.timingArcSet();
+      if (ref_arc_set == nullptr) {
+        printf("PtGraph::updateTimingArcSets: PtEdge %u has no timing arc set\n",
+               pt_edge.objectIdx());
+        fflush(stdout);
+        continue;
+      }
+      sta::TimingArcSet *new_arc_set = 
+                ref_lib_cell_->findTimingArcSet(ref_arc_set);
+      if (new_arc_set == nullptr) {
+        printf("PtGraph::updateTimingArcSets: no matching timing arc set in ref_lib_cell_ %s for PtEdge %u of edge %s\n",
+               ref_lib_cell_->name(),
+                pt_edge.objectIdx(),
+               pt_edge.edge()->to_string(sta_->graph()).c_str());
+        fflush(stdout);
+        continue;
+      }
+      pt_edge.setTimingArcSet(new_arc_set);
+    }
+  }
+}
+
 bool
 PtGraph::topoSortVertices()
 {
@@ -273,7 +309,7 @@ PtGraph::topoSortVertices()
     }
     sorted_ = true;
   }
-  return false;
+  return sorted_;
 }
 
 std::vector<size_t> &
@@ -293,8 +329,7 @@ PtGraph::setSlew(PtVertex &pt_vertex, const RiseFall *rf,
     pt_vertex.resizeSlews(slew_count);
   }
   sta::Slew *slews = pt_vertex.slews();
-  size_t slew_index = (slew_rf_count == 1) 
-    ? ap_index : ap_index * slew_rf_count + rf->index();
+  size_t slew_index = ap_index * slew_rf_count + rf->index();
   slews[slew_index] = slew;
 }
 
@@ -452,6 +487,7 @@ void PtGraph::initVertexAndEdges()
     if (iter_cnt++ == 0)
       continue;
     pt_edge.copyInfoFromEdge(ap_count_);
+    pt_edge.timing_arc_set_ = pt_edge.edge()->timingArcSet();
   }
 }
 
@@ -589,6 +625,21 @@ PtGraph::annotateVerticesType()
   delete pin_iter;
 }
 
+void 
+PtGraph::annotateEdgesType()
+{
+  for (PtEdge &pt_edge : pt_edges_) {
+    if (pt_edge.edge() == nullptr)
+      continue;
+    PtVertex &from_pt_vertex = pt_vertices_[pt_edge.ptFromId()];
+    PtVertex &to_pt_vertex = pt_vertices_[pt_edge.ptToId()];
+    if (from_pt_vertex.type() == PtVertexType::RefInput &&
+        to_pt_vertex.type() == PtVertexType::RefOutput) {
+      pt_edge.setType(PtEdgeType::RefInstEdge);
+    }
+  }
+}
+
 const PtVertex &
 PtGraph::pinToPtVertex(const sta::Pin *pin) const
 {
@@ -601,13 +652,12 @@ PtGraph::pinToPtVertex(const sta::Pin *pin) const
       return ptVertex(pt_vertex_id);
     }
     else {
-      printf("PtGraph::pinToPtVertex: vertex not found in vertex_map_\n");
-      fflush(stdout);
+      throw std::out_of_range("PtGraph::pinToPtVertex: vertex not found in vertex_map_");
     }
   } else {
-    printf("PtGraph::pinToPtVertex: no vertex for pin %s\n", sta_->network()->name(pin));
-    fflush(stdout);
+    throw std::out_of_range("PtGraph::pinToPtVertex: vertex is nullptr for pin");
   }
+  return pt_vertices_[0]; // should not reach here
 }
 
 float
@@ -658,66 +708,6 @@ PtGraph::getRefPinCapacitance(const PtVertex &pt_vertex,
                                           corner,
                                           min_max);
   return port_cap;
-}
-
-const sta::TimingArcSet *
-PtGraph::findRefTimingArcSet(const sta::Edge *orig_edge) const
-{
-  if (ref_lib_cell_ == nullptr) {
-    printf("PtGraph::findRefTimingArcSet: ref_lib_cell_ is nullptr\n");
-    fflush(stdout);
-    return nullptr;
-  }
-
-  // Get the original timing arc set from the edge
-  const sta::TimingArcSet *orig_arc_set = orig_edge->timingArcSet();
-  if (orig_arc_set == nullptr) {
-    return nullptr;
-  }
-
-  // Get the from/to port names from the original arc set
-  const sta::LibertyPort *orig_from_port = orig_arc_set->from();
-  const sta::LibertyPort *orig_to_port = orig_arc_set->to();
-  
-  if (orig_from_port == nullptr || orig_to_port == nullptr) {
-    return nullptr;
-  }
-
-  const char *from_port_name = orig_from_port->name();
-  const char *to_port_name = orig_to_port->name();
-
-  // Find the corresponding ports in the ref_cell by name
-  sta::LibertyPort *ref_from_port = ref_lib_cell_->findLibertyPort(from_port_name);
-  sta::LibertyPort *ref_to_port = ref_lib_cell_->findLibertyPort(to_port_name);
-
-  if (ref_from_port == nullptr) {
-    printf("PtGraph::findRefTimingArcSet: Cannot find port '%s' in ref cell '%s'\n",
-           from_port_name, ref_lib_cell_->name());
-    fflush(stdout);
-    return nullptr;
-  }
-
-  if (ref_to_port == nullptr) {
-    printf("PtGraph::findRefTimingArcSet: Cannot find port '%s' in ref cell '%s'\n",
-           to_port_name, ref_lib_cell_->name());
-    fflush(stdout);
-    return nullptr;
-  }
-
-  // Get timing arc sets from ref_cell with matching from/to ports
-  const sta::TimingArcSetSeq &ref_arc_sets = 
-      ref_lib_cell_->timingArcSets(ref_from_port, ref_to_port);
-  
-  if (ref_arc_sets.empty()) {
-    printf("PtGraph::findRefTimingArcSet: No timing arc sets found from '%s' to '%s' in cell '%s'\n",
-           from_port_name, to_port_name, ref_lib_cell_->name());
-    fflush(stdout);
-    return nullptr;
-  }
-
-  // Return the first matching arc set (typically there's only one)
-  // If there are multiple arc sets (e.g., conditional arcs), you may need more logic
-  return ref_arc_sets[0];
 }
 
 void 
