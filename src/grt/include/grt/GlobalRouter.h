@@ -307,6 +307,8 @@ class GlobalRouter
   Rudy* getRudy();
 
   void writePinLocations(const char* file_name);
+  void reportCongestion();
+  void updateEdgesUsage();
 
  private:
   // Net functions
@@ -400,7 +402,6 @@ class GlobalRouter
   void printSegment(const GSegment& segment);
   void reportLayerSettings(int min_routing_layer, int max_routing_layer);
   void reportResources();
-  void reportCongestion();
   void updateDbCongestionFromGuides();
   void computeGCellGridPatternFromGuides(
       std::unordered_map<odb::dbNet*, Guides>& guides);

@@ -226,6 +226,12 @@ class BaseMove : public sta::dbStaState
                           float load_cap,
                           float prev_drive,
                           const DcalcAnalysisPt* dcalc_ap);
+  // Exact evaluation of a cell replacement
+  LibertyCell* upsizeCellExact(LibertyPort* in_port,
+                                 LibertyPort* drvr_port,
+                                 float load_cap,
+                                 float prev_drive,
+                                 const DcalcAnalysisPt* dcalc_ap);
   bool replaceCell(Instance* inst, const LibertyCell* replacement);
   bool checkMaxCapViolation(Instance* inst, const LibertyCell* replacement);
   float getInputPinCapacitance(Pin* pin, const LibertyCell* cell);

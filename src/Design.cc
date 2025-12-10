@@ -365,37 +365,37 @@ odb::dbDatabase* Design::createDetachedDb()
 /////////////////////////////////////////////////////////////
 // Functions for LR sizing
 /////////////////////////////////////////////////////////////
-std::vector<odb::dbInst*> Design::sortedInstances()
-{
-  // Note: returns a Python-friendly container via SWIG std_vector wrapper
-  // or a typemap; see Design.i for vector exposure.
-  printf("Design::sortedInstances called\n");
-  fflush(stdout);
-  sta::dbSta* sta = getSta();
-  sta->searchPreamble();
-  sta::dbNetwork* network = sta->getDbNetwork();
+// std::vector<odb::dbInst*> Design::sortedInstances()
+// {
+//   // Note: returns a Python-friendly container via SWIG std_vector wrapper
+//   // or a typemap; see Design.i for vector exposure.
+//   printf("Design::sortedInstances called\n");
+//   fflush(stdout);
+//   sta::dbSta* sta = getSta();
+//   sta->searchPreamble();
+//   sta::dbNetwork* network = sta->getDbNetwork();
 
-  sta::InstanceSeq &sorted_instances = sta->getSortedInstances();
-  std::vector<odb::dbInst*> instances;
-  instances.reserve(sorted_instances.size());
-  for (auto* inst : sorted_instances) {
-    odb::dbInst* db_inst = network->staToDb(inst);
-    if (db_inst == nullptr) {
-      // STA instance has no DB mapping; skip safely
-      printf("Warning: staToDb returned nullptr for an instance %s\n",
-             network->name(inst));
-      continue;
-    }
-    odb::dbMaster* master = db_inst->getMaster();
-    if (master) {
-      instances.push_back(db_inst);
-    }
-  }
-  // Cache the result so subsequent calls don't recompute unless the
-  // database/design changes (see places that clear the cache above).
-  sorted_instances_ = instances;
-  return sorted_instances_;
-}
+//   sta::InstanceSeq &sorted_instances = sta->getSortedInstances();
+//   std::vector<odb::dbInst*> instances;
+//   instances.reserve(sorted_instances.size());
+//   for (auto* inst : sorted_instances) {
+//     odb::dbInst* db_inst = network->staToDb(inst);
+//     if (db_inst == nullptr) {
+//       // STA instance has no DB mapping; skip safely
+//       printf("Warning: staToDb returned nullptr for an instance %s\n",
+//              network->name(inst));
+//       continue;
+//     }
+//     odb::dbMaster* master = db_inst->getMaster();
+//     if (master) {
+//       instances.push_back(db_inst);
+//     }
+//   }
+//   // Cache the result so subsequent calls don't recompute unless the
+//   // database/design changes (see places that clear the cache above).
+//   sorted_instances_ = instances;
+//   return sorted_instances_;
+// }
 
 
 /////////////////////////////////////////////////////////////
