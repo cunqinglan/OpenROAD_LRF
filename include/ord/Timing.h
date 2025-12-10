@@ -85,13 +85,13 @@ class Timing
   /////////////////////////////////////////////////////////////
   // Functions for LR sizing
   /////////////////////////////////////////////////////////////
-  float getTns(bool minmax = false);
+  // float getTns(bool minmax = false);
 
-  float getLmDelaySum(odb::dbInst* inst, const sta::MinMax *minmax = sta::MinMax::max());
+  // float getLmDelaySum(odb::dbInst* inst, const sta::MinMax *minmax = sta::MinMax::max());
     
-  bool checkErcViolations(odb::dbInst* inst, sta::Corner* corner);
+  // bool checkErcViolations(odb::dbInst* inst, sta::Corner* corner);
 
-  void lmUpdate();
+  // void lmUpdate();
   /////////////////////////////////////////////////////////////
   // End functions for LR sizing
   /////////////////////////////////////////////////////////////
