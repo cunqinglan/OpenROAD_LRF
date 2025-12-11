@@ -55,6 +55,7 @@ public:
                             const Corner* corner) const;
   void setParasiticsEst(est::EstimateParasitics *estimate_parasitics);
   void setAnalysisPoints(const std::vector<const DcalcAnalysisPt*> &dcalc_ap_set);
+  void setDebugLabel(const std::string &label) { debug_label_ = label; }
 
   // Functions for Searching arrivals and required times
   void findLocalArrivals(PtGraph *pt_graph);
@@ -188,7 +189,7 @@ protected:
   ////////////////////////////////////////////////////////
   void setEquivCellsMade(bool made) { equiv_cells_made_ = made; }
   bool equiv_cells_made() const { return equiv_cells_made_; }
-  void virtualSwapCell(PtGraph *pt_graph, Instance *inst, LibertyCell *new_cell);
+  void virtualReplaceCell(PtGraph *pt_graph, LibertyCell *new_cell);
   void loadLocalParasitics(const Pin *drvr_pin,
                            const RiseFall *rf,
                            const DcalcAnalysisPt *dcalc_ap,
@@ -230,6 +231,8 @@ private:
   est::EstimateParasitics *estimate_parasitics_;
   LocalParasitics *local_parasitics_;
   bool equiv_cells_made_ = false;
+
+  std::string debug_label_ = "LocalSTA";
 
   friend class IncreSta;
   friend class TestLrf;

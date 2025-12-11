@@ -13,23 +13,25 @@ namespace rsz {
 
 namespace lrf {
 
-using namespace sta;
-
 class LocalSta;
 class PtGraph;
 
-class ParallelLrVisitor : public VertexVisitor
+// We don't want to copy this visitor, each swap examination should
+// have its own instance.
+class ParallelLrVisitor
 {
 public:
-  ParallelLrVisitor(dbSta *db_sta, LocalSta *local_sta);
+  ParallelLrVisitor(sta::dbSta *db_sta, sta::Instance *sta_inst, LocalSta *local_sta);
   virtual ~ParallelLrVisitor();
-  virtual void visit(Instance *inst);
-  virtual VertexVisitor *copy() const;
+  virtual void visit(sta::Instance *inst);
+  void operator()(sta::Instance *inst) { visit(inst); }
 
 protected:  
-  dbSta *db_sta_;
+  sta::dbSta *db_sta_;
+  sta::Instance *ref_inst_;
   LocalSta *local_sta_;
-  ArcDelayCalc *arc_delay_calc_;
+  PtGraph *pt_graph_;
+  sta::ArcDelayCalc *arc_delay_calc_;
   rsz::Resizer *resizer_;
 };
 

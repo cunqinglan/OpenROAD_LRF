@@ -15,12 +15,12 @@ namespace sta {
 
 namespace lrf {
 
-using namespace sta;
-
 typedef float LocalCost;
 
-ParallelLrVisitor::ParallelLrVisitor(dbSta *db_sta, LocalSta *local_sta, Resizer *resizer) :
+ParallelLrVisitor::ParallelLrVisitor(sta::dbSta *db_sta, 
+        sta::Instance * ref_inst, LocalSta *local_sta, Resizer *resizer) :
   db_sta_(db_sta),
+  ref_inst_(ref_inst),
   local_sta_(local_sta),
   arc_delay_calc_(local_sta->arc_delay_calc_->copy()),
   resizer_(resizer)
@@ -38,15 +38,14 @@ ParallelLrVisitor::~ParallelLrVisitor()
   delete arc_delay_calc_;
 }
 
-VertexVisitor *
-ParallelLrVisitor::copy() const
-{
-  return new ParallelLrVisitor(local_sta_, pt_graph_);
-}
-
 void 
 ParallelLrVisitor::visit(Instance *inst)
 {
+  // The visit do three things:
+  // 1. Get the target instance and set up a ptgraph for it.
+  // 2. For each equivalent cell, virtual swap the instance to the cell,
+  //    and compute the local timing cost.
+  // 3. Keep track of the best cell and cost.
   LibertyCell *cell = db_sta_->network()->libertyCell(inst);
   if (cell) {
     LibertyCellSeq *equiv_cells = resizer_->getSwappableCells(cell);

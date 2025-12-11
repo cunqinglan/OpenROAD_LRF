@@ -353,10 +353,7 @@ LocalSta::findDriverEdgeDelays(PtVertex &drvr_pt_vertex,
                                LoadPinIndexMap &load_pin_index_map,
                                std::array<bool, RiseFall::index_count> &delay_exists,
                                PtGraph *pt_graph)
-{
-  PtVertex &from_pt_vertex = pt_graph->ptVertex(pt_edge.ptFromId());
-  PtVertex &to_pt_vertex = pt_graph->ptVertex(pt_edge.ptToId());
-  
+{ 
   // If both vertices belong to ref instance, use ref cell's timing
   TimingArcSet *ref_arc_set = pt_edge.timingArcSet();
   if (ref_arc_set == nullptr){
@@ -764,7 +761,8 @@ LocalSta::printLocalParasitics(PtGraph *pt_graph) const
             local_parasitics_->findLocalParasitic(vertex->pin(), rf, dcalc_ap);
           float load_cap = local_parasitics_->capacitance(parasitic);
           if (parasitic != nullptr) {
-            printf("LocalSta::printLocalParasitics: Pin %s, RF %s, AP %u, with cap %f\n",
+            printf("%s::printLocalParasitics: Pin %s, RF %s, AP %u, with cap %f\n",
+                   debug_label_.c_str(),
                    network_->name(vertex->pin()),
                    rf->to_string().c_str(),
                    dcalc_ap->index(),
@@ -815,7 +813,8 @@ LocalSta::printLocalArrivals(PtGraph *pt_graph) const
     PtVertexPathIterator path_iter(pt_vertex, this);
     while (path_iter.hasNext()) {
       Path *path = path_iter.next();
-      printf("LocalSta::printLocalArrivals: Vertex %s arrival path: %s, arrival = %f\n",
+      printf("%s::printLocalArrivals: Vertex %s arrival path: %s, arrival = %f\n",
+             debug_label_.c_str(),
              pt_vertex.vertex()->to_string(graph_).c_str(),
              path->to_string(sta_).c_str(),
              path->arrival() * 1.0e12);
@@ -833,7 +832,8 @@ LocalSta::printLocalRequireds(PtGraph *pt_graph) const
     PtVertexPathIterator path_iter(pt_vertex, this);
     while (path_iter.hasNext()) {
       Path *path = path_iter.next();
-      printf("LocalSta::printLocalRequireds: Vertex %s required path: %s, required = %f\n",
+      printf("%s::printLocalRequireds: Vertex %s required path: %s, required = %f\n",
+             debug_label_.c_str(),
              pt_vertex.vertex()->to_string(graph_).c_str(),
              path->to_string(sta_).c_str(),
              path->required() * 1.0e12);
@@ -848,7 +848,8 @@ LocalSta::printLocalTiming(PtGraph *pt_graph) const
   for (auto& pt_vertex : pt_graph->ptVertices()) {
     if (pt_vertex.vertex() == nullptr)
       continue;
-    printf("LocalSta::printLocalTiming: Vertex %s\n",
+    printf("%s::printLocalTiming: Vertex %s\n",
+           debug_label_.c_str(),
            pt_vertex.vertex()->to_string(graph_).c_str());
     PtVertexPathIterator path_iter(pt_vertex, this);
     while (path_iter.hasNext()) {
@@ -916,7 +917,7 @@ LRSInstanceVisitor
 }
 
 void 
-LocalSta::virtualSwapCell(PtGraph *pt_graph, Instance *inst, LibertyCell *new_cell)
+LocalSta::virtualReplaceCell(PtGraph *pt_graph, LibertyCell *new_cell)
 {
   pt_graph->setRefGate(new_cell);
   pt_graph->updateTimingArcSets();
@@ -925,7 +926,7 @@ LocalSta::virtualSwapCell(PtGraph *pt_graph, Instance *inst, LibertyCell *new_ce
 void 
 LocalSta::findLocalArrivals(PtGraph *pt_graph)
 {
-  LocalArrivalVisitor arrival_visitor(this, pt_graph);
+  LocalArrivalVisitor arrival_visitor(this, pt_graph, debug_label_);
   arrival_visitor.findLocalArrivals();
 }
 

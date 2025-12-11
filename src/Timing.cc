@@ -550,5 +550,13 @@ Timing::testLocalSlewCompute(char *inst_name) {
   test_lrf.testLocalSlewCompute(inst_name, sta, resizer, design_->getBlock());
 }
 
+void
+Timing::testPtGraphErrors(char* inst_name) {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testDifferenceBetweenLocalAndOpen(inst_name, sta, resizer, design_->getBlock());
+}
 
 }  // namespace ord
