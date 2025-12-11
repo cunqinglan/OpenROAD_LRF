@@ -102,8 +102,8 @@ public:
                    sta::DcalcAPIndex ap_index,
                    const sta::ArcDelay &delay);
   sta::ArcDelay arcDelay (const PtEdge &pt_edge,
-                                const sta::TimingArc *arc,
-                                sta::DcalcAPIndex ap_index) const;
+                          const sta::TimingArc *arc,
+                          sta::DcalcAPIndex ap_index) const;
   const sta::Slew &slew(const PtVertex &pt_vertex,
                         const sta::RiseFall *rf,
                         sta::DcalcAPIndex ap_index);

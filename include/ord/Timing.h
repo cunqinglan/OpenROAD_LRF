@@ -104,6 +104,7 @@ class Timing
   void testLocalDelayCompute(char *inst_name);
   void testLocalArrivalCompute(char *inst_name);
   void testLocalSlewCompute(char *inst_name);
+  void testPtGraphErrors(char* inst_name);
   /////////////////////////////////////////////////////////////
   // End functions for testing LR sizing
   /////////////////////////////////////////////////////////////

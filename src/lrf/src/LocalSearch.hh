@@ -76,6 +76,7 @@ class LocalPathVisitor : public PathVisitor
 {
 public:
   LocalPathVisitor(StaState *state, PtGraph *pt_graph);
+  LocalPathVisitor(StaState *state, PtGraph *pt_graph, const std::string &debug_label);
   virtual ~LocalPathVisitor();
 
   virtual VertexVisitor *copy() const override;
@@ -138,12 +139,14 @@ public:
 protected:
   StaState *sta_;
   PtGraph *pt_graph_;
+  std::string debug_label_;
 };
 
 
 class LocalArrivalVisitor : public LocalPathVisitor
 {
 public:
+  LocalArrivalVisitor(StaState *state, PtGraph *pt_graph, const std::string &debug_label);
   LocalArrivalVisitor(StaState *state, PtGraph *pt_graph);
   ~LocalArrivalVisitor();
   void init();
