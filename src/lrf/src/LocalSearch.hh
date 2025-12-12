@@ -201,7 +201,7 @@ public:
 		   const MinMax *min_max,
 		   const StaState *sta);
   // Return true if the requireds changed.
-  bool requiredsSave(Vertex *vertex,
+  bool requiredsSave(PtVertex &pt_vertex,
 		     const StaState *sta);
   Required required(size_t path_index);
 
@@ -251,18 +251,31 @@ protected:
 };
 
 
-class PtVertexPathIterator : public sta::VertexPathIterator
+class PtVertexPathIterator: public Iterator<Path*>
 {
 public:
   PtVertexPathIterator(PtVertex &pt_vertex,
            const sta::StaState *sta);
-  virtual ~PtVertexPathIterator();
+  ~PtVertexPathIterator();
+  virtual bool hasNext();
+  virtual Path *next();
+  size_t pathIndex() const;
 
-private:
+protected:
   void findNext();
+
+  const Search *search_;
+  bool filtered_;
+  const RiseFall *rf_;
+  const PathAnalysisPt *path_ap_;
+  const MinMax *min_max_;
+  Path *paths_;
+  size_t path_count_;
+  size_t path_index_;
+  Path *next_;
 };
 
-
+size_t ptPathIndex(PtVertex &pt_vertex, Path *path);
 
 
 

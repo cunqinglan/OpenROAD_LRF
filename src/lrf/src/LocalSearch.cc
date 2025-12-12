@@ -18,6 +18,12 @@
 
 
 namespace lrf {
+size_t ptPathIndex(PtVertex &pt_vertex, Path *path)
+{
+  Path *paths = pt_vertex.paths();
+  return path - paths;
+}
+
 LocalPathVisitor::LocalPathVisitor(StaState *state, PtGraph *pt_graph)
   : PathVisitor(state),
     pt_graph_(pt_graph)
@@ -312,54 +318,10 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
 
       if (!delayInf(arc_delay)) {
         to_arrival = from_arrival + arc_delay;
-        // Debug print
-        // if (path_ap->dcalcAnalysisPt()->index() == 0) {
-        //    printf("%s--DEBUG: %s -> %s, %s: from=%f + delay=%f = to=%f\n", 
-        //           debug_label_.c_str(),
-        //           from_pt_vertex.vertex()->name(network_),
-        //           to_pt_vertex.vertex()->name(network_),
-        //           arc->to_string().c_str(),
-        //           from_arrival * 1e12, arc_delay * 1e12, to_arrival * 1e12);
-        //           fflush(stdout);
-        // }
       }
     }
   }
   if (to_tag) {
-    // if (path_ap->dcalcAnalysisPt()->index() == 0) {
-    //   printf("%s--DEBUG localVisitFromPath: %s\n", 
-    //               debug_label_.c_str(),
-    //               to_tag->to_string(this).c_str());
-    //   std::string path_info = "Array of to Path: ";
-    //   PtVertexPathIterator to_path_iter(to_pt_vertex, this);
-    //   std::vector<Path*> to_paths;
-    //   while (to_path_iter.hasNext()) {
-    //     Path *to_path = to_path_iter.next();
-    //     to_paths.push_back(to_path);
-    //   }
-    //   for (Path* p : to_paths) {
-    //     path_info += p->to_string(this) + ": " + std::to_string(p->arrival() * 1e12) + "; ";
-    //   }
-    //   printf("%s--DEBUG fr_paths: %s\n", 
-    //                 debug_label_.c_str(),
-    //                 path_info.c_str());
-    //                 fflush(stdout);
-    //   path_info = "Array of from Path: ";
-    //   PtVertexPathIterator from_path_iter(from_pt_vertex, this);
-    //   std::vector<Path*> fr_paths;
-    //   while (from_path_iter.hasNext()) {
-    //     Path *from_path = from_path_iter.next();
-    //     fr_paths.push_back(from_path);
-    //   }
-    //   for (Path* p : fr_paths) {
-    //     path_info += p->to_string(this) + ": " + std::to_string(p->arrival() * 1e12) + "; ";
-    //   }
-    //   printf("%s--DEBUG fr_paths: %s\n", 
-    //                 debug_label_.c_str(),
-    //                 path_info.c_str());
-    //                 fflush(stdout);;
-    // }
-    
     return localVisitFromToPath(from_pt_vertex, from_rf,
                                       from_tag, from_path, from_arrival,
                                       pt_edge, arc, arc_delay,
@@ -392,25 +354,6 @@ LocalArrivalVisitor::localVisitFromToPath(
 {
   Path *match;
   size_t path_index;
-  // if (path_ap->dcalcAnalysisPt()->index() == 0) {
-    // printf("%s--DEBUG localVisitFromToPath: %s\n", 
-    //             debug_label_.c_str(),
-    //             to_tag->to_string(this).c_str());
-    // std::string path_info = "Array of Path: ";
-    // PtVertexPathIterator to_path_iter(to_pt_vertex, this);
-    // std::vector<Path*> to_paths;
-    // while (to_path_iter.hasNext()) {
-    //   Path *to_path = to_path_iter.next();
-    //   to_paths.push_back(to_path);
-    // }
-    // for (Path* p : to_paths) {
-    //   path_info += p->to_string(this) + ": " + std::to_string(p->arrival() * 1e12) + "; ";
-    // }
-    // printf("%s--DEBUG to_paths: %s\n", 
-    //               debug_label_.c_str(),
-    //               path_info.c_str());
-    //               fflush(stdout);
-  // }
   tag_bldr_->tagMatchPath(to_tag, match, path_index);
   if (match == nullptr || delayGreater(to_arrival, match->arrival(), min_max, this)) {
     tag_bldr_->setMatchPath(match, path_index, to_tag, to_arrival, from_path, pt_edge.edge(), arc);
@@ -428,7 +371,14 @@ LocalArrivalVisitor::localSetVertexArrivals(PtVertex &pt_vertex, TagGroupBldr *t
   Path *prev_paths = pt_vertex.paths();
   TagGroup *tag_group = search_->findExistingTagGroup(tag_bldr);
   if (tag_group == prev_tag_group) {
-    tag_bldr->copyPaths(tag_group, prev_paths);
+    // Even if tag_group is the same, we need to ensure prev_paths is not null
+    if (prev_paths == nullptr) {
+      size_t path_count = tag_bldr->pathCount();
+      Path *paths = pt_graph_->makePaths(pt_vertex.objectIdx(), path_count);
+      tag_bldr->copyPaths(tag_group, paths);
+    } else {
+      tag_bldr->copyPaths(tag_group, prev_paths);
+    }
   } else {
     if (prev_tag_group) {
       pt_graph_->deletePaths(pt_vertex.objectIdx());
@@ -441,16 +391,6 @@ LocalArrivalVisitor::localSetVertexArrivals(PtVertex &pt_vertex, TagGroupBldr *t
   // We don't consider filtered paths since we don't consider
   // false path in the local graph (we can prevent it from the
   // Local graph extraction phase).
-  // PtVertexPathIterator path_iter(pt_vertex, this);
-  // while (path_iter.hasNext()) {
-  //   Path *path = path_iter.next();
-  //   printf("%s--DEBUG set arrival: Vertex %s Path %s Arrival: %f\n",
-  //          debug_label_.c_str(),
-  //          network_->name(pt_vertex.pin()),
-  //          path->to_string(this).c_str(),
-  //          path->arrival() * 1e12);
-  //   fflush(stdout); 
-  // }
 }
 
 void 
@@ -518,18 +458,18 @@ LocalRequiredCmp::required(size_t path_index)
 }
 
 bool
-LocalRequiredCmp::requiredsSave(Vertex *vertex,
+LocalRequiredCmp::requiredsSave(PtVertex &pt_vertex,
 			   const StaState *sta)
 {
   bool requireds_changed = false;
-  VertexPathIterator path_iter(vertex, sta);
+  PtVertexPathIterator path_iter(pt_vertex, sta);
   while (path_iter.hasNext()) {
     Path *path = path_iter.next();
     // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     // This should be resivesed, since path index in local graph
     // may be different from that in original graph.
     // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    size_t path_index = path->pathIndex(sta);
+    size_t path_index = ptPathIndex(pt_vertex, path);
     Required req = requireds_[path_index];
     Required &prev_req = path->required();
     bool changed = !delayEqual(prev_req, req);
@@ -584,6 +524,8 @@ LocalRequiredVisitor::findVertexRequired(PtVertex &pt_vertex)
   required_cmp_->requiredsInit(pt_vertex, this);
   localVisitFanoutPaths(pt_vertex);
 
+  // Save requireds in cmp back to paths
+  required_cmp_->requiredsSave(pt_vertex, this);
 }
 
 void
@@ -611,7 +553,7 @@ bool LocalRequiredVisitor::localVisitFromToPath(
 {
   // Don't propagate required times through latch D->Q edges.
   if (pt_edge.role() != TimingRole::latchDtoQ()) {
-    size_t path_index = from_path->pathIndex(this);
+    size_t path_index = ptPathIndex(from_pt_vertex, from_path);
     const MinMax *req_min = min_max->opposite();
     TagGroup *to_tag_group = search_->tagGroup(to_pt_vertex.tagGroupIndex());
     if (to_tag_group && to_tag_group->hasTag(to_tag)) {
@@ -625,6 +567,9 @@ bool LocalRequiredVisitor::localVisitFromToPath(
       // we don't consider crpr. So this should not happen.
       throw std::runtime_error("Local required analysis found to vertex without tag");
     }
+  } else {
+    printf("WARNING: Local required analysis does not propagate through latch D->Q edges.\n");
+    fflush(stdout);
   }
   return true;
 }
@@ -645,6 +590,12 @@ LocalRequiredVisitor::printRequireds()
       path_num++;
     }
   }
+}
+
+size_t
+PtVertexPathIterator::pathIndex() const
+{
+  return std::min(path_index_ - 1, size_t(0)); 
 }
 
 

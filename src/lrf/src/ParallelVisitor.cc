@@ -41,11 +41,12 @@ ParallelLrVisitor::~ParallelLrVisitor()
 void 
 ParallelLrVisitor::visit(Instance *inst)
 {
-  // The visit do three things:
+  // The visit do following things:
   // 1. Get the target instance and set up a ptgraph for it.
   // 2. For each equivalent cell, virtual swap the instance to the cell,
   //    and compute the local timing cost.
   // 3. Keep track of the best cell and cost.
+  // 4. Submmit the best cell swap to the resizer.
   LibertyCell *cell = db_sta_->network()->libertyCell(inst);
   if (cell) {
     LibertyCellSeq *equiv_cells = resizer_->getSwappableCells(cell);
@@ -57,15 +58,18 @@ ParallelLrVisitor::visit(Instance *inst)
     }
     PtGraph *pt_graph = local_sta_->makePtGraph(inst, false);
     // Compute Original delays
-    LocalCost original_cost = local_sta_->initAndGetLocalTimingCost(pt_graph, arc_delay_calc_);
+    LocalCost original_cost = local_sta_->
+                initAndGetLocalTimingCost(pt_graph, arc_delay_calc_);
     LocalCost best_cost = original_cost;
     LibertyCell *best_cell = cell;
     for (LibertyCell *equiv_cell : *equiv_cells) {
       printf("ParallelLrVisitor::visit finding delays for equiv cell %s\n",
              equiv_cell->name().c_str());
       fflush(stdout);
-      local_sta_->virtualSwap(pt_graph, inst, equiv_cell);
-      LocalCost swapped_cost = local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_);
+      // This first virtual swap the cell in pt graph,
+      // then recompute local delays, arrivals, requireds.
+      LocalCost swapped_cost = local_sta_->
+        increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, equiv_cell);
       if (swapped_cost < best_cost) {
         best_cost = swapped_cost;
         best_cell = equiv_cell;
