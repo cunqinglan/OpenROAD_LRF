@@ -425,6 +425,53 @@ std::vector<odb::dbMaster*> Timing::equivCells(odb::dbMaster* master)
   return master_seq;
 }
 
+float Timing::getWorstSlack(MinMax minmax)
+{
+  sta::dbSta* sta = getSta();
+  sta::Vertex* vertex;
+  sta::Slack worstSlack;
+  sta->worstSlack(getMinMax(minmax), worstSlack, vertex);
+  return worstSlack;
+}
+
+float Timing::getTns(sta::Corner* corner, MinMax minmax)
+{
+  sta::dbSta* sta = getSta();
+  float tns = sta->totalNegativeSlack(corner, getMinMax(minmax));
+  return tns;
+}
+
+float Timing::getTns(MinMax minmax)
+{
+  sta::dbSta* sta = getSta();
+  return sta->totalNegativeSlack(getMinMax(minmax));
+}
+
+float Timing::leakagePower(odb::dbInst* inst, odb::dbMaster* master, sta::Corner* corner)
+{
+  sta::dbSta* sta = getSta();
+  sta::dbNetwork* network = sta->getDbNetwork();
+
+  sta::Instance* sta_inst = network->dbToSta(inst);
+  if (!sta_inst) {
+    return 0.0;
+  }
+
+  sta::Cell* cell = network->dbToSta(master);
+  if (!cell) {
+    return 0.0;
+  }
+  sta::LibertyCell* libcell = network->libertyCell(cell);
+  if (network->isHierarchical(sta_inst)) {
+    utl::Logger* logger = design_->getLogger();
+    logger->error(utl::ORD, 105, "Cannot get leakage power for hierarchical instance {}",
+                  inst->getName());
+    return 0.0;
+  }
+  sta::PowerResult power = sta->getLeakagePower(sta_inst, libcell, corner);
+  return power.leakage();
+}
+
 //////////////////////////////////////////
 // Functions for LR sizing
 //////////////////////////////////////////
