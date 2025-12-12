@@ -1,6 +1,10 @@
 #pragma once
 
 #include "sta/VertexVisitor.hh"
+#include "sta/NetworkClass.hh"
+#include "sta/GraphClass.hh"
+#include "sta/Delay.hh"
+#include "LibertyClass.hh"
 
 namespace sta {
   class ArcDelayCalc;
@@ -21,7 +25,8 @@ class PtGraph;
 class ParallelLrVisitor
 {
 public:
-  ParallelLrVisitor(sta::dbSta *db_sta, sta::Instance *sta_inst, LocalSta *local_sta);
+  ParallelLrVisitor(sta::dbSta *db_sta, sta::Instance *sta_inst, LocalSta *local_sta,
+                   rsz::Resizer *resizer);
   virtual ~ParallelLrVisitor();
   virtual void visit(sta::Instance *inst);
   void operator()(sta::Instance *inst) { visit(inst); }
@@ -33,6 +38,7 @@ protected:
   PtGraph *pt_graph_;
   sta::ArcDelayCalc *arc_delay_calc_;
   rsz::Resizer *resizer_;
+  sta::Slack slack_before_swap_;
 };
 
 

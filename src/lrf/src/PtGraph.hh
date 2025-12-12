@@ -13,6 +13,7 @@
 namespace sta {
 class Sta;
 class LibertyCell;
+class DcalcAnalysisPt;
 }
 
 namespace lrf {
@@ -136,6 +137,7 @@ public:
   // For virtual cell swap
   void setRefGate(sta::LibertyCell *lib_cell) { ref_lib_cell_ = lib_cell; }
   const sta::LibertyCell *refGate() const { return ref_lib_cell_; }
+  sta::DcalcAnalysisPt *dcalcAnalysisPt() const { return dcalc_ap_; }
 
 protected:
   void initVertexAndEdges();
@@ -154,6 +156,7 @@ protected:
   size_t slew_rf_count_{};
   sta::Instance *ref_inst_ = nullptr;
   sta::LibertyCell *ref_lib_cell_ = nullptr;
+  sta::DcalcAnalysisPt *dcalc_ap_ = nullptr;
 
 private:
   friend class PtEdge;

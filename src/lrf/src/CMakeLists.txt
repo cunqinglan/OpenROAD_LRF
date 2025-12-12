@@ -22,6 +22,7 @@ add_library(lrf_lib
     TestLrf.cc
     LocalSearch.cc
     LocalPath.cc
+    ParallelVisitor.cc
 )
 
 target_sources(lrf
