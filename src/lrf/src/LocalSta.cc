@@ -695,11 +695,16 @@ LocalSta::initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_c
 }
 
 LocalCost
-LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc)
+LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph, 
+                                     ArcDelayCalc *arc_delay_calc,
+                                     LibertyCell *equiv_cell)
 {
   printf("LocalSta::increAndGetLocalTimingCost recomputing local delays\n");
   fflush(stdout);
+  virtualReplaceCell(pt_graph, equiv_cell);
   findLocalDelays(pt_graph, arc_delay_calc);
+  findLocalArrivals(pt_graph);
+  findLocalRequireds(pt_graph);
   const Corner *corner = corners_->findCorner("default");
   DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
   return delayLmSum(pt_graph, dcalc_ap);

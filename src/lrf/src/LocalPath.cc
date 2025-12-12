@@ -4,6 +4,7 @@
 #include "sta/Path.hh"
 #include "search/Tag.hh"
 #include "sta/PathAnalysisPt.hh"
+#include "search/TagGroup.hh"
 
 #include "LocalSearch.hh"
 #include "PtGraph.hh"
@@ -12,9 +13,22 @@
 namespace lrf {
 PtVertexPathIterator::PtVertexPathIterator(PtVertex &pt_vertex,
                                  const sta::StaState *sta)
-  : sta::VertexPathIterator(pt_vertex.vertex(), sta)
+  : search_(sta->search()),
+    filtered_(false),
+    rf_(nullptr),
+    path_ap_(nullptr),
+    min_max_(nullptr),
+    paths_(pt_vertex.paths()),
+    path_count_(0),
+    path_index_(0),
+    next_(nullptr)
 {
-  paths_ = pt_vertex.paths();
+
+  sta::TagGroup *tag_group = search_->tagGroup(pt_vertex.tagGroupIndex());
+  if (tag_group) {
+    path_count_ = tag_group->pathCount();
+    findNext();
+  }
 }
 
 PtVertexPathIterator::~PtVertexPathIterator()
@@ -48,6 +62,19 @@ PtVertexPathIterator::findNext()
 }
 
 
+bool
+PtVertexPathIterator::hasNext()
+{
+  return next_ != nullptr;
+}
+
+Path *
+PtVertexPathIterator::next()
+{
+  Path *path = next_;
+  findNext();
+  return path;
+}
 
 
 

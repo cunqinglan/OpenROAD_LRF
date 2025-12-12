@@ -174,7 +174,9 @@ protected:
   void graphPop();
   void setSta(Sta *sta) { sta_ = sta; }
   LocalCost initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
-  LocalCost increAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
+  LocalCost increAndGetLocalTimingCost(PtGraph *pt_graph, 
+                                    ArcDelayCalc *arc_delay_calc,
+                                    LibertyCell *equiv_cell);
 
   ////////////////////////////////////////////////////////
   // Deal with parasitics

@@ -374,6 +374,14 @@ TestLrf::comparePtGraphs(PtGraph *local_pt_graph, PtGraph *open_pt_graph, sta::d
         //         local_vertex_obj->name(sta->network()), local_path->dcalcAnalysisPt(sta)->index(), local_arrival, open_arrival, arrival_diff);
         // fflush(stdout);
       }
+      sta::Required local_required = local_path->required() * 1e12;
+      sta::Required open_required = open_path->required() * 1e12;
+      double required_diff = std::abs(local_required - open_required);
+      if (required_diff > 1e-9) {
+        printf("Required mismatch at vertex %s for dcalc_pt %u, pathIdx = %u, Local required %f, Open required %f, required difference = %f\n", 
+                local_vertex_obj->name(sta->network()), local_path->dcalcAnalysisPt(sta)->index(), cnt, local_required, open_required, required_diff);
+        fflush(stdout);
+      }
       cnt++;
     }
   }
