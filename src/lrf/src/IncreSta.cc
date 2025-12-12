@@ -9,6 +9,7 @@
 #include "sta/PathAnalysisPt.hh"
 #include "sta/TimingRole.hh"
 #include "lrf/LrfClass.hh"
+#include "parasitics/ConcreteParasitics.hh"
 
 namespace lrf {
 // All logic is handled via dbStaState base; nothing additional yet.
@@ -20,6 +21,7 @@ IncreSta::IncreSta(dbSta *db_sta)
   dbStaState::init(db_sta);
   makeLocalSta();
   makeLRHelper();
+  swappable_cells_cache_.clear();
 }
 
 void
@@ -34,6 +36,7 @@ IncreSta::~IncreSta()
 {
   delete local_sta_;
   delete lr_helper_;
+  sta_->unregisterStaState(this);
 }
 
 void 
@@ -157,5 +160,23 @@ IncreSta::averageDelayOnCritPath() {
   return (worst_arrival / path_length);
 }
 
+void 
+IncreSta::setLocalStaParasiticsEst(est::EstimateParasitics *estimate_parasitics)
+{
+  local_sta_->setParasiticsEst(estimate_parasitics);
+}
+
+//////////////////////////////////////////////////////////
+// APIs for parasitics estimation
+///////////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////////////
+// APIs for swappable cells
+///////////////////////////////////////////////////////////
+void 
+IncreSta::makeSwappableCellsCache()
+{
 
 }
+
+} // namespace lrf

@@ -26,8 +26,13 @@
 #include "sta/TimingArc.hh"
 #include "sta/TimingRole.hh"
 #include "utl/Logger.h"
+
+
 #include "sta/DcalcAnalysisPt.hh"
+#include "sta/ArcDelayCalc.hh"
 #include "lrf/IncreSta.hh"
+#include "lrf/TestLrf.hh"
+
 
 namespace ord {
 
@@ -511,6 +516,47 @@ float
 Timing::averageDelayOnCritPath() {
   sta::dbSta* sta = getSta();
   return sta->getIncreSta()->averageDelayOnCritPath();
+}
+
+
+
+////////////////////////////////////////////
+// Functions of testing IncreSta
+////////////////////////////////////////////
+void 
+Timing::testLocalDelayCompute(char *inst_name) {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testLocalDelayCompute(inst_name, sta, resizer, design_->getBlock());
+}
+
+void 
+Timing::testLocalArrivalCompute(char *inst_name) {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testLocalArrivalCompute(inst_name, sta, resizer, design_->getBlock());
+}
+
+void 
+Timing::testLocalSlewCompute(char *inst_name) {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testLocalSlewCompute(inst_name, sta, resizer, design_->getBlock());
+}
+
+void
+Timing::testPtGraphErrors(char* inst_name) {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testDifferenceBetweenLocalAndOpen(inst_name, sta, resizer, design_->getBlock());
 }
 
 }  // namespace ord

@@ -3,6 +3,22 @@
 #include "db_sta/dbSta.hh"
 #include "sta/Sta.hh"
 #include "lrf/LrfClass.hh"
+// #include "LocalSta.hh"
+
+namespace rsz {
+  class Resizer;
+}
+
+namespace sta {
+  class ConcreteParasitic;
+  class Parasitic; // forward declare individual parasitic object
+  class Parasitics;
+  class ParasiticAnalysisPt;
+}
+
+namespace est {
+  class EstimateParasitics;
+}
 
 namespace lrf {
 using namespace sta;
@@ -20,9 +36,12 @@ public:
 
   LocalSta *localSta() { return local_sta_; };
   LRHelper *lrHelper() { return lr_helper_; };
+  
+
   InstanceSeq &getSortedInstances();
   void resetSortedInstances() { sorted_instances_.clear(); }
   void delayLmSum(Instance *inst, const MinMax *minmax, float &delay_lambda_sum);
+
   // float averageDelayOnCriPath();
 
   // KKT projection and LM update
@@ -35,6 +54,14 @@ public:
                             const Corner* corner) const;
   float averageDelayOnCritPath();
 
+  // APIs for parasitics estimation
+  void setLocalStaParasiticsEst(est::EstimateParasitics *estimate_parasitics);
+  void makeSwappableCellsCache();
+  void getSwappableCells(LibertyCell* source_cell);
+                           
+
+  // APIs for gate swapping
+
 protected:
   void makeLocalSta();
   void makeLRHelper();
@@ -46,6 +73,7 @@ protected:
 
   InstanceSeq sorted_instances_;
   bool projected_ = false;
+  std::unordered_map<LibertyCell*, LibertyCellSeq> swappable_cells_cache_;
 };
 
 } // namespace lrf
