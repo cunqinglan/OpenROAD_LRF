@@ -251,6 +251,11 @@ class EstimateParasitics : public dbStaState
   odb::dbTechLayer* getPinLayer(const Pin* pin);
   double computeAverageCutResistance(Corner* corner);
   void parasiticNodeConnectPins(Parasitic* parasitic,
+    ParasiticNode* node,
+    SteinerTree* tree,
+    SteinerPt pt,
+    size_t& resistor_id);
+  void parasiticNodeConnectPins(Parasitic* parasitic,
                                 ParasiticNode* node,
                                 SteinerTree* tree,
                                 SteinerPt pt,
