@@ -770,24 +770,6 @@ void EstimateParasitics::estimateWireParasiticSteiner(const Pin* drvr_pin,
         //for avoiding segmentation fault when running ChipTop.
         parasiticNodeConnectPins(parasitic, n1, tree, steiner_pt1, resistor_id);
         parasiticNodeConnectPins(parasitic, n2, tree, steiner_pt2, resistor_id);
-        /*
-        parasiticNodeConnectPins(parasitic,
-                                 n1,
-                                 tree,
-                                 steiner_pt1,
-                                 resistor_id,
-                                 corner,
-                                 connected_pins,
-                                 is_clk);
-        parasiticNodeConnectPins(parasitic,
-                                 n2,
-                                 tree,
-                                 steiner_pt2,
-                                 resistor_id,
-                                 corner,
-                                 connected_pins,
-                                 is_clk);
-        */
       }
       if (spef_writer) {
         spef_writer->writeNet(corner, net, parasitic);
