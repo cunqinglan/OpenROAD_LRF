@@ -448,6 +448,10 @@ class Resizer : public dbStaState, public dbNetworkObserver
   // Library analysis data
   std::unique_ptr<LibraryAnalysisData> lib_data_;
 
+  void resizePreamble();
+  LibertyCellSeq getSwappableCells(LibertyCell* source_cell);
+  LibertyCellSeq getVTEquivCells(LibertyCell* source_cell);
+
  protected:
   void init();
   double computeDesignArea();
@@ -506,10 +510,6 @@ class Resizer : public dbStaState, public dbNetworkObserver
                              Slew slews[],
                              int counts[]);
   bool hasMultipleOutputs(const Instance* inst);
-
-  void resizePreamble();
-  LibertyCellSeq getSwappableCells(LibertyCell* source_cell);
-  LibertyCellSeq getVTEquivCells(LibertyCell* source_cell);
 
   bool getCin(const LibertyCell* cell, float& cin);
   // Resize drvr_pin instance to target slew.
