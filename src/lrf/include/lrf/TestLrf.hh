@@ -48,6 +48,8 @@ public:
 
   void testDifferenceBetweenLocalAndOpen(char *inst_name, sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
 
+  void testParallelVisitor(std::vector<char*> &inst_names, sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
+
 protected:
   void printSlewComparison(char *inst_name, sta::dbSta* sta, 
                        LocalSta *local_sta, odb::dbInst *db_inst, 

@@ -719,6 +719,44 @@ LocalSta::recomputeLocalParasitics(PtGraph *pt_graph)
   local_parasitics_->recomputeLocalParasitics(pt_graph);
 }
 
+Slack
+LocalSta::localSlackAroundRef(PtGraph *pt_graph)
+{
+  printf("LocalSta::localSlack computing local slacks\n");
+  fflush(stdout);
+  Slack local_slack = 0.0;
+  for (auto& pt_vertex : pt_graph->ptVertices()) {
+    if (pt_vertex.vertex() == nullptr)
+      continue;
+    // We offer two options for local slack calculation:
+    if (pt_vertex.type() == PtVertexType::RefDriver
+        || pt_vertex.type() == PtVertexType::RefOutput) {
+      PtVertexPathIterator path_iter(pt_vertex, this);
+      while (path_iter.hasNext()) {
+        Path *path = path_iter.next();
+        // We should select the wanted analysis point here.
+        if (path->dcalcAnalysisPt(this) == pt_graph->dcalcAnalysisPt()) {
+          Slack slack = path->slack(this);
+          local_slack += slack;
+        }
+      }
+    }
+  }
+  printf("LocalSta::localSlack total local slack = %f\n",
+         local_slack * 1.0e12);
+  fflush(stdout);
+  return local_slack;
+}
+
+Slack
+LocalSta::localSlackAtEndpoints(PtGraph *pt_graph)
+{
+  Slack local_slack;
+  // pending implementation
+  local_slack = 0.0;
+  return local_slack;
+}
+
 void 
 LocalSta::localParasiticLoad(const Pin *drvr_pin,
                           const RiseFall *rf,

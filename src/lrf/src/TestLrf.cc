@@ -277,17 +277,17 @@ TestLrf::testDifferenceBetweenLocalAndOpen(char *inst_name, sta::dbSta* sta,
 
   comparePtGraphs(pt_graph_local, pt_graph_open, sta);
 
-  // local_sta->virtualReplaceCell(pt_graph_local, swap_to_cell1);
-  // local_sta->findLocalDelays(pt_graph_local, arc_delay_calc);
-  // local_sta->findLocalArrivals(pt_graph_local);
+  local_sta->virtualReplaceCell(pt_graph_local, swap_to_cell1);
+  local_sta->findLocalDelays(pt_graph_local, arc_delay_calc);
+  local_sta->findLocalArrivals(pt_graph_local);
 
-  // odb::dbMaster *to_master1 = db_network->staToDb(swap_to_cell1);
-  // db_inst->swapMaster(to_master1);
-  // sta->updateTiming(false);
-  // PtGraph *pt_graph_orig = local_sta->makePtGraph(sta_inst, true);
-  // local_sta->findLocalArrivals(pt_graph_orig);
+  odb::dbMaster *to_master1 = db_network->staToDb(swap_to_cell1);
+  db_inst->swapMaster(to_master1);
+  sta->updateTiming(false);
+  PtGraph *pt_graph_orig = local_sta->makePtGraph(sta_inst, true);
+  local_sta->findLocalArrivals(pt_graph_orig);
 
-  // comparePtGraphs(pt_graph_orig, pt_graph_local, sta);
+  comparePtGraphs(pt_graph_orig, pt_graph_local, sta);
 }
 
 void 

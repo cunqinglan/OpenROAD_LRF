@@ -47,6 +47,6 @@ CombinationArrivalVisitor::findVertexArrival(PtVertex &pt_vertex)
 
 
 
-
+}
 
 } // namespace lrf

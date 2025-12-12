@@ -33,6 +33,7 @@ typedef Map<const Net*, ConcreteParasiticNetwork**> ConcreteParasiticNetworkMap;
 typedef float LocalCost;
 
 class LocalParasitics;
+class ParallelLrVisitor;
 
 class LocalSta: public GraphDelayCalc {
 public:
@@ -47,6 +48,8 @@ public:
   PtGraph *makePtGraph(Instance *inst, bool update_timing_first = false);
 
   Sta *getSta() { return sta_; }
+  bool equivCellsMade() const { return equiv_cells_made_; }
+  void setEquivCellsMade(bool made) { equiv_cells_made_ = made; }
 
   // Delay calculation methods
   void findLocalDelays(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
@@ -177,7 +180,9 @@ protected:
   LocalCost increAndGetLocalTimingCost(PtGraph *pt_graph, 
                                     ArcDelayCalc *arc_delay_calc,
                                     LibertyCell *equiv_cell);
-
+  Slack localSlackAroundRef(PtGraph *pt_graph);
+  Slack localSlackAtEndpoints(PtGraph *pt_graph);
+  
   ////////////////////////////////////////////////////////
   // Deal with parasitics
   ////////////////////////////////////////////////////////
@@ -189,8 +194,6 @@ protected:
   ////////////////////////////////////////////////////////
   // Swapping cells virtually
   ////////////////////////////////////////////////////////
-  void setEquivCellsMade(bool made) { equiv_cells_made_ = made; }
-  bool equiv_cells_made() const { return equiv_cells_made_; }
   void virtualReplaceCell(PtGraph *pt_graph, LibertyCell *new_cell);
   void loadLocalParasitics(const Pin *drvr_pin,
                            const RiseFall *rf,
@@ -238,6 +241,7 @@ private:
 
   friend class IncreSta;
   friend class TestLrf;
+  friend class ParallelLrVisitor;
 };
 
 
