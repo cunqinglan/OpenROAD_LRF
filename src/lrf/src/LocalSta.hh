@@ -9,6 +9,7 @@
 #include "lrf/LrfClass.hh"
 #include "sta/Map.hh"
 #include "LocalParasitics.hh"
+#include "sta/Delay.hh"
 
 #include <map>
 #include <vector>

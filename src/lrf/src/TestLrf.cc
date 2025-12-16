@@ -11,6 +11,7 @@
 #include "sta/Corner.hh"
 #include "LocalSearch.hh"
 #include "PtGraph.hh"
+#include "ParallelVisitor.hh"
 
 namespace lrf
 {
@@ -165,7 +166,7 @@ TestLrf::printSlewComparison(char *inst_name, sta::dbSta* sta,
   sta::LibertyCell *orig_cell = sta->network()->libertyCell(sta_inst);
   sta::LibertyCellSeq *equiv_cells = sta->equivCells(orig_cell);
   int swap_count = 0;
-  local_sta->debug_info_.clear();
+  // local_sta->debug_info_.clear();
   for (auto *lib_cell : *equiv_cells) {
     if (swap_count++ >= 1) break; // Limit number of swaps for testing
     printf("LocalSTA: Swapping to equiv cell: %s from %s\n", lib_cell->name(), orig_cell->name());
@@ -173,11 +174,11 @@ TestLrf::printSlewComparison(char *inst_name, sta::dbSta* sta,
     local_sta->virtualReplaceCell(pt_graph, new_cell);
     local_sta->findLocalDelays(pt_graph, arc_delay_calc);
     local_sta->printLocalSlews(pt_graph);
-    for (auto &info : local_sta->debug_info_) {
-      printf("%s", info.c_str());
-      fflush(stdout);
-    }
-    local_sta->debug_info_.clear();
+    // for (auto &info : local_sta->debug_info_) {
+    //   printf("%s", info.c_str());
+    //   fflush(stdout);
+    // }
+    // local_sta->debug_info_.clear();
   }
   delete arc_delay_calc;
   
@@ -189,15 +190,15 @@ TestLrf::printSlewComparison(char *inst_name, sta::dbSta* sta,
     odb::dbMaster *master = db_network->staToDb(lib_cell);
     // Print global debug info from GraphDelayCalc
     sta::GraphDelayCalc *global_dcalc = sta->graphDelayCalc();
-    global_dcalc->debug_info_.clear();
+    // global_dcalc->debug_info_.clear();
     db_inst->swapMaster(master);
     sta->updateTiming(false);
 
-    for (auto &info : global_dcalc->debug_info_) {
-      printf("%s", info.c_str());
-      fflush(stdout);
-    }
-    global_dcalc->debug_info_.clear();
+    // for (auto &info : global_dcalc->debug_info_) {
+    //   printf("%s", info.c_str());
+    //   fflush(stdout);
+    // }
+    // global_dcalc->debug_info_.clear();
 
     PtGraph *pt_graph_sta = local_sta->makePtGraph(sta_inst, true);
     
@@ -281,6 +282,7 @@ TestLrf::testDifferenceBetweenLocalAndOpen(char *inst_name, sta::dbSta* sta,
   local_sta->findLocalDelays(pt_graph_local, arc_delay_calc);
   local_sta->findLocalArrivals(pt_graph_local);
 
+  printf("Swapping to equiv cell: %s from %s\n", swap_to_cell1->name(), orig_cell->name());
   odb::dbMaster *to_master1 = db_network->staToDb(swap_to_cell1);
   db_inst->swapMaster(to_master1);
   sta->updateTiming(false);
@@ -386,6 +388,44 @@ TestLrf::comparePtGraphs(PtGraph *local_pt_graph, PtGraph *open_pt_graph, sta::d
     }
   }
 }
+
+void
+TestLrf::testParallelVisitor(std::vector<char*> &inst_names, sta::dbSta* sta,
+                            rsz::Resizer *resizer, odb::dbBlock *block)
+
+{
+  // Test ParallelLrVisitor on given instances.
+  IncreSta *incre_sta = new IncreSta(sta);
+  LocalSta *local_sta = incre_sta->localSta();
+  // LRHelper *lrf_helper = incre_sta->lrHelper();
+  sta::dbNetwork *db_network = sta->getDbNetwork();
+  resizer->makeEquivCells();
+
+  std::vector<ParallelLrVisitor*> visitors;
+  for (size_t i = 0; i < inst_names.size(); ++i) {
+    visitors.push_back(new ParallelLrVisitor(sta, local_sta, resizer));
+  }
+  int idx = 0;
+  for (char *inst_name : inst_names) {
+    odb::dbInst *db_inst = block->findInst(inst_name);
+    if (!db_inst) {
+      printf("Instance %s not found in the block.\n", inst_name);
+      continue;
+    }
+    sta::Instance *sta_inst = db_network->dbToSta(db_inst);
+    sta::LibertyCell *orig_cell = sta->network()->libertyCell(sta_inst);
+    resizer->getSwappableCells(orig_cell);
+    visitors[idx]->visit(sta_inst);
+    idx++;
+  }
+}
+
+
+
+
+
+
+
 
 
 }  // namespace lrf

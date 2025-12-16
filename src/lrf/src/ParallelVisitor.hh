@@ -25,7 +25,7 @@ class PtGraph;
 class ParallelLrVisitor
 {
 public:
-  ParallelLrVisitor(sta::dbSta *db_sta, sta::Instance *sta_inst, LocalSta *local_sta,
+  ParallelLrVisitor(sta::dbSta *db_sta, LocalSta *local_sta,
                    rsz::Resizer *resizer);
   virtual ~ParallelLrVisitor();
   virtual void visit(sta::Instance *inst);
