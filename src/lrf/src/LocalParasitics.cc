@@ -70,7 +70,7 @@ LocalParasitics::initParasiticMapFromBase()
     }
     // Since we don't use anything in origin concrete parasitics, 
     // we can just copy the parasitic network map pointer.
-    local_parasitic_network_map_ = global->parasiticNetworkMap();
+    local_parasitic_network_map_ = global->parasitic_network_map_;
   }
 }
 

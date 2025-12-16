@@ -1441,9 +1441,12 @@ EstimateParasitics::estimateWireParasiticSteinerLrf(
                sdc_network_->pathName(net));
     for (Corner* corner : *sta_->corners()) {
       std::set<const Pin*> connected_pins;
-      sta::Parasitic* parasitic_network = 
-            parasitics_->newParasiticNetwork(net,
-                                             false);
+      // sta::Parasitic* parasitic_network = 
+      //       parasitics_->newParasiticNetwork(net,
+      //                                        false);
+      sta::Parasitic* parasitic_network
+          = sta_->makeParasiticNetwork(net, false,
+                                      corner->findParasiticAnalysisPt(max_));
       bool is_clk = global_router_->isNonLeafClock(db_network_->staToDb(net));
       double wire_cap = 0.0;
         double wire_res = 0.0;

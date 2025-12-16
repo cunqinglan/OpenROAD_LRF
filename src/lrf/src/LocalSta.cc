@@ -400,17 +400,18 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
                               PtGraph *pt_graph)
 {
   Instance *drvr_inst = network_->instance(drvr_pt_vertex.vertex()->pin());
-  std::string debug_info = "";
-  bool debug = false;
-  if (std::string(network_->name(drvr_inst)) == "g213657")
-    debug = true;
-  if (debug) {
-   debug_info = std::string("LOCALSTACHECK: Driver Instance: ") 
-             + network_->name(drvr_inst)
-             + " LibCell: " + pt_graph->refGate()->name()
-             + ", Arc: " + arc->to_string() 
-             + "DcalcAP: " + std::to_string(dcalc_ap->index());
-  }
+
+  // std::string debug_info = "";
+  // bool debug = false;
+  // if (std::string(network_->name(drvr_inst)) == "g213657")
+  //   debug = true;
+  // if (debug) {
+  //  debug_info = std::string("LOCALSTACHECK: Driver Instance: ") 
+  //            + network_->name(drvr_inst)
+  //            + " LibCell: " + pt_graph->refGate()->name()
+  //            + ", Arc: " + arc->to_string() 
+  //            + "DcalcAP: " + std::to_string(dcalc_ap->index());
+  // }
     
 
   Vertex *drvr_vertex = drvr_pt_vertex.vertex();
@@ -422,9 +423,9 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
     float load_cap;
     localParasiticLoad(drvr_pin, drvr_rf, dcalc_ap, multi_drvr_net, 
                        load_cap, parasitic);
-    if (debug) {
-      debug_info += ", Load Cap: " + std::to_string(local_parasitics_->capacitance(parasitic) * 1e15) + "fF";
-    }
+    // if (debug) {
+    //   debug_info += ", Load Cap: " + std::to_string(local_parasitics_->capacitance(parasitic) * 1e15) + "fF";
+    // }
 
     if (multi_drvr_net == nullptr) {
       PtVertex &from_pt_vertex = pt_graph->ptVertex(pt_edge.ptFromId());
@@ -435,11 +436,11 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
                           load_pin_index_map, dcalc_ap);
       annotateDelaysSlews(pt_edge, arc, dcalc_result,
                           load_pin_index_map, dcalc_ap, pt_graph);
-      if (debug) {
-        debug_info += ", In Slew: " + std::to_string(1e12 * in_slew)
-                      + ", Gate Delay: " + std::to_string(1e12 * (dcalc_result.gateDelay()))
-                      + ", Drvr Slew: " + std::to_string(1e12 * (dcalc_result.drvrSlew())) + "\n";
-      }
+      // if (debug) {
+      //   debug_info += ", In Slew: " + std::to_string(1e12 * in_slew)
+      //                 + ", Gate Delay: " + std::to_string(1e12 * (dcalc_result.gateDelay()))
+      //                 + ", Drvr Slew: " + std::to_string(1e12 * (dcalc_result.drvrSlew())) + "\n";
+      // }
     } else {
       // ArcDcalcArg dcalc_args = makeArcDcalcArgs(drvr_pt_vertex,
                                   // multi_drvr_net, pt_edge, arc,
@@ -449,7 +450,7 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
     }
     arc_delay_calc->finishDrvrPin();
   }
-  debug_info_.push_back(debug_info);  
+  // debug_info_.push_back(debug_info);  
 }
 
 bool
