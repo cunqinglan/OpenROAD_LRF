@@ -137,6 +137,7 @@ public:
   // For virtual cell swap
   void setRefGate(sta::LibertyCell *lib_cell) { ref_lib_cell_ = lib_cell; }
   const sta::LibertyCell *refGate() const { return ref_lib_cell_; }
+  void setDcalcAnalysisPt(sta::DcalcAnalysisPt *dcalc_ap) { dcalc_ap_ = dcalc_ap; }
   sta::DcalcAnalysisPt *dcalcAnalysisPt() const { return dcalc_ap_; }
 
 protected:

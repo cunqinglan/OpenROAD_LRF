@@ -559,4 +559,13 @@ Timing::testPtGraphErrors(char* inst_name) {
   test_lrf.testDifferenceBetweenLocalAndOpen(inst_name, sta, resizer, design_->getBlock());
 }
 
+void 
+Timing::testParallelVisitor(const std::vector<odb::dbInst*>& db_insts) {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testParallelVisitor(db_insts, sta, resizer, design_->getBlock());
+}
+
 }  // namespace ord

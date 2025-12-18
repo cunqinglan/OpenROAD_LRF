@@ -29,6 +29,7 @@ public:
                    rsz::Resizer *resizer);
   virtual ~ParallelLrVisitor();
   virtual void visit(sta::Instance *inst);
+  virtual ParallelLrVisitor *copy() const;
   void operator()(sta::Instance *inst) { visit(inst); }
 
 protected:  

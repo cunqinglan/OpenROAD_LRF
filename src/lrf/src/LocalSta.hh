@@ -44,8 +44,8 @@ public:
   virtual void copyState(const Sta *sta);
 
   void collectLocalGraph(Instance *inst, InstanceSet &local_instances);
-  
-  void makePtGraph(PtGraph *pt_graph, Instance *inst);
+  void makePtGraph(PtGraph *pt_graph, Instance *inst, 
+                          DcalcAnalysisPt *dcalc_ap = nullptr);
   PtGraph *makePtGraph(Instance *inst, bool update_timing_first = false);
 
   Sta *getSta() { return sta_; }

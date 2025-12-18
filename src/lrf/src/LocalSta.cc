@@ -131,12 +131,21 @@ LocalSta::collectLocalFaninSiblings(Pin *load_pin, PinSet &visited_pins,
   }
 }
 
-void
-LocalSta::makePtGraph(PtGraph *pt_graph, Instance *inst)
+void 
+LocalSta::makePtGraph(PtGraph *pt_graph, Instance *inst, 
+                          DcalcAnalysisPt *dcalc_ap)
 {
   InstanceSet local_instances(sta_->network());
   collectLocalGraph(inst, local_instances);
   pt_graph->makeGraph(local_instances, inst);
+  if (dcalc_ap == nullptr) {
+    Corner *corner = sta_->corners()->findCorner(0);
+    dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
+    if (dcalc_ap == nullptr) {
+      throw std::runtime_error("LocalSta::makePtGraph: No dcalc analysis point found");
+    }
+  }
+  pt_graph->setDcalcAnalysisPt(dcalc_ap);
 }
 
 PtGraph *
@@ -739,6 +748,13 @@ LocalSta::localSlackAroundRef(PtGraph *pt_graph)
         if (path->dcalcAnalysisPt(this) == pt_graph->dcalcAnalysisPt()) {
           Slack slack = path->slack(this);
           local_slack += slack;
+          // printf("LocalSta::localSlack: Vertex %s path: %s, arrival = %f, required = %f, slack = %f\n",
+          //        pt_vertex.vertex()->to_string(graph_).c_str(),
+          //        path->to_string(sta_).c_str(),
+          //        path->arrival() * 1.0e12,
+          //        path->required() * 1.0e12,
+          //        slack * 1.0e12);
+          //        fflush(stdout);
         }
       }
     }

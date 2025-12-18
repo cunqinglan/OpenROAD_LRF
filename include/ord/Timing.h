@@ -105,6 +105,7 @@ class Timing
   void testLocalArrivalCompute(char *inst_name);
   void testLocalSlewCompute(char *inst_name);
   void testPtGraphErrors(char* inst_name);
+  void testParallelVisitor(const std::vector<odb::dbInst*> &inst_names);
   /////////////////////////////////////////////////////////////
   // End functions for testing LR sizing
   /////////////////////////////////////////////////////////////
