@@ -23,6 +23,8 @@ add_library(lrf_lib
     LocalSearch.cc
     LocalPath.cc
     ParallelVisitor.cc
+    GraphBase.cc
+    TaskArranger.cc
 )
 
 target_sources(lrf

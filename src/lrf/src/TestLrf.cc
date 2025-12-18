@@ -12,6 +12,7 @@
 #include "LocalSearch.hh"
 #include "PtGraph.hh"
 #include "ParallelVisitor.hh"
+#include "sta/DispatchQueue.hh"
 
 namespace lrf
 {
@@ -246,6 +247,7 @@ TestLrf::testDifferenceBetweenLocalAndOpen(char *inst_name, sta::dbSta* sta,
   }
 
   sta::Instance *sta_inst = db_network->dbToSta(db_inst);
+  sta->findRequireds();
 
   printf("----- Testing Difference Between Local and OpenSTA for instance %s -----\n", inst_name);
   printf("Collecting local graph for instance %s\n", db_network->name(sta_inst));
@@ -262,32 +264,34 @@ TestLrf::testDifferenceBetweenLocalAndOpen(char *inst_name, sta::dbSta* sta,
   local_sta->findLocalDelays(pt_graph_local, arc_delay_calc);
   local_sta->setDebugLabel("LocalSTA");
   local_sta->findLocalArrivals(pt_graph_local);
+  local_sta->findLocalRequireds(pt_graph_local);
 
   // Now swap in OpenSTA and compute PtGraph
   odb::dbMaster *to_master = db_network->staToDb(swap_to_cell);
   db_inst->swapMaster(to_master);
-  sta->updateTiming(false);
+  sta->updateTiming(true);
+  sta->findRequireds();
   PtGraph *pt_graph_open = local_sta->makePtGraph(sta_inst, true);
   local_sta->setDebugLabel("OpenSTA");
-  local_sta->findLocalArrivals(pt_graph_open);
 
   odb::dbMaster *from_master = db_network->staToDb(orig_cell);
   db_inst->swapMaster(from_master);
-  sta->updateTiming(false);
+  sta->updateTiming(true);
+  sta->findRequireds();
   
-
   comparePtGraphs(pt_graph_local, pt_graph_open, sta);
 
   local_sta->virtualReplaceCell(pt_graph_local, swap_to_cell1);
   local_sta->findLocalDelays(pt_graph_local, arc_delay_calc);
   local_sta->findLocalArrivals(pt_graph_local);
+  local_sta->findLocalRequireds(pt_graph_local);
 
   printf("Swapping to equiv cell: %s from %s\n", swap_to_cell1->name(), orig_cell->name());
   odb::dbMaster *to_master1 = db_network->staToDb(swap_to_cell1);
   db_inst->swapMaster(to_master1);
-  sta->updateTiming(false);
+  sta->updateTiming(true);
+  sta->findRequireds();
   PtGraph *pt_graph_orig = local_sta->makePtGraph(sta_inst, true);
-  local_sta->findLocalArrivals(pt_graph_orig);
 
   comparePtGraphs(pt_graph_orig, pt_graph_local, sta);
 }
@@ -366,60 +370,150 @@ TestLrf::comparePtGraphs(PtGraph *local_pt_graph, PtGraph *open_pt_graph, sta::d
       sta::Arrival local_arrival = local_path->arrival() * 1e12;
       sta::Arrival open_arrival = open_path->arrival() * 1e12;
       double arrival_diff = std::abs(local_arrival - open_arrival);
-      if (arrival_diff > 1e-9) {
+      // if (arrival_diff > 1e-9) {
         printf("Arrival mismatch at vertex %s for dcalc_pt %u, pathIdx = %u, Local arrival %f, Open arrival %f, arrival difference = %f\n", 
                 local_vertex_obj->name(sta->network()), local_path->dcalcAnalysisPt(sta)->index(), cnt, local_arrival, open_arrival, arrival_diff);
         fflush(stdout);
 
-      } else {
-        // printf("Arrival match at vertex %s for dcalc_pt %u, Local arrival %f, Open arrival %f, arrival difference = %f\n", 
-        //         local_vertex_obj->name(sta->network()), local_path->dcalcAnalysisPt(sta)->index(), local_arrival, open_arrival, arrival_diff);
-        // fflush(stdout);
-      }
+      // } 
+
       sta::Required local_required = local_path->required() * 1e12;
       sta::Required open_required = open_path->required() * 1e12;
       double required_diff = std::abs(local_required - open_required);
-      if (required_diff > 1e-9) {
+      // if (required_diff > 1e-9) {
         printf("Required mismatch at vertex %s for dcalc_pt %u, pathIdx = %u, Local required %f, Open required %f, required difference = %f\n", 
                 local_vertex_obj->name(sta->network()), local_path->dcalcAnalysisPt(sta)->index(), cnt, local_required, open_required, required_diff);
         fflush(stdout);
-      }
+      // }
       cnt++;
     }
   }
 }
 
-void
-TestLrf::testParallelVisitor(std::vector<char*> &inst_names, sta::dbSta* sta,
-                            rsz::Resizer *resizer, odb::dbBlock *block)
+// void
+// TestLrf::testParallelVisitor(std::vector<char*> &inst_names, sta::dbSta* sta,
+//                             rsz::Resizer *resizer, odb::dbBlock *block)
 
+// {
+//   // Test ParallelLrVisitor on given instances.
+//   IncreSta *incre_sta = new IncreSta(sta);
+//   LocalSta *local_sta = incre_sta->localSta();
+//   // LRHelper *lrf_helper = incre_sta->lrHelper();
+//   sta::dbNetwork *db_network = sta->getDbNetwork();
+//   resizer->makeEquivCells();
+
+//   std::vector<ParallelLrVisitor*> visitors;
+//   for (size_t i = 0; i < inst_names.size(); ++i) {
+//     visitors.push_back(new ParallelLrVisitor(sta, local_sta, resizer));
+//   }
+//   int idx = 0;
+//   for (char *inst_name : inst_names) {
+//     odb::dbInst *db_inst = block->findInst(inst_name);
+//     if (!db_inst) {
+//       printf("Instance %s not found in the block.\n", inst_name);
+//       continue;
+//     }
+//     sta::Instance *sta_inst = db_network->dbToSta(db_inst);
+//     sta::LibertyCell *orig_cell = sta->network()->libertyCell(sta_inst);
+//     resizer->getSwappableCells(orig_cell);
+//     visitors[idx]->visit(sta_inst);
+//     idx++;
+//   }
+// }
+
+
+
+void
+TestLrf::testParallelVisitor(const std::vector<odb::dbInst*>& db_insts, sta::dbSta* sta, 
+                               rsz::Resizer *resizer, odb::dbBlock *block)
 {
-  // Test ParallelLrVisitor on given instances.
+  for (auto *db_inst : db_insts) {
+    if (!db_inst) {
+      printf("Instance not found in the block.\n");
+      return;
+    }
+  }
   IncreSta *incre_sta = new IncreSta(sta);
   LocalSta *local_sta = incre_sta->localSta();
-  // LRHelper *lrf_helper = incre_sta->lrHelper();
   sta::dbNetwork *db_network = sta->getDbNetwork();
   resizer->makeEquivCells();
 
-  std::vector<ParallelLrVisitor*> visitors;
-  for (size_t i = 0; i < inst_names.size(); ++i) {
-    visitors.push_back(new ParallelLrVisitor(sta, local_sta, resizer));
-  }
-  int idx = 0;
-  for (char *inst_name : inst_names) {
-    odb::dbInst *db_inst = block->findInst(inst_name);
+  // 只测 2~3 个线程
+  sta::DispatchQueue dq(/*thread_count=*/3);
+  dq.setThreadCount(3);
+
+  // 为每个实例准备一个 ParallelLrVisitor，并投递到队列
+  size_t n = db_insts.size();
+  std::vector<std::unique_ptr<ParallelLrVisitor>> visitors;
+  visitors.reserve(n);
+
+  std::vector<sta::Instance*> insts;
+  for (size_t i = 0; i < n; ++i) {
+    odb::dbInst *db_inst = db_insts[i];
     if (!db_inst) {
-      printf("Instance %s not found in the block.\n", inst_name);
+      printf("Instance not found in the block.\n");
       continue;
     }
     sta::Instance *sta_inst = db_network->dbToSta(db_inst);
     sta::LibertyCell *orig_cell = sta->network()->libertyCell(sta_inst);
     resizer->getSwappableCells(orig_cell);
-    visitors[idx]->visit(sta_inst);
-    idx++;
+    insts.push_back(sta_inst);
   }
+
+  for (size_t i = 0; i < 3; ++i) {
+    visitors.emplace_back(std::make_unique<ParallelLrVisitor>(sta, local_sta, resizer));
+  }
+
+  for (size_t i = 0; i < n; ++i) {    
+    // 投递一个任务，执行 visit
+    int idx = i % visitors.size();
+    ParallelLrVisitor *visitor = visitors[idx].get();
+    sta::Instance *sta_inst = insts[i];
+    dq.dispatch([visitor, sta_inst](int) {
+      visitor->visit(sta_inst);
+    });
+  }
+
+  // 等待所有任务完成
+  dq.finishTasks();
 }
 
+// void
+// TestLrf::testParallelVisitor(std::vector<char*> &inst_names, sta::dbSta* sta, 
+//                                rsz::Resizer *resizer, odb::dbBlock *block)
+// {
+//   IncreSta *incre_sta = new IncreSta(sta);
+//   LocalSta *local_sta = incre_sta->localSta();
+//   sta::dbNetwork *db_network = sta->getDbNetwork();
+//   resizer->makeEquivCells();
+
+//   // 只启动 2~3 个线程
+//   const size_t thread_count = std::min<size_t>(3, inst_names.size());
+//   std::vector<std::thread> threads;
+//   std::vector<std::unique_ptr<ParallelLrVisitor>> visitors;
+//   visitors.reserve(thread_count);
+
+//   for (size_t i = 0; i < thread_count; ++i) {
+//     char *inst_name = inst_names[i];
+//     odb::dbInst *db_inst = block->findInst(inst_name);
+//     if (!db_inst) {
+//       printf("Instance %s not found in the block.\n", inst_name);
+//       continue;
+//     }
+//     sta::Instance *sta_inst = db_network->dbToSta(db_inst);
+//     sta::LibertyCell *orig_cell = sta->network()->libertyCell(sta_inst);
+//     resizer->getSwappableCells(orig_cell);
+
+//     visitors.emplace_back(std::make_unique<ParallelLrVisitor>(sta, local_sta, resizer));
+//     threads.emplace_back([vis = visitors.back().get(), sta_inst]() {
+//       vis->visit(sta_inst);
+//     });
+//   }
+
+//   for (auto &t : threads) {
+//     if (t.joinable()) t.join();
+//   }
+// }
 
 
 
