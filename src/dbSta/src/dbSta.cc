@@ -220,7 +220,6 @@ void dbSta::initVars(Tcl_Interp* tcl_interp,
   db->addObserver(this);
   logger_ = logger;
   makeComponents();
-  makeIncreSta();
   if (tcl_interp) {
     setTclInterp(tcl_interp);
   }

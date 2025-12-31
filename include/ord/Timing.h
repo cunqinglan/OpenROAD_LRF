@@ -106,6 +106,8 @@ class Timing
   void testLocalSlewCompute(char *inst_name);
   void testPtGraphErrors(char* inst_name);
   void testParallelVisitor(const std::vector<odb::dbInst*> &inst_names);
+  void testMEEAssignments();
+  void testParallelResize();
   /////////////////////////////////////////////////////////////
   // End functions for testing LR sizing
   /////////////////////////////////////////////////////////////

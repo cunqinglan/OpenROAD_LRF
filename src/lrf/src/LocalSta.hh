@@ -22,12 +22,17 @@ namespace est {
   class EstimateParasitics;
 }
 
+namespace sta {
+  class dbSta;
+}
+
 namespace lrf {
 
 using namespace sta;
 
 class ConcreteParasitic;
 class ConcreteParasiticNetwork;
+class TaskArranger;
 typedef Map<const Pin*, ConcreteParasitic**> ConcreteParasiticMap;
 typedef Map<const Net*, ConcreteParasiticNetwork**> ConcreteParasiticNetworkMap;
 
@@ -38,7 +43,7 @@ class ParallelLrVisitor;
 
 class LocalSta: public GraphDelayCalc {
 public:
-  LocalSta(Sta *sta);
+  LocalSta(dbSta *sta);
   ~LocalSta();
 
   virtual void copyState(const Sta *sta);
@@ -48,7 +53,8 @@ public:
                           DcalcAnalysisPt *dcalc_ap = nullptr);
   PtGraph *makePtGraph(Instance *inst, bool update_timing_first = false);
 
-  Sta *getSta() { return sta_; }
+  sta::dbSta *getSta() { return sta_; }
+  TaskArranger *taskArranger() { return task_arranger_; }
   bool equivCellsMade() const { return equiv_cells_made_; }
   void setEquivCellsMade(bool made) { equiv_cells_made_ = made; }
 
@@ -80,6 +86,10 @@ public:
   void printLocalTiming(PtGraph *pt_graph) const;
   void printLocalSlews(PtGraph *pt_graph) const;
 
+  // Functions for parallel LR
+  void initParallel();
+  void runResize(rsz::Resizer *resizer);
+
 protected:
   void collectLocalFanouts(Pin *drvr_pin, InstanceSet &local_instances);
   void collectLocalFaninSiblings(Pin *pin, PinSet &visited_pins, 
@@ -107,6 +117,7 @@ protected:
                             const LibertyPort *to_port,
                             const DcalcAnalysisPt *dcalc_ap);
   LoadPinIndexMap makeLoadPinIndexMap(Vertex *drvr_vertex);
+  LoadPinIndexMap makeLoadPinIndexMap(PtVertex &drvr_pt_vertex, PtGraph *pt_graph);
   MultiDrvrNet *findMultiDrvrNet(Vertex *drvr_vertex);
   void findDriverDelays(PtVertex &drvr_pt_vertex,
                         ArcDelayCalc *arc_delay_calc,
@@ -176,7 +187,7 @@ protected:
   float delayLmSum(Instance *inst, const MinMax *minmax);
   float delayLmSum(PtGraph *pt_graph, DcalcAnalysisPt *dcalc_ap);
   void graphPop();
-  void setSta(Sta *sta) { sta_ = sta; }
+  void setSta(dbSta *sta) { sta_ = sta; }
   LocalCost initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
   LocalCost increAndGetLocalTimingCost(PtGraph *pt_graph, 
                                     ArcDelayCalc *arc_delay_calc,
@@ -205,7 +216,7 @@ protected:
                            const Parasitic *&parasitic) const;
 
   void AnnotateRefFaninVertex(PtGraph *pt_graph);
-  
+
   // Not finished function
   // ArcDcalcArgSeq makeArcDcalcArgs(PtVertex &drvr_pt_vertex,
   //                          const MultiDrvrNet *multi_drvr_net,
@@ -221,8 +232,7 @@ protected:
   // Use tagGroup of search to initialize paths_ of PtGraph
   void initPtGraphPaths(PtGraph *pt_graph);
 
-private:
-  Sta *sta_;
+  dbSta *sta_;
 
   bool collected_;
   bool sorted_;
@@ -236,10 +246,13 @@ private:
   std::vector<PtGraph*> local_graphs_;
   est::EstimateParasitics *estimate_parasitics_;
   LocalParasitics *local_parasitics_;
+  TaskArranger *task_arranger_;
   bool equiv_cells_made_ = false;
+  SearchPred *pred_;
 
   std::string debug_label_ = "LocalSTA";
 
+private:
   friend class IncreSta;
   friend class TestLrf;
   friend class ParallelLrVisitor;

@@ -1,4 +1,3 @@
-
 #include <atomic>
 
 #include "TaskArranger.hh"
@@ -8,19 +7,16 @@
 #include "sta/Network.hh"
 #include "sta/ConcreteNetwork.hh"
 #include "sta/Graph.hh"
-
+#include "sta/Liberty.hh"
+#include "sta/TimingRole.hh"
+#include "sta/DispatchQueue.hh"
+#include "ParallelVisitor.hh"
+#include "db_sta/dbSta.hh"
+#include "LocalSta.hh"
+#include "rsz/Resizer.hh"
 
 
 namespace lrf {
-
-class InstVertexLevelLess
-{
- public:
-  InstVertexLevelLess();
-  bool operator()(const InstVertex* vertex1, const InstVertex* vertex2) const;
-
- protected:
-};
 
 InstVertexLevelLess::InstVertexLevelLess()
 {
@@ -48,17 +44,30 @@ InstVertex::init(sta::Instance* instance, sta::StaState* sta)
     sta::Pin *pin = pin_iter->next();
     sta->graph()->pinVertices(pin, vertex, bidirect_vertex);
     if (vertex) {
-      level = vertex->level();
-      break;
+      if (level < vertex->level())
+        level = vertex->level();
     }
   }
   delete pin_iter;
   level_ = level;
 }
 
+bool InstVertex::hasFanins() const
+{
+  return in_edges_ != edge_id_null;
+}
+
+void
+InstEdge::init(VertexId from, VertexId to)
+{
+  from_ = from;
+  to_ = to;
+}
+
+
 TaskArranger::TaskArranger(sta::StaState *sta)
   : sta::StaState(sta),
-    pred_(new sta::SearchPredNonReg2(sta))
+    pred_(new SearchMEEPred(sta))
 {
   vertices_.clear();
   edges_.clear();
@@ -76,7 +85,71 @@ TaskArranger::init()
 {
   vertices_.clear();
   edges_.clear();
+  inst_to_vid_.clear();
   makeGraph();
+  initVertexRefCounts();
+  ensureGraphVertices();
+}
+
+void
+TaskArranger::ensureGraphVertices()
+{
+  // Pre-warm the graph by accessing all relevant vertices.
+  // This forces OpenSTA to allocate vertices in the graph, preventing
+  // reallocation/pointer invalidation during parallel execution.
+  printf("TaskArranger::ensureGraphVertices pre-warming graph...\n");
+  fflush(stdout);
+  
+  sta::Graph *graph = graph_;
+  sta::Network *network = network_;
+  sta::Vertex *vertex, *bidirect_vertex;
+
+  for (InstVertex &inst_vertex : vertices_) {
+    sta::Instance *inst = inst_vertex.inst();
+    sta::InstancePinIterator *pin_iter = network->pinIterator(inst);
+    while (pin_iter->hasNext()) {
+      sta::Pin *pin = pin_iter->next();
+      // Force creation of vertex for this pin
+      graph->pinVertices(pin, vertex, bidirect_vertex);
+      
+      // Also pre-warm connected pins (fanin/fanout) as LocalSta will access them
+      if (network->isDriver(pin)) {
+        // Fanout
+        if (vertex) {
+          sta::VertexOutEdgeIterator edge_iter(vertex, graph);
+          while (edge_iter.hasNext()) {
+            sta::Edge *out_edge = edge_iter.next();
+            sta::Vertex *load_vertex = out_edge->to(graph);
+            // Accessing load_vertex ensures it exists
+            (void)load_vertex; 
+          }
+        }
+      } else if (network->isLoad(pin)) {
+        // Fanin siblings logic involves visiting connected pins
+        // We simulate what LocalSta::collectLocalFaninSiblings does
+        sta::Net *net = network->net(pin);
+        if (net) {
+          sta::NetPinIterator *net_pin_iter = network->pinIterator(net);
+          while (net_pin_iter->hasNext()) {
+            const sta::Pin *net_pin = net_pin_iter->next();
+            graph->pinVertices(net_pin, vertex, bidirect_vertex);
+          }
+          delete net_pin_iter;
+        }
+      }
+    }
+    delete pin_iter;
+  }
+  for (InstVertex &inst_vertex : vertices_) {
+    if (inst_vertex.type() == VertexType::SEQUENTIAL)
+    {
+      if (vertex_ref_counts_[inst_vertex.objectIdx()] != 0) {
+        throw std::runtime_error("Sequential vertex has non-zero ref count in ensureGraphVertices.");
+      }
+    }
+  }
+  printf("TaskArranger::ensureGraphVertices done.\n");
+  fflush(stdout);
 }
 
 VertexId
@@ -88,9 +161,11 @@ TaskArranger::id(const InstVertex *vertex) const
 VertexId
 TaskArranger::instToVertexId(const sta::Instance* inst) const
 {
-  const sta::ConcreteInstance* cinst = reinterpret_cast<const sta::ConcreteInstance*>(inst);
-  VertexId vid = cinst->id1();
-  return vid;
+  auto it = inst_to_vid_.find(inst);
+  if (it == inst_to_vid_.end()) {
+    throw std::runtime_error("Instance not registered in inst_to_vid_ map");
+  }
+  return it->second;
 }
 
 const InstVertex*
@@ -123,7 +198,7 @@ const InstEdge*
 TaskArranger::edge(EdgeId id) const
 {
   if (id >= edges_.size())
-    return nullptr;
+    throw std::runtime_error("Edge ID out of bounds");
   return &(edges_[id]);
 }
 
@@ -131,7 +206,7 @@ InstEdge*
 TaskArranger::edge(EdgeId id)
 {
   if (id >= edges_.size())
-    return nullptr;
+    throw std::runtime_error("Edge ID out of bounds");
   return &(edges_[id]);
 }
 
@@ -142,99 +217,301 @@ TaskArranger::makeGraph()
   // per instance. We first count the number of instances
   makeVertices();
   makeEdges();
+  checkGraph();
+  reduceEdgeFromReg();
+}
+
+void 
+TaskArranger::checkGraph() const
+{
+  printf("Checking all vertices in the graph...\n");
+  fflush(stdout);
+  for (size_t vid = 0; vid < vertices_.size(); vid++) {
+    const InstVertex &inst_vertex = vertices_[vid];
+    if (inst_vertex.type() == VertexType::NONE) {
+      printf("ERROR: Vertex %zu has type NONE in checkGraph.\n", vid);
+      fflush(stdout);
+      continue;
+    }
+    if (inst_vertex.objectIdx() == object_idx_null) {
+      throw std::runtime_error("Vertex object idx is null in checkGraph.");
+    }
+    if (instToVertexId(inst_vertex.inst()) != vid) {
+      throw std::runtime_error("Instance to VertexId mapping incorrect in checkGraph.");
+    }
+  }
+  printf("All vertices checked successfully in checkGraph.\n");
+  fflush(stdout);
+
+  printf("Checking all edges in the graph...\n");
+  fflush(stdout);
+  for (size_t eid = 0; eid < edges_.size(); eid++) {
+    const InstEdge &inst_edge = edges_[eid];
+    if (inst_edge.objectIdx() == object_idx_null) {
+      throw std::runtime_error("Edge object idx is null in checkGraph.");
+    }
+    if (vertex(inst_edge.to()) == nullptr) {
+      continue;
+    } else {
+      const InstVertex* to_vertex = vertex(inst_edge.to());
+      sta::LibertyCell* to_cell = network_->libertyCell(to_vertex->inst());
+      if (to_cell == nullptr) {
+        throw std::runtime_error("Edge to_vertex has null LibertyCell in checkGraph.");
+      }
+      if (to_cell->hasSequentials()) {
+        throw std::runtime_error("Edge points to sequential vertex in checkGraph.");
+      }
+    }
+  }
+}
+// void 
+// TaskArranger::makeVertices()
+// {
+//   sta::LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
+//   int num_com_insts = 0;
+//   int num_root_insts = 0;
+//   while (inst_iter->hasNext()) {
+//     sta::Instance *inst = inst_iter->next();
+//     if (inst == nullptr) {
+//       printf("WARNING: First loop - null instance, skipping\n");
+//       fflush(stdout);
+//       continue;
+//     }
+//     sta::LibertyCell *cell = network_->libertyCell(inst);
+//     if (cell) {
+//       const char* inst_name = network_->name(inst);
+//       if (inst_name == nullptr) {
+//         printf("WARNING: First loop - instance %p has null name, skipping\n", (void*)inst);
+//         fflush(stdout);
+//         continue;
+//       }
+//       if (cell->hasSequentials()) {
+//         num_root_insts++;
+//         InstVertex &inst_vertex = vertices_.emplace_back(); // Reserve space for sequential vertex
+//         inst_vertex.setObjectIdx(num_com_insts + num_root_insts - 1);
+//       } else {
+//         num_com_insts++;
+//         InstVertex &inst_vertex = vertices_.emplace_back(); // Reserve space for combinational vertex
+//         inst_vertex.setObjectIdx(num_com_insts - 1);
+//       }
+        
+//     }
+//   }
+//   delete inst_iter;
+// }
+
+void getInstanceNum(sta::StaState* sta, int& com_count, int& root_count)
+{
+  com_count = 0;
+  root_count = 0;
+  sta::LeafInstanceIterator *inst_iter = sta->network()->leafInstanceIterator();
+  while (inst_iter->hasNext()) {
+    sta::Instance *inst = inst_iter->next();
+    if (!inst) {
+      continue;
+    }
+    sta::LibertyCell *cell = sta->network()->libertyCell(inst);
+    if (cell) {
+      if (cell->hasSequentials()) {
+        root_count++;
+      } else {
+        com_count++;
+      }
+    }
+  }
+  delete inst_iter;
 }
 
 void 
 TaskArranger::makeVertices()
 {
+  int num_com_insts = 0;
+  int num_root_insts = 0;
+  getInstanceNum(this, num_com_insts, num_root_insts);
+  vertices_.resize(num_com_insts + num_root_insts + 1);
+  // Pre-reserve mapping capacity to keep unordered_map lookups O(1) without rehash.
+  inst_to_vid_.reserve(vertices_.size());
+  num_com_ = num_com_insts;
+  printf("Making vertices: %d combinational, %d sequential, %zu numcom\n", 
+         num_com_insts, num_root_insts, num_com_);
+  fflush(stdout);
   sta::LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
-  int num_insts = 0;
-  while (inst_iter->hasNext()) {
-    num_insts++;
-  }
-  delete inst_iter;
-  vertices_.resize(num_insts);
-  inst_iter = network_->leafInstanceIterator();
-  num_insts = 0;
+  num_com_insts = 0;
+  num_root_insts = 0;
   while (inst_iter->hasNext()) {
     sta::Instance *inst = inst_iter->next();
-    vertices_[num_insts].init(inst, this);
-    setInstanceId1(inst, num_insts);
-    num_insts++;
+    sta::LibertyCell *cell = network_->libertyCell(inst);
+    if (cell) {
+      if (cell->hasSequentials()) {
+        VertexId vid = num_com_ + num_root_insts;
+        InstVertex &vertex = vertices_[vid];
+        vertex.init(inst, this);
+        vertex.setObjectIdx(vid);  
+        setInstanceId1(inst, vid);
+        vertex.setType(VertexType::SEQUENTIAL);
+        // const char *inst_name = network_->name(inst);
+        // printf("  Initialized sequential vertex %d: inst=%p, name=%s\n", 
+        //        vid, (void*)inst, inst_name);
+        // fflush(stdout);
+        
+        num_root_insts++;
+      } else {
+        VertexId vid = num_com_insts;
+        InstVertex &vertex = vertices_[vid];
+        vertex.init(inst, this);
+        vertex.setObjectIdx(vid);  
+        setInstanceId1(inst, vid);
+        vertex.setType(VertexType::COMBINATIONAL);
+        // const char* inst_name = network_->name(inst);
+        // printf("  Initialized combinational vertex %d: inst=%p, name=%s\n", 
+        //        vid, (void*)inst, inst_name);
+        // fflush(stdout);
+        
+        num_com_insts++;
+      }
+    }
   }
   delete inst_iter;
-  edges_.reserve(4 * num_insts); // rough estimate
+  printf("Double check size: num_root_insts=%d, num_com_insts=%d\n", 
+         num_root_insts, num_com_insts);
+  fflush(stdout);
+
+  // Create vertex for top instance
+  {
+    sta::Instance* top_inst = network_->topInstance();
+    // Put TOP in the extra slot reserved by the +1 resize above.
+    // The leaf loop fills [0, num_com_ + num_root_insts - 1].
+    VertexId vid = static_cast<VertexId>(vertices_.size() - 1);
+    InstVertex &vertex = vertices_[vid];
+    vertex.init(top_inst, this);
+    vertex.setObjectIdx(vid);  
+    setInstanceId1(top_inst, vid);
+    vertex.setType(VertexType::TOP);
+    const char *inst_name = network_->name(top_inst);
+    printf("  Initialized top instance vertex %d: inst=%p, name=%s\n", 
+           vid, (void*)top_inst, inst_name);
+    fflush(stdout);
+  }
+  
+  edges_.reserve(4 * vertices_.size()); // rough estimate
 }
 
 void 
 TaskArranger::setInstanceId1(sta::Instance* inst, VertexId id)
 {
-  sta::ConcreteInstance* cinst = reinterpret_cast<sta::ConcreteInstance*>(inst);
-  cinst->setId1(id);
+  // Do NOT mutate the STA instance internals. Maintain our own mapping.
+  inst_to_vid_[inst] = id;
 }
 
 void 
 TaskArranger::makeEdges()
 {
-  sta::PinSet visited_drvrs(network_);
-  sta::LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
-  while (inst_iter->hasNext()) {
-    sta::Instance *inst = inst_iter->next();
-    makeInstDrvrWireEdges(inst);
+  // ✅ 先验证所有 vertices 的 inst_ 指针
+  printf("Verifying all vertices before makeEdges...\n");
+  fflush(stdout);
+  for (size_t vid = 0; vid < vertices_.size(); vid++) {
+    InstVertex &inst_vertex = vertices_[vid];
+    if (!inst_vertex.inst()) {
+      throw std::runtime_error("Vertex has null inst_ before makeEdges.");
+    }
   }
-  delete inst_iter;
-  makeRootEdges();
-  // make exclusive MEE edges to inst and its sibling fanouts.
-  makeSiblingFanoutsEdges();
-}
-
-void 
-TaskArranger::makeRootEdges()
-{
+  printf("Verification complete. Starting makeEdges...\n");
+  fflush(stdout);
   
+  for (size_t vid = 0; vid < vertices_.size(); vid++) {
+    InstVertex &inst_vertex = vertices_[vid];
+    if (inst_vertex.inst() && inst_vertex.type() != VertexType::TOP)
+      makeInstDrvrWireMEE(inst_vertex.inst());
+  }
+  for (size_t vid = 0; vid < vertices_.size(); vid++) {
+    InstVertex& inst_vertex = vertices_[vid];
+    if (inst_vertex.inst() && inst_vertex.type() != VertexType::TOP)
+      makeSiblingFanoutsMEE(&inst_vertex);
+  }
 }
 
 void 
-TaskArranger::makeInstDrvrWireEdges(sta::Instance* inst)
+TaskArranger::initVertexRefCounts()
 {
+  // Initialize all reference counts
+  vertex_ref_counts_ = std::make_unique<std::atomic<size_t>[]>(vertices_.size());
+  // Set all to its vertex's temp_ref_num_
+  // Only initialize the combinational vertices.
+  for (size_t vid = 0; vid < vertices_.size(); vid++) {
+    vertex_ref_counts_[vid].store(vertices_[vid].temp_ref_num_);
+  }
+}
+
+sta::InstanceSet
+TaskArranger::FanoutsInstances(const sta::Pin *drvr_pin)
+{
+  sta::Vertex *drvr_vertex, *bidirect_vertex;
+  graph_->pinVertices(drvr_pin, drvr_vertex, bidirect_vertex);
+  sta::InstanceSet fanout_insts(network_);
+  if (bidirect_vertex == nullptr) {
+    if (drvr_vertex != nullptr) {
+      sta::VertexOutEdgeIterator edge_iter(drvr_vertex, graph_);
+      while (edge_iter.hasNext()) {
+        sta::Edge* base_edge = edge_iter.next();
+        // Filter out sequential outputs.
+        if (!pred_->searchThru(base_edge))
+          continue;
+        sta::Vertex* base_to_vertex = graph_->vertex(base_edge->to());
+        sta::Instance* to_inst = network_->instance(base_to_vertex->pin());
+        // Make sure not to add port.
+        if (to_inst)
+          fanout_insts.insert(to_inst);
+      }
+    }
+  } else {
+    // Bidirect pin case, not supported yet.
+    printf("Bidirect pin found, not supported yet.\n");
+    fflush(stdout);
+  }
+  
+  return fanout_insts;
+}
+
+void 
+TaskArranger::makeInstDrvrWireMEE(sta::Instance* inst)
+{
+  if (inst == nullptr) {
+    printf("Instance is nullptr in makeInstDrvrWireMEE.\n");
+    fflush(stdout);
+    return;
+  }
+  InstVertex* from_inst_vertex = vertex(inst);
   sta::InstancePinIterator *pin_iter = network_->pinIterator(inst);
   while (pin_iter->hasNext()) {
-    sta::Pin *pin = pin_iter->next();
+    const sta::Pin *pin = pin_iter->next();
     if (network_->isDriver(pin)) {
-      sta::Vertex *drvr_vertex, *bidirect_vertex;
-      graph_->pinVertices(pin, drvr_vertex, bidirect_vertex);
-      if (bidirect_vertex != nullptr) {
-        printf("Bidirect pin found, not supported yet.\n");
-        return;
-      }
-      if (drvr_vertex != nullptr) {
-        InstVertex* from_inst_vertex = vertex(inst);
-        sta::VertexOutEdgeIterator edge_iter(drvr_vertex, graph_);
-        sta::InstanceSet fanout_insts(network_);
-        while (edge_iter.hasNext()) {
-          sta::Edge* base_edge = edge_iter.next();
-          sta::Vertex* base_to_vertex = graph_->vertex(base_edge->to());
-          sta::Instance* to_inst = network_->instance(base_to_vertex->pin());
-          fanout_insts.insert(to_inst);
-        }
-        // Create edges to all fanout instances.
-        // First sort fanout instances with their levels.
-        // This ensures the one with lower level comes first.
-        // And the last one is the farthest from the driver.
-        std::vector<InstVertex*> fanout_inst_vertices;
-        for (auto *fanout_inst : fanout_insts) {
-          fanout_inst_vertices.push_back(vertex(fanout_inst));
-        }
-        sort(fanout_inst_vertices.begin(),
-             fanout_inst_vertices.end(),
-             InstVertexLevelLess());
-        for (auto *fanout_inst : fanout_inst_vertices) {
-          makeEdge(from_inst_vertex, fanout_inst);
-        }
-        // Create edges among sibling instances.
-        for (int i = 0; i < fanout_inst_vertices.size() - 1; i++) {
-          makeEdge(fanout_inst_vertices[i], fanout_inst_vertices[i+1]);
-        }
+      // Only pick combinational fanout instances.
+      sta::InstanceSet fanout_insts = FanoutsInstances(pin);
+      if (fanout_insts.size() == 0)
+        continue;
+      // Create edges to all fanout instances.
+      // First sort fanout instances with their levels.
+      // This ensures the one with lower level comes first.
+      // And the last one is the farthest from the driver.
+      // std::vector<InstVertex*> fanout_inst_vertices;
+      // for (auto *fanout_inst : fanout_insts) {
+      //   InstVertex* inst_vertex = vertex(fanout_inst);
+      //   if (inst_vertex == nullptr) {
+      //     throw std::runtime_error("Fanout instance vertex is nullptr.");
+      //   }
+      //   fanout_inst_vertices.push_back(inst_vertex);
+      // }
+      // sort(fanout_inst_vertices.begin(),
+      //       fanout_inst_vertices.end(),
+      //       InstVertexLevelLess());
+      for (auto *fanout_inst : fanout_insts) {
+        if (vertex(fanout_inst))
+          makeEdge(from_inst_vertex, vertex(fanout_inst));
+        // printf("  Created edge of level %u from instance %s to fanout instance %s\n",
+        //        fanout_inst->level(),
+        //        network_->name(inst),
+        //        network_->name(fanout_inst->inst()));
+        // fflush(stdout);
       }
     }
   }
@@ -242,32 +519,59 @@ TaskArranger::makeInstDrvrWireEdges(sta::Instance* inst)
 }
 
 void 
-TaskArranger::makeSiblingFanoutsEdges()
+TaskArranger::makeSiblingFanoutsMEE(InstVertex* inst_vertex)
 {
-  for (auto &inst_vertex : vertices_) {
-    InstVertexOutEdgeIterator last_edge_iter(inst_vertex, this);
-    InstVertex* last_inst_vertex = nullptr;
-    // Get the last fanout instance during iteration.
-    while (last_edge_iter.hasNext()) {
-      EdgeId last_edge_id = last_edge_iter.next();
-      last_inst_vertex = vertex(edges_[last_edge_id].to());
+  // debug print
+  if (!inst_vertex) {
+    printf("ERROR: inst_vertex is nullptr in makeSiblingFanoutsMEE\n");
+    fflush(stdout);
+    return;
+  }
+  
+  sta::Instance* inst = inst_vertex->inst();
+  if (!inst) {
+    printf("ERROR: inst_vertex->inst() is nullptr in makeSiblingFanoutsMEE\n");
+    fflush(stdout);
+    return;
+  }
+  // First, get all fanout instances of this instance.
+  // Finally, connect the last one to all others' fanout instances.
+  // Then, sort them by level. And create MEE among them.
+  std::vector<InstVertex*> fanout_inst_vertices;
+  InstVertexOutEdgeIterator edge_iter_init(inst_vertex, this);
+  while (edge_iter_init.hasNext()) {
+    InstEdge *inst_edge = edge(edge_iter_init.next());
+    InstVertex* to_inst_vertex = vertex(inst_edge->to());
+    fanout_inst_vertices.push_back(to_inst_vertex);
+  }
+  if (fanout_inst_vertices.empty()) {
+    // printf("  No fanout instances found for instance %s, skipping sibling MEE creation.\n",
+    //        network_->name(inst));
+    //        fflush(stdout);
+    return;
+  }
+  sort(fanout_inst_vertices.begin(),
+        fanout_inst_vertices.end(),
+        InstVertexLevelLess());
+
+  InstVertex* last_inst_vertex = fanout_inst_vertices[fanout_inst_vertices.size() - 1];
+  
+  std::set<VertexId> sib_fanout_ids_set;
+  for (size_t i = 0; i < fanout_inst_vertices.size() - 1; i++) {
+    InstVertexOutEdgeIterator edge_iter_temp(fanout_inst_vertices[i], this);
+    while (edge_iter_temp.hasNext()) {
+      EdgeId temp_edge_id = edge_iter_temp.next();
+      InstEdge* temp_edge = edge(temp_edge_id);
+      sib_fanout_ids_set.insert(temp_edge->to());
     }
-    if (last_inst_vertex == nullptr)
-      throw std::runtime_error("No fanout instances found.");
-    // Now iterate again to create edges among this instance to
-    // all sibling fanouts.
-    InstVertexOutEdgeIterator edge_iter(inst_vertex, this);
-    while (edge_iter.hasNext()) {
-      EdgeId edge_id = edge_iter.next();
-      InstVertex* to_inst_vertex = vertex(edges_[edge_id].to());
-      InstVertexOutEdgeIterator to_edge_iter(to_inst_vertex, this);
-      // Collect all sibling fanout instances.
-      while (to_edge_iter.hasNext()) {
-        EdgeId to_edge_id = to_edge_iter.next();
-        InstVertex* sibling_fanout_vertex = vertex(edges_[to_edge_id].to());
-        makeEdge(last_inst_vertex, sibling_fanout_vertex);
-      }
-    }
+  }
+  for (VertexId fid : sib_fanout_ids_set) {
+    InstVertex* sibling_fanout_vertex = vertex(fid);
+    // In makeEdge, it will check for self-loop and duplicates.
+    makeEdge(last_inst_vertex, sibling_fanout_vertex);
+  }
+  for (size_t i = 0; i < fanout_inst_vertices.size() - 1; i++) {
+    makeEdge(fanout_inst_vertices[i], fanout_inst_vertices[i+1]);
   }
 }
 
@@ -275,7 +579,37 @@ EdgeId
 TaskArranger::makeEdge(InstVertex* from_vertex,
                         InstVertex* to_vertex)
 {
-  InstEdge &edge = edges_.emplace_back();
+  if (from_vertex == nullptr || to_vertex == nullptr) {
+    throw std::runtime_error("from_vertex or to_vertex is nullptr in makeEdge.");
+  }
+  if (from_vertex == to_vertex) {
+    return edge_id_null; // Disallow self-loop.
+  }
+  InstVertexLevelLess level_less;
+  if (!level_less(from_vertex, to_vertex)) 
+    return edge_id_null;
+  if (to_vertex->type() == VertexType::SEQUENTIAL
+      || to_vertex->type() == VertexType::TOP) {
+    // Disallow incoming edges to SEQ/TOP: do not create * -> (SEQ/TOP).
+    const char* from_name = from_vertex->inst() ? network_->name(from_vertex->inst()) : "<null>";
+    const char* to_name = to_vertex->inst() ? network_->name(to_vertex->inst()) : "<null>";
+    printf("Disallow edge into %s (SEQ/TOP): from=%s -> to=%s\n", to_name, from_name, to_name);
+    fflush(stdout);
+    return edge_id_null;
+  }
+  // Check for duplicate edge and skip if exists.
+  {
+    EdgeId e = from_vertex->out_edges_;
+    while (e < edges_.size()) {
+      const InstEdge* existing = edge(e);
+      if (existing->to() == id(to_vertex)) {
+        return e; // Edge already exists.
+      }
+      e = existing->vertex_out_next_;
+    }
+  }
+  edges_.emplace_back();
+  InstEdge &edge = edges_.back();
   edge.init(id(from_vertex), id(to_vertex));
   EdgeId edge_id = edges_.size() - 1;
   edge.setObjectIdx(edge_id);
@@ -284,8 +618,8 @@ TaskArranger::makeEdge(InstVertex* from_vertex,
   edge.vertex_out_prev_ = edge_id_null;
   from_vertex->out_edges_ = edge_id;
   if (out_edge_next < edges_.size()) {
-    InstEdge &next_edge = edges_[out_edge_next];
-    next_edge.vertex_out_prev_ = edge_id;
+    InstEdge *next_edge = this->edge(out_edge_next);
+    next_edge->vertex_out_prev_ = edge_id;
   }
 
   edge.vertex_in_link_ = to_vertex->in_edges_;
@@ -294,19 +628,267 @@ TaskArranger::makeEdge(InstVertex* from_vertex,
   return edge_id;
 }
 
+void
+TaskArranger::printFailed() const
+{
+  InstVertexSet inst_vertex_set;
+  for (const InstVertex *inst_vertex : visited_inst_vertices_) {
+    inst_vertex_set.insert(const_cast<InstVertex*>(inst_vertex));
+  }
+  int com_without_zero_fanout = 0;
+  // If the vertex is visited, its fanout inst should be visited
+  // if its ref count is not zero, report it.
+  int com_visited_but_has_nonezero_fanout = 0;
+  bool zero_ref_not_visited = false;
+  for (size_t vid = 0; vid < vertices_.size(); vid++) {
+    if (vertices_[vid].type() != VertexType::COMBINATIONAL)
+      continue;
 
-InstVertexOutEdgeIterator::InstVertexOutEdgeIterator(InstVertex* vertex,
+    if (vertex_ref_counts_[vid].load() == 0) {
+      com_without_zero_fanout++;
+      if (inst_vertex_set.find(const_cast<InstVertex*>(&vertices_[vid])) == inst_vertex_set.end()) {
+        printf("ERROR: Com vertex %s with zero ref is not visited\n",
+               network_->name(vertices_[vid].inst()));
+        fflush(stdout);
+        zero_ref_not_visited = true;
+      }
+      InstVertexOutEdgeIterator edge_iter(
+          (vertices_[vid]), this);
+      while (edge_iter.hasNext()) {
+        const InstVertex* out_inst_vertex = vertex((edge(edge_iter.next()))->to());
+        VertexId to_vid = id(out_inst_vertex);
+        if (vertex_ref_counts_[to_vid].load() != 0) {
+          com_visited_but_has_nonezero_fanout++;
+          printf("WARNING: Com vertex %s has non-zero ref fanout: %s \n",
+                 network_->name(vertices_[vid].inst()),
+                 network_->name(out_inst_vertex->inst()));
+          fflush(stdout);
+        }
+      }
+    }
+  }
+  printf("Total combinational vertices without zero ref fanout: %d\n",
+         com_without_zero_fanout);
+  printf("Total combinational vertices visited but has non-zero ref fanout: %d\n",
+         com_visited_but_has_nonezero_fanout);
+  if (zero_ref_not_visited)
+    printf("Some zero-ref combinational vertices were not visited!\n");
+  fflush(stdout);
+}
+
+void
+TaskArranger::printGraph() const
+{
+  for (size_t vid = 0; vid < vertices_.size(); vid++) {
+    if (vertices_[vid].type() != VertexType::COMBINATIONAL)
+      continue;
+    const InstVertex &inst_vertex = vertices_[vid];
+    const sta::Instance* inst = inst_vertex.inst();
+    printf("Vertex %zu: Instance %s, Level %u, TempRefNum %zu, atomicRefCount %zu, type %s\n",
+           vid,
+           inst ? network_->name(inst) : "nullptr",
+           inst_vertex.level(),
+           inst_vertex.tempRefNum(),
+           vertex_ref_counts_[vid].load(),
+           inst_vertex.type() == VertexType::COMBINATIONAL ? "COMBINATIONAL" :
+           inst_vertex.type() == VertexType::SEQUENTIAL ? "SEQUENTIAL" :
+           inst_vertex.type() == VertexType::TOP ? "TOP" : "NONE");
+           fflush(stdout);
+    InstVertexOutEdgeIterator edge_iter(
+        const_cast<InstVertex*>(&inst_vertex), this);
+    while (edge_iter.hasNext()) {
+      EdgeId edge_id = edge_iter.next();
+      const InstEdge *edge_ptr = edge(edge_id);
+      const InstVertex* to_vertex = vertex(edge_ptr->to());
+      const sta::Instance* to_inst = to_vertex->inst();
+      printf("  Edge to : Instance %s\n",
+             to_inst ? network_->name(to_inst) : "nullptr");
+             fflush(stdout);
+    }
+  }
+}
+
+void
+TaskArranger::reduceEdgeFromReg()
+{
+  for (InstVertex& inst_vertex : vertices_) {
+    if (inst_vertex.type() == VertexType::SEQUENTIAL
+  || inst_vertex.type() == VertexType::TOP) {
+      if (inst_vertex.hasFanins()) {
+        if (inst_vertex.type() == VertexType::SEQUENTIAL) {
+          printf("Sequential vertex of %s has fanins in reduceEdgeFromReg, skipping.\n", network_->name(inst_vertex.inst()));
+          fflush(stdout);
+        } else {
+          printf("Top vertex of %s has fanins in reduceEdgeFromReg, skipping.\n", network_->name(inst_vertex.inst()));
+          fflush(stdout);
+        }
+        throw std::runtime_error("Sequential or Top vertex has fanins in reduceEdgeFromReg.");
+      }
+      InstVertexOutEdgeIterator edge_iter(&inst_vertex, this);
+      while (edge_iter.hasNext()) {
+        EdgeId edge_id = edge_iter.next();
+        InstEdge* inst_edge = edge(edge_id);
+        // Decrease ref count of fanout vertices
+        InstVertex* to_vertex = vertex(inst_edge->to());
+        to_vertex->temp_ref_num_--;
+      
+      }
+    }
+  }
+}
+
+void 
+TaskArranger::getZeroRefComInstVertices(std::vector<InstVertex*>& zero_ref_vertices)
+{
+  for (InstVertex& inst_vertex : vertices_) {
+    if (inst_vertex.type() == VertexType::COMBINATIONAL) {
+      VertexId vid = id(&inst_vertex);
+      if (vertex_ref_counts_[vid].load() == 0) {
+        zero_ref_vertices.push_back(&inst_vertex);
+      }
+    }
+  }
+}
+
+std::set<VertexId>
+TaskArranger::decreOutRefCount(InstVertex *inst_vertex)
+{
+  if (!inst_vertex) {
+    throw std::runtime_error("inst_vertex is nullptr in decreRefCount.");
+  }
+  return decreOutRefCount(*inst_vertex);
+}
+
+std::set<VertexId>
+TaskArranger::decreOutRefCount(InstVertex &inst_vertex)
+{
+  std::set<VertexId> zero_ref_set;
+  InstVertexOutEdgeIterator edge_iter(&inst_vertex, this);
+  while (edge_iter.hasNext()) {
+    EdgeId edge_id = edge_iter.next();
+    InstEdge* inst_edge = edge(edge_id);
+    if (std::string(network_->name(inst_vertex.inst())) == "g218621") {
+      printf("Checking ref decrementation of g218621 to %s\n", network_->name(vertex(inst_edge->to())->inst()));
+      fflush(stdout);
+    }
+    if (decreRefCount(inst_edge->to()) == 0) {
+       zero_ref_set.insert(inst_edge->to());
+    }
+  }
+  return zero_ref_set;
+}
+
+size_t
+TaskArranger::decreRefCount(VertexId vid)
+{
+  if (vid >= num_com_) {
+    throw std::runtime_error("Attempting to decreRefCount on non-combinational vertex.");
+  }
+  if (std::string(network_->name(vertices_[vid].inst())) == "g219519") {
+    printf("decrementing g219519 ref count from %zu\n", vertex_ref_counts_[vid].load());
+  }
+  size_t old = vertex_ref_counts_[vid].fetch_sub(1);
+  if (std::string(network_->name(vertices_[vid].inst())) == "g219519") {
+    printf("decrementing g219519 ref count to %zu\n", vertex_ref_counts_[vid].load());
+  }
+  if (old == 0) {
+    throw std::runtime_error("Reference count underflow in decreRefCount.");
+  }
+  return old - 1;
+}
+
+void
+TaskArranger::finishTasks()
+{
+  if (dispatch_queue_) {
+    dispatch_queue_->finishTasks();
+  }
+}
+
+void 
+TaskArranger::visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer) 
+{
+  // Clear previous visit records
+  clearVisitedInstVertices();
+  resizer_ = resizer;
+  
+  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta, local_sta);
+  std::vector<InstVertex*> zero_ref_vertices;
+  getZeroRefComInstVertices(zero_ref_vertices);
+  std::vector<ParallelLrVisitor *> visitors;
+  visitors.reserve(thread_count_);
+  visitors.push_back(visitor);
+  printf("Visit with %zu threads\n", thread_count_);
+  fflush(stdout);
+  for (size_t i = 1; i < thread_count_; i++) {
+    visitors.emplace_back(visitor->copy());
+  }
+  for (size_t i = 0; i < zero_ref_vertices.size(); i++) {
+    ParallelLrVisitor *visitor = visitors[i % visitors.size()];
+    createTask(visitor, zero_ref_vertices[i]);
+  }
+  finishTasks();
+  printVisitedInstNames();
+  // int cnt = 0;
+  // for (ParallelLrVisitor *v : visitors) {
+  //   printf("Print visited instances for visitor %d:\n", cnt++);
+  //   v->printVisitedInstNames();
+  //   fflush(stdout);
+  //   delete v;
+  // }
+}
+
+void 
+TaskArranger::createTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex)
+{
+  // Record the instance name being visited
+  {
+    std::lock_guard<std::mutex> lock(visited_inst_names_mutex_);
+    visited_inst_vertices_.push_back(inst_vertex);
+  }
+  
+  if (!dispatch_queue_) {
+    if (thread_count_ == 1) {
+      // Single-threaded execution
+      runTask(visitor, inst_vertex);
+      return;
+    } else {
+      throw std::runtime_error("Dispatch queue is null in multi-threaded mode.");
+    }
+  }
+  dispatch_queue_->dispatch([visitor, inst_vertex, this](int) {
+    runTask(visitor, inst_vertex);
+  });
+}
+
+void 
+TaskArranger::runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex)
+{
+  visitor->visit(inst_vertex->inst());
+  {
+    std::lock_guard<std::mutex> lock(apply_change_to_db_mutex_);
+    
+    visitor->applyChangesToDb(resizer_);
+  }
+  std::set<VertexId> zero_ref_vertices = decreOutRefCount(inst_vertex);
+  for (VertexId zero_ref_id : zero_ref_vertices) {
+    InstVertex* zero_ref_vertex = vertex(zero_ref_id);
+    createTask(visitor, zero_ref_vertex);
+  }
+}
+
+InstVertexOutEdgeIterator::InstVertexOutEdgeIterator(const InstVertex* vertex,
                                                const TaskArranger* arranger)
   : next_(vertex->out_edges_),
     arranger_(arranger)
 { 
 }
 
-InstVertexOutEdgeIterator::InstVertexOutEdgeIterator(InstVertex &vertex,
+InstVertexOutEdgeIterator::InstVertexOutEdgeIterator(const InstVertex &vertex,
                                                const TaskArranger* arranger)
   : next_(vertex.out_edges_),
     arranger_(arranger)
-{ 
+{
 }
 
 EdgeId
@@ -325,6 +907,66 @@ bool
 InstVertexOutEdgeIterator::hasNext() const
 {
   return next_ < arranger_->edges_.size();
+}
+
+SearchMEEPred::SearchMEEPred(sta::StaState* sta)
+  : sta::SearchPred2(sta)
+{
+}
+
+bool
+SearchMEEPred::searchThru(sta::Edge* edge)
+{
+  const sta::TimingRole *role = edge->role();
+  sta::Network* network_ = sta_->network();
+  sta::Graph* graph_ = sta_->graph();
+  sta::Instance *to_inst = network_->instance(graph_->vertex(edge->to())->pin());
+  if (to_inst == sta_->network()->topInstance()) {
+    return false;
+  }
+  sta::LibertyCell* to_cell = network_->libertyCell(to_inst);
+  if (!to_cell) return false;
+  return (SearchPred2::searchThru(edge)
+          && role->isWire()
+          && !to_cell->hasSequentials());
+}
+
+bool 
+SearchMEEPred::searchFrom(const sta::Vertex* from_vertex)
+{
+  sta::Instance *from_inst = sta_->network()->instance(from_vertex->pin());
+  if (from_inst == sta_->network()->topInstance()) {
+    return false;
+  }
+  sta::LibertyCell* from_cell = sta_->network()->libertyCell(from_inst);
+  if (!from_cell) return false;
+  return (!from_cell->hasSequentials()
+          && SearchPred2::searchFrom(from_vertex));
+}
+
+bool
+SearchMEEPred::searchTo(const sta::Vertex* to_vertex)
+{
+  sta::Instance *to_inst = sta_->network()->instance(to_vertex->pin());
+  if (to_inst == sta_->network()->topInstance()) {
+    return false;
+  }
+  sta::LibertyCell* to_cell = sta_->network()->libertyCell(to_inst);
+  if (!to_cell) return false;
+  return (!to_cell->hasSequentials()
+          && SearchPred2::searchTo(to_vertex));
+}
+
+void
+TaskArranger::printVisitedInstNames() const
+{
+  printf("=== Visited Instance Names (in order) ===\n");
+  printf("Total visited: %zu instances\n", visited_inst_vertices_.size());
+  for (size_t i = 0; i < visited_inst_vertices_.size(); i++) {
+    printf("[%zu] %s\n", i, network_->name(visited_inst_vertices_[i]->inst()));
+  }
+  printf("=========================================\n");
+  fflush(stdout);
 }
 
 } // namespace lrf

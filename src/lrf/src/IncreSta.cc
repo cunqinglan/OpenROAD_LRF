@@ -10,6 +10,7 @@
 #include "sta/TimingRole.hh"
 #include "lrf/LrfClass.hh"
 #include "parasitics/ConcreteParasitics.hh"
+#include "TaskArranger.hh"
 
 namespace lrf {
 // All logic is handled via dbStaState base; nothing additional yet.
@@ -18,6 +19,7 @@ IncreSta::IncreSta(dbSta *db_sta)
     : local_sta_(nullptr),
       lr_helper_(nullptr)
 {
+  db_sta->setThreadCount(3);
   dbStaState::init(db_sta);
   makeLocalSta();
   makeLRHelper();
@@ -53,7 +55,6 @@ IncreSta::makeLocalSta()
   if (local_sta_)
     delete local_sta_;
   local_sta_ = new LocalSta(sta_);
-  local_sta_->setSta(sta_);
 }
 
 void 
@@ -177,6 +178,14 @@ void
 IncreSta::makeSwappableCellsCache()
 {
 
+}
+
+void 
+IncreSta::parallelResize(rsz::Resizer *resizer)
+{
+  // We first create a serials of instance visitors
+  local_sta_->initParallel();
+  local_sta_->runResize(resizer);
 }
 
 } // namespace lrf

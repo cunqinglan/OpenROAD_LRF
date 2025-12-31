@@ -13,6 +13,7 @@
 #include "PtGraph.hh"
 #include "ParallelVisitor.hh"
 #include "sta/DispatchQueue.hh"
+#include "TaskArranger.hh"
 
 namespace lrf
 {
@@ -190,7 +191,7 @@ TestLrf::printSlewComparison(char *inst_name, sta::dbSta* sta,
     printf("OpenSTA: Swapping to equiv cell: %s from %s\n", lib_cell->name(), orig_cell->name());
     odb::dbMaster *master = db_network->staToDb(lib_cell);
     // Print global debug info from GraphDelayCalc
-    sta::GraphDelayCalc *global_dcalc = sta->graphDelayCalc();
+    // sta::GraphDelayCalc *global_dcalc = sta->graphDelayCalc();
     // global_dcalc->debug_info_.clear();
     db_inst->swapMaster(master);
     sta->updateTiming(false);
@@ -374,7 +375,6 @@ TestLrf::comparePtGraphs(PtGraph *local_pt_graph, PtGraph *open_pt_graph, sta::d
         printf("Arrival mismatch at vertex %s for dcalc_pt %u, pathIdx = %u, Local arrival %f, Open arrival %f, arrival difference = %f\n", 
                 local_vertex_obj->name(sta->network()), local_path->dcalcAnalysisPt(sta)->index(), cnt, local_arrival, open_arrival, arrival_diff);
         fflush(stdout);
-
       // } 
 
       sta::Required local_required = local_path->required() * 1e12;
@@ -389,39 +389,6 @@ TestLrf::comparePtGraphs(PtGraph *local_pt_graph, PtGraph *open_pt_graph, sta::d
     }
   }
 }
-
-// void
-// TestLrf::testParallelVisitor(std::vector<char*> &inst_names, sta::dbSta* sta,
-//                             rsz::Resizer *resizer, odb::dbBlock *block)
-
-// {
-//   // Test ParallelLrVisitor on given instances.
-//   IncreSta *incre_sta = new IncreSta(sta);
-//   LocalSta *local_sta = incre_sta->localSta();
-//   // LRHelper *lrf_helper = incre_sta->lrHelper();
-//   sta::dbNetwork *db_network = sta->getDbNetwork();
-//   resizer->makeEquivCells();
-
-//   std::vector<ParallelLrVisitor*> visitors;
-//   for (size_t i = 0; i < inst_names.size(); ++i) {
-//     visitors.push_back(new ParallelLrVisitor(sta, local_sta, resizer));
-//   }
-//   int idx = 0;
-//   for (char *inst_name : inst_names) {
-//     odb::dbInst *db_inst = block->findInst(inst_name);
-//     if (!db_inst) {
-//       printf("Instance %s not found in the block.\n", inst_name);
-//       continue;
-//     }
-//     sta::Instance *sta_inst = db_network->dbToSta(db_inst);
-//     sta::LibertyCell *orig_cell = sta->network()->libertyCell(sta_inst);
-//     resizer->getSwappableCells(orig_cell);
-//     visitors[idx]->visit(sta_inst);
-//     idx++;
-//   }
-// }
-
-
 
 void
 TestLrf::testParallelVisitor(const std::vector<odb::dbInst*>& db_insts, sta::dbSta* sta, 
@@ -461,7 +428,7 @@ TestLrf::testParallelVisitor(const std::vector<odb::dbInst*>& db_insts, sta::dbS
   }
 
   for (size_t i = 0; i < 3; ++i) {
-    visitors.emplace_back(std::make_unique<ParallelLrVisitor>(sta, local_sta, resizer));
+    visitors.emplace_back(std::make_unique<ParallelLrVisitor>(sta, local_sta));
   }
 
   for (size_t i = 0; i < n; ++i) {    
@@ -478,46 +445,34 @@ TestLrf::testParallelVisitor(const std::vector<odb::dbInst*>& db_insts, sta::dbS
   dq.finishTasks();
 }
 
-// void
-// TestLrf::testParallelVisitor(std::vector<char*> &inst_names, sta::dbSta* sta, 
-//                                rsz::Resizer *resizer, odb::dbBlock *block)
-// {
-//   IncreSta *incre_sta = new IncreSta(sta);
-//   LocalSta *local_sta = incre_sta->localSta();
-//   sta::dbNetwork *db_network = sta->getDbNetwork();
-//   resizer->makeEquivCells();
+void 
+TestLrf::testMEEAssignments(sta::dbSta* sta, 
+                            rsz::Resizer * /*resizer*/, 
+                            odb::dbBlock * /*block*/)
+{
+  // Test MEE assignments
+  printf("----- Testing MEE Assignments -----\n");
+  sta->searchPreamble();
+  IncreSta *incre_sta = new IncreSta(sta);
+  LocalSta *local_sta = incre_sta->localSta();
+  TaskArranger *arranger = local_sta->taskArranger();
+  arranger->init();
+  arranger->printGraph();
+}
 
-//   // 只启动 2~3 个线程
-//   const size_t thread_count = std::min<size_t>(3, inst_names.size());
-//   std::vector<std::thread> threads;
-//   std::vector<std::unique_ptr<ParallelLrVisitor>> visitors;
-//   visitors.reserve(thread_count);
-
-//   for (size_t i = 0; i < thread_count; ++i) {
-//     char *inst_name = inst_names[i];
-//     odb::dbInst *db_inst = block->findInst(inst_name);
-//     if (!db_inst) {
-//       printf("Instance %s not found in the block.\n", inst_name);
-//       continue;
-//     }
-//     sta::Instance *sta_inst = db_network->dbToSta(db_inst);
-//     sta::LibertyCell *orig_cell = sta->network()->libertyCell(sta_inst);
-//     resizer->getSwappableCells(orig_cell);
-
-//     visitors.emplace_back(std::make_unique<ParallelLrVisitor>(sta, local_sta, resizer));
-//     threads.emplace_back([vis = visitors.back().get(), sta_inst]() {
-//       vis->visit(sta_inst);
-//     });
-//   }
-
-//   for (auto &t : threads) {
-//     if (t.joinable()) t.join();
-//   }
-// }
-
-
-
-
+void
+TestLrf::testParallelResize(sta::dbSta* sta, 
+                            rsz::Resizer *resizer, 
+                            odb::dbBlock *block)
+{
+  // Test parallel resize
+  printf("----- Testing Parallel Resize -----\n");
+  sta->searchPreamble();
+  IncreSta *incre_sta = new IncreSta(sta);
+  incre_sta->parallelResize(resizer);
+  // incre_sta->localSta()->taskArranger()->printGraph();
+  incre_sta->localSta()->taskArranger()->printFailed();
+}
 
 
 

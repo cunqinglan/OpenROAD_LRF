@@ -115,8 +115,7 @@ PtGraph::makePtVertexAndPtEdge(sta::InstanceSet &inst_seq)
       sta::Vertex *vertex, *bidirect_vertex;
       graph->pinVertices(pin, vertex, bidirect_vertex);
       if (bidirect_vertex) {
-        printf("Error: bidirect drvr in local fanin instances not supported\n");
-        fflush(stdout);
+        throw std::runtime_error("PtGraph::makePtVertexAndPtEdge: bidirect vertex not supported");
       }
       if (vertex) {
         VertexId pt_vertex_id = makeVertex(vertex);
@@ -139,6 +138,11 @@ PtGraph::makePtVertexAndPtEdge(sta::InstanceSet &inst_seq)
 void 
 PtGraph::makePtInstEdge(sta::Vertex *drvr_vertex, VertexId drvr_pt_id)
 {
+  sta::Network *network = sta_->network();
+  sta::Instance *drvr_inst = network->instance(drvr_vertex->pin());
+  if (!network->libertyCell(drvr_inst) || network->libertyCell(drvr_inst)->hasSequentials()) {
+    return;
+  }
   sta::Graph *graph = sta_->graph();
   sta::VertexInEdgeIterator in_edge_iter(drvr_vertex, graph);
   while (in_edge_iter.hasNext()) {
@@ -172,11 +176,18 @@ PtGraph::makePtWireEdge(sta::Vertex *drvr_vertex, VertexId drvr_pt_id)
 VertexId
 PtGraph::makeVertex(sta::Vertex *vertex)
 {
+  sta::Network *network = sta_->network();
   pt_vertices_.emplace_back();
   PtVertex &pt_vertex = pt_vertices_.back();
   VertexId vertex_id = static_cast<VertexId>(pt_vertices_.size() - 1);
   pt_vertex.setObjectIdx(vertex_id);
   pt_vertex.init(vertex);
+  if (network->isDriver(vertex->pin())) {
+    pt_vertex.setIsDriver(true);
+  }
+  if (network->isLoad(vertex->pin())) {
+    pt_vertex.setIsLoad(true);
+  }
   return vertex_id;
 }
 
@@ -252,8 +263,10 @@ PtGraph::initPaths(PtVertex &pt_vertex)
   sta::Path *new_paths = new sta::Path[path_count];
   for (size_t i = 0; i < path_count; i++) {
     new_paths[i] = paths[i];
+    new_paths[i].setIsEnum(false);
   }
   pt_vertex.setPaths(new_paths);
+  pt_vertex.setTagGroupIndex(tag_group->index());
 }
 
 void
@@ -289,6 +302,12 @@ PtGraph::updateTimingArcSets()
       pt_edge.setTimingArcSet(new_arc_set);
     }
   }
+}
+
+sta::TagGroup *
+PtGraph::tagGroup(const PtVertex &pt_vertex)
+{
+  return sta_->search()->tagGroup(pt_vertex.tagGroupIndex());
 }
 
 bool
@@ -652,6 +671,9 @@ PtGraph::pinToPtVertex(const sta::Pin *pin) const
       return ptVertex(pt_vertex_id);
     }
     else {
+      printf("PtGraph::pinToPtVertex: vertex %s not found in vertex_map_\n",
+             vertex->to_string(sta_->graph()).c_str());
+      fflush(stdout);
       throw std::out_of_range("PtGraph::pinToPtVertex: vertex not found in vertex_map_");
     }
   } else {
@@ -798,6 +820,12 @@ PtVertex::PtVertex() :
 {
   object_idx_ = pt_vertex_id_null;
 }
+
+PtVertex::~PtVertex()
+{
+  delete[] paths_;
+}
+
 void
 PtVertex::init(sta::Vertex *vertex)
 {
