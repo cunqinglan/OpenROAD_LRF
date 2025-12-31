@@ -1547,20 +1547,22 @@ void
 EstimateParasitics::checkIfParasiticsNetworkExists(const Net* net)
 {
   PinSet *drivers = network_->drivers(net);
-  PinSet::Iterator drvr_iter(drivers);
-  const Pin *drvr_pin = drvr_iter.next();
-  if (!network_->isPower(net) && !network_->isGround(net)
-      && !sta_->isIdealClock(drvr_pin)
-      && !db_network_->staToDb(net)->isSpecial()) {
-    for (Corner* corner : *sta_->corners()) {
-      const sta::ParasiticAnalysisPt* parasitics_ap
-          = corner->findParasiticAnalysisPt(max_);
-      Parasitic* parasitic
-          = parasitics_->findParasiticNetwork(net, parasitics_ap);
-      if (parasitic == nullptr) {
-        printf("Error: Parasitic network does not exist for net %s\n",
-               network_->name(net));
-        fflush(stdout);
+  if (drivers && !drivers->empty()) {
+    PinSet::Iterator drvr_iter(drivers);
+    const Pin *drvr_pin = drvr_iter.next();
+    if (!network_->isPower(net) && !network_->isGround(net)
+        && !sta_->isIdealClock(drvr_pin)
+        && !db_network_->staToDb(net)->isSpecial()) {
+      for (Corner* corner : *sta_->corners()) {
+        const sta::ParasiticAnalysisPt* parasitics_ap
+            = corner->findParasiticAnalysisPt(max_);
+        Parasitic* parasitic
+            = parasitics_->findParasiticNetwork(net, parasitics_ap);
+        if (parasitic == nullptr) {
+          printf("Error: Parasitic network does not exist for net %s\n",
+                 network_->name(net));
+          fflush(stdout);
+        }
       }
     }
   }

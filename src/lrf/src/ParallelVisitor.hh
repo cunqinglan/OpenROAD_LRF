@@ -25,12 +25,22 @@ class PtGraph;
 class ParallelLrVisitor
 {
 public:
-  ParallelLrVisitor(sta::dbSta *db_sta, LocalSta *local_sta,
-                   rsz::Resizer *resizer);
+  ParallelLrVisitor(sta::dbSta *db_sta, LocalSta *local_sta);
   virtual ~ParallelLrVisitor();
   virtual void visit(sta::Instance *inst);
+  // Apply cell type changes to OpenROAD and OpenSTA, and 
+  // update timing information from PtGraph to sta::Graph.
+  virtual void applyChangesToDb(rsz::Resizer *resizer);
+  virtual void updateTimingFromPtGraph();
+  void updateVertexInfo(sta::VertexId vertex_id);
+  void updateEdgeInfo(sta::EdgeId edge_id);
+
   virtual ParallelLrVisitor *copy() const;
   void operator()(sta::Instance *inst) { visit(inst); }
+  void printVisitedInstNames() const;
+  PtGraph *ptGraph() const { return pt_graph_; }
+  sta::Instance *refInst() const { return ref_inst_; }
+  sta::LibertyCell *bestCell() const { return best_cell_; }
 
 protected:  
   sta::dbSta *db_sta_;
@@ -38,8 +48,9 @@ protected:
   LocalSta *local_sta_;
   PtGraph *pt_graph_;
   sta::ArcDelayCalc *arc_delay_calc_;
-  rsz::Resizer *resizer_;
   sta::Slack slack_before_swap_;
+  std::vector<std::string> visited_instances_;
+  sta::LibertyCell *best_cell_ = nullptr;
 };
 
 

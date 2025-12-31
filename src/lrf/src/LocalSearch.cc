@@ -123,6 +123,9 @@ LocalArrivalVisitor::findVertexArrival(PtVertex &pt_vertex)
   Pin *pin = pt_vertex.pin();
   Vertex *vertex = pt_vertex.vertex();
 
+  // If error occurs, we don't rewrite the arrival.
+  bool arrival_changed = true;
+
   tag_bldr_->init(vertex);
   has_fanin_one_ = graph_->hasFaninOne(vertex);
   
@@ -144,22 +147,26 @@ LocalArrivalVisitor::findVertexArrival(PtVertex &pt_vertex)
   // if (sdc_->isLeafPinClock(pin))
   //   printf("WARNING: Local arrival analysis does not support leaf pin clocks on pin %s\n",
   //          network_->name(pin));
-  if (network_->isLatchData(pin))
+  if (network_->isLatchData(pin)) {
     printf("WARNING: Local arrival analysis does not support latch data pins %s\n",
            network_->name(pin));
-  fflush(stdout);
-
+    fflush(stdout);
+    arrival_changed = false;
+  }
+    
   bool is_clk = tag_bldr_->hasClkTag();
   if (vertex->isRegClk() && !is_clk) {
     printf("WARNING: Local arrival analysis found reg clk vertex %s without clk tag\n",
            network_->name(pin));
     fflush(stdout);
-    search_->makeUnclkedPaths(vertex, true, false, tag_bldr_);
+    arrival_changed = false;
+    // search_->makeUnclkedPaths(vertex, true, false, tag_bldr_);
   }
 
   // We don't do arrival change judgement, cause it will definitely
   // change in along with gate sizing.
-  localSetVertexArrivals(pt_vertex, tag_bldr_);
+  if (arrival_changed)
+    localSetVertexArrivals(pt_vertex, tag_bldr_);
 }
 
 void
@@ -293,8 +300,8 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
   // }else 
   if (role->genericRole() == TimingRole::regClkToQ()) {
     // reg clk to q
-    printf("ERROR: Local arrival analysis does not support reg clk to q paths yet.\n");
-    fflush(stdout);
+    // printf("ERROR: Local arrival analysis does not support reg clk to q paths yet.\n");
+    // fflush(stdout);
     return true;
 
   } else if (role == TimingRole::latchDtoQ()) {
@@ -304,8 +311,8 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
     return true;
   } else if (from_tag->isClock()) {
     // clk to ff/dl/comb
-    printf("ERROR: Local arrival analysis does not support clk to ff/dl/comb paths yet.\n");
-    fflush(stdout);
+    // printf("ERROR: Local arrival analysis does not support clk to ff/dl/comb paths yet.\n");
+    // fflush(stdout);
     return true;
   } else {
     if (!(sdc_->isPathDelayInternalFromBreak(to_pin)

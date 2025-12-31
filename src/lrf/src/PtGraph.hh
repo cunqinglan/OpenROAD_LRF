@@ -46,6 +46,15 @@ enum class PtEdgeType : uint8_t {
   None
 };
 
+enum class PinType : uint8_t {
+  NONE,
+  DRIVER,
+  LOAD,
+  INPUT,
+  OUTPUT,
+  BIDIRECT
+};
+
 
 class PtGraph {
 public:
@@ -63,6 +72,7 @@ public:
   // When do virtual ref cell swap, update timing arc sets of all edges of
   // the ref instance.
   void updateTimingArcSets();
+  sta::TagGroup *tagGroup(const PtVertex &pt_vertex);
 
   sta::EdgeId makeEdge(sta::Edge *edge, sta::VertexId pt_from, sta::VertexId pt_to);
   sta::VertexId makeVertex(sta::Vertex *vertex);
@@ -136,7 +146,8 @@ public:
                              
   // For virtual cell swap
   void setRefGate(sta::LibertyCell *lib_cell) { ref_lib_cell_ = lib_cell; }
-  const sta::LibertyCell *refGate() const { return ref_lib_cell_; }
+  sta::LibertyCell *refGate() const { return ref_lib_cell_; }
+  sta::Instance *refInstance() const { return ref_inst_; }
   void setDcalcAnalysisPt(sta::DcalcAnalysisPt *dcalc_ap) { dcalc_ap_ = dcalc_ap; }
   sta::DcalcAnalysisPt *dcalcAnalysisPt() const { return dcalc_ap_; }
 
@@ -216,7 +227,7 @@ private:
 class PtVertex {
 public:
   PtVertex();
-  ~PtVertex() = default;
+  ~PtVertex();
 
   void init(sta::Vertex *vertex);
 
@@ -240,7 +251,11 @@ public:
   size_t tagGroupIndex() const { return tag_group_index_; }
   sta::Path *paths() const { return paths_; }
   void setPaths(sta::Path *paths);
-
+  void setIsDriver(bool is_driver) { is_driver_ = is_driver; }
+  bool isDriver() const { return is_driver_; }
+  void setIsLoad(bool is_load) { is_load_ = is_load; }
+  bool isLoad() const { return is_load_; }
+  
 protected:
   sta::Vertex *vertex_{nullptr};
   std::vector<sta::Arrival> arrivals_;
@@ -252,6 +267,8 @@ protected:
   PtVertexType type_{PtVertexType::None};
   size_t tag_group_index_ {0};
   sta::Path *paths_ = nullptr;
+  bool is_driver_{false}; 
+  bool is_load_{false};
 
 private:
   friend class PtGraph;

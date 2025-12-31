@@ -59,8 +59,8 @@ public:
   void makeSwappableCellsCache();
   void getSwappableCells(LibertyCell* source_cell);
                            
-
   // APIs for gate swapping
+  void parallelResize(rsz::Resizer *resizer);
 
 protected:
   void makeLocalSta();

@@ -1,5 +1,6 @@
 
 #include <cstdio>
+#include <mutex>
 
 #include "LocalParasitics.hh"
 #include "parasitics/ReduceParasitics.hh"
@@ -14,6 +15,9 @@
 #include "LocalParasitics.hh"
 
 namespace lrf {
+
+// Global mutex to protect access to OpenDB/STA objects which may not be thread-safe
+std::mutex g_odb_sta_access_mutex;
 using sta::Parasitic;
 using sta::ParasiticNode;
 using sta::Pin;
@@ -151,6 +155,9 @@ LocalParasitics::makeLocalPiElmore(const Parasitic *parasitic_network,
 void 
 LocalParasitics::recomputeLocalParasitics(PtGraph *pt_graph)
 {
+  // Protect access to OpenDB/STA network objects which may have internal state
+  std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
+  
   for (const auto &pt_vertex: pt_graph->ptVertices()) {
     if (pt_vertex.type() == PtVertexType::RefDriver) {
       const Net *net = network_->net(pt_vertex.vertex()->pin());
@@ -163,9 +170,13 @@ LocalParasitics::recomputeLocalParasitics(PtGraph *pt_graph)
       reduceLocalParasitic(drvr_parsitic_network, pt_graph, pt_vertex, 
                            dcalc_ap);
     } else {
-      printf("Warning: LocalParasitics::recomputeLocalParasitics: No parasitic network found for driver net %s\n",
-             network_->name(net));
-      fflush(stdout);
+      // For rst nets, PI nets or special nets, there may be no parasitic network
+      // if (network_->name(net) != "(null)")
+      // printf("Warning: LocalParasitics::recomputeLocalParasitics: No parasitic network found for driver net %s.\n"
+      //         "              This net drives vertex %s\n",
+      //        network_->name(net),
+      //        network_->name(pt_vertex.vertex()->pin()));
+      // fflush(stdout);
     }
       }
     }
