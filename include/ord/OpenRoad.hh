@@ -200,6 +200,7 @@ class OpenRoad
                bool incremental);
 
   void writeLef(const char* filename);
+  void writeJsonNetlist(const char* filename);
 
   void writeAbstractLef(const char* filename,
                         int bloat_factor,
