@@ -58,6 +58,7 @@
 #include "odb/db.h"
 #include "odb/defin.h"
 #include "odb/defout.h"
+#include "odb/jsonout.h"
 #include "odb/lefin.h"
 #include "odb/lefout.h"
 #include "ord/InitOpenRoad.hh"
@@ -401,6 +402,27 @@ void OpenRoad::writeDef(const char* filename, const std::string& version)
       odb::DefOut def_writer(logger_);
       def_writer.setVersion(stringToDefVersion(version));
       def_writer.writeBlock(block, filename);
+      if (hierarchy_set) {
+        sta->getDbNetwork()->setHierarchy();
+      }
+    }
+  }
+}
+
+void OpenRoad::writeJsonNetlist(const char* filename)
+{
+  odb::dbChip* chip = db_->getChip();
+  if (chip) {
+    odb::dbBlock* block = chip->getBlock();
+    if (block) {
+      sta::dbSta* sta = getSta();
+      // JSON netlist writers may need to know about hierarchy
+      bool hierarchy_set = sta->getDbNetwork()->hasHierarchy();
+      if (hierarchy_set) {
+        sta->getDbNetwork()->disableHierarchy();
+      }
+      odb::JsonOut json_writer(logger_);
+      json_writer.writeBlock(block, filename);
       if (hierarchy_set) {
         sta->getDbNetwork()->setHierarchy();
       }
