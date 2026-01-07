@@ -30,6 +30,7 @@ class IncreSta : public dbStaState
 {
 public:
   IncreSta(dbSta *db_sta);
+  IncreSta(dbSta *db_sta, size_t thread_count);
   ~IncreSta();
   void init();
   virtual void copyState(const dbSta *sta);
@@ -53,6 +54,7 @@ public:
   float maxInputSlew(const Pin* input_pin,
                             const Corner* corner) const;
   float averageDelayOnCritPath();
+  float averageLeakage();
 
   // APIs for parasitics estimation
   void setLocalStaParasiticsEst(est::EstimateParasitics *estimate_parasitics);
@@ -61,6 +63,7 @@ public:
                            
   // APIs for gate swapping
   void parallelResize(rsz::Resizer *resizer);
+  void setMaxResizeNum(size_t max_resize_num);
 
 protected:
   void makeLocalSta();

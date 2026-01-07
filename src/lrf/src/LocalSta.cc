@@ -51,12 +51,17 @@ LocalSta::~LocalSta()
     delete g;
   }
   local_graphs_.clear();
+  delete local_parasitics_;
+  delete task_arranger_;
+  delete pred_;
 }
 
 void 
 LocalSta::copyState(const Sta *sta)
 {
   GraphDelayCalc::copyState(sta);
+  local_parasitics_->copyState(sta);
+  task_arranger_->copyState(sta);
   sorted_ = false;
 }
 
@@ -175,6 +180,7 @@ LocalSta::makePtGraph(Instance *inst, bool update_timing_first)
   if (update_timing_first) {
     Level top_level = pt_graph->topVertexLevel();
     findDelays(top_level);
+    search_->findArrivals(top_level);
     pt_graph->initVertexAndEdges();
   }
   local_graphs_.push_back(pt_graph);
@@ -712,6 +718,16 @@ LocalSta::delayLmSum(PtGraph *pt_graph, DcalcAnalysisPt *dcalc_ap)
   return delay_lm_sum;
 }
 
+DelayLmSumResult
+LocalSta::delayLmSum(PtGraph *pt_graph,
+                     DcalcAnalysisPt *dcalc_ap,
+                     bool collect_vecs)
+{
+  DelayLmSumResult result;
+  pt_graph->delayLmSum(dcalc_ap, &result, collect_vecs);
+  return result;
+}
+
 float 
 LocalSta::maxInputSlew(const Pin* input_pin,
                             const Corner* corner) const
@@ -736,17 +752,17 @@ LocalSta::maxInputSlew(const Pin* input_pin,
   return limit;
 }
 
-LocalCost
+DelayLmSumResult
 LocalSta::initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc)
 {
   // During pt graph creation, delays from original graph are copied 
   // to pt graph. So here we just need to sum up the delays.
   const Corner *corner = corners_->findCorner("default");
   DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
-  return delayLmSum(pt_graph, dcalc_ap);
+  return delayLmSum(pt_graph, dcalc_ap, true);
 }
 
-LocalCost
+DelayLmSumResult
 LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph, 
                                      ArcDelayCalc *arc_delay_calc,
                                      LibertyCell *equiv_cell)
@@ -757,7 +773,7 @@ LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph,
   findLocalRequireds(pt_graph);
   const Corner *corner = corners_->findCorner("default");
   DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
-  return delayLmSum(pt_graph, dcalc_ap);
+  return delayLmSum(pt_graph, dcalc_ap, true);
 }
 
 // Recompute local parasitics after cell swap
@@ -1049,9 +1065,9 @@ LocalSta::initParallel()
 }
 
 void 
-LocalSta::runResize(rsz::Resizer *resizer)
+LocalSta::runResize(rsz::Resizer *resizer, float average_delay, float average_leakage)
 {
-  task_arranger_->visitParallel(sta_, this, resizer);
+  task_arranger_->visitParallel(sta_, this, resizer, average_delay, average_leakage);
 }
 
 } // namespace lrf

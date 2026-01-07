@@ -120,12 +120,13 @@ public:
 
   // Functions of parallelization
   void reduceEdgeFromReg();
-  void visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer);
+  void visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer,
+                    float average_delay = 1, float average_power = 1);
   std::set<VertexId> decreOutRefCount(InstVertex *inst_vertex);
   std::set<VertexId> decreOutRefCount(InstVertex &inst_vertex);
   size_t decreRefCount(VertexId vid);
   void getZeroRefComInstVertices(std::vector<InstVertex*>& zero_ref_vertices);
-  void createTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex);
+  void createTask(InstVertex* inst_vertex);
   void runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex);
   void finishTasks();
 
@@ -163,6 +164,8 @@ public:
   void clearVisitedInstVertices() { visited_inst_vertices_.clear(); }
   void printVisitedInstNames() const;
 
+  void setMaxResizeNum(size_t max_resize_num) { max_resize_num_ = max_resize_num; }
+
 protected:
   // Vertices before num_com_ are combinational.
   std::vector<InstVertex> vertices_;
@@ -183,6 +186,10 @@ protected:
   std::mutex visited_inst_names_mutex_;
   // Mutex to protect best cell type application in multi-threaded environment
   std::mutex apply_change_to_db_mutex_;
+  // Visitors for each thread
+  std::vector<ParallelLrVisitor *> visitors_;
+  // Maximum resize number allowed in one iteration
+  size_t max_resize_num_ = 1000000;
 
 private:
   friend class InstVertexOutEdgeIterator;

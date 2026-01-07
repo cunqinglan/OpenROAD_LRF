@@ -54,28 +54,58 @@ LocalParasitics::~LocalParasitics()
 void 
 LocalParasitics::initParasiticMapFromBase() 
 {
+  printf("DEBUG: LocalParasitics::initParasiticMapFromBase start\n");
+  fflush(stdout);
+  
+  if (!corners_) {
+    printf("DEBUG: corners_ is null\n");
+    fflush(stdout);
+    return;
+  }
+
   ConcreteParasitics *global = dynamic_cast<ConcreteParasitics*>(parasitics_);
-  if (!global || !(global->drvr_parasitic_map_.empty())
-               || !(global->parasitic_network_map_.empty())) {
-    for (const auto& [pin, array] : global->drvr_parasitic_map_) {
-      int ap_count = corners_->parasiticAnalysisPtCount();
-      int ap_rf_count = ap_count * RiseFall::index_count;
-      ConcreteParasitic **local_array = new ConcreteParasitic*[ap_rf_count];
-      for (int i = 0; i < ap_rf_count; i++){
-        if (array[i]) {
-          if (array[i]->isPiElmore()) {
-            ConcretePiElmore *pi_elmore = dynamic_cast<ConcretePiElmore*>(array[i]);
-            local_array[i] = copy_helper_->getCopy(pi_elmore);
-          } 
-        } else
-          local_array[i] = nullptr;
+  printf("DEBUG: global=%p\n", global);
+  fflush(stdout);
+
+  if (global != nullptr) {
+    printf("DEBUG: checking global->drvr_parasitic_map_\n");
+    fflush(stdout);
+    
+    if (!global->drvr_parasitic_map_.empty()) {
+      printf("DEBUG: map size: %zu\n", global->drvr_parasitic_map_.size());
+      fflush(stdout);
+      
+      for (const auto& [pin, array] : global->drvr_parasitic_map_) {
+        int ap_count = corners_->parasiticAnalysisPtCount();
+        int ap_rf_count = ap_count * RiseFall::index_count;
+        ConcreteParasitic **local_array = new ConcreteParasitic*[ap_rf_count];
+        for (int i = 0; i < ap_rf_count; i++){
+          if (array && array[i]) {
+            if (array[i]->isPiElmore()) {
+              ConcretePiElmore *pi_elmore = dynamic_cast<ConcretePiElmore*>(array[i]);
+              if (pi_elmore && copy_helper_)
+                  local_array[i] = copy_helper_->getCopy(pi_elmore);
+              else 
+                  local_array[i] = nullptr;
+            } else {
+               local_array[i] = nullptr;
+            }
+          } else
+            local_array[i] = nullptr;
+        }
+        local_drvr_parasitic_map_[pin] = local_array;
       }
-      local_drvr_parasitic_map_[pin] = local_array;
+    } else {
+      printf("DEBUG: Global drvr parasitic map is empty.\n");
+      // throw std::runtime_error("Error: LocalParasitics::initParasiticMapFromBase: "
+      //                         "Global drvr parasitic map is empty.");
     }
     // Since we don't use anything in origin concrete parasitics, 
     // we can just copy the parasitic network map pointer.
     local_parasitic_network_map_ = global->parasitic_network_map_;
   }
+  printf("DEBUG: LocalParasitics::initParasiticMapFromBase end\n");
+  fflush(stdout);
 }
 
 Parasitic *
@@ -190,9 +220,9 @@ LocalParasitics::findLocalParasiticNetwork(const Net *net, const ParasiticAnalys
     ConcreteParasiticNetwork **parasitic_array = 
       local_parasitic_network_map_.findKey(net);
     if (!parasitic_array) {
-      printf("Error: LocalParasitics::findLocalParasiticNetwork: No parasitic array found for net %s\n",
-             network_->name(net));
-      fflush(stdout);
+      // printf("Error: LocalParasitics::findLocalParasiticNetwork: No parasitic array found for net %s\n",
+      //        network_->name(net));
+      // fflush(stdout);
       return nullptr;
     }
     ConcreteParasiticNetwork *parasitic = parasitic_array[ap->index()];

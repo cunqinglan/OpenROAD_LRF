@@ -1,45 +1,16 @@
+
 #pragma once
-
-#include <vector>
-
-#include "sta/Delay.hh" // ArcDelay, Slew, Arrival typedefs
-#include "sta/GraphClass.hh"
-#include "sta/NetworkClass.hh"
-#include "sta/LibertyClass.hh"
 
 #include <vector>
 #include <map>
 
 #include "sta/Graph.hh"
+#include "sta/Delay.hh"
 #include "sta/TimingArc.hh"
 #include "sta/Map.hh"
-
-namespace sta {
-  class StaState;
-  class Sta;
-} // namespace sta
+#include "Delay.hh"
 
 namespace lrf {
-
-// Keep LM value typedefs local to lrf. Use fully qualified sta:: types elsewhere instead of using declarations
-typedef float LMValue;
-typedef double LMValueDBL;
-typedef std::vector<LMValue> LMValueSeq;
-
-using sta::ArcDelay;
-using sta::DcalcAPIndex;
-using sta::Edge;
-using sta::EdgeId;
-using sta::Graph;
-using sta::Instance;
-using sta::InstanceSet;
-using sta::Level;
-using sta::MinMax;
-using sta::RiseFall;
-using sta::VertexId;
-using sta::Vertex;
-using sta::StaState;
-using sta::Sta;
 
 class PtEdge;
 class PtVertex;
@@ -110,5 +81,5 @@ struct TimingRecord {
   sta::LibertyCell *orig_cell = nullptr;
   std::unordered_map<std::string, GraphTiming> liberty_timing_map;
 };
-} // namespace lrf
 
+}

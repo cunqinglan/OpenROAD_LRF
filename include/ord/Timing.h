@@ -108,6 +108,8 @@ class Timing
   void testParallelVisitor(const std::vector<odb::dbInst*> &inst_names);
   void testMEEAssignments();
   void testParallelResize();
+  void testParallelLrResizing(size_t thread_num, size_t max_resize_num, size_t iterations);
+  void testTimingComputeAndWriteBack(const std::vector<odb::dbInst*> &insts);
   /////////////////////////////////////////////////////////////
   // End functions for testing LR sizing
   /////////////////////////////////////////////////////////////

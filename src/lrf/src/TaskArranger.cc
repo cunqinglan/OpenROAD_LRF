@@ -806,65 +806,73 @@ TaskArranger::finishTasks()
 }
 
 void 
-TaskArranger::visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer) 
+TaskArranger::visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer, 
+                            float average_delay, float average_power) 
 {
   // Clear previous visit records
   clearVisitedInstVertices();
   resizer_ = resizer;
+
+  printf("Average delay on critical path: %f ns\n", average_delay * 1e12);
+  printf("Average power per instance: %f uW\n", average_power * 1e9);
+  fflush(stdout);
   
+  // Clean up old visitors if any
+  for (auto v : visitors_) delete v;
+  visitors_.clear();
+
   ParallelLrVisitor *visitor = new ParallelLrVisitor(sta, local_sta);
+  visitor->setAverageDelay(average_delay);
+  visitor->setAverageLeakage(average_power);
   std::vector<InstVertex*> zero_ref_vertices;
   getZeroRefComInstVertices(zero_ref_vertices);
-  std::vector<ParallelLrVisitor *> visitors;
-  visitors.reserve(thread_count_);
-  visitors.push_back(visitor);
-  printf("Visit with %zu threads\n", thread_count_);
+  
+  visitors_.reserve(thread_count_);
+  visitors_.push_back(visitor);
+  printf("Visit with %u threads\n", thread_count_);
   fflush(stdout);
   for (size_t i = 1; i < thread_count_; i++) {
-    visitors.emplace_back(visitor->copy());
+    visitors_.emplace_back(visitor->copy());
   }
   for (size_t i = 0; i < zero_ref_vertices.size(); i++) {
-    ParallelLrVisitor *visitor = visitors[i % visitors.size()];
-    createTask(visitor, zero_ref_vertices[i]);
+    createTask(zero_ref_vertices[i]);
   }
   finishTasks();
-  printVisitedInstNames();
-  // int cnt = 0;
-  // for (ParallelLrVisitor *v : visitors) {
-  //   printf("Print visited instances for visitor %d:\n", cnt++);
-  //   v->printVisitedInstNames();
-  //   fflush(stdout);
-  //   delete v;
-  // }
+  
+  for (auto v : visitors_) delete v;
+  visitors_.clear();
 }
 
 void 
-TaskArranger::createTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex)
+TaskArranger::createTask(InstVertex* inst_vertex)
 {
   // Record the instance name being visited
   {
     std::lock_guard<std::mutex> lock(visited_inst_names_mutex_);
+    if (visited_inst_vertices_.size() > max_resize_num_) {
+      return;
+    }
     visited_inst_vertices_.push_back(inst_vertex);
   }
   
   if (!dispatch_queue_) {
     if (thread_count_ == 1) {
       // Single-threaded execution
-      runTask(visitor, inst_vertex);
+      runTask(visitors_[0], inst_vertex);
       return;
     } else {
       throw std::runtime_error("Dispatch queue is null in multi-threaded mode.");
     }
   }
-  dispatch_queue_->dispatch([visitor, inst_vertex, this](int) {
-    runTask(visitor, inst_vertex);
+  dispatch_queue_->dispatch([inst_vertex, this](int id) {
+    runTask(visitors_[id], inst_vertex);
   });
 }
 
 void 
 TaskArranger::runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex)
 {
-  visitor->visit(inst_vertex->inst());
+  if (visitor->visit(inst_vertex->inst())) 
   {
     std::lock_guard<std::mutex> lock(apply_change_to_db_mutex_);
     
@@ -873,7 +881,7 @@ TaskArranger::runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex)
   std::set<VertexId> zero_ref_vertices = decreOutRefCount(inst_vertex);
   for (VertexId zero_ref_id : zero_ref_vertices) {
     InstVertex* zero_ref_vertex = vertex(zero_ref_id);
-    createTask(visitor, zero_ref_vertex);
+    createTask(zero_ref_vertex);
   }
 }
 

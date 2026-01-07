@@ -14,6 +14,16 @@
 #include "ParallelVisitor.hh"
 #include "sta/DispatchQueue.hh"
 #include "TaskArranger.hh"
+#include "sta/PowerClass.hh"
+#include "sta/Delay.hh"
+#include "est/EstimateParasitics.h"
+#include "sta/EquivCells.hh"
+#include "sta/Path.hh"
+#include "search/TagGroup.hh"
+  
+#include <cmath>
+#include <unordered_map>
+#include <vector>
 
 namespace lrf
 {
@@ -297,9 +307,10 @@ TestLrf::testDifferenceBetweenLocalAndOpen(char *inst_name, sta::dbSta* sta,
   comparePtGraphs(pt_graph_orig, pt_graph_local, sta);
 }
 
-void 
+bool
 TestLrf::comparePtGraphs(PtGraph *local_pt_graph, PtGraph *open_pt_graph, sta::dbSta* sta)
 {
+  bool same = true;
   // Compare delays and arrivals between two PtGraphs
   printf("Comparing PtGraphs between LocalSta and OpenSTA\n");
   // Compare delays
@@ -309,15 +320,15 @@ TestLrf::comparePtGraphs(PtGraph *local_pt_graph, PtGraph *open_pt_graph, sta::d
     printf("Edge count mismatch: LocalSta has %zu edges, OpenSTA has %zu edges\n", 
             local_edge_count, open_edge_count);
             fflush(stdout);
-    return;
+    return false;
   }
   size_t local_vertex_count = local_pt_graph->ptVertices().size();
   size_t open_vertex_count = open_pt_graph->ptVertices().size();
   if (local_vertex_count != open_vertex_count) {
     printf("Vertex count mismatch: LocalSta has %zu vertices, OpenSTA has %zu vertices\n", 
             local_vertex_count, open_vertex_count);
-            fflush(stdout);
-    return;
+    fflush(stdout);
+    return false;
   }
   // Compare delays on edges
   for (size_t i = 1; i < local_edge_count; ++i) {
@@ -328,6 +339,7 @@ TestLrf::comparePtGraphs(PtGraph *local_pt_graph, PtGraph *open_pt_graph, sta::d
     if (local_edge_obj != open_edge_obj) {
       printf("Edge mismatch at index %zu\n", i);
       fflush(stdout);
+      same = false;
       continue;
     }
     sta::TimingArcSet *arc_set = local_edge_obj->timingArcSet();
@@ -340,6 +352,7 @@ TestLrf::comparePtGraphs(PtGraph *local_pt_graph, PtGraph *open_pt_graph, sta::d
           printf("Delay mismatch for arc %s in dcalc_pt %u\n", 
                   arc->to_string().c_str(), dcalc_ptr->index());
           fflush(stdout);
+          same = false;
         }
       }
     }
@@ -354,6 +367,7 @@ TestLrf::comparePtGraphs(PtGraph *local_pt_graph, PtGraph *open_pt_graph, sta::d
     if (local_vertex_obj != open_vertex_obj) {
       printf("Vertex mismatch at index %zu\n", i);
       fflush(stdout);
+      same = false;
       continue;
     }
     // We first check arrivals for all dcalc pts
@@ -366,28 +380,164 @@ TestLrf::comparePtGraphs(PtGraph *local_pt_graph, PtGraph *open_pt_graph, sta::d
       if (local_path->dcalcAnalysisPt(sta) != open_path->dcalcAnalysisPt(sta)) {
         printf("DcalcApIndex mismatch at vertex index %zu\n", i);
         fflush(stdout);
+        same = false;
         continue;
       }
       sta::Arrival local_arrival = local_path->arrival() * 1e12;
       sta::Arrival open_arrival = open_path->arrival() * 1e12;
       double arrival_diff = std::abs(local_arrival - open_arrival);
-      // if (arrival_diff > 1e-9) {
+      if (arrival_diff > 1e-9) {
         printf("Arrival mismatch at vertex %s for dcalc_pt %u, pathIdx = %u, Local arrival %f, Open arrival %f, arrival difference = %f\n", 
                 local_vertex_obj->name(sta->network()), local_path->dcalcAnalysisPt(sta)->index(), cnt, local_arrival, open_arrival, arrival_diff);
         fflush(stdout);
-      // } 
+        same = false;
+      } 
 
       sta::Required local_required = local_path->required() * 1e12;
       sta::Required open_required = open_path->required() * 1e12;
       double required_diff = std::abs(local_required - open_required);
-      // if (required_diff > 1e-9) {
+      if (required_diff > 1e-9) {
         printf("Required mismatch at vertex %s for dcalc_pt %u, pathIdx = %u, Local required %f, Open required %f, required difference = %f\n", 
                 local_vertex_obj->name(sta->network()), local_path->dcalcAnalysisPt(sta)->index(), cnt, local_required, open_required, required_diff);
         fflush(stdout);
-      // }
+        same = false;
+      }
       cnt++;
     }
   }
+  return same;
+}
+
+bool
+TestLrf::compareTimingRecords(const std::unordered_map<sta::Instance*, TimingRecord> &records1,
+                              const std::unordered_map<sta::Instance*, TimingRecord> &records2,
+                              sta::dbSta* sta)
+{
+  printf("Comparing TimingRecords between two runs\n");
+  fflush(stdout);
+  bool same = true;
+  if (records1.size() != records2.size()) {
+    printf("TimingRecord size mismatch: %zu vs %zu\n", records1.size(), records2.size());
+    return false;
+  }
+
+  for (const auto &[inst, record1] : records1) {
+    if (records2.find(inst) == records2.end()) {
+      printf("Instance %s not found in second record map\n", sta->network()->name(inst));
+      same = false;
+      continue;
+    }
+    const TimingRecord &record2 = records2.at(inst);
+    if (record1.orig_cell != record2.orig_cell) {
+      printf("Original cell mismatch for instance %s: %s vs %s\n", 
+             sta->network()->name(inst), 
+             record1.orig_cell ? record1.orig_cell->name() : "nullptr",
+             record2.orig_cell ? record2.orig_cell->name() : "nullptr");
+      same = false;
+    }
+
+    // Compare liberty_timing_map
+    if (record1.liberty_timing_map.size() != record2.liberty_timing_map.size()) {
+       printf("Liberty timing map size mismatch for instance %s: %zu vs %zu\n", 
+              sta->network()->name(inst), 
+              record1.liberty_timing_map.size(), 
+              record2.liberty_timing_map.size());
+       same = false;
+       continue;
+    }
+
+    for (const auto &[lib_name, cell_timing1] : record1.liberty_timing_map) {
+      if (record2.liberty_timing_map.find(lib_name) == record2.liberty_timing_map.end()) {
+        printf("Liberty cell %s not found in second record for instance %s\n", 
+               lib_name.c_str(), sta->network()->name(inst));
+        same = false;
+        continue;
+      }
+      const GraphTiming &cell_timing2 = record2.liberty_timing_map.at(lib_name);
+      
+      // Compare GraphTiming details (Vertex Timing)
+      for (const auto &[v_name, v_info1] : cell_timing1.vertex_timing_map) {
+         if (cell_timing2.vertex_timing_map.find(v_name) == cell_timing2.vertex_timing_map.end()) {
+           printf("Vertex %s not found in second record for instance %s, lib %s\n",
+                  v_name.c_str(), sta->network()->name(inst), lib_name.c_str());
+           same = false;
+           continue;
+         }
+         const TimingInfo &v_info2 = cell_timing2.vertex_timing_map.at(v_name);
+         
+         // Compare paths (arrivals/requireds)
+         if (v_info1.paths.size() != v_info2.paths.size()) {
+            printf("Path count mismatch for vertex %s: %zu vs %zu\n", v_name.c_str(), v_info1.paths.size(), v_info2.paths.size());
+            same = false;
+         } else {
+           for (size_t i = 0; i < v_info1.paths.size(); ++i) {
+             const sta::Path &p1 = v_info1.paths[i];
+             const sta::Path &p2 = v_info2.paths[i];
+             
+             // Check DcalcAnalysisPt
+             if (p1.dcalcAnalysisPt(sta) != p2.dcalcAnalysisPt(sta)) {
+                printf("DcalcAnalysisPt mismatch for vertex %s path %zu\n", v_name.c_str(), i);
+                same = false;
+             }
+
+             // Check Arrival
+             double arr1 = p1.arrival() * 1e12;
+             double arr2 = p2.arrival() * 1e12;
+             if (std::abs(arr1 - arr2) > 1e-5) {
+                printf("Arrival mismatch for vertex %s path %zu: %f vs %f\n", v_name.c_str(), i, arr1, arr2);
+                same = false;
+             }
+
+             // Check Required
+            //  double req1 = p1.required() * 1e12;
+            //  double req2 = p2.required() * 1e12;
+            //  if (std::abs(req1 - req2) > 1e-5) {
+            //     printf("Required mismatch for vertex %s path %zu: %f vs %f\n", v_name.c_str(), i, req1, req2);
+            //     same = false;
+            //  }
+           }
+         }
+
+         // Compare slews
+         if (v_info1.slews.size() != v_info2.slews.size()) {
+            printf("Slew count mismatch for vertex %s\n", v_name.c_str());
+            same = false;
+         } else {
+            for (size_t i = 0; i < v_info1.slews.size(); ++i) {
+               if (std::abs(v_info1.slews[i] - v_info2.slews[i]) > 1e-9) {
+                 printf("Slew mismatch for vertex %s index %zu: %e vs %e\n", v_name.c_str(), i, v_info1.slews[i], v_info2.slews[i]);
+                 same = false;
+               }
+            }
+         }
+      }
+
+      // Compare GraphTiming details (Edge Timing)
+      for (const auto &[e_name, e_info1] : cell_timing1.edge_timing_map) {
+         if (cell_timing2.edge_timing_map.find(e_name) == cell_timing2.edge_timing_map.end()) {
+           printf("Edge %s not found in second record for instance %s, lib %s\n",
+                  e_name.c_str(), sta->network()->name(inst), lib_name.c_str());
+           same = false;
+           continue;
+         }
+         const TimingInfo &e_info2 = cell_timing2.edge_timing_map.at(e_name);
+         
+         if (e_info1.delays.size() != e_info2.delays.size()) {
+            printf("Delay count mismatch for edge %s\n", e_name.c_str());
+            same = false;
+         } else {
+            for (size_t i = 0; i < e_info1.delays.size(); ++i) {
+               if (std::abs(e_info1.delays[i] - e_info2.delays[i]) > 1e-9) {
+                 printf("Delay mismatch for edge %s index %zu: %e vs %e\n", e_name.c_str(), i, e_info1.delays[i], e_info2.delays[i]);
+                 same = false;
+               }
+            }
+         }
+      }
+    }
+  }
+
+  return same;
 }
 
 void
@@ -474,7 +624,229 @@ TestLrf::testParallelResize(sta::dbSta* sta,
   incre_sta->localSta()->taskArranger()->printFailed();
 }
 
+void
+TestLrf::testParallelLrResizing(sta::dbSta* sta, 
+                            rsz::Resizer *resizer, 
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations)
+{
+  // Test parallel LR resizing
+  printf("----- Testing Parallel LR Resizing -----\n");
+  sta::Corner *corner = sta->corners()->findCorner("default");
+  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+  sta->searchPreamble();
+  sta->findRequireds();
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+  int thread_count = local_sta->threadCount();
+  incre_sta->setMaxResizeNum(max_resize_num); // Limit max resize number per iteration
+  printf("Thread count has set to %d\n", thread_count);
+  // Conduct iterative resizing
+  incre_sta->lmUpdate();
+  for (size_t i = 0; i < iterations; ++i) {
+    printf("----- LR Resizing Iteration %zu -----\n", i+1);
+    incre_sta->parallelResize(resizer);
+    incre_sta->lmUpdate();
 
+    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    // After resizing, evaluate timing and power
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+    sta::Slack tns = sta->totalNegativeSlack(sta::MinMax::max());
+    sta::Slack wns = sta->worstSlack(sta::MinMax::max());
+    float leakage = 0;
+    odb::dbSet<dbInst> insts = block->getInsts();
+    for (odb::dbInst *inst : insts) {
+      sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(inst);
+      if (!sta_inst) continue;
+      sta::PowerResult power_result = sta->power(sta_inst, corner);
+      leakage += power_result.leakage();
+    }
+    
+    printf("Worst Negative Slack: %f\n", wns * 1e12);
+    printf("Total Negative Slack: %f\n", tns * 1e12);
+    printf("Total Leakage Power: %f\n", leakage * 1e10);
+    fflush(stdout);
+  }
+}
+
+void
+TestLrf::testTimingComputeAndWriteBack(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block, const std::vector<odb::dbInst*> &db_insts)
+{
+  // Test timing compute and write back
+  printf("----- Testing Timing Compute and Write Back -----\n");
+  lrf::IncreSta *incre_sta = new IncreSta(sta, 1);
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+  // incre_sta->lmUpdate();
+  resizer->makeEquivCells();
+
+  std::vector<sta::Instance*> sta_insts;
+  for (auto *db_inst : db_insts) {
+    sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(db_inst);
+    sta_insts.push_back(sta_inst);
+  }
+
+  local_sta->initParallel();
+  float average_delay = incre_sta->averageDelayOnCritPath();
+  float average_leakage = incre_sta->averageLeakage();
+  lrf::ParallelLrVisitor *visitor = new lrf::ParallelLrVisitor(sta, local_sta);
+  visitor->setAverageDelay(average_delay);
+  visitor->setAverageLeakage(average_leakage);
+
+  std::unordered_map<sta::Instance*, TimingRecord> timing_record_map_opensta;
+  collectTimingInfoForInstancesUsingOpenSta(sta, resizer, block, sta_insts, timing_record_map_opensta);
+  std::unordered_map<sta::Instance*, TimingRecord> timing_record_map_localsta;
+  collectTimingInfoForInstancesUsingLocalSta(sta, resizer, block, sta_insts, timing_record_map_localsta);
+
+  compareTimingRecords(timing_record_map_opensta, timing_record_map_localsta, sta);
+}
+
+void 
+TestLrf::collectTimingInfoForInstancesUsingOpenSta(sta::dbSta* sta, 
+          rsz::Resizer *resizer, 
+          odb::dbBlock *block,
+          std::vector<sta::Instance*> &sta_insts,
+          std::unordered_map<sta::Instance*, TimingRecord> &instance_timing_map)
+{
+  lrf::IncreSta *incre_sta = new lrf::IncreSta(sta, 1);
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+
+  for (auto *sta_inst : sta_insts) {
+    /////////
+    TimingRecord inst_timing_record;
+    inst_timing_record.inst = sta_inst;
+    inst_timing_record.orig_cell = sta->network()->libertyCell(sta_inst);
+    /////////
+    sta::LibertyCell *orig_cell = sta->network()->libertyCell(sta_inst);
+    
+    if (!orig_cell) {
+      printf("Original cell not found for instance %s\n", sta->getDbNetwork()->name(sta_inst));
+      continue;
+    }
+    sta::LibertyCellSeq *equiv_cells = sta->equivCells(orig_cell);
+    sta::LibertyCellSeq legal_equiv_cells;
+    for (sta::LibertyCell *equiv_cell : *equiv_cells) {
+      if (sta::equivCellsArcs(orig_cell, equiv_cell)) {
+        legal_equiv_cells.push_back(equiv_cell);
+      }
+    }
+    if (legal_equiv_cells.size() < 2) {
+      printf("ParallelLrVisitor::visit no legal equiv cells for %s\n",
+             orig_cell->name());
+      fflush(stdout);
+      continue;
+    }
+
+    odb::dbMaster *orig_master = sta->getDbNetwork()->staToDb(orig_cell);
+
+    for (auto *equiv_cell : legal_equiv_cells) {
+      GraphTiming cell_graph_timing;
+      cell_graph_timing.cell = equiv_cell;
+
+      odb::dbMaster *master = sta->getDbNetwork()->staToDb(equiv_cell);
+      odb::dbInst *db_inst = sta->getDbNetwork()->staToDb(sta_inst);
+      db_inst->swapMaster(master);
+      sta->updateTiming(true);
+      sta->findRequireds();
+      lrf::PtGraph *pt_graph = local_sta->makePtGraph(sta_inst, true);
+
+      // We can further collect slacks here
+      recordGraphTimingFromPtGraph(sta, pt_graph, cell_graph_timing);
+      inst_timing_record.liberty_timing_map[std::string(equiv_cell->name())] = cell_graph_timing;
+    }
+    
+    // Restore original master
+    odb::dbInst *db_inst = sta->getDbNetwork()->staToDb(sta_inst);
+    if (db_inst->getMaster() != orig_master) {
+      db_inst->swapMaster(orig_master);
+      sta->updateTiming(true);
+      sta->findRequireds();
+    }
+
+    instance_timing_map[sta_inst] = inst_timing_record;
+  }
+  delete incre_sta;
+}
+
+void 
+TestLrf::collectTimingInfoForInstancesUsingLocalSta(sta::dbSta* sta, 
+  rsz::Resizer *resizer, 
+  odb::dbBlock *block, 
+  std::vector<sta::Instance*> &sta_insts, 
+  std::unordered_map<sta::Instance*, TimingRecord> &instance_timing_map)
+{
+  lrf::IncreSta *incre_sta = new lrf::IncreSta(sta, 1);
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+
+  lrf::ParallelLrVisitor *visitor = new lrf::ParallelLrVisitor(sta, local_sta);
+  visitor->setAverageDelay(incre_sta->averageDelayOnCritPath());
+  visitor->setAverageLeakage(incre_sta->averageLeakage());
+  for (auto *sta_inst : sta_insts) {
+    printf("Visiting instance %s using ParallelLrVisitor\n", 
+            sta->getDbNetwork()->name(sta_inst));
+    fflush(stdout);
+    TimingRecord inst_timing_record;
+    inst_timing_record.inst = sta_inst;
+    inst_timing_record.orig_cell = sta->network()->libertyCell(sta_inst);
+    visitor->visit(sta_inst, inst_timing_record);
+    visitor->applyChangesToDb(resizer);
+
+    instance_timing_map[sta_inst] = inst_timing_record;
+
+    PtGraph *pt_graph_visitor = visitor->ptGraph();
+    PtGraph *pt_graph_temp = local_sta->makePtGraph(sta_inst, false);
+    if (!comparePtGraphs(pt_graph_visitor, pt_graph_temp, sta)) {
+      throw std::runtime_error("PtGraph from ParallelLrVisitor does not match that from LocalSta");
+    }
+  }
+  delete visitor;
+  delete incre_sta;
+}
+
+void TestLrf::recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing)
+{
+  printf("OpenSta::Recording Graph Timing from PtGraph for cell %s\n", 
+          graph_timing.cell ? graph_timing.cell->name() : "nullptr");
+  fflush(stdout);
+  // First copy slews and paths from pt_graph's vertex to graph_timing
+  for (PtVertex &pt_vertex : pt_graph->ptVertices()) {
+    if (!pt_vertex.vertex()) continue;
+    // First copy slews from pt_vertex to graph_timing
+    std::string vertex_name = pt_vertex.vertex()->name(sta->network());
+    TimingInfo vertex_timing_info;
+    vertex_timing_info.type = TimingType::VERTEX;
+    const sta::Slew *slews = pt_vertex.slews();
+    vertex_timing_info.slews.clear();
+    for (int i = 0; i < pt_vertex.slewCount(); ++i) {
+      vertex_timing_info.slews.push_back(slews[i]);
+    }
+    // Then copy paths (including arrivals and requireds)
+    sta::Path *pt_paths = pt_vertex.paths();
+    vertex_timing_info.paths.clear();
+    int path_count = pt_graph->tagGroup(pt_vertex)->pathCount();
+    for (int i = 0; i < path_count; ++i) {
+      sta::Path path = pt_paths[i];
+      vertex_timing_info.paths.push_back(path);
+    }
+    graph_timing.vertex_timing_map[vertex_name] = vertex_timing_info;
+  }
+
+  // Second copy delays from pt_graph's edges to graph_timing
+  for (const PtEdge &pt_edge : pt_graph->ptEdges()) {
+    if (!pt_edge.edge()) continue;
+    // First copy delays from pt_edge to graph_timing
+    std::string edge_name = pt_edge.edge()->to_string(sta->network());
+    TimingInfo edge_timing_info;
+    edge_timing_info.type = TimingType::EDGE;
+    const sta::ArcDelay *delays = pt_edge.arcDelays();
+    for (int i = 0; i < pt_edge.arcDelayCount(); ++i) {
+      edge_timing_info.delays.push_back(delays[i]);
+    }
+    graph_timing.edge_timing_map[edge_name] = edge_timing_info;
+  }
+}
 
 
 }  // namespace lrf

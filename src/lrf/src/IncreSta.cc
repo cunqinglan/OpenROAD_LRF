@@ -3,6 +3,7 @@
 #include "LrHelper.hh"
 #include "sta/Liberty.hh"
 #include "sta/Path.hh"
+#include "sta/Corner.hh"
 #include "sta/PathExpanded.hh"
 #include "sta/Search.hh"
 #include "sta/DcalcAnalysisPt.hh"
@@ -19,7 +20,18 @@ IncreSta::IncreSta(dbSta *db_sta)
     : local_sta_(nullptr),
       lr_helper_(nullptr)
 {
-  db_sta->setThreadCount(3);
+  db_sta->setThreadCount(1);
+  dbStaState::init(db_sta);
+  makeLocalSta();
+  makeLRHelper();
+  swappable_cells_cache_.clear();
+}
+
+IncreSta::IncreSta(dbSta *db_sta, size_t thread_count)
+    : local_sta_(nullptr),
+      lr_helper_(nullptr)
+{
+  db_sta->setThreadCount(thread_count);
   dbStaState::init(db_sta);
   makeLocalSta();
   makeLRHelper();
@@ -100,11 +112,21 @@ IncreSta::delayLmSum(Instance *inst, const MinMax *minmax, float &delay_lambda_s
 void 
 IncreSta::lmUpdate()
 {
+  printf("DEBUG: IncreSta::lmUpdate start\n");
+  fflush(stdout);
   init();
+  printf("DEBUG: IncreSta::lmUpdate init done\n");
+  fflush(stdout);
   if (projected_) {
+    printf("DEBUG: IncreSta::lmUpdate calling updateAllEdgeLms\n");
+    fflush(stdout);
     lr_helper_->updateAllEdgeLms(sta_);
+    printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (projected_)\n");
+    fflush(stdout);
     lr_helper_->KKTProjection(sta_);
   } else {
+    printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (else)\n");
+    fflush(stdout);
     bool kkt_satisfied = lr_helper_->KKTProjection(sta_);
     if (kkt_satisfied)
       projected_ = true;
@@ -113,6 +135,8 @@ IncreSta::lmUpdate()
       fflush(stdout);
     }
   }
+    printf("DEBUG: IncreSta::lmUpdate end\n");
+    fflush(stdout);
 }
 
 bool
@@ -161,6 +185,26 @@ IncreSta::averageDelayOnCritPath() {
   return (worst_arrival / path_length);
 }
 
+float
+IncreSta::averageLeakage()
+{
+  float total_leakage = 0.0;
+  int cnt = 0;
+  sta::Corner *corner = sta_->corners()->findCorner("default");
+  sta::LeafInstanceIterator* inst_iter = network_->leafInstanceIterator();
+  while (inst_iter->hasNext()) {
+    sta::Instance* inst = inst_iter->next();
+    sta::LibertyCell *cell = network_->libertyCell(inst);
+    if (cell) {
+      sta::PowerResult power_result = sta_->power(inst, corner);
+      total_leakage += power_result.leakage();
+      cnt++;
+    }
+  }
+  delete inst_iter;
+  return total_leakage / cnt;
+}
+
 void 
 IncreSta::setLocalStaParasiticsEst(est::EstimateParasitics *estimate_parasitics)
 {
@@ -185,7 +229,15 @@ IncreSta::parallelResize(rsz::Resizer *resizer)
 {
   // We first create a serials of instance visitors
   local_sta_->initParallel();
-  local_sta_->runResize(resizer);
+  float average_delay = averageDelayOnCritPath();
+  float average_power = averageLeakage();
+  local_sta_->runResize(resizer, average_delay, average_power);
+}
+
+void
+IncreSta::setMaxResizeNum(size_t max_resize_num)
+{
+  local_sta_->taskArranger()->setMaxResizeNum(max_resize_num);
 }
 
 } // namespace lrf

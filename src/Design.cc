@@ -404,7 +404,7 @@ Design::swapInstMaster(odb::dbInst* inst, odb::dbMaster* new_master)
 {
   auto db_iterms = inst->getITerms();
   for (auto *db_iterm : db_iterms) {
-    if (db_iterm) {
+    if (!db_iterm) {
       int x, y;
       db_iterm->getAvgXY(&x, &y);
       printf("Warning: Instance %s ITerm %s at (%d, %d) has no STA mapping\n",
@@ -422,7 +422,7 @@ Design::swapInstMaster(odb::dbInst* inst, odb::dbMaster* new_master)
   printf("After swapMaster\n");
   fflush(stdout);
   for (auto *db_iterm : db_iterms) {
-    if (db_iterm) {
+    if (!db_iterm) {
       int x, y;
       db_iterm->getAvgXY(&x, &y);
       printf("Warning: Instance %s ITerm %s at (%d, %d) has no STA mapping\n",
