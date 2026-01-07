@@ -35,7 +35,7 @@ class SearchPredNonReg2AbcSupport : public sta::SearchPredNonReg2
   }
   bool searchThru(sta::Edge* edge) override;
 
- private:
+protected:
   AbcLibrary* abc_library_;
   sta::Graph* graph_;
 };
@@ -50,7 +50,7 @@ class LogicExtractorFactory
   LogicExtractorFactory& AppendEndpoint(sta::Vertex* vertex);
   LogicCut BuildLogicCut(AbcLibrary& abc_network);
 
- private:
+protected:
   // Process vertices from BFS STA output to find the primary inputs.
   std::vector<sta::Pin*> GetPrimaryInputs(
       std::vector<sta::Vertex*>& cut_vertices);
