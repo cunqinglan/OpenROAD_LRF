@@ -28,6 +28,8 @@
 #include "utl/Logger.h"
 #include "sta/DcalcAnalysisPt.hh"
 
+#include "rmp/SeqRemapper.hh"
+
 namespace ord {
 
 Timing::Timing(Design* design) : design_(design)
@@ -550,5 +552,30 @@ float Timing::leakagePower(odb::dbInst* inst, odb::dbMaster* master, sta::Corner
 //   sta::dbSta* sta = getSta();
 //   sta->lmUpdate();
 // }
+
+
+// Test functions of Seqremapper
+void Timing::testSeqRemapper()
+{
+  sta::dbSta* sta = getSta();
+  odb::dbDatabase* db = design_->getDb();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::Corner * corner = sta->findCorner("default");
+  utl::Logger* logger = design_->getLogger();
+  gpl::Replace* replace = design_->getReplace();
+  dpl::Opendp* opendp = design_->getOpendp();
+  est::EstimateParasitics* est = design_->getOpenRoad()->getEstimateParasitics();
+
+  // Constructor signature is (sta, db, corner, resizer, logger, gpl, dpl, est)
+  // Fix argument order (was resizer, corner) to match `SeqRemapper` definition.
+  rmp::SeqRemapper remapper(
+    sta, db, corner, resizer, logger, replace, opendp, est);
+  remapper.runOpt();
+
+}
+
+
+
+
 
 }  // namespace ord

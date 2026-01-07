@@ -104,6 +104,9 @@ class Timing
   // End functions for LR sizing
   /////////////////////////////////////////////////////////////
 
+  // Test functions of Seqremapper
+  void testSeqRemapper();
+
  private:
   sta::dbSta* getSta();
   const sta::MinMax* getMinMax(MinMax type);
