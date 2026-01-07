@@ -9,6 +9,7 @@
 #include "sta/Delay.hh"
 #include "sta/TimingArc.hh"
 #include "sta/Map.hh"
+#include "lrf/LrfClass.hh"
 
 namespace sta {
 class Sta;
@@ -25,35 +26,6 @@ using sta::EdgeId;
 // Sentinel ids matching sta usage.
 static constexpr EdgeId pt_edge_id_null = 0;
 static constexpr VertexId pt_vertex_id_null = 0;
-
-class PtEdge;
-class PtVertex;
-
-typedef std::vector<PtEdge> PtEdgeSeq;
-typedef std::vector<PtVertex> PtVertexSeq;
-typedef std::map<const sta::Vertex*, sta::VertexId> VertexPtToIdMap;
-
-
-enum class PtVertexType : uint8_t {
-  RefDriver, // vertices that drive the reference instance, should update parasitics of the these vertices
-  RefInput,  // fanin vertices of the reference instance
-  RefOutput, // fanout vertices of the reference instance
-  None
-};
-
-enum class PtEdgeType : uint8_t {
-  RefInstEdge, // edges that belong to the reference instance
-  None
-};
-
-enum class PinType : uint8_t {
-  NONE,
-  DRIVER,
-  LOAD,
-  INPUT,
-  OUTPUT,
-  BIDIRECT
-};
 
 
 class PtGraph {
@@ -115,6 +87,9 @@ public:
   sta::ArcDelay arcDelay (const PtEdge &pt_edge,
                           const sta::TimingArc *arc,
                           sta::DcalcAPIndex ap_index) const;
+  float arcLm(const PtEdge &pt_edge,
+                     const sta::TimingArc *timing_arc,
+                     sta::DcalcAPIndex ap_index) const;
   const sta::Slew &slew(const PtVertex &pt_vertex,
                         const sta::RiseFall *rf,
                         sta::DcalcAPIndex ap_index);
@@ -135,6 +110,9 @@ public:
                   bool avoid_check = true);
   void delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap, float &delay_lambda_sum,
                   bool avoid_check = true);
+  void delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
+                  DelayLmSumResult *result, 
+                  bool collect_vecs = true);
   sta::Level vertexLevel(sta::VertexId vertex_id) const;
   sta::Level topVertexLevel();
   void createParasiticsNetworks();
@@ -189,6 +167,7 @@ public:
 
   sta::ArcDelay *arcDelays() { return arc_delays_.empty() ? nullptr : arc_delays_.data(); }
   const sta::ArcDelay *arcDelays() const { return arc_delays_.empty() ? nullptr : arc_delays_.data(); }
+  size_t arcDelayCount() const { return arc_delays_.size(); }
   sta::Edge *edge() { return edge_; }
   const sta::Edge *edge() const { return edge_; }
   sta::VertexId ptFromId() const { return pt_from_; }
@@ -247,7 +226,7 @@ public:
   void setType(PtVertexType type) { type_ = type; }
   PtVertexType type() const { return type_; }
   sta::Pin *pin() const { return vertex_->pin(); }
-  void setTagGroupIndex(size_t index) { tag_group_index_ = index; }
+  void setTagGroupIndex(int index) { tag_group_index_ = index; }
   size_t tagGroupIndex() const { return tag_group_index_; }
   sta::Path *paths() const { return paths_; }
   void setPaths(sta::Path *paths);
@@ -265,7 +244,7 @@ protected:
   std::vector<sta::Slew> slews_;
   bool is_root_{};
   PtVertexType type_{PtVertexType::None};
-  size_t tag_group_index_ {0};
+  int tag_group_index_ {0};
   sta::Path *paths_ = nullptr;
   bool is_driver_{false}; 
   bool is_load_{false};

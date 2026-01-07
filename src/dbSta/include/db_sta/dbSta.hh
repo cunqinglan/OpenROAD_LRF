@@ -182,7 +182,7 @@ class dbSta : public Sta, public odb::dbDatabaseObserver
 
   // Create incremental STA engine
   void makeIncreSta();
-  lrf::IncreSta* getIncreSta() { return incre_sta_; }
+  lrf::IncreSta* getIncreSta();
 
   dbDatabase* db() { return db_; }
   dbNetwork* getDbNetwork() { return db_network_; }

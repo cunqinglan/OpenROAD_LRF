@@ -88,7 +88,7 @@ public:
 
   // Functions for parallel LR
   void initParallel();
-  void runResize(rsz::Resizer *resizer);
+  void runResize(rsz::Resizer *resizer, float average_delay = 1, float average_leakage = 1);
 
 protected:
   void collectLocalFanouts(Pin *drvr_pin, InstanceSet &local_instances);
@@ -186,10 +186,13 @@ protected:
   
   float delayLmSum(Instance *inst, const MinMax *minmax);
   float delayLmSum(PtGraph *pt_graph, DcalcAnalysisPt *dcalc_ap);
+  DelayLmSumResult delayLmSum(PtGraph *pt_graph,
+                     DcalcAnalysisPt *dcalc_ap, 
+                     bool collect_vecs);
   void graphPop();
   void setSta(dbSta *sta) { sta_ = sta; }
-  LocalCost initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
-  LocalCost increAndGetLocalTimingCost(PtGraph *pt_graph, 
+  DelayLmSumResult initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
+  DelayLmSumResult increAndGetLocalTimingCost(PtGraph *pt_graph, 
                                     ArcDelayCalc *arc_delay_calc,
                                     LibertyCell *equiv_cell);
   Slack localSlackAroundRef(PtGraph *pt_graph);

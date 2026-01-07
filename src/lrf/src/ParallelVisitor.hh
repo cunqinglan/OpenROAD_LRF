@@ -5,6 +5,7 @@
 #include "sta/GraphClass.hh"
 #include "sta/Delay.hh"
 #include "LibertyClass.hh"
+#include "lrf/LrfClass.hh"
 
 namespace sta {
   class ArcDelayCalc;
@@ -27,7 +28,8 @@ class ParallelLrVisitor
 public:
   ParallelLrVisitor(sta::dbSta *db_sta, LocalSta *local_sta);
   virtual ~ParallelLrVisitor();
-  virtual void visit(sta::Instance *inst);
+  virtual bool visit(sta::Instance *inst);
+  bool visit(sta::Instance *inst, TimingRecord &timing_record);
   // Apply cell type changes to OpenROAD and OpenSTA, and 
   // update timing information from PtGraph to sta::Graph.
   virtual void applyChangesToDb(rsz::Resizer *resizer);
@@ -41,8 +43,13 @@ public:
   PtGraph *ptGraph() const { return pt_graph_; }
   sta::Instance *refInst() const { return ref_inst_; }
   sta::LibertyCell *bestCell() const { return best_cell_; }
+  void setAverageDelay(float avg_delay) { average_delay_ = avg_delay; }
+  void setAverageLeakage(float avg_leakage) { average_leakage_ = avg_leakage; }
 
 protected:  
+  void recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing);
+
+
   sta::dbSta *db_sta_;
   sta::Instance *ref_inst_;
   LocalSta *local_sta_;
@@ -51,6 +58,8 @@ protected:
   sta::Slack slack_before_swap_;
   std::vector<std::string> visited_instances_;
   sta::LibertyCell *best_cell_ = nullptr;
+  float average_delay_ = 1.0;
+  float average_leakage_ = 1.0;
 };
 
 

@@ -156,9 +156,9 @@ LocalArrivalVisitor::findVertexArrival(PtVertex &pt_vertex)
     
   bool is_clk = tag_bldr_->hasClkTag();
   if (vertex->isRegClk() && !is_clk) {
-    printf("WARNING: Local arrival analysis found reg clk vertex %s without clk tag\n",
-           network_->name(pin));
-    fflush(stdout);
+    // printf("WARNING: Local arrival analysis found reg clk vertex %s without clk tag\n",
+    //        network_->name(pin));
+    // fflush(stdout);
     arrival_changed = false;
     // search_->makeUnclkedPaths(vertex, true, false, tag_bldr_);
   }
@@ -212,6 +212,8 @@ bool
 LocalPathVisitor::localVisitEdge(PtVertex &from_pt_vertex, 
                         PtEdge &pt_edge, PtVertex &to_pt_vertex)
 {
+  if (from_pt_vertex.tagGroupIndex() == sta::tag_group_index_max)
+    return true; 
   TagGroup *from_tag_group = 
               search_->tagGroup(from_pt_vertex.tagGroupIndex());
   if (from_tag_group) {
@@ -231,8 +233,6 @@ LocalPathVisitor::localVisitEdge(PtVertex &from_pt_vertex,
                          arc2, to_pt_vertex, min_max, from_path_ap))
         return false;
     }
-  } else {
-    throw std::runtime_error("Local arrival analysis found from vertex without tag group");
   }
   return true;
 }
@@ -439,9 +439,6 @@ LocalRequiredCmp::requiredsInit(PtVertex &pt_vertex,
       const MinMax *min_max = path_ap->pathMinMax();
       requireds_[path_index] = delayInitValue(min_max->opposite());
     }
-  } else {
-    throw std::runtime_error("LocalRequiredCmp::requiredsInit: No tag group found");
-    return;
   }
   have_requireds_ = false;
 }
@@ -511,6 +508,10 @@ void
 LocalRequiredVisitor::findVertexRequired(VertexId vertex_id)
 {
   PtVertex &pt_vertex = pt_graph_->ptVertex(vertex_id);
+  if (pt_vertex.vertex() == nullptr)
+    return;
+  if (pt_vertex.tagGroupIndex() == sta::tag_group_index_max)
+    return;
   if (!pt_vertex.hasFanout())
     seedLocalRootRequireds(pt_vertex);
   else

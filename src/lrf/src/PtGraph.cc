@@ -11,6 +11,7 @@
 #include "sta/Sdc.hh"
 #include "sta/Search.hh"
 #include "search/TagGroup.hh"
+#include "LocalSta.hh"
 
 namespace lrf {
 
@@ -258,6 +259,14 @@ PtGraph::initPaths(PtVertex &pt_vertex)
 {
   sta::Vertex *vertex = pt_vertex.vertex();
   sta::TagGroup *tag_group = sta_->search()->tagGroup(vertex);
+  if (tag_group == nullptr) {
+    printf("PtGraph::initPaths: vertex %s has no tag group\n",
+           sta_->network()->name(vertex->pin()));
+    fflush(stdout);
+    pt_vertex.setPaths(nullptr);
+    pt_vertex.setTagGroupIndex(sta::tag_group_index_max);
+    return;
+  }
   size_t path_count = tag_group->pathCount();
   sta::Path *paths = vertex->paths();
   sta::Path *new_paths = new sta::Path[path_count];
@@ -439,6 +448,23 @@ PtGraph::wireArcDelay(const PtEdge &pt_edge,
   return arc_delays[index];
 }
 
+float 
+PtGraph::arcLm(const PtEdge &pt_edge,
+                     const sta::TimingArc *timing_arc,
+                     sta::DcalcAPIndex ap_index) const
+{
+  if (pt_edge.edge()) {
+    size_t lm_index = lmIndex(timing_arc, ap_count_, ap_index);
+    sta::LMValue *lms = pt_edge.edge()->arcLms();
+    if (lms == nullptr) {
+      throw std::runtime_error("PtGraph::arcLm: edge has no lm values");
+    }
+    return lms[lm_index];
+  }
+  throw std::runtime_error("PtGraph::arcLm: pt_edge has no edge");
+}
+
+
 void
 PtGraph::setArcDelay(PtEdge &pt_edge, 
                     const sta::TimingArc *arc,
@@ -539,7 +565,7 @@ PtGraph::delayLmSum(const sta::MinMax *minmax, float &delay_lambda_sum, bool avo
       if (delay_min_max != minmax)
         continue;
 for (sta::TimingArc *timing_arc : pt_edge.edge()->timingArcSet()->arcs()) {
-  size_t lm_index = dcalc_ap->index() * ap_count_ + timing_arc->index();
+  size_t lm_index = lmIndex(timing_arc, ap_count_, ap_index);
   const ArcDelay &arc_delay = arcDelay(pt_edge, timing_arc, ap_index);
   Edge *edge = pt_edge.edge();
   if (avoid_check && (edge->role()->isTimingCheck()))
@@ -569,7 +595,7 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
     if (pt_edge.edge() == nullptr)
       continue;
   for (sta::TimingArc *timing_arc : pt_edge.edge()->timingArcSet()->arcs()) {
-      size_t lm_index = ap_index * ap_count_ + timing_arc->index();
+      size_t lm_index = lmIndex(timing_arc, ap_count_, ap_index);
       const ArcDelay &arc_delay = arcDelay(pt_edge, timing_arc, ap_index);
       Edge *edge = pt_edge.edge();
       if (avoid_check && (edge->role()->isTimingCheck()))
@@ -583,6 +609,44 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
       }
   sta::LMValue arc_lm = lms[lm_index];
       delay_lambda_sum += arc_delay * arc_lm;
+    }
+  }
+}
+
+void
+PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap, 
+                    DelayLmSumResult *result,
+                    bool collect_vecs)
+{
+  if (result == nullptr)
+    return;
+
+  const sta::DcalcAPIndex ap_index = dcalc_ap->index();
+  result->delay_lm_sum = 0.0f;
+  if (collect_vecs) {
+    result->vec_lms.clear();
+    result->vec_delays.clear();
+  }
+  for (PtEdge &pt_edge : pt_edges_) {
+    if (pt_edge.edge() == nullptr)
+      continue;
+    for (sta::TimingArc *timing_arc : pt_edge.edge()->timingArcSet()->arcs()) {
+      size_t lm_index = lmIndex(timing_arc, ap_count_, ap_index);
+      const ArcDelay &arc_delay = arcDelay(pt_edge, timing_arc, ap_index);
+      Edge *edge = pt_edge.edge();
+      sta::LMValue *lms = edge->arcLms();
+      if (lms == nullptr) {
+        printf("PtGraph::delayLmSum: edge %s has no lm values\n",
+               edge->to_string(sta_->graph()).c_str());
+        fflush(stdout);
+        continue;
+      }
+      sta::LMValue arc_lm = lms[lm_index];
+      result->delay_lm_sum += arc_delay * arc_lm;
+      if (collect_vecs) {
+        result->vec_lms.push_back(arc_lm);
+        result->vec_delays.push_back(arc_delay);
+      }
     }
   }
 }

@@ -519,7 +519,6 @@ Timing::averageDelayOnCritPath() {
 }
 
 
-
 ////////////////////////////////////////////
 // Functions of testing IncreSta
 ////////////////////////////////////////////
@@ -589,6 +588,30 @@ Timing::testParallelResize() {
   printf("Starting testParallelResize\n");
   fflush(stdout);
   test_lrf.testParallelResize(sta, resizer, design_->getBlock());
+}
+
+void
+Timing::testParallelLrResizing(size_t thread_num, size_t max_resize_num, size_t iterations) {
+  printf("Starting testParallelLrResizing with %zu threads\n", thread_num);
+  printf("First compute all parasitic networks...\n");
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  printf("Starting testParallelLrResizing\n");
+  fflush(stdout);
+  test_lrf.testParallelLrResizing(sta, resizer, design_->getBlock(), thread_num, max_resize_num, iterations);
+}
+
+void 
+Timing::testTimingComputeAndWriteBack(const std::vector<odb::dbInst*> &insts)
+{
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testTimingComputeAndWriteBack(sta, resizer, design_->getBlock(), insts);
 }
 
 }  // namespace ord

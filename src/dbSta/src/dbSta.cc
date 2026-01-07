@@ -276,6 +276,14 @@ void dbSta::makeSdcNetwork()
   sdc_network_ = new dbSdcNetwork(network_);
 }
 
+lrf::IncreSta* dbSta::getIncreSta()
+{
+  if (!incre_sta_) {
+    makeIncreSta();
+  }
+  return incre_sta_;
+}
+
 void dbSta::makeIncreSta()
 {
   if (incre_sta_)
