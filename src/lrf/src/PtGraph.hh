@@ -98,6 +98,8 @@ public:
                                     sta::DcalcAPIndex ap_index);
   // Output informations of the PtGraph for debug purpose
   std::string to_string();
+  void printGraph(bool dot_format = false);
+  void printGraph(const char *output_path, bool dot_format = false);
   void printDelays();
   void printSlews();
   void printCapacitances();

@@ -97,6 +97,7 @@ struct TimingInfo {
   std::vector<sta::Slew> slews;
   std::vector<sta::Path> paths;
   std::vector<sta::Delay> delays;
+  sta::TagGroupIndex tag_group_index = sta::tag_group_index_max;
 };
 
 struct GraphTiming {
