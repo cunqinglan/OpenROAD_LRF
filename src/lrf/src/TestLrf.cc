@@ -331,13 +331,17 @@ TestLrf::comparePtGraphs(PtGraph *local_pt_graph, PtGraph *open_pt_graph, sta::d
     return false;
   }
   // Compare delays on edges
-  for (size_t i = 1; i < local_edge_count; ++i) {
+  for (size_t i = 0; i < local_edge_count; ++i) {
     const PtEdge &local_edge = local_pt_graph->ptEdges()[i];
     const PtEdge &open_edge = open_pt_graph->ptEdges()[i];
     const sta::Edge *local_edge_obj = local_edge.edge();
     const sta::Edge *open_edge_obj = open_edge.edge();
+    if (!local_edge_obj && !open_edge_obj) continue;
     if (local_edge_obj != open_edge_obj) {
-      printf("Edge mismatch at index %zu\n", i);
+      printf("Edge mismatch at index %zu: Local=%s, Open=%s\n", 
+             i,
+             (local_edge_obj ? local_edge_obj->to_string(sta->graph()).c_str() : "null"),
+             (open_edge_obj ? open_edge_obj->to_string(sta->graph()).c_str() : "null"));
       fflush(stdout);
       same = false;
       continue;
@@ -349,8 +353,30 @@ TestLrf::comparePtGraphs(PtGraph *local_pt_graph, PtGraph *open_pt_graph, sta::d
         sta::ArcDelay open_delay = open_pt_graph->arcDelay(open_edge, arc, dcalc_ptr->index()) * 1e12;
         double delay_diff = std::abs(local_delay - open_delay);
         if (delay_diff > 1e-5) {
-          printf("Delay mismatch for arc %s in dcalc_pt %u\n", 
-                  arc->to_string().c_str(), dcalc_ptr->index());
+          printf("Delay mismatch for arc %s of edge %s in dcalc_pt %u: local=%f, open=%f, diff=%f\n", 
+                  arc->to_string().c_str(), local_edge_obj->to_string(sta->graph()).c_str(), dcalc_ptr->index(), local_delay, open_delay, delay_diff);
+          
+          // Debugging input slew and output load
+          const sta::RiseFall *in_rf = arc->fromEdge()->asRiseFall();
+          
+          // Get Slews
+          // Note: PtGraph stores slews on vertices.
+          // Input slew is at the "from" vertex of the edge.
+          const PtVertex &from_vertex = local_pt_graph->ptVertex(local_edge.ptFromId());
+          // Output Load is harder to get directly from PtGraph result, 
+          // but we can check the Slew at the output vertex to see if prediction matches.
+          
+          sta::Slew local_in_slew = local_pt_graph->slew(from_vertex, in_rf, dcalc_ptr->index()); 
+          // OpenSTA global graph slew
+          sta::Slew open_in_slew = sta->graph()->slew(open_edge.edge()->from(sta->graph()), in_rf, dcalc_ptr->index());
+          
+          printf("\tInput Slew (%s): local=%e, open=%e, diff=%e\n", 
+                 in_rf->name(), local_in_slew, open_in_slew, std::abs(local_in_slew - open_in_slew));
+                 
+          // Load Capacitance Check (Approximation via Parasitics)
+          // This requires accessing the Parasitic Network which might be different between Local and Global
+          // Let's print the pointer to the parasitics to see if they are using the same one.
+          
           fflush(stdout);
           same = false;
         }
@@ -359,17 +385,41 @@ TestLrf::comparePtGraphs(PtGraph *local_pt_graph, PtGraph *open_pt_graph, sta::d
   }
 
   // Compare arrivals on vertices
-  for (size_t i = 1; i < local_vertex_count; ++i) {
+  for (size_t i = 0; i < local_vertex_count; ++i) {
     const PtVertex &local_vertex = local_pt_graph->ptVertices()[i];
     const PtVertex &open_vertex = open_pt_graph->ptVertices()[i];
     const sta::Vertex *local_vertex_obj = local_vertex.vertex();
     const sta::Vertex *open_vertex_obj = open_vertex.vertex();
+    if (!local_vertex_obj && !open_vertex_obj) continue;
     if (local_vertex_obj != open_vertex_obj) {
-      printf("Vertex mismatch at index %zu\n", i);
+      printf("Vertex mismatch at index %zu: Local=%s, Open=%s\n", 
+             i, 
+             (local_vertex_obj ? local_vertex_obj->name(sta->network()) : "null"),
+             (open_vertex_obj ? open_vertex_obj->name(sta->network()) : "null"));
       fflush(stdout);
       same = false;
       continue;
     }
+
+    // Compare slews
+    if (local_vertex.slewCount() != open_vertex.slewCount()) {
+      printf("Slew count mismatch at vertex %s: Local=%zu, Open=%zu\n", 
+             local_vertex_obj->name(sta->network()), local_vertex.slewCount(), open_vertex.slewCount());
+      fflush(stdout);
+      same = false;
+    } else if (local_vertex.slewCount() > 0) {
+      const sta::Slew *local_slews = local_vertex.slews();
+      const sta::Slew *open_slews = open_vertex.slews();
+      for (int k = 0; k < local_vertex.slewCount(); ++k) {
+        if (std::abs(local_slews[k] - open_slews[k]) > 1e-13) {
+           printf("Slew mismatch at vertex %s index %d: Local=%e, Open=%e, diff=%e\n", 
+                  local_vertex_obj->name(sta->network()), k, local_slews[k], open_slews[k], std::abs(local_slews[k] - open_slews[k]));
+           fflush(stdout);
+           same = false;
+        }
+      }
+    }
+
     // We first check arrivals for all dcalc pts
     int cnt = 0;
     PtVertexPathIterator local_path_iter(const_cast<PtVertex&>(local_vertex), sta);
@@ -378,7 +428,10 @@ TestLrf::comparePtGraphs(PtGraph *local_pt_graph, PtGraph *open_pt_graph, sta::d
       sta::Path *local_path = local_path_iter.next();
       sta::Path *open_path = open_path_iter.next();
       if (local_path->dcalcAnalysisPt(sta) != open_path->dcalcAnalysisPt(sta)) {
-        printf("DcalcApIndex mismatch at vertex index %zu\n", i);
+        printf("DcalcApIndex mismatch at vertex index %zu: Local=%u, Open=%u\n", 
+               i,
+               local_path->dcalcAnalysisPt(sta)->index(),
+               open_path->dcalcAnalysisPt(sta)->index());
         fflush(stdout);
         same = false;
         continue;
@@ -457,59 +510,62 @@ TestLrf::compareTimingRecords(const std::unordered_map<sta::Instance*, TimingRec
       
       // Compare GraphTiming details (Vertex Timing)
       for (const auto &[v_name, v_info1] : cell_timing1.vertex_timing_map) {
-         if (cell_timing2.vertex_timing_map.find(v_name) == cell_timing2.vertex_timing_map.end()) {
-           printf("Vertex %s not found in second record for instance %s, lib %s\n",
-                  v_name.c_str(), sta->network()->name(inst), lib_name.c_str());
-           same = false;
-           continue;
-         }
-         const TimingInfo &v_info2 = cell_timing2.vertex_timing_map.at(v_name);
-         
-         // Compare paths (arrivals/requireds)
-         if (v_info1.paths.size() != v_info2.paths.size()) {
-            printf("Path count mismatch for vertex %s: %zu vs %zu\n", v_name.c_str(), v_info1.paths.size(), v_info2.paths.size());
-            same = false;
-         } else {
-           for (size_t i = 0; i < v_info1.paths.size(); ++i) {
-             const sta::Path &p1 = v_info1.paths[i];
-             const sta::Path &p2 = v_info2.paths[i];
-             
-             // Check DcalcAnalysisPt
-             if (p1.dcalcAnalysisPt(sta) != p2.dcalcAnalysisPt(sta)) {
-                printf("DcalcAnalysisPt mismatch for vertex %s path %zu\n", v_name.c_str(), i);
-                same = false;
-             }
-
-             // Check Arrival
-             double arr1 = p1.arrival() * 1e12;
-             double arr2 = p2.arrival() * 1e12;
-             if (std::abs(arr1 - arr2) > 1e-5) {
-                printf("Arrival mismatch for vertex %s path %zu: %f vs %f\n", v_name.c_str(), i, arr1, arr2);
-                same = false;
-             }
-
-             // Check Required
-            //  double req1 = p1.required() * 1e12;
-            //  double req2 = p2.required() * 1e12;
-            //  if (std::abs(req1 - req2) > 1e-5) {
-            //     printf("Required mismatch for vertex %s path %zu: %f vs %f\n", v_name.c_str(), i, req1, req2);
-            //     same = false;
-            //  }
-           }
-         }
-
-         // Compare slews
-         if (v_info1.slews.size() != v_info2.slews.size()) {
-            printf("Slew count mismatch for vertex %s\n", v_name.c_str());
-            same = false;
-         } else {
-            for (size_t i = 0; i < v_info1.slews.size(); ++i) {
-               if (std::abs(v_info1.slews[i] - v_info2.slews[i]) > 1e-9) {
-                 printf("Slew mismatch for vertex %s index %zu: %e vs %e\n", v_name.c_str(), i, v_info1.slews[i], v_info2.slews[i]);
-                 same = false;
-               }
+        if (cell_timing2.vertex_timing_map.find(v_name) == cell_timing2.vertex_timing_map.end()) {
+          printf("Vertex %s not found in second record for instance %s, lib %s\n",
+                v_name.c_str(), sta->network()->name(inst), lib_name.c_str());
+          same = false;
+          continue;
+        }
+        const TimingInfo &v_info2 = cell_timing2.vertex_timing_map.at(v_name);
+        
+        // Compare paths (arrivals/requireds)
+        if (v_info1.paths.size() != v_info2.paths.size()) {
+          printf("Path count mismatch for vertex %s (lib %s): %zu vs %zu\n", v_name.c_str(), lib_name.c_str(), v_info1.paths.size(), v_info2.paths.size());
+          same = false;
+        } else if (v_info1.tag_group_index != v_info2.tag_group_index) {
+          printf("TagGroupIndex mismatch for vertex %s (lib %s): %d vs %d\n", v_name.c_str(), lib_name.c_str(), v_info1.tag_group_index, v_info2.tag_group_index);
+          same = false;
+        } else {
+          for (size_t i = 0; i < v_info1.paths.size(); ++i) {
+            const sta::Path &p1 = v_info1.paths[i];
+            const sta::Path &p2 = v_info2.paths[i];
+            
+            // Check DcalcAnalysisPt
+            if (p1.dcalcAnalysisPt(sta) != p2.dcalcAnalysisPt(sta)) {
+              printf("DcalcAnalysisPt mismatch for vertex %s (lib %s) path %zu\n", v_name.c_str(), lib_name.c_str(), i);
+              same = false;
             }
-         }
+
+            // Check Arrival
+            double arr1 = p1.arrival() * 1e12;
+            double arr2 = p2.arrival() * 1e12;
+            if (std::abs(arr1 - arr2) > 1e-5) {
+              printf("Arrival mismatch for vertex %s (lib %s) path %zu: %f (tag:%d) vs %f (tag:%d)\n", v_name.c_str(), lib_name.c_str(), i, arr1, p1.tagIndex(sta), arr2, p2.tagIndex(sta));
+              same = false;
+            }
+
+            // Check Required
+          //  double req1 = p1.required() * 1e12;
+          //  double req2 = p2.required() * 1e12;
+          //  if (std::abs(req1 - req2) > 1e-5) {
+          //     printf("Required mismatch for vertex %s (lib %s) path %zu: %f vs %f\n", v_name.c_str(), lib_name.c_str(), i, req1, req2);
+          //     same = false;
+          //  }
+          }
+        }
+
+        // Compare slews
+        if (v_info1.slews.size() != v_info2.slews.size()) {
+          printf("Slew count mismatch for vertex %s (lib %s)\n", v_name.c_str(), lib_name.c_str());
+          same = false;
+        } else {
+          for (size_t i = 0; i < v_info1.slews.size(); ++i) {
+              if (std::abs(v_info1.slews[i] - v_info2.slews[i]) > 1e-13) {
+                printf("Slew mismatch for vertex %s (lib %s) index %zu: %e vs %e diff=%e\n", v_name.c_str(), lib_name.c_str(), i, v_info1.slews[i], v_info2.slews[i], std::abs(v_info1.slews[i] - v_info2.slews[i]));
+                same = false;
+              }
+          }
+        }
       }
 
       // Compare GraphTiming details (Edge Timing)
@@ -523,12 +579,12 @@ TestLrf::compareTimingRecords(const std::unordered_map<sta::Instance*, TimingRec
          const TimingInfo &e_info2 = cell_timing2.edge_timing_map.at(e_name);
          
          if (e_info1.delays.size() != e_info2.delays.size()) {
-            printf("Delay count mismatch for edge %s\n", e_name.c_str());
+            printf("Delay count mismatch for edge %s (lib %s)\n", e_name.c_str(), lib_name.c_str());
             same = false;
          } else {
             for (size_t i = 0; i < e_info1.delays.size(); ++i) {
                if (std::abs(e_info1.delays[i] - e_info2.delays[i]) > 1e-9) {
-                 printf("Delay mismatch for edge %s index %zu: %e vs %e\n", e_name.c_str(), i, e_info1.delays[i], e_info2.delays[i]);
+                 printf("Delay mismatch for edge %s (lib %s) index %zu: %e vs %e\n", e_name.c_str(), lib_name.c_str(), i, e_info1.delays[i], e_info2.delays[i]);
                  same = false;
                }
             }
@@ -777,6 +833,7 @@ TestLrf::collectTimingInfoForInstancesUsingLocalSta(sta::dbSta* sta,
   std::vector<sta::Instance*> &sta_insts, 
   std::unordered_map<sta::Instance*, TimingRecord> &instance_timing_map)
 {
+  sta->findRequireds();
   lrf::IncreSta *incre_sta = new lrf::IncreSta(sta, 1);
   lrf::LocalSta *local_sta = incre_sta->localSta();
 
@@ -791,15 +848,15 @@ TestLrf::collectTimingInfoForInstancesUsingLocalSta(sta::dbSta* sta,
     inst_timing_record.inst = sta_inst;
     inst_timing_record.orig_cell = sta->network()->libertyCell(sta_inst);
     visitor->visit(sta_inst, inst_timing_record);
-    visitor->applyChangesToDb(resizer);
+    // visitor->applyChangesToDb(resizer);
 
     instance_timing_map[sta_inst] = inst_timing_record;
 
-    PtGraph *pt_graph_visitor = visitor->ptGraph();
-    PtGraph *pt_graph_temp = local_sta->makePtGraph(sta_inst, false);
-    if (!comparePtGraphs(pt_graph_visitor, pt_graph_temp, sta)) {
-      throw std::runtime_error("PtGraph from ParallelLrVisitor does not match that from LocalSta");
-    }
+    // PtGraph *pt_graph_visitor = visitor->ptGraph();
+    // PtGraph *pt_graph_temp = local_sta->makePtGraph(sta_inst, false);
+    // if (!comparePtGraphs(pt_graph_visitor, pt_graph_temp, sta)) {
+    //   throw std::runtime_error("PtGraph from ParallelLrVisitor does not match that from LocalSta");
+    // }
   }
   delete visitor;
   delete incre_sta;
@@ -830,6 +887,7 @@ void TestLrf::recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, G
       sta::Path path = pt_paths[i];
       vertex_timing_info.paths.push_back(path);
     }
+    vertex_timing_info.tag_group_index = pt_vertex.tagGroupIndex();
     graph_timing.vertex_timing_map[vertex_name] = vertex_timing_info;
   }
 

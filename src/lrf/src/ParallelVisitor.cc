@@ -383,6 +383,7 @@ ParallelLrVisitor::recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_gra
       sta::Path path = pt_paths[i];
       vertex_timing_info.paths.push_back(path);
     }
+    vertex_timing_info.tag_group_index = pt_vertex.tagGroupIndex();
     graph_timing.vertex_timing_map[vertex_name] = vertex_timing_info;
   }
 

@@ -801,6 +801,7 @@ LocalSta::localSlackAroundRef(PtGraph *pt_graph)
         // We should select the wanted analysis point here.
         if (path->dcalcAnalysisPt(this) == pt_graph->dcalcAnalysisPt()) {
           Slack slack = path->slack(this);
+          if (slack > 0.0) continue; // Only consider negative slack
           local_slack += slack;
           // printf("LocalSta::localSlack: Vertex %s path: %s, arrival = %f, required = %f, slack = %f\n",
           //        pt_vertex.vertex()->to_string(graph_).c_str(),

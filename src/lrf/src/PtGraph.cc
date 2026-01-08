@@ -1,6 +1,7 @@
 #include "PtGraph.hh"
 #include "Sta.hh"
 #include <algorithm>
+#include <cstdio>
 #include <numeric>
 #include <deque>
 #include <vector>
@@ -27,6 +28,45 @@ using sta::MinMax;
 using sta::RiseFall;
 using sta::VertexId;
 using sta::Vertex;
+
+static const char *ptVertexTypeName(PtVertexType type)
+{
+  switch (type) {
+    case PtVertexType::RefDriver:
+      return "RefDriver";
+    case PtVertexType::RefInput:
+      return "RefInput";
+    case PtVertexType::RefOutput:
+      return "RefOutput";
+    case PtVertexType::None:
+      return "None";
+  }
+  return "Unknown";
+}
+
+static const char *ptEdgeTypeName(PtEdgeType type)
+{
+  switch (type) {
+    case PtEdgeType::RefInstEdge:
+      return "RefInstEdge";
+    case PtEdgeType::None:
+      return "None";
+  }
+  return "Unknown";
+}
+
+static std::string dotEscape(const std::string &text)
+{
+  std::string escaped = text;
+  for (char &ch : escaped) {
+    if (ch == '\"') {
+      ch = '\'';
+    } else if (ch == '\n' || ch == '\r') {
+      ch = ' ';
+    }
+  }
+  return escaped;
+}
 
 class PtVertexIdLevelLess
 {
@@ -493,6 +533,101 @@ PtGraph::to_string()
   }
   graph_descri += "End of PtGraph\n";
   return graph_descri;
+}
+
+void
+PtGraph::printGraph(bool dot_format)
+{
+  printGraph(nullptr, dot_format);
+}
+
+void
+PtGraph::printGraph(const char *output_path, bool dot_format)
+{
+  sta::Network *network = sta_->network();
+  const char *ref_name = ref_inst_ ? network->name(ref_inst_) : "nullptr";
+  size_t vertex_count = pt_vertices_.size() > 0 ? pt_vertices_.size() - 1 : 0;
+  size_t edge_count = pt_edges_.size() > 0 ? pt_edges_.size() - 1 : 0;
+  FILE *out = stdout;
+
+  if (output_path && output_path[0] != '\0') {
+    out = fopen(output_path, "w");
+    if (!out) {
+      fprintf(stderr,
+              "PtGraph::printGraph: failed to open %s, using stdout\n",
+              output_path);
+      out = stdout;
+    }
+  }
+
+  if (dot_format) {
+    std::string ref_label = dotEscape(ref_name);
+    fprintf(out, "digraph PtGraph {\n");
+    fprintf(out, "  label=\"PtGraph ref %s\";\n", ref_label.c_str());
+    fprintf(out, "  labelloc=\"t\";\n");
+    fprintf(out, "  node [shape=box];\n");
+    for (size_t vid = 1; vid < pt_vertices_.size(); vid++) {
+      const PtVertex &pt_vertex = pt_vertices_[vid];
+      const Vertex *vertex = pt_vertex.vertex();
+      std::string vertex_name = vertex ? vertex->to_string(sta_) : "nullptr";
+      std::string label = dotEscape(vertex_name);
+      fprintf(out, "  v%zu [label=\"%zu: %s\"];\n", vid, vid, label.c_str());
+    }
+    for (size_t eid = 1; eid < pt_edges_.size(); eid++) {
+      const PtEdge &pt_edge = pt_edges_[eid];
+      const Edge *edge = pt_edge.edge();
+      std::string edge_label = edge ? (edge->isWire() ? "wire" : "inst") : "unknown";
+      if (pt_edge.type() != PtEdgeType::None) {
+        edge_label += "/";
+        edge_label += ptEdgeTypeName(pt_edge.type());
+      }
+      edge_label = dotEscape(edge_label);
+      fprintf(out, "  v%u -> v%u [label=\"%s\"];\n",
+              pt_edge.ptFromId(),
+              pt_edge.ptToId(),
+              edge_label.c_str());
+    }
+    fprintf(out, "}\n");
+  } else {
+    fprintf(out, "PtGraph for ref inst %s: %zu vertices, %zu edges\n",
+            ref_name,
+            vertex_count,
+            edge_count);
+    for (size_t vid = 1; vid < pt_vertices_.size(); vid++) {
+      PtVertex &pt_vertex = pt_vertices_[vid];
+      const Vertex *vertex = pt_vertex.vertex();
+      std::string vertex_name = vertex ? vertex->to_string(sta_) : "nullptr";
+      int level = vertex ? vertex->level() : -1;
+      fprintf(out,
+              "PtVertex %zu: %s, level %d, type %s, driver %s, load %s, fanin %s, fanout %s\n",
+              vid,
+              vertex_name.c_str(),
+              level,
+              ptVertexTypeName(pt_vertex.type()),
+              pt_vertex.isDriver() ? "yes" : "no",
+              pt_vertex.isLoad() ? "yes" : "no",
+              pt_vertex.hasFanin() ? "yes" : "no",
+              pt_vertex.hasFanout() ? "yes" : "no");
+      PtVertexOutEdgeIterator out_iter(vid, this);
+      while (out_iter.hasNext()) {
+        PtEdge &pt_edge = out_iter.next();
+        const Edge *edge = pt_edge.edge();
+        std::string edge_name = edge ? edge->to_string(sta_->graph()) : "nullptr";
+        const char *edge_kind = edge ? (edge->isWire() ? "wire" : "inst") : "unknown";
+        fprintf(out, "  PtEdge %u -> PtVertex %u: %s, type %s, %s\n",
+                pt_edge.objectIdx(),
+                pt_edge.ptToId(),
+                edge_name.c_str(),
+                ptEdgeTypeName(pt_edge.type()),
+                edge_kind);
+      }
+    }
+  }
+
+  fflush(out);
+  if (out != stdout) {
+    fclose(out);
+  }
 }
 
 void
