@@ -7,6 +7,8 @@
 #include "LibertyClass.hh"
 #include "lrf/LrfClass.hh"
 
+#include <unordered_map>
+
 namespace sta {
   class ArcDelayCalc;
   class dbSta;
@@ -38,17 +40,29 @@ public:
   void updateEdgeInfo(sta::EdgeId edge_id);
 
   virtual ParallelLrVisitor *copy() const;
+  bool checkVisitorStatus() const;
   void operator()(sta::Instance *inst) { visit(inst); }
   void printVisitedInstNames() const;
   PtGraph *ptGraph() const { return pt_graph_; }
   sta::Instance *refInst() const { return ref_inst_; }
   sta::LibertyCell *bestCell() const { return best_cell_; }
+  void init(float averge_delay, float average_power, 
+    std::unordered_map<sta::LibertyCell*, sta::LibertyCellSeq*> *cache,
+    std::unordered_map<sta::Instance*, LocalCellInfo*> *inst_info_map);
   void setAverageDelay(float avg_delay) { average_delay_ = avg_delay; }
   void setAverageLeakage(float avg_leakage) { average_leakage_ = avg_leakage; }
+  void setSwappableCellsCache(std::unordered_map<sta::LibertyCell*, sta::LibertyCellSeq*> *cache)
+  {
+    swappable_cells_cache_ = cache;
+  }
+  void setInstInfoMap(std::unordered_map<sta::Instance*, LocalCellInfo*> *map)
+  {
+    inst_info_map_ = map;
+  }
 
 protected:  
-  void recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing);
-
+  void recordGraphTimingFromPtGraphPara(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing);
+  float swapCost(float delay_lm_sum, float power);
 
   sta::dbSta *db_sta_;
   sta::Instance *ref_inst_;
@@ -60,6 +74,8 @@ protected:
   sta::LibertyCell *best_cell_ = nullptr;
   float average_delay_ = 1.0;
   float average_leakage_ = 1.0;
+  std::unordered_map<sta::LibertyCell*, sta::LibertyCellSeq*> *swappable_cells_cache_ = nullptr;
+  std::unordered_map<sta::Instance*, LocalCellInfo*> *inst_info_map_;
 };
 
 

@@ -450,6 +450,7 @@ class Resizer : public dbStaState, public dbNetworkObserver
 
   void resizePreamble();
   LibertyCellSeq getSwappableCells(LibertyCell* source_cell);
+  LibertyCellSeq *makeSwappableCells(LibertyCell* source_cell);
   LibertyCellSeq getVTEquivCells(LibertyCell* source_cell);
 
  protected:

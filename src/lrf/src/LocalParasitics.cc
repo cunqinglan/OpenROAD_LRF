@@ -190,7 +190,7 @@ LocalParasitics::recomputeLocalParasitics(PtGraph *pt_graph)
   
   for (const auto &pt_vertex: pt_graph->ptVertices()) {
     if (pt_vertex.type() == PtVertexType::RefDriver) {
-      const Net *net = network_->net(pt_vertex.vertex()->pin());
+      const Net *net = findParasiticNet(pt_vertex.vertex()->pin());
       for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
     ParasiticAnalysisPt *ap = dcalc_ap->parasiticAnalysisPt();
     // Use global parasitics to find the parasitic network
@@ -202,11 +202,11 @@ LocalParasitics::recomputeLocalParasitics(PtGraph *pt_graph)
     } else {
       // For rst nets, PI nets or special nets, there may be no parasitic network
       // if (network_->name(net) != "(null)")
-      // printf("Warning: LocalParasitics::recomputeLocalParasitics: No parasitic network found for driver net %s.\n"
-      //         "              This net drives vertex %s\n",
-      //        network_->name(net),
-      //        network_->name(pt_vertex.vertex()->pin()));
-      // fflush(stdout);
+      printf("Warning: LocalParasitics::recomputeLocalParasitics: No parasitic network found for driver net %s.\n"
+              "              This net drives vertex %s\n",
+             network_->name(net),
+             network_->name(pt_vertex.vertex()->pin()));
+      fflush(stdout);
     }
       }
     }
@@ -220,9 +220,9 @@ LocalParasitics::findLocalParasiticNetwork(const Net *net, const ParasiticAnalys
     ConcreteParasiticNetwork **parasitic_array = 
       local_parasitic_network_map_.findKey(net);
     if (!parasitic_array) {
-      // printf("Error: LocalParasitics::findLocalParasiticNetwork: No parasitic array found for net %s\n",
-      //        network_->name(net));
-      // fflush(stdout);
+      printf("Error: LocalParasitics::findLocalParasiticNetwork: No parasitic array found for net %s\n",
+             network_->name(net));
+      fflush(stdout);
       return nullptr;
     }
     ConcreteParasiticNetwork *parasitic = parasitic_array[ap->index()];

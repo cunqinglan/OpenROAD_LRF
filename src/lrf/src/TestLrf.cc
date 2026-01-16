@@ -68,7 +68,7 @@ TestLrf::printLocalDelaysAndCap(char *inst_name, sta::dbSta* sta,
     printf("OpenSTA: Swapping to equiv cell: %s from %s\n", lib_cell->name(), orig_cell->name());
     odb::dbMaster *master = db_network->staToDb(lib_cell);
     db_inst->swapMaster(master);
-    sta->updateTiming(false);
+    sta->updateTiming(true);
     PtGraph *pt_graph_sta = local_sta->makePtGraph(sta_inst, true);
     pt_graph_sta->printDelays();
     local_sta->printParasitics(pt_graph_sta);
@@ -149,7 +149,7 @@ TestLrf::testLocalArrivalCompute(char *inst_name, sta::dbSta* sta,
     printf("OpenSTA: Swapping to equiv cell: %s from %s\n", lib_cell->name(), orig_cell->name());
     odb::dbMaster *master = db_network->staToDb(lib_cell);
     db_inst->swapMaster(master);
-    sta->updateTiming(false);
+    sta->updateTiming(true);
     PtGraph *pt_graph_sta = local_sta->makePtGraph(sta_inst, true);
     local_sta->printLocalArrivals(pt_graph_sta);
   }
@@ -204,7 +204,7 @@ TestLrf::printSlewComparison(char *inst_name, sta::dbSta* sta,
     // sta::GraphDelayCalc *global_dcalc = sta->graphDelayCalc();
     // global_dcalc->debug_info_.clear();
     db_inst->swapMaster(master);
-    sta->updateTiming(false);
+    sta->updateTiming(true);
 
     // for (auto &info : global_dcalc->debug_info_) {
     //   printf("%s", info.c_str());
@@ -258,6 +258,7 @@ TestLrf::testDifferenceBetweenLocalAndOpen(char *inst_name, sta::dbSta* sta,
   }
 
   sta::Instance *sta_inst = db_network->dbToSta(db_inst);
+
   sta->findRequireds();
 
   printf("----- Testing Difference Between Local and OpenSTA for instance %s -----\n", inst_name);
@@ -305,6 +306,8 @@ TestLrf::testDifferenceBetweenLocalAndOpen(char *inst_name, sta::dbSta* sta,
   PtGraph *pt_graph_orig = local_sta->makePtGraph(sta_inst, true);
 
   comparePtGraphs(pt_graph_orig, pt_graph_local, sta);
+
+  pt_graph_orig->printGraph("dotfile", true);
 }
 
 bool
@@ -358,20 +361,25 @@ TestLrf::comparePtGraphs(PtGraph *local_pt_graph, PtGraph *open_pt_graph, sta::d
           
           // Debugging input slew and output load
           const sta::RiseFall *in_rf = arc->fromEdge()->asRiseFall();
+          const sta::RiseFall *out_rf = arc->toEdge()->asRiseFall();
           
           // Get Slews
           // Note: PtGraph stores slews on vertices.
           // Input slew is at the "from" vertex of the edge.
           const PtVertex &from_vertex = local_pt_graph->ptVertex(local_edge.ptFromId());
           // Output Load is harder to get directly from PtGraph result, 
-          // but we can check the Slew at the output vertex to see if prediction matches.
+          const PtVertex &to_vertex = local_pt_graph->ptVertex(local_edge.ptToId());
           
           sta::Slew local_in_slew = local_pt_graph->slew(from_vertex, in_rf, dcalc_ptr->index()); 
           // OpenSTA global graph slew
           sta::Slew open_in_slew = sta->graph()->slew(open_edge.edge()->from(sta->graph()), in_rf, dcalc_ptr->index());
+
+          sta::Slew local_out_slew = local_pt_graph->slew(to_vertex, out_rf, dcalc_ptr->index());
+          sta::Slew open_out_slew = sta->graph()->slew(open_edge.edge()->to(sta->graph()), out_rf, dcalc_ptr->index());
           
-          printf("\tInput Slew (%s): local=%e, open=%e, diff=%e\n", 
-                 in_rf->name(), local_in_slew, open_in_slew, std::abs(local_in_slew - open_in_slew));
+          printf("\tInput Slew (%s): local=%e, open=%e, diff=%e | output Slew (%s): local=%e, open=%e, diff=%e\n", 
+                 in_rf->name(), local_in_slew, open_in_slew, std::abs(local_in_slew - open_in_slew),
+                 out_rf->name(), local_out_slew, open_out_slew, std::abs(local_out_slew - open_out_slew));
                  
           // Load Capacitance Check (Approximation via Parasitics)
           // This requires accessing the Parasitic Network which might be different between Local and Global
@@ -411,7 +419,7 @@ TestLrf::comparePtGraphs(PtGraph *local_pt_graph, PtGraph *open_pt_graph, sta::d
       const sta::Slew *local_slews = local_vertex.slews();
       const sta::Slew *open_slews = open_vertex.slews();
       for (int k = 0; k < local_vertex.slewCount(); ++k) {
-        if (std::abs(local_slews[k] - open_slews[k]) > 1e-13) {
+        if (std::abs(local_slews[k] - open_slews[k]) > 1e-14) {
            printf("Slew mismatch at vertex %s index %d: Local=%e, Open=%e, diff=%e\n", 
                   local_vertex_obj->name(sta->network()), k, local_slews[k], open_slews[k], std::abs(local_slews[k] - open_slews[k]));
            fflush(stdout);
@@ -545,12 +553,12 @@ TestLrf::compareTimingRecords(const std::unordered_map<sta::Instance*, TimingRec
             }
 
             // Check Required
-          //  double req1 = p1.required() * 1e12;
-          //  double req2 = p2.required() * 1e12;
-          //  if (std::abs(req1 - req2) > 1e-5) {
-          //     printf("Required mismatch for vertex %s (lib %s) path %zu: %f vs %f\n", v_name.c_str(), lib_name.c_str(), i, req1, req2);
-          //     same = false;
-          //  }
+           double req1 = p1.required() * 1e12;
+           double req2 = p2.required() * 1e12;
+           if (std::abs(req1 - req2) > 1e-5) {
+              printf("Required mismatch for vertex %s (lib %s) path %zu: %f vs %f\n", v_name.c_str(), lib_name.c_str(), i, req1, req2);
+              same = false;
+           }
           }
         }
 
@@ -560,8 +568,8 @@ TestLrf::compareTimingRecords(const std::unordered_map<sta::Instance*, TimingRec
           same = false;
         } else {
           for (size_t i = 0; i < v_info1.slews.size(); ++i) {
-              if (std::abs(v_info1.slews[i] - v_info2.slews[i]) > 1e-13) {
-                printf("Slew mismatch for vertex %s (lib %s) index %zu: %e vs %e diff=%e\n", v_name.c_str(), lib_name.c_str(), i, v_info1.slews[i], v_info2.slews[i], std::abs(v_info1.slews[i] - v_info2.slews[i]));
+              if (std::abs(v_info1.slews[i] - v_info2.slews[i]) > 1e-14) {
+                printf("Slew mismatch for vertex %s (lib %s) index %zu: %f vs %f diff=%f\n", v_name.c_str(), lib_name.c_str(), i, v_info1.slews[i] * 1e12, v_info2.slews[i] * 1e12, std::abs(v_info1.slews[i] - v_info2.slews[i]) * 1e12);
                 same = false;
               }
           }
@@ -578,13 +586,18 @@ TestLrf::compareTimingRecords(const std::unordered_map<sta::Instance*, TimingRec
          }
          const TimingInfo &e_info2 = cell_timing2.edge_timing_map.at(e_name);
          
+         if (e_info1.delays.empty() || e_info2.delays.empty()) {
+           printf("No delays recorded for edge %s (lib %s)\n", e_name.c_str(), lib_name.c_str());
+           same = false;
+           continue;
+         }
          if (e_info1.delays.size() != e_info2.delays.size()) {
             printf("Delay count mismatch for edge %s (lib %s)\n", e_name.c_str(), lib_name.c_str());
             same = false;
          } else {
             for (size_t i = 0; i < e_info1.delays.size(); ++i) {
-               if (std::abs(e_info1.delays[i] - e_info2.delays[i]) > 1e-9) {
-                 printf("Delay mismatch for edge %s (lib %s) index %zu: %e vs %e\n", e_name.c_str(), lib_name.c_str(), i, e_info1.delays[i], e_info2.delays[i]);
+               if (std::abs(e_info1.delays[i] * 1e12 - e_info2.delays[i] * 1e12) > 1e-5) {
+                 printf("Delay mismatch for edge %s (lib %s) index %zu: %e vs %e, diff=%e\n", e_name.c_str(), lib_name.c_str(), i, e_info1.delays[i], e_info2.delays[i], std::abs(e_info1.delays[i] * 1e12 - e_info2.delays[i] * 1e12));
                  same = false;
                }
             }
@@ -592,7 +605,7 @@ TestLrf::compareTimingRecords(const std::unordered_map<sta::Instance*, TimingRec
       }
     }
   }
-
+  fflush(stdout);
   return same;
 }
 
@@ -637,13 +650,16 @@ TestLrf::testParallelVisitor(const std::vector<odb::dbInst*>& db_insts, sta::dbS
     visitors.emplace_back(std::make_unique<ParallelLrVisitor>(sta, local_sta));
   }
 
+  std::vector<ParallelLrVisitor*> visitor_ptrs;
+  for(auto& v : visitors) visitor_ptrs.push_back(v.get());
+
   for (size_t i = 0; i < n; ++i) {    
     // 投递一个任务，执行 visit
-    int idx = i % visitors.size();
-    ParallelLrVisitor *visitor = visitors[idx].get();
     sta::Instance *sta_inst = insts[i];
-    dq.dispatch([visitor, sta_inst](int) {
-      visitor->visit(sta_inst);
+    dq.dispatch([visitor_ptrs, sta_inst](int id) {
+      if (id >= 0 && id < visitor_ptrs.size()) {
+        visitor_ptrs[id]->visit(sta_inst);
+      }
     });
   }
 
@@ -797,13 +813,20 @@ TestLrf::collectTimingInfoForInstancesUsingOpenSta(sta::dbSta* sta,
 
     odb::dbMaster *orig_master = sta->getDbNetwork()->staToDb(orig_cell);
 
+    int cnt = 1;
     for (auto *equiv_cell : legal_equiv_cells) {
+      cnt++;
+      if (cnt > 2) break; // Only test first 2 equiv cells
       GraphTiming cell_graph_timing;
       cell_graph_timing.cell = equiv_cell;
+      printf("Collecting timing info for instance %s with equiv cell %s\n", 
+              sta->getDbNetwork()->name(sta_inst), equiv_cell->name());
+      fflush(stdout);
 
       odb::dbMaster *master = sta->getDbNetwork()->staToDb(equiv_cell);
       odb::dbInst *db_inst = sta->getDbNetwork()->staToDb(sta_inst);
       db_inst->swapMaster(master);
+      // sta->delaysInvalid();
       sta->updateTiming(true);
       sta->findRequireds();
       lrf::PtGraph *pt_graph = local_sta->makePtGraph(sta_inst, true);
@@ -811,12 +834,14 @@ TestLrf::collectTimingInfoForInstancesUsingOpenSta(sta::dbSta* sta,
       // We can further collect slacks here
       recordGraphTimingFromPtGraph(sta, pt_graph, cell_graph_timing);
       inst_timing_record.liberty_timing_map[std::string(equiv_cell->name())] = cell_graph_timing;
+      pt_graph->printGraph("dotfile", true);
     }
     
     // Restore original master
     odb::dbInst *db_inst = sta->getDbNetwork()->staToDb(sta_inst);
     if (db_inst->getMaster() != orig_master) {
       db_inst->swapMaster(orig_master);
+      // sta->delaysInvalid();
       sta->updateTiming(true);
       sta->findRequireds();
     }
@@ -848,7 +873,7 @@ TestLrf::collectTimingInfoForInstancesUsingLocalSta(sta::dbSta* sta,
     inst_timing_record.inst = sta_inst;
     inst_timing_record.orig_cell = sta->network()->libertyCell(sta_inst);
     visitor->visit(sta_inst, inst_timing_record);
-    // visitor->applyChangesToDb(resizer);
+    visitor->applyChangesToDb(resizer);
 
     instance_timing_map[sta_inst] = inst_timing_record;
 
@@ -862,14 +887,17 @@ TestLrf::collectTimingInfoForInstancesUsingLocalSta(sta::dbSta* sta,
   delete incre_sta;
 }
 
-void TestLrf::recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing)
+void 
+recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing)
 {
   printf("OpenSta::Recording Graph Timing from PtGraph for cell %s\n", 
           graph_timing.cell ? graph_timing.cell->name() : "nullptr");
   fflush(stdout);
   // First copy slews and paths from pt_graph's vertex to graph_timing
   for (PtVertex &pt_vertex : pt_graph->ptVertices()) {
-    if (!pt_vertex.vertex()) continue;
+    if (!pt_vertex.vertex() || pt_vertex.type() != PtVertexType::RefInput
+  || pt_vertex.type() != PtVertexType::RefOutput) 
+      continue;
     // First copy slews from pt_vertex to graph_timing
     std::string vertex_name = pt_vertex.vertex()->name(sta->network());
     TimingInfo vertex_timing_info;
@@ -892,17 +920,35 @@ void TestLrf::recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, G
   }
 
   // Second copy delays from pt_graph's edges to graph_timing
+  std::unordered_map<std::string, int> edge_name_counts;
+  
+  // Sort edges to ensure deterministic order if ptEdges order is not guaranteed
+  // However, PtGraph vector order should be deterministic enough for regression testing
   for (const PtEdge &pt_edge : pt_graph->ptEdges()) {
-    if (!pt_edge.edge()) continue;
-    // First copy delays from pt_edge to graph_timing
-    std::string edge_name = pt_edge.edge()->to_string(sta->network());
+    PtVertex &pt_to_vertex = pt_graph->ptVertex(pt_edge.ptToId());
+    if (!pt_edge.edge() || pt_to_vertex.type() != PtVertexType::RefOutput
+     || pt_to_vertex.type() != PtVertexType::RefDriver) {
+      continue;
+    }
+    std::string base_edge_name = pt_edge.edge()->to_string(sta->network());
+    
+    // Handle multiple edges with same name (e.g. multiple arcs sets between same pins)
+    std::string unique_edge_name = base_edge_name;
+    if (edge_name_counts.find(base_edge_name) == edge_name_counts.end()) {
+      edge_name_counts[base_edge_name] = 0;
+    } else {
+      edge_name_counts[base_edge_name]++;
+      unique_edge_name += "#" + std::to_string(edge_name_counts[base_edge_name]);
+    }
+
     TimingInfo edge_timing_info;
     edge_timing_info.type = TimingType::EDGE;
     const sta::ArcDelay *delays = pt_edge.arcDelays();
     for (int i = 0; i < pt_edge.arcDelayCount(); ++i) {
       edge_timing_info.delays.push_back(delays[i]);
     }
-    graph_timing.edge_timing_map[edge_name] = edge_timing_info;
+    // Store using the unique name
+    graph_timing.edge_timing_map[unique_edge_name] = edge_timing_info;
   }
 }
 

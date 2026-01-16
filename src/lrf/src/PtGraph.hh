@@ -38,7 +38,9 @@ public:
   const PtEdgeSeq &ptEdges() const { return pt_edges_; }
 
   void makeGraph(sta::InstanceSet &inst_seq, sta::Instance *ref_inst);
+  void makeGraph(sta::VertexSet &vertex_set, sta::Instance *ref_inst);
   void makePtVertexAndPtEdge(sta::InstanceSet &inst_seq);
+  void makePtVertexAndPtEdge(sta::VertexSet &vertex_set);
   void makePtInstEdge(sta::Vertex *drvr_vertex, sta::VertexId drvr_pt_id);
   void makePtWireEdge(sta::Vertex *drvr_vertex, sta::VertexId drvr_pt_id);
   // When do virtual ref cell swap, update timing arc sets of all edges of
@@ -223,7 +225,7 @@ public:
   const sta::Slew *slews() const { return slews_.empty() ? nullptr : slews_.data(); }
   size_t slewCount() const { return slews_.size(); }
   void resizeSlews(size_t slew_count);
-  bool isRoot() const { return !hasFanin(); }
+  bool isRoot() const;
   void copyInfoFromVertex(size_t ap_count, size_t slew_rf_count);
   void setType(PtVertexType type) { type_ = type; }
   PtVertexType type() const { return type_; }
@@ -294,5 +296,7 @@ protected:
 private:
   friend class PtGraph;
 };
+
+const char *ptVertexTypeName(PtVertexType type);
 
 } // namespace lrf

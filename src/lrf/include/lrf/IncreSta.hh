@@ -32,6 +32,7 @@ public:
   IncreSta(dbSta *db_sta);
   IncreSta(dbSta *db_sta, size_t thread_count);
   ~IncreSta();
+  void clearLocalCellInfoMap();
   void init();
   virtual void copyState(const dbSta *sta);
 
@@ -58,12 +59,16 @@ public:
 
   // APIs for parasitics estimation
   void setLocalStaParasiticsEst(est::EstimateParasitics *estimate_parasitics);
-  void makeSwappableCellsCache();
-  void getSwappableCells(LibertyCell* source_cell);
                            
   // APIs for gate swapping
   void parallelResize(rsz::Resizer *resizer);
   void setMaxResizeNum(size_t max_resize_num);
+
+  // APIs for power optimization
+  void ensureActivities();  // Access power of one of the instances will trigger global activity calculation
+  void makeSwappableCellsCache(rsz::Resizer *resizer);
+  void getSwappableCells(LibertyCell* source_cell);
+  void preSaveLibCellLeakage();
 
 protected:
   void makeLocalSta();
@@ -76,7 +81,9 @@ protected:
 
   InstanceSeq sorted_instances_;
   bool projected_ = false;
-  std::unordered_map<LibertyCell*, LibertyCellSeq> swappable_cells_cache_;
+  std::unordered_map<LibertyCell*, LibertyCellSeq*> swappable_cells_cache_;
+  std::unordered_map<sta::Instance*, LocalCellInfo*> inst_info_map_;
+  LocalCellInfo *cell_info_vec_ = nullptr;
 };
 
 } // namespace lrf

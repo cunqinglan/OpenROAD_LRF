@@ -72,7 +72,7 @@ enum class PinType : uint8_t {
 };
 
 struct DelayLmSumResult {
-  float delay_lm_sum;
+  float delay_lm_sum = 1000000000.0;
   std::vector<float> vec_lms;
   std::vector<float> vec_delays;
 };
@@ -98,6 +98,7 @@ struct TimingInfo {
   std::vector<sta::Path> paths;
   std::vector<sta::Delay> delays;
   sta::TagGroupIndex tag_group_index = sta::tag_group_index_max;
+  float total_cap = -1.0;
 };
 
 struct GraphTiming {
@@ -111,5 +112,13 @@ struct TimingRecord {
   sta::LibertyCell *orig_cell = nullptr;
   std::unordered_map<std::string, GraphTiming> liberty_timing_map;
 };
+
+class LocalCellInfo {
+public:
+  ~LocalCellInfo();
+  sta::LibertyCellSeq *equiv_cells = nullptr;
+  float *cell_leakages = nullptr;
+};
+
 } // namespace lrf
 

@@ -248,7 +248,43 @@ repair_timing
 | `-setup_margin` | Add additional setup slack margin. |
 | `-hold_margin` | Add additional hold slack margin. |
 | `-allow_setup_violations` | While repairing hold violations, buffers are not inserted that will cause setup violations unless `-allow_setup_violations` is specified. |
-| `-sequence` | Specify a particular order of setup timing optimizations. The default is "unbuffer,vt_swap,sizeup,swap,buffer,clone,split". Obeys skip flags also. |
+| `-sequence` | Specify a particular order of setup timing optimizations. The default is "unbuffer,vt_swap,sizeup,swap,buffer,clone,split". Obeys skip flags also. 
+MoveType Resizer::parseMove(const std::string& s)
+{
+  std::string lower = s;
+  std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+  if (lower == "buffer") {
+    return rsz::MoveType::BUFFER;
+  }
+  if (lower == "unbuffer") {
+    return rsz::MoveType::UNBUFFER;
+  }
+  if (lower == "swap") {
+    return rsz::MoveType::SWAP;
+  }
+  if (lower == "size") {
+    return rsz::MoveType::SIZE;
+  }
+  if (lower == "sizeup") {
+    return rsz::MoveType::SIZEUP;
+  }
+  if (lower == "sizedown") {
+    return rsz::MoveType::SIZEDOWN;
+  }
+  if (lower == "clone") {
+    return rsz::MoveType::CLONE;
+  }
+  if (lower == "split") {
+    return rsz::MoveType::SPLIT;
+  }
+  if (lower == "sizeup_match") {
+    return rsz::MoveType::SIZEUP_MATCH;
+  }
+  if (lower == "vt_swap") {
+    return rsz::MoveType::VTSWAP_SPEED;
+  }
+  throw std::invalid_argument("Invalid move type: " + s);
+}|
 | `-skip_pin_swap` | Flag to skip pin swap. The default is to perform pin swap transform during setup fixing. |
 | `-skip_gate_cloning` | Flag to skip gate cloning. The default is to perform gate cloning transform during setup fixing. |
 | `-skip_size_down` | Flag to skip gate down sizing. The default is to perform non-critical fanout gate down sizing transform during setup fixing. |

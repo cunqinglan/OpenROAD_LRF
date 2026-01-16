@@ -18,6 +18,8 @@
 
 namespace lrf {
 
+extern std::mutex g_odb_sta_access_mutex;
+
 InstVertexLevelLess::InstVertexLevelLess()
 {
 }
@@ -89,6 +91,19 @@ TaskArranger::init()
   makeGraph();
   initVertexRefCounts();
   ensureGraphVertices();
+}
+
+void 
+TaskArranger::reinit()
+{
+  printf("TaskArranger::reinit checking graph consistency...\n");
+  fflush(stdout);
+  if (network_->instanceCount() != vertices_.size() + 1) { // +1 for TOP instance
+    init();
+  } else {
+    initVertexRefCounts();
+    ensureGraphVertices();
+  }
 }
 
 void
@@ -218,7 +233,7 @@ TaskArranger::makeGraph()
   makeVertices();
   makeEdges();
   checkGraph();
-  reduceEdgeFromReg();
+  reduceEdgeFromRoots();
 }
 
 void 
@@ -263,42 +278,23 @@ TaskArranger::checkGraph() const
       }
     }
   }
+  printf("All edges checked successfully in checkGraph.\n");
+  fflush(stdout);
+
+  printf("Checking ref counts of vertices in the graph...\n");
+  for (size_t vid = 0; vid < vertices_.size(); vid++) {
+    const InstVertex &inst_vertex = vertices_[vid];
+    if (inst_vertex.tempRefNum() == 0) {
+      InstVertexOutEdgeIterator out_edge_iter(&inst_vertex, this);
+      if (out_edge_iter.hasNext()) {
+        const InstVertex* to_inst_vertex = vertex(edge(out_edge_iter.next())->to());
+        if (to_inst_vertex->tempRefNum() == 0) {
+          throw std::runtime_error("Vertex with zero tempRefNum has outgoing edge to vertex with zero tempRefNum in checkGraph.");
+        }
+      }
+    }
+  }
 }
-// void 
-// TaskArranger::makeVertices()
-// {
-//   sta::LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
-//   int num_com_insts = 0;
-//   int num_root_insts = 0;
-//   while (inst_iter->hasNext()) {
-//     sta::Instance *inst = inst_iter->next();
-//     if (inst == nullptr) {
-//       printf("WARNING: First loop - null instance, skipping\n");
-//       fflush(stdout);
-//       continue;
-//     }
-//     sta::LibertyCell *cell = network_->libertyCell(inst);
-//     if (cell) {
-//       const char* inst_name = network_->name(inst);
-//       if (inst_name == nullptr) {
-//         printf("WARNING: First loop - instance %p has null name, skipping\n", (void*)inst);
-//         fflush(stdout);
-//         continue;
-//       }
-//       if (cell->hasSequentials()) {
-//         num_root_insts++;
-//         InstVertex &inst_vertex = vertices_.emplace_back(); // Reserve space for sequential vertex
-//         inst_vertex.setObjectIdx(num_com_insts + num_root_insts - 1);
-//       } else {
-//         num_com_insts++;
-//         InstVertex &inst_vertex = vertices_.emplace_back(); // Reserve space for combinational vertex
-//         inst_vertex.setObjectIdx(num_com_insts - 1);
-//       }
-        
-//     }
-//   }
-//   delete inst_iter;
-// }
 
 void getInstanceNum(sta::StaState* sta, int& com_count, int& root_count)
 {
@@ -420,12 +416,12 @@ TaskArranger::makeEdges()
   
   for (size_t vid = 0; vid < vertices_.size(); vid++) {
     InstVertex &inst_vertex = vertices_[vid];
-    if (inst_vertex.inst() && inst_vertex.type() != VertexType::TOP)
+    if (inst_vertex.inst())
       makeInstDrvrWireMEE(inst_vertex.inst());
   }
   for (size_t vid = 0; vid < vertices_.size(); vid++) {
     InstVertex& inst_vertex = vertices_[vid];
-    if (inst_vertex.inst() && inst_vertex.type() != VertexType::TOP)
+    if (inst_vertex.inst())
       makeSiblingFanoutsMEE(&inst_vertex);
   }
 }
@@ -435,8 +431,9 @@ TaskArranger::initVertexRefCounts()
 {
   // Initialize all reference counts
   vertex_ref_counts_ = std::make_unique<std::atomic<size_t>[]>(vertices_.size());
+
   // Set all to its vertex's temp_ref_num_
-  // Only initialize the combinational vertices.
+  // Initialize all vertices to match the size of allocated array.
   for (size_t vid = 0; vid < vertices_.size(); vid++) {
     vertex_ref_counts_[vid].store(vertices_[vid].temp_ref_num_);
   }
@@ -709,7 +706,7 @@ TaskArranger::printGraph() const
 }
 
 void
-TaskArranger::reduceEdgeFromReg()
+TaskArranger::reduceEdgeFromRoots()
 {
   for (InstVertex& inst_vertex : vertices_) {
     if (inst_vertex.type() == VertexType::SEQUENTIAL
@@ -767,10 +764,6 @@ TaskArranger::decreOutRefCount(InstVertex &inst_vertex)
   while (edge_iter.hasNext()) {
     EdgeId edge_id = edge_iter.next();
     InstEdge* inst_edge = edge(edge_id);
-    if (std::string(network_->name(inst_vertex.inst())) == "g218621") {
-      printf("Checking ref decrementation of g218621 to %s\n", network_->name(vertex(inst_edge->to())->inst()));
-      fflush(stdout);
-    }
     if (decreRefCount(inst_edge->to()) == 0) {
        zero_ref_set.insert(inst_edge->to());
     }
@@ -807,23 +800,17 @@ TaskArranger::finishTasks()
 
 void 
 TaskArranger::visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer, 
-                            float average_delay, float average_power) 
+                            ParallelLrVisitor *visitor) 
 {
+  if (incremental_)
+    reinit();
   // Clear previous visit records
   clearVisitedInstVertices();
   resizer_ = resizer;
-
-  printf("Average delay on critical path: %f ns\n", average_delay * 1e12);
-  printf("Average power per instance: %f uW\n", average_power * 1e9);
-  fflush(stdout);
-  
   // Clean up old visitors if any
   for (auto v : visitors_) delete v;
   visitors_.clear();
 
-  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta, local_sta);
-  visitor->setAverageDelay(average_delay);
-  visitor->setAverageLeakage(average_power);
   std::vector<InstVertex*> zero_ref_vertices;
   getZeroRefComInstVertices(zero_ref_vertices);
   
@@ -841,6 +828,9 @@ TaskArranger::visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *
   
   for (auto v : visitors_) delete v;
   visitors_.clear();
+
+  // Next time we visit, reuse the graph.
+  incremental_ = true;
 }
 
 void 
@@ -874,7 +864,9 @@ TaskArranger::runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex)
 {
   if (visitor->visit(inst_vertex->inst())) 
   {
-    std::lock_guard<std::mutex> lock(apply_change_to_db_mutex_);
+    // Use the global mutex to protect DB/STA modification
+    // ensuring exclusive access against other readers and writers.
+    std::lock_guard<std::mutex> lock_odb(g_odb_sta_access_mutex);
     
     visitor->applyChangesToDb(resizer_);
   }
