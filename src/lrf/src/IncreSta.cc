@@ -6,12 +6,18 @@
 #include "sta/Corner.hh"
 #include "sta/PathExpanded.hh"
 #include "sta/Search.hh"
+#include "sta/EquivCells.hh"
+#include "power/Power.hh"
 #include "sta/DcalcAnalysisPt.hh"
 #include "sta/PathAnalysisPt.hh"
 #include "sta/TimingRole.hh"
 #include "lrf/LrfClass.hh"
 #include "parasitics/ConcreteParasitics.hh"
 #include "TaskArranger.hh"
+#include "ParallelVisitor.hh"
+#include "rsz/Resizer.hh"
+
+#include <unordered_map>
 
 namespace lrf {
 // All logic is handled via dbStaState base; nothing additional yet.
@@ -50,7 +56,19 @@ IncreSta::~IncreSta()
 {
   delete local_sta_;
   delete lr_helper_;
+  for (auto &it : swappable_cells_cache_) {
+    delete it.second;
+  }
+  clearLocalCellInfoMap();
+  swappable_cells_cache_.clear();
   sta_->unregisterStaState(this);
+}
+
+void
+IncreSta::clearLocalCellInfoMap()
+{
+  delete[] cell_info_vec_;
+  cell_info_vec_ = nullptr;
 }
 
 void 
@@ -211,6 +229,44 @@ IncreSta::setLocalStaParasiticsEst(est::EstimateParasitics *estimate_parasitics)
   local_sta_->setParasiticsEst(estimate_parasitics);
 }
 
+void
+IncreSta::preSaveLibCellLeakage()
+{
+  ensureActivities();
+  sta::Corner *corner = sta_->corners()->findCorner("default");
+  sta::LeafInstanceIterator* inst_iter = network_->leafInstanceIterator();
+  LocalCellInfo *cell_info_vec_ = new LocalCellInfo[network_->leafInstanceCount() + 1];
+  clearLocalCellInfoMap();
+  inst_info_map_.reserve(network_->leafInstanceCount() * 1.1);
+  int cnt = 0;
+  while (inst_iter->hasNext()) {
+    sta::Instance* inst = inst_iter->next();
+    sta::LibertyCell *cell = network_->libertyCell(inst);
+    if (cell) {
+      if (swappable_cells_cache_.find(cell) == swappable_cells_cache_.end())
+        continue;
+
+      LocalCellInfo *cell_info = &cell_info_vec_[cnt++];
+      cell_info->equiv_cells = swappable_cells_cache_[cell];
+      
+      // Safety check: ensure equiv_cells is not null
+      if (!cell_info->equiv_cells) {
+        delete cell_info;
+        continue; 
+      }
+
+      cell_info->cell_leakages = new float[cell_info->equiv_cells->size()];
+      sta::Power *power_calc = sta_->power();
+      for (size_t i = 0; i < cell_info->equiv_cells->size(); ++i) {
+        sta::LibertyCell *equiv_cell = (*(cell_info->equiv_cells))[i];
+        cell_info->cell_leakages[i] = power_calc->leakagePower(inst, equiv_cell, corner);
+      }
+      inst_info_map_[inst] = cell_info;
+    }
+  }
+  delete inst_iter;
+}
+
 //////////////////////////////////////////////////////////
 // APIs for parasitics estimation
 ///////////////////////////////////////////////////////////
@@ -219,19 +275,62 @@ IncreSta::setLocalStaParasiticsEst(est::EstimateParasitics *estimate_parasitics)
 // APIs for swappable cells
 ///////////////////////////////////////////////////////////
 void 
-IncreSta::makeSwappableCellsCache()
+IncreSta::ensureActivities()
 {
-
+  sta::Corner *corner = sta_->corners()->findCorner("default");
+  LeafInstanceIterator* inst_iter = network_->leafInstanceIterator();
+  sta::Instance* inst = nullptr;
+  while (inst_iter->hasNext()) {
+    inst = inst_iter->next();
+    if (!network_->libertyCell(inst))
+      continue;
+    else
+      break;
+  }
+  delete inst_iter;
+  if (inst)
+    sta_->power(inst, corner);
+  else 
+    throw std::runtime_error("IncreSta::ensureActivities no valid instance found to trigger activity calculation\n");
 }
 
+
+
+void 
+IncreSta::makeSwappableCellsCache(rsz::Resizer *resizer)
+{
+  // This should be used as an ensurance
+  resizer->makeEquivCells();
+  // First clear the existing cache
+  swappable_cells_cache_.clear();
+  // prepare the neccesary activities
+  ensureActivities();
+  const sta::LibertyCellSeq &unique_equiv_cells = sta_->equivCellsRecorder()->uniqueEquivCells();
+  for (const sta::LibertyCell* source_cell : unique_equiv_cells) {
+    sta::LibertyCellSeq *equive_cells = sta_->equivCells(const_cast<sta::LibertyCell*>(source_cell));
+    for (sta::LibertyCell* equiv_cell : *equive_cells) {
+      sta::LibertyCellSeq *swappable_cells = resizer->makeSwappableCells(equiv_cell);
+      swappable_cells_cache_[equiv_cell] = swappable_cells;
+    }
+  }
+}
+
+
+//////////////////////////////////////////////////////////
+// APIs for LR resizing
+///////////////////////////////////////////////////////////
 void 
 IncreSta::parallelResize(rsz::Resizer *resizer)
 {
   // We first create a serials of instance visitors
   local_sta_->initParallel();
+  makeSwappableCellsCache(resizer);
   float average_delay = averageDelayOnCritPath();
   float average_power = averageLeakage();
-  local_sta_->runResize(resizer, average_delay, average_power);
+  printf("Average delay: %f, average power: %f\n", average_delay * 1e12, average_power * 1e9);
+  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_);
+  visitor->init(average_delay, average_power, &swappable_cells_cache_, &inst_info_map_);
+  local_sta_->runResize(resizer, visitor);
 }
 
 void

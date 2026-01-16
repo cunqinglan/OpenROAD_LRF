@@ -10,6 +10,7 @@
 #include "sta/Map.hh"
 #include "LocalParasitics.hh"
 #include "sta/Delay.hh"
+#include "sta/SearchPred.hh"
 
 #include <map>
 #include <vector>
@@ -49,6 +50,7 @@ public:
   virtual void copyState(const Sta *sta);
 
   void collectLocalGraph(Instance *inst, InstanceSet &local_instances);
+  void collectLocalVertices(Instance *inst, VertexSet &local_vertices);
   void makePtGraph(PtGraph *pt_graph, Instance *inst, 
                           DcalcAnalysisPt *dcalc_ap = nullptr);
   PtGraph *makePtGraph(Instance *inst, bool update_timing_first = false);
@@ -66,6 +68,9 @@ public:
   void setParasiticsEst(est::EstimateParasitics *estimate_parasitics);
   void setAnalysisPoints(const std::vector<const DcalcAnalysisPt*> &dcalc_ap_set);
   void setDebugLabel(const std::string &label) { debug_label_ = label; }
+
+  // Power APIs
+  float cellAvgLeakage(sta::LibertyCell *cell);
 
   // Functions for Searching arrivals and required times
   void findLocalArrivals(PtGraph *pt_graph);
@@ -88,12 +93,16 @@ public:
 
   // Functions for parallel LR
   void initParallel();
-  void runResize(rsz::Resizer *resizer, float average_delay = 1, float average_leakage = 1);
+  void runResize(rsz::Resizer *resizer, ParallelLrVisitor *visitor);
 
 protected:
   void collectLocalFanouts(Pin *drvr_pin, InstanceSet &local_instances);
   void collectLocalFaninSiblings(Pin *pin, PinSet &visited_pins, 
                                  InstanceSet &local_instances);
+  void collectLocalFanoutVertices(sta::Vertex *drvr_vertex, 
+                                  sta::VertexSet &local_vertices);
+  void collectLocalFaninSiblingVertices(sta::Vertex *load_vertex, 
+                                      sta::VertexSet &local_vertices);
   void topoSortVertices(PtGraph *pt_graph);
 
   // Delay calculation methods
@@ -105,7 +114,24 @@ protected:
   void findVertexDelays(VertexId pt_vertex_id, 
                         ArcDelayCalc *arc_delay_calc,
                         PtGraph *pt_graph);
-  void seedRootSlew(PtVertex &pt_vertex, PtGraph *pt_graph);
+  void seedRootSlew(PtVertex &pt_vertex, PtGraph *pt_graph, 
+                   ArcDelayCalc *arc_delay_calc);
+  void seedDrvrSlew(PtVertex &pt_vertex, PtGraph *pt_graph, 
+                   ArcDelayCalc *arc_delay_calc);
+  void seedLoadSlew(PtVertex &pt_vertex, PtGraph *pt_graph, 
+                   ArcDelayCalc *arc_delay_calc);
+  void seedNoDrvrSlew(PtVertex &pt_drvr_vertex,
+                             const RiseFall *rf,
+                             const DcalcAnalysisPt *dcalc_ap,
+                             ArcDelayCalc *arc_delay_calc,
+                             PtGraph *pt_graph);
+  void seedNoDrvrCellSlew(PtVertex &pt_drvr_vertex,
+                          const Pin *drvr_pin,
+                          const RiseFall *rf,
+                          const InputDrive *drive,
+                          const DcalcAnalysisPt *dcalc_ap,
+                          ArcDelayCalc *arc_delay_calc,
+                          PtGraph *pt_graph);
   int findPortIndex(const LibertyCell *cell,
                     const LibertyPort *port);
   void findInputDriverDelay(const LibertyCell *drvr_cell,
@@ -165,12 +191,12 @@ protected:
                         Slew &gate_slew,
                         const DcalcAnalysisPt *dcalc_ap,
                         PtGraph *pt_graph);
-  Slew edgeFromSlew(const PtVertex &from_pt_vertex,
+  Slew edgeFromLocalSlew(const PtVertex &from_pt_vertex,
                     const RiseFall *from_rf,
                     const PtEdge &pt_edge,
                     const DcalcAnalysisPt *dcalc_ap,
                     PtGraph *pt_graph);
-  Slew edgeFromSlew(const PtVertex &from_pt_vertex,
+  Slew edgeFromLocalSlew(const PtVertex &from_pt_vertex,
                     const RiseFall *from_rf,
                     const TimingRole *role,
                     const DcalcAnalysisPt *dcalc_ap,
@@ -252,6 +278,7 @@ protected:
   TaskArranger *task_arranger_;
   bool equiv_cells_made_ = false;
   SearchPred *pred_;
+  SearchPred *search_pred_;
 
   std::string debug_label_ = "LocalSTA";
 

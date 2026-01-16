@@ -29,7 +29,7 @@ using sta::RiseFall;
 using sta::VertexId;
 using sta::Vertex;
 
-static const char *ptVertexTypeName(PtVertexType type)
+const char *ptVertexTypeName(PtVertexType type)
 {
   switch (type) {
     case PtVertexType::RefDriver:
@@ -139,9 +139,45 @@ PtGraph::makeGraph(sta::InstanceSet &inst_seq, sta::Instance *ref_inst)
 }
 
 void 
+PtGraph::makeGraph(sta::VertexSet &vertex_set, sta::Instance *ref_inst) 
+{
+  ref_inst_ = ref_inst;
+  ref_lib_cell_ = sta_->network()->libertyCell(ref_inst);
+  if (ref_lib_cell_ == nullptr) {
+    throw std::runtime_error("PtGraph::makeGraph: ref_inst has no liberty cell");
+  }
+  makePtVertexAndPtEdge(vertex_set);
+  setGraphMade(true);
+  initVertexAndEdges();
+  createParasiticsNetworks();
+  annotateVerticesType();
+  annotateEdgesType();
+}
+
+void 
 PtGraph::createParasiticsNetworks()
 {
   // Placeholder
+}
+
+void
+PtGraph::makePtVertexAndPtEdge(sta::VertexSet &vertex_set)
+{
+  sta::Graph *graph = sta_->graph();
+  sta::Network *network = sta_->network();
+  for (sta::Vertex *vertex : vertex_set) {
+    VertexId pt_vertex_id = makeVertex(vertex);
+    vertex_map_[vertex] = pt_vertex_id;
+  }
+
+  for (auto const &pair : vertex_map_) {
+    sta::Vertex *vertex = const_cast<sta::Vertex*>(pair.first);
+    VertexId pt_vertex_id = pair.second;
+    if (network->isDriver(vertex->pin())) {
+      makePtInstEdge(vertex, pt_vertex_id);
+      makePtWireEdge(vertex, pt_vertex_id);
+    }
+  }
 }
 
 void
@@ -181,14 +217,16 @@ PtGraph::makePtInstEdge(sta::Vertex *drvr_vertex, VertexId drvr_pt_id)
 {
   sta::Network *network = sta_->network();
   sta::Instance *drvr_inst = network->instance(drvr_vertex->pin());
-  if (!network->libertyCell(drvr_inst) || network->libertyCell(drvr_inst)->hasSequentials()) {
+  if (!network->libertyCell(drvr_inst)) {
     return;
   }
   sta::Graph *graph = sta_->graph();
   sta::VertexInEdgeIterator in_edge_iter(drvr_vertex, graph);
   while (in_edge_iter.hasNext()) {
     sta::Edge *in_edge = in_edge_iter.next();
-    auto it_from = vertex_map_.find(in_edge->from(graph));
+    sta::Vertex *from_vertex = in_edge->from(graph);
+    
+    auto it_from = vertex_map_.find(from_vertex);
     if (it_from != vertex_map_.end()) {
       VertexId from_pt_id = it_from->second;
       makeEdge(in_edge, from_pt_id, drvr_pt_id);
@@ -655,16 +693,15 @@ void PtGraph::initVertexAndEdges()
     fflush(stdout);
     return;
   }
-  int iter_cnt = 0;
+
   for (PtVertex &pt_vertex : pt_vertices_) {
-    if (iter_cnt++ == 0)
+    if (pt_vertex.vertex() == nullptr)
       continue;
     pt_vertex.copyInfoFromVertex(ap_count_, slew_rf_count_);
     initPaths(pt_vertex);
   }
-  iter_cnt = 0;
   for (PtEdge &pt_edge : pt_edges_) {
-    if (iter_cnt++ == 0)
+    if (pt_edge.edge() == nullptr)
       continue;
     pt_edge.copyInfoFromEdge(ap_count_);
     pt_edge.timing_arc_set_ = pt_edge.edge()->timingArcSet();
@@ -1040,6 +1077,12 @@ bool
 PtVertex::hasFanin() const
 {
   return in_edges_ != pt_edge_id_null;
+}
+
+bool 
+PtVertex::isRoot() const
+{
+  return !hasFanin();
 }
 
 bool

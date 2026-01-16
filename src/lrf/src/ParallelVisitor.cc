@@ -12,6 +12,7 @@
 #include "sta/Search.hh"
 #include "search/TagGroup.hh"
 #include "sta/EquivCells.hh"
+#include "lrf/TestLrf.hh"
 
 namespace sta {
 }
@@ -38,9 +39,30 @@ ParallelLrVisitor::~ParallelLrVisitor()
   delete arc_delay_calc_;
 }
 
+bool 
+ParallelLrVisitor::checkVisitorStatus() const
+{
+  if (db_sta_ == nullptr || local_sta_ == nullptr || arc_delay_calc_ == nullptr
+      || swappable_cells_cache_ == nullptr || inst_info_map_ == nullptr) {
+    return false;
+  }
+  return true;
+}
+
+float
+ParallelLrVisitor::swapCost(float delay_lm_sum, float power)
+{
+  float swap_cost = 2 * delay_lm_sum / average_delay_ 
+                    + power / average_leakage_;
+  return swap_cost;
+}
+
 bool
 ParallelLrVisitor::visit(sta::Instance *inst)
 {
+  if (!checkVisitorStatus()) {
+    throw std::runtime_error("ParallelLrVisitor::visit visitor status invalid");
+  }
   best_cell_ = nullptr;
   // The visit do following things:
   // 1. Get the target instance and set up a ptgraph for it.
@@ -51,79 +73,80 @@ ParallelLrVisitor::visit(sta::Instance *inst)
   visited_instances_.push_back(db_sta_->network()->pathName(inst));
   sta::LibertyCell *ori_cell = db_sta_->network()->libertyCell(inst);
   if (ori_cell) {
-    sta::LibertyCellSeq *equiv_cells = db_sta_->equivCells(ori_cell);
+    if (inst_info_map_->find(inst) == inst_info_map_->end()) {
+      printf("Warning: ParallelLrVisitor::visit no inst info cached for instance %s\n",
+             db_sta_->network()->pathName(inst));
+      fflush(stdout);
+      return false;
+    }
+    sta::LibertyCellSeq *equiv_cells = (*inst_info_map_)[inst]->equiv_cells;
+    if (equiv_cells == nullptr) {
+      printf("Warning: ParallelLrVisitor::visit no equiv cells cached for %s, regenerating\n",
+             ori_cell->name());
+      fflush(stdout);
+      db_sta_->equivCells(ori_cell);
+    }
     if (equiv_cells == nullptr) {
       printf("ParallelLrVisitor::visit no equiv cells for %s\n",
              ori_cell->name());
       fflush(stdout);
       return false;
     } 
-    // Examine if all equiv cells are legal
-    sta::LibertyCellSeq legal_equiv_cells;
-    for (sta::LibertyCell *equiv_cell : *equiv_cells) {
-      if (sta::equivCellsArcs(ori_cell, equiv_cell)) {
-        legal_equiv_cells.push_back(equiv_cell);
-      }
-    }
-    if (legal_equiv_cells.size() < 2) {
-      printf("ParallelLrVisitor::visit no legal equiv cells for %s\n",
-             ori_cell->name());
-      fflush(stdout);
-      return false;
-    }
 
-    printf("ParallelLrVisitor::visit instance %s of type %s with %lu legal equivalent cells\n",
-         db_sta_->network()->pathName(inst),
-         db_sta_->network()->libertyCell(inst)->name(),
-         legal_equiv_cells.size());
-    fflush(stdout);
+    // printf("ParallelLrVisitor::visit instance %s of type %s with %lu legal equivalent cells\n",
+    //      db_sta_->network()->pathName(inst),
+    //      db_sta_->network()->libertyCell(inst)->name(),
+    //      legal_equiv_cells.size());
+    // fflush(stdout);
 
     pt_graph_ = local_sta_->makePtGraph(inst, false);
-    // Compute Original delays
-    DelayLmSumResult original_result = local_sta_->
-                initAndGetLocalTimingCost(pt_graph_, arc_delay_calc_);
     // Initialize the slack before swap
     slack_before_swap_ = local_sta_->localSlackAroundRef(pt_graph_);
     
     best_cell_ = ori_cell;
-    DelayLmSumResult best_result = original_result;
-    for (sta::LibertyCell *equiv_cell : legal_equiv_cells) {
-      // This first virtual swap the cell in pt graph,
-      // then recompute local delays, arrivals, requireds.
-      if (ori_cell == equiv_cell) {
+    float best_cost = std::numeric_limits<float>::max();
+    int cnt = 0;
+    for (sta::LibertyCell *equiv_cell : *equiv_cells) {
+      if (!sta::equivCellsArcs(ori_cell, equiv_cell)) {
         continue;
       }
-      DelayLmSumResult swapped_result = local_sta_->
-        increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, equiv_cell);
-      LocalCost swapped_cost = swapped_result.delay_lm_sum;
+      float leakage = (*inst_info_map_)[inst]->cell_leakages[cnt++];
+
+      printf("ParallelLrVisitor::visit testing equiv cell %s for instance %s with leakage %f\n",
+             equiv_cell->name(),
+             db_sta_->network()->pathName(inst),
+             leakage * 1e9);
+      fflush(stdout);
+
+      float delay_lm_sum = local_sta_->
+        increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, equiv_cell).delay_lm_sum;
+      float swapped_cost = swapCost(delay_lm_sum, leakage);
       sta::Slack swapped_slack = 
                       local_sta_->localSlackAroundRef(pt_graph_);
       // Do local slack check
-      printf("from delay_lm_sum %f to %f for cell %s, slack before swap %f, after swap %f\n",
-             best_result.delay_lm_sum * 1e12,
-             swapped_cost * 1e12,
-             equiv_cell->name(),
-             slack_before_swap_ * 1e12,
-             swapped_slack * 1e12);
-      fflush(stdout);
-      if (swapped_cost < best_result.delay_lm_sum
+      // printf("from delay_lm_sum %f to %f for cell %s, slack before swap %f, after swap %f\n",
+      //        best_cost * 1e12,
+      //        swapped_cost * 1e12,
+      //        equiv_cell->name(),
+      //        slack_before_swap_ * 1e12,
+      //        swapped_slack * 1e12);
+      // fflush(stdout);
+      if (swapped_cost < best_cost
           && swapped_slack >= slack_before_swap_ * 1.1 ) {
         best_cell_ = equiv_cell;
-        best_result = swapped_result;
+        best_cost = swapped_cost;
       }
     }
     if (best_cell_ == ori_cell) {
-      printf("ParallelLrVisitor::visit no better cell found for instance %s with cell %s, delaylmsum = %f\n",
-            db_sta_->network()->pathName(inst),
-            ori_cell->name(),
-            best_result.delay_lm_sum * 1e12);
-      fflush(stdout);
+      // printf("ParallelLrVisitor::visit no better cell found for instance %s with cell %s, delaylmsum = %f\n",
+      //       db_sta_->network()->pathName(inst),
+      //       ori_cell->name(),
+      //       best_result.delay_lm_sum * 1e12);
+      // fflush(stdout);
       return false;
     }
     // First compute the final timing after choosing best cell
-    // This should be revised after testing!!!!!!
-    local_sta_->increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, ori_cell);
-    // local_sta_->increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, best_cell_);
+    local_sta_->increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, best_cell_);
     return true;
   } 
   printf("ParallelLrVisitor::visit no liberty cell for instance %s\n",
@@ -183,17 +206,22 @@ ParallelLrVisitor::visit(sta::Instance *inst,
     slack_before_swap_ = local_sta_->localSlackAroundRef(pt_graph_);
     
     // Record original timing
-    GraphTiming orig_cell_timing;
-    orig_cell_timing.cell = ori_cell;
-    recordGraphTimingFromPtGraph(db_sta_, pt_graph_, orig_cell_timing);
-    timing_record.liberty_timing_map[std::string(ori_cell->name())] = orig_cell_timing;
+    // GraphTiming orig_cell_timing;
+    // orig_cell_timing.cell = ori_cell;
+    // recordGraphTimingFromPtGraph(db_sta_, pt_graph_, orig_cell_timing);
+    // timing_record.liberty_timing_map[std::string(ori_cell->name())] = orig_cell_timing;
     
     best_cell_ = ori_cell;
     DelayLmSumResult best_result = original_result;
+    int cnt = 1;
     for (sta::LibertyCell *equiv_cell : legal_equiv_cells) {
+      cnt++;
+      if (cnt > 2) break; // Only test first 1 equiv cells
       // This first virtual swap the cell in pt graph,
       // then recompute local delays, arrivals, requireds.
-      if (ori_cell == equiv_cell) continue;
+      printf("ParallelLrVisitor::visit testing equiv cell %s for instance %s\n",
+             equiv_cell->name(),
+             db_sta_->network()->pathName(inst));
 
       DelayLmSumResult swapped_result = local_sta_->
         increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, equiv_cell);
@@ -223,16 +251,16 @@ ParallelLrVisitor::visit(sta::Instance *inst,
       }
     }
     if (best_cell_ == ori_cell) {
-      printf("ParallelLrVisitor::visit no better cell found for instance %s with cell %s, delaylmsum = %f\n",
-            db_sta_->network()->pathName(inst),
-            ori_cell->name(),
-            best_result.delay_lm_sum * 1e12);
-      fflush(stdout);
+      // printf("ParallelLrVisitor::visit no better cell found for instance %s with cell %s, delaylmsum = %f\n",
+      //       db_sta_->network()->pathName(inst),
+      //       ori_cell->name(),
+      //       best_result.delay_lm_sum * 1e12);
+      // fflush(stdout);
       return false;
     }
     return true;
   } 
-  printf("ParallelLrVisitor::visit no liberty cell for instance %s\n",
+  printf("Warning: ParallelLrVisitor::visit no liberty cell for instance %s\n",
          db_sta_->network()->pathName(inst));
   fflush(stdout);
   return false;
@@ -244,6 +272,8 @@ ParallelLrVisitor::copy() const
   ParallelLrVisitor *new_visitor = new ParallelLrVisitor(db_sta_, local_sta_);
   new_visitor->setAverageDelay(average_delay_);
   new_visitor->setAverageLeakage(average_leakage_);
+  new_visitor->setSwappableCellsCache(swappable_cells_cache_);
+  new_visitor->setInstInfoMap(inst_info_map_);
   return new_visitor;
 }
 
@@ -254,7 +284,6 @@ ParallelLrVisitor::printVisitedInstNames() const
     printf("Visited instance: %s\n", inst_name.c_str());
   }
 }
-
 
 void
 ParallelLrVisitor::applyChangesToDb(rsz::Resizer *resizer)
@@ -272,11 +301,11 @@ ParallelLrVisitor::applyChangesToDb(rsz::Resizer *resizer)
       fflush(stdout);
       return;
     }
-    printf("ParallelLrVisitor::applyChangesToDb swapping instance %s from cell %s to cell %s\n",
-            db_sta_->network()->pathName(pt_graph_->refInstance()),
-            from_lib_cell->name(),
-            best_cell_->name());
-    fflush(stdout);
+    // printf("ParallelLrVisitor::applyChangesToDb swapping instance %s from cell %s to cell %s\n",
+    //         db_sta_->network()->pathName(pt_graph_->refInstance()),
+    //         from_lib_cell->name(),
+    //         best_cell_->name());
+    // fflush(stdout);
     db_sta_->replaceCell(pt_graph_->refInstance(), best_cell_);
   }
   updateTimingFromPtGraph();
@@ -297,13 +326,13 @@ void
 ParallelLrVisitor::updateVertexInfo(sta::VertexId vertex_id)
 {
   PtVertex &pt_vertex = pt_graph_->ptVertex(vertex_id);
-  if (!pt_vertex.vertex()) {
+  if (!pt_vertex.vertex() || pt_vertex.type() != PtVertexType::RefInput
+      || pt_vertex.type() != PtVertexType::RefOutput
+     ) {
     return;
   }
   sta::Vertex *sta_vertex = pt_vertex.vertex();
   // Update slews
-  sta::Slew *slews[pt_vertex.slewCount()];
-  sta::Slew *pt_graph_slews = pt_vertex.slews();
   sta::Graph *sta_graph = db_sta_->graph();
   for (const sta::RiseFall *rf : sta::RiseFall::range()) {
     for (int i = 0; i < sta_graph->apCount(); i++) {
@@ -344,7 +373,9 @@ void
 ParallelLrVisitor::updateEdgeInfo(sta::EdgeId edge_id)
 {
   PtEdge &pt_edge = pt_graph_->edge(edge_id);
-  if (!pt_edge.edge()) {
+  PtVertex &pt_to_vertex = pt_graph_->ptVertex(pt_edge.ptToId());
+  if (!pt_edge.edge() || pt_to_vertex.type() != PtVertexType::RefOutput
+|| pt_to_vertex.type() != PtVertexType::RefDriver) {
     return;
   }
   sta::Edge *sta_edge = pt_edge.edge();
@@ -358,7 +389,7 @@ ParallelLrVisitor::updateEdgeInfo(sta::EdgeId edge_id)
 }
 
 void 
-ParallelLrVisitor::recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing)
+ParallelLrVisitor::recordGraphTimingFromPtGraphPara(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing)
 {
   printf("LocalSta::Recording Graph Timing from PtGraph for cell %s\n", 
           graph_timing.cell ? graph_timing.cell->name() : "nullptr");
@@ -400,6 +431,17 @@ ParallelLrVisitor::recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_gra
     }
     graph_timing.edge_timing_map[edge_name] = edge_timing_info;
   }
+}
+
+void 
+ParallelLrVisitor::init(float average_delay, float average_power, 
+  std::unordered_map<LibertyCell*, LibertyCellSeq*> *cache,
+  std::unordered_map<sta::Instance*, LocalCellInfo*> *inst_info_map)
+{
+  average_delay_ = average_delay;
+  average_leakage_ = average_power;
+  swappable_cells_cache_ = cache;
+  inst_info_map_ = inst_info_map;
 }
 
 } // namespace lrf

@@ -54,6 +54,7 @@
 #include "sta/Fuzzy.hh"
 #include "sta/Graph.hh"
 #include "sta/GraphClass.hh"
+#include "sta/EquivCells.hh"
 #include "sta/GraphDelayCalc.hh"
 #include "sta/InputDrive.hh"
 #include "sta/LeakagePower.hh"
@@ -2106,6 +2107,63 @@ LibertyCellSeq Resizer::getSwappableCells(LibertyCell* source_cell)
   swappable_cells_cache_[source_cell] = swappable_cells;
   return swappable_cells;
 }
+
+LibertyCellSeq *Resizer::makeSwappableCells(LibertyCell* source_cell)
+{
+  dbMaster* master = db_network_->staToDb(source_cell);
+  if (master == nullptr || !master->isCore()) {
+    return nullptr;
+  }
+  LibertyCellSeq* swappable_cells = new LibertyCellSeq();
+  LibertyCellSeq* equiv_cells = sta_->equivCells(source_cell);
+  if (equiv_cells) {
+    for (LibertyCell* equiv_cell : *equiv_cells) {
+      if (dontUse(equiv_cell) || !isLinkCell(equiv_cell)) {
+        continue;
+      }
+      if (!sta::equivCellsArcs(source_cell, equiv_cell))
+      {
+        continue;
+      }
+      dbMaster* equiv_cell_master = db_network_->staToDb(equiv_cell);
+      if (!equiv_cell_master) {
+        continue;
+      }
+      if (sizing_keep_site_) {
+        if (master->getSite() != equiv_cell_master->getSite()) {
+          continue;
+        }
+      }
+      if (sizing_keep_vt_) {
+        if (cellVTType(master).vt_index
+            != cellVTType(equiv_cell_master).vt_index) {
+          printf("Skipping %s due to VT difference\n",
+                 equiv_cell->name());
+          continue;
+        }
+      }
+      if (match_cell_footprint_) {
+        const bool footprints_match = sta::stringEqIf(source_cell->footprint(),
+                                                      equiv_cell->footprint());
+        if (!footprints_match) {
+          continue;
+        }
+      }
+      if (source_cell->userFunctionClass()) {
+        const bool user_function_classes_match = sta::stringEqIf(
+            source_cell->userFunctionClass(), equiv_cell->userFunctionClass());
+        if (!user_function_classes_match) {
+          continue;
+        }
+      }
+
+      swappable_cells->push_back(equiv_cell);
+    }
+  } else
+    swappable_cells->push_back(source_cell);
+  return swappable_cells;
+}
+
 
 size_t getCommonLength(const std::string& string1, const std::string& string2)
 {

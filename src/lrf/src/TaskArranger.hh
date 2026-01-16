@@ -25,6 +25,7 @@ namespace sta {
   class SearchPred;
   class SearchPredNonReg2;
   class dbSta;
+  class PwrActivity;
 }
 
 namespace lrf {
@@ -82,6 +83,7 @@ struct InstVertex {
   EdgeId out_edges_ = edge_id_null;
   ObjectIdx object_idx_ = object_idx_null;
   VertexType type_ = VertexType::NONE;
+  std::vector<sta::PwrActivity> activities_; 
 };
 
 struct InstEdge {
@@ -110,6 +112,7 @@ public:
   TaskArranger(sta::StaState *sta);
   ~TaskArranger();
   void init();
+  void reinit();
 
   // Functions of making graph
   void makeGraph();
@@ -118,10 +121,13 @@ public:
   void checkGraph() const;
   void ensureGraphVertices();
 
+  // Record activities for all combinational instances.
+  void recordComInstActivities();
+
   // Functions of parallelization
-  void reduceEdgeFromReg();
+  void reduceEdgeFromRoots();
   void visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer,
-                    float average_delay = 1, float average_power = 1);
+                    ParallelLrVisitor *visitor);
   std::set<VertexId> decreOutRefCount(InstVertex *inst_vertex);
   std::set<VertexId> decreOutRefCount(InstVertex &inst_vertex);
   size_t decreRefCount(VertexId vid);
@@ -184,12 +190,13 @@ protected:
   std::vector<const InstVertex*> visited_inst_vertices_;
   // Mutex to protect visited_inst_names_ in multi-threaded environment
   std::mutex visited_inst_names_mutex_;
-  // Mutex to protect best cell type application in multi-threaded environment
-  std::mutex apply_change_to_db_mutex_;
+  // Mutex removed: apply_change_to_db_mutex_ is replaced by g_odb_sta_access_mutex
   // Visitors for each thread
   std::vector<ParallelLrVisitor *> visitors_;
   // Maximum resize number allowed in one iteration
   size_t max_resize_num_ = 1000000;
+  // Flag of if the first time visitParallel
+  bool incremental_ = false;
 
 private:
   friend class InstVertexOutEdgeIterator;

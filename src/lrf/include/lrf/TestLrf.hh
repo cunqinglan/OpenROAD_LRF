@@ -79,13 +79,13 @@ protected:
   void collectTimingInfoForInstancesUsingLocalSta(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block, std::vector<sta::Instance*> &sta_insts,
   std::unordered_map<sta::Instance*, TimingRecord> &instance_timing_map);
 
-  void recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing);
-
   bool compareTimingRecords(const std::unordered_map<sta::Instance*, TimingRecord> &records1,
                             const std::unordered_map<sta::Instance*, TimingRecord> &records2,
                             sta::dbSta* sta);
 
   std::vector<ErrorPoint> error_points_;
 };
+
+void recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing);
 
 }  // namespace lrf

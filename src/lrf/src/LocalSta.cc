@@ -8,11 +8,12 @@
 #include "sta/DcalcAnalysisPt.hh"
 #include "EquivCells.hh"
 #include "sta/Delay.hh"
-#include "sta/SearchPred.hh"
 #include "sta/TimingRole.hh"
 #include "sta/ClkNetwork.hh"
 #include "LocalParasitics.hh"
 #include "sta/Corner.hh"
+#include "sta/Sdc.hh"
+#include "sta/InputDrive.hh"
 #include "sta/Parasitics.hh"
 #include "parasitics/ConcreteParasiticsPvt.hh"
 #include "LocalSta.hh"
@@ -22,8 +23,11 @@
 #include "db_sta/dbSta.hh"
 #include "TaskArranger.hh"
 
+
+
 namespace lrf {
 using namespace sta;
+static const Slew default_slew = 0.0;
 
 // Global mutex to protect OpenDB/STA network object access
 // Declared extern here, defined in LocalParasitics.cc
@@ -37,7 +41,8 @@ LocalSta::LocalSta(sta::dbSta *sta) :
   estimate_parasitics_(nullptr),
   local_parasitics_(new LocalParasitics(sta)),
   task_arranger_(new TaskArranger(sta)),
-  pred_(new SearchMEEPred(sta))
+  pred_(new SearchMEEPred(sta)),
+  search_pred_(new SearchPredNonLatch2(sta))
 {
   printf("LocalSta::LocalSta created\n");
   fflush(stdout);
@@ -54,6 +59,7 @@ LocalSta::~LocalSta()
   delete local_parasitics_;
   delete task_arranger_;
   delete pred_;
+  delete search_pred_;
 }
 
 void 
@@ -93,6 +99,129 @@ LocalSta::collectLocalGraph(Instance *inst, InstanceSet &local_instances)
   collected_ = true;
 }
 
+void
+LocalSta::collectLocalVertices(Instance *inst, VertexSet &local_vertices)
+{
+  if (network_->libertyCell(inst)->hasSequentials()) {
+    // For sequential cells, skip
+    throw std::runtime_error("LocalSta::collectLocalVertices: Sequential cells not supported");
+  }
+  InstancePinIterator *pin_iter = network_->pinIterator(inst);
+  while (pin_iter->hasNext()) {
+    Pin *pin = pin_iter->next();
+    if (network_->isDriver(pin)) {
+      sta::Vertex *drvr_vertex = graph_->pinDrvrVertex(pin);
+      if (search_pred_->searchTo(drvr_vertex)) {
+        local_vertices.insert(drvr_vertex);
+        collectLocalFanoutVertices(drvr_vertex, local_vertices);
+      }
+    }
+    if (network_->isLoad(pin)) {
+      sta::Vertex *load_vertex = graph_->pinLoadVertex(pin);
+      if (search_pred_->searchFrom(load_vertex)) {
+        local_vertices.insert(load_vertex);
+        collectLocalFaninSiblingVertices(load_vertex, local_vertices);
+      }
+    }
+  }
+  delete pin_iter;
+}
+
+void
+LocalSta::collectLocalFanoutVertices(sta::Vertex *drvr_vertex, 
+                                     VertexSet &local_vertices)
+{
+  if (!graph_ || drvr_vertex == nullptr 
+          || !network_->isDriver(drvr_vertex->pin())) {
+    throw std::runtime_error("LocalSta::collectLocalFanoutVertices invalid input");
+  }
+
+  VertexOutEdgeIterator edge_iter(drvr_vertex, graph_);
+  while (edge_iter.hasNext()) {
+    Edge *out_edge = edge_iter.next();
+    Vertex *load_vertex = out_edge->to(graph_);
+    if (!network_->isLoad(load_vertex->pin())) {
+      printf("Warining: LocalSta::collectLocalFanoutVertices: vertex %s is not a load\n",
+             load_vertex->to_string(graph_).c_str());
+      continue;
+    }
+    if (out_edge->isWire())
+      local_vertices.insert(load_vertex);
+
+    VertexOutEdgeIterator in_inst_edge_iter(load_vertex, graph_);
+    while (in_inst_edge_iter.hasNext()) {
+      Edge *in_inst_edge = in_inst_edge_iter.next();
+      Vertex *out_driver_vertex = in_inst_edge->to(graph_);
+      if (!network_->isDriver(out_driver_vertex->pin())) {
+        printf("Warining: LocalSta::collectLocalFanoutVertices: vertex %s is not a driver\n",
+               out_driver_vertex->to_string(graph_).c_str());
+        continue;
+      }
+      // We avoid collecting latches in the local graph.
+      if (search_pred_->searchThru(in_inst_edge) && 
+                      search_pred_->searchTo(out_driver_vertex))
+        local_vertices.insert(out_driver_vertex);
+    }
+  }
+}
+
+void 
+LocalSta::collectLocalFaninSiblingVertices(Vertex *load_vertex, 
+                                           VertexSet &local_vertices)
+{
+  if (!graph_ || load_vertex == nullptr 
+          || !network_->isLoad(load_vertex->pin())) {
+    throw std::runtime_error("LocalSta::collectLocalFaninSiblingVertices invalid input");
+  }
+
+  Pin *load_pin = load_vertex->pin();
+  PinSet visited_pins(network_);
+  PinSeq loads, drvrs;
+  FindNetDrvrLoads visitor(load_pin, visited_pins, loads, drvrs, network_);
+  network_->visitConnectedPins(load_pin, visitor);
+
+  for (auto drvr_pin : drvrs) {
+    Vertex *drvr_vertex = graph_->pinDrvrVertex(drvr_pin);
+    if (drvr_vertex && search_pred_->searchTo(drvr_vertex)) {
+      local_vertices.insert(drvr_vertex);
+      VertexInEdgeIterator in_edge_iter(drvr_vertex, graph_);
+      while (in_edge_iter.hasNext()) {
+        Edge *in_edge = in_edge_iter.next();
+        Vertex *pred_vertex = in_edge->from(graph_);
+        if (search_pred_->searchThru(in_edge) && 
+            search_pred_->searchFrom(pred_vertex))
+          local_vertices.insert(pred_vertex);
+      }
+    }
+  }
+
+  for (auto load_pin : loads) {
+    if (load_pin == load_vertex->pin())
+      continue;
+    Vertex *sibling_load_vertex = graph_->pinLoadVertex(load_pin);
+    if (sibling_load_vertex 
+              && search_pred_->searchFrom(sibling_load_vertex)) {
+      local_vertices.insert(sibling_load_vertex);
+      // Collect sibling driver vertices, skip check edges and latch edges
+      VertexOutEdgeIterator in_inst_edge_iter(sibling_load_vertex, graph_);
+      while (in_inst_edge_iter.hasNext()) {
+        Edge *sibling_inst_edge = in_inst_edge_iter.next();
+        Vertex *sibling_drvr_vertex = sibling_inst_edge->to(graph_);
+        if (search_pred_->searchThru(sibling_inst_edge) && 
+                        search_pred_->searchTo(sibling_drvr_vertex)) {
+          if (!network_->isDriver(sibling_drvr_vertex->pin())) {
+            printf("Warining: LocalSta::collectLocalFaninSiblingVertices: vertex %s is not a driver\n",
+                  sibling_drvr_vertex->to_string(graph_).c_str());
+            continue;
+          }
+          
+          local_vertices.insert(sibling_drvr_vertex);
+        }
+      }
+    }
+  }
+}
+
 void 
 LocalSta::collectLocalFanouts(Pin *drvr_pin, InstanceSet &local_instances)
 {
@@ -129,9 +258,15 @@ LocalSta::collectLocalFanouts(Pin *drvr_pin, InstanceSet &local_instances)
     Edge *out_edge = edge_iter.next();
     Vertex *load_vertex = out_edge->to(graph_);
     Instance *load_inst = network_->instance(load_vertex->pin());
-    // if (load_cell && !load_cell->hasSequentials()) 
-    local_instances.insert(load_inst);
+    if (load_inst)
+      local_instances.insert(load_inst);
   }
+}
+
+float
+LocalSta::cellAvgLeakage(sta::LibertyCell *cell)
+{
+  
 }
 
 void
@@ -141,26 +276,51 @@ LocalSta::collectLocalFaninSiblings(Pin *load_pin, PinSet &visited_pins,
   PinSeq loads, drvrs;
   FindNetDrvrLoads visitor(load_pin, visited_pins, loads, drvrs, network_);
   network_->visitConnectedPins(load_pin, visitor);
+
+  for (auto drvr_pin : drvrs) {
+    Instance *drvr_inst = network_->instance(drvr_pin);
+    if (!drvr_inst || network_->isTopInstance(drvr_inst))
+      return;
+  }
   
   for (auto drvr_pin : drvrs) {
     if (drvr_pin == load_pin)
       continue;
     Instance *drvr_inst = network_->instance(drvr_pin);
-    local_instances.insert(drvr_inst);
+    if (drvr_inst)
+      local_instances.insert(drvr_inst);
   }
   for (auto fanin_pins : loads) {
     Instance *load_inst = network_->instance(fanin_pins);
-    local_instances.insert(load_inst);
+    if (load_inst)
+      local_instances.insert(load_inst);
   }
 }
 
-void 
+// void 
+// LocalSta::makePtGraph(PtGraph *pt_graph, Instance *inst, 
+//                           DcalcAnalysisPt *dcalc_ap)
+// {
+//   InstanceSet local_instances(sta_->network());
+//   collectLocalGraph(inst, local_instances);
+//   pt_graph->makeGraph(local_instances, inst);
+//   if (dcalc_ap == nullptr) {
+//     Corner *corner = sta_->corners()->findCorner(0);
+//     dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
+//     if (dcalc_ap == nullptr) {
+//       throw std::runtime_error("LocalSta::makePtGraph: No dcalc analysis point found");
+//     }
+//   }
+//   pt_graph->setDcalcAnalysisPt(dcalc_ap);
+// }
+
+void
 LocalSta::makePtGraph(PtGraph *pt_graph, Instance *inst, 
-                          DcalcAnalysisPt *dcalc_ap)
+                      DcalcAnalysisPt *dcalc_ap)
 {
-  InstanceSet local_instances(sta_->network());
-  collectLocalGraph(inst, local_instances);
-  pt_graph->makeGraph(local_instances, inst);
+  VertexSet local_vertices(graph_);
+  collectLocalVertices(inst, local_vertices);
+  pt_graph->makeGraph(local_vertices, inst);
   if (dcalc_ap == nullptr) {
     Corner *corner = sta_->corners()->findCorner(0);
     dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
@@ -196,17 +356,177 @@ LocalSta::topoSortVertices(PtGraph *pt_graph)
 void
 LocalSta::findLocalDelays(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc)
 {
-  recomputeLocalParasitics(pt_graph);
   for (VertexId vertex_id : pt_graph->sortedVertexIds()) {
     findVertexDelays(vertex_id,  arc_delay_calc, pt_graph);
   }
 }
 
 void 
-LocalSta::seedRootSlew(PtVertex &pt_vertex, PtGraph *pt_graph)
+LocalSta::seedRootSlew(PtVertex &pt_vertex, PtGraph *pt_graph, 
+                       ArcDelayCalc *arc_delay_calc)
 {
   Vertex *vertex = pt_vertex.vertex();
-  loadSlewFromGraph(pt_vertex, pt_graph);
+  
+  if (pt_vertex.type() == PtVertexType::RefDriver
+      || pt_vertex.type() == PtVertexType::RefInput) {
+    if (vertex->isDriver(network_)) {
+      seedDrvrSlew(pt_vertex, pt_graph, arc_delay_calc);
+    } else {
+      printf("Warning: LocalSta::seedRootSlew: Root vertex %s is not a driver\n",
+             vertex->to_string(graph_).c_str());
+      // seedLoadSlew(pt_vertex, pt_graph, arc_delay_calc);
+    }
+  } else {
+    loadSlewFromGraph(pt_vertex, pt_graph);
+  }
+}
+
+void
+LocalSta::seedDrvrSlew(PtVertex &pt_drvr_vertex, PtGraph *pt_graph,
+                       ArcDelayCalc *arc_delay_calc)
+{
+  const Pin *drvr_pin = pt_drvr_vertex.vertex()->pin();
+  InputDrive *drive = 0;
+  if (network_->isTopLevelPort(drvr_pin)) {
+    Port *port = network_->port(drvr_pin);
+    drive = sdc_->findInputDrive(port);
+  }
+  for (const RiseFall *rf : RiseFall::range()) {
+    for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
+      if (drive) {
+  const MinMax *cnst_min_max = dcalc_ap->constraintMinMax();
+	const LibertyCell *drvr_cell;
+	const LibertyPort *from_port, *to_port;
+	float *from_slews;
+	drive->driveCell(rf, cnst_min_max, drvr_cell, from_port,
+			 from_slews, to_port);
+  if (drvr_cell) {
+    printf("Warning: LocalSta::seedDrvrSlew: Input drive seeding not implemented yet\n");
+    // if (from_port == nullptr) {
+    //   from_port = driveCellDefaultFromPort(drvr_cell, to_port);
+    // }
+    // findInputDriverDelay(drvr_cell, drvr_pin, drvr_vertex, rf,
+			      //  from_port, from_slews, to_port, dcalc_ap);
+  } else
+    seedNoDrvrCellSlew(pt_drvr_vertex, drvr_pin, rf, drive, 
+              dcalc_ap, arc_delay_calc, pt_graph);
+      } else {
+        seedNoDrvrSlew(pt_drvr_vertex, rf, dcalc_ap, arc_delay_calc, pt_graph);
+      }
+    }
+  }
+}
+
+void
+LocalSta::seedNoDrvrCellSlew(PtVertex &pt_drvr_vertex,
+                              const Pin *drvr_pin,
+                              const RiseFall *rf,
+                              const InputDrive *drive,
+                              const DcalcAnalysisPt *dcalc_ap,
+                              ArcDelayCalc *arc_delay_calc,
+                              PtGraph *pt_graph)
+{
+  DcalcAPIndex ap_index = dcalc_ap->index();
+  const MinMax *cnst_min_max = dcalc_ap->constraintMinMax();
+  Slew slew = default_slew;
+  float drive_slew;
+  bool exists;
+  drive->slew(rf, cnst_min_max, drive_slew, exists);
+  if (exists)
+    slew = drive_slew;
+  else {
+    // Top level bidirect driver uses load slew unless
+    // bidirect instance paths are disabled.
+    printf("Warning: LocalSta::seedNoDrvrCellSlew: Input drive slew not found for pin %s\n",
+           network_->name(drvr_pin));
+           fflush(stdout);
+  }
+  Delay drive_delay = delay_zero;
+  float drive_res;
+  drive->driveResistance(rf, cnst_min_max, drive_res, exists);
+  const Parasitic *parasitic;
+  float load_cap;
+  localParasiticLoad(drvr_pin, rf, dcalc_ap, nullptr, load_cap, parasitic);
+  if (exists) {
+    drive_delay = load_cap * drive_res;
+    slew = load_cap * drive_res;
+  }
+  const MinMax *slew_min_max = dcalc_ap->slewMinMax();
+  if (pt_drvr_vertex.vertex()->slewAnnotated(rf, slew_min_max)) {
+      slew = graph_->slew(pt_drvr_vertex.vertex(), rf, ap_index);
+  }
+
+  pt_graph->setSlew(pt_drvr_vertex, rf, ap_index, slew);
+  LoadPinIndexMap load_pin_index_map = makeLoadPinIndexMap(pt_drvr_vertex, pt_graph);
+  ArcDcalcResult dcalc_result =
+    arc_delay_calc->inputPortDelay(drvr_pin, delayAsFloat(slew), rf, parasitic,
+                                   load_pin_index_map, dcalc_ap);
+  annotateLoadDelays(pt_drvr_vertex, rf, dcalc_result, load_pin_index_map, 
+                     drive_delay, false, dcalc_ap, pt_graph);
+  arc_delay_calc->finishDrvrPin();
+}
+
+void
+LocalSta::seedNoDrvrSlew(PtVertex &pt_drvr_vertex,
+                             const RiseFall *rf,
+                             const DcalcAnalysisPt *dcalc_ap,
+                             ArcDelayCalc *arc_delay_calc,
+                             PtGraph *pt_graph)
+{
+  const sta::Pin *drvr_pin = pt_drvr_vertex.vertex()->pin();
+  sta::Vertex *drvr_vertex = pt_drvr_vertex.vertex();
+  const MinMax *slew_min_max = dcalc_ap->slewMinMax();
+  DcalcAPIndex ap_index = dcalc_ap->index();
+  Slew slew(0.0);
+  // Top level bidirect driver uses load slew unless
+  // bidirect instance paths are disabled.
+  if (bidirectDrvrSlewFromLoad(drvr_pin)) {
+    Vertex *load_vertex = graph_->pinLoadVertex(drvr_pin);
+    slew = graph_->slew(load_vertex, rf, ap_index);
+  } else if (drvr_vertex->slewAnnotated(rf, slew_min_max)) {
+     slew = graph_->slew(drvr_vertex, rf, ap_index);
+  }
+
+  // Use local slew
+  pt_graph->setSlew(pt_drvr_vertex, rf, ap_index, slew);
+  
+  Parasitic *parasitic = local_parasitics_->findLocalParasitic(drvr_pin, rf, dcalc_ap);
+  LoadPinIndexMap load_pin_index_map = makeLoadPinIndexMap(pt_drvr_vertex, pt_graph);
+  ArcDcalcResult dcalc_result =
+    arc_delay_calc->inputPortDelay(drvr_pin, delayAsFloat(slew), rf, parasitic,
+                                   load_pin_index_map, dcalc_ap);
+  annotateLoadDelays(pt_drvr_vertex, rf, dcalc_result, load_pin_index_map, delay_zero, false, dcalc_ap, pt_graph);
+  arc_delay_calc->finishDrvrPin();
+}
+
+void
+LocalSta::seedLoadSlew(PtVertex &pt_load_vertex, PtGraph *pt_graph,
+                       ArcDelayCalc *arc_delay_calc)
+{
+  Vertex *vertex = pt_load_vertex.vertex();
+  const Pin *pin = vertex->pin();
+  ClockSet *clks = sdc_->findLeafPinClocks(pin);
+  loadSlewFromGraph(pt_load_vertex, pt_graph);
+  for (const RiseFall *rf : RiseFall::range()) {
+    for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
+      const MinMax *slew_min_max = dcalc_ap->slewMinMax();
+      if (!vertex->slewAnnotated(rf, slew_min_max)) {
+	float slew = 0.0;
+	if (clks) {
+	  slew = slew_min_max->initValue();
+	  ClockSet::Iterator clk_iter(clks);
+	  while (clk_iter.hasNext()) {
+	    Clock *clk = clk_iter.next();
+	    float clk_slew = clk->slew(rf, slew_min_max);
+	    if (slew_min_max->compare(clk_slew, slew))
+	      slew = clk_slew;
+	  }
+	}
+	DcalcAPIndex ap_index = dcalc_ap->index();
+	pt_graph->setSlew(pt_load_vertex, rf, ap_index, Slew(slew));
+      }
+    }
+  }
 }
 
 void 
@@ -264,16 +584,17 @@ LocalSta::findVertexDelays(VertexId pt_vertex_id,
                            PtGraph *pt_graph)
 {
   PtVertex &pt_vertex = pt_graph->ptVertex(pt_vertex_id);
+  if (pt_vertex.type() == PtVertexType::None)
+    return;
   Vertex *vertex = pt_vertex.vertex();
-  if (!pt_vertex.hasFanin()) {
-    seedRootSlew(pt_vertex, pt_graph);
+  if (pt_vertex.isRoot()) {
+    seedRootSlew(pt_vertex, pt_graph, arc_delay_calc);
   } else {
     Pin *pin = vertex->pin();
     if (network_->isLeaf(pin)) {
       if (pt_vertex.isDriver()) {
         LoadPinIndexMap load_pin_index_map = makeLoadPinIndexMap(pt_vertex, pt_graph);
-        
-        DrvrLoadSlews load_slews_prev;
+
         // For a gate, compute its delay in different 
         // [arcs, corners, rise/fall].
         findDriverDelays(pt_vertex, arc_delay_calc,
@@ -386,10 +707,11 @@ LocalSta::findDriverEdgeDelays(PtVertex &drvr_pt_vertex,
   // If both vertices belong to ref instance, use ref cell's timing
   TimingArcSet *ref_arc_set = pt_edge.timingArcSet();
   if (ref_arc_set == nullptr){
-    printf("LocalSta::findDriverEdgeDelays: timingArcSet is nullptr for edge %s\n",
-           pt_edge.edge()->to_string(graph_).c_str());
-           fflush(stdout);
-    ref_arc_set = pt_edge.edge()->timingArcSet();
+    // printf("LocalSta::findDriverEdgeDelays: timingArcSet is nullptr for edge %s\n",
+    //        pt_edge.edge()->to_string(graph_).c_str());
+    //        fflush(stdout);
+    // ref_arc_set = pt_edge.edge()->timingArcSet();
+    throw std::runtime_error("LocalSta::findDriverEdgeDelays: timingArcSet is nullptr");
   }
   
   for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
@@ -428,19 +750,18 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
                               LoadPinIndexMap &load_pin_index_map,
                               PtGraph *pt_graph)
 {
-  // Instance *drvr_inst = network_->instance(drvr_pt_vertex.vertex()->pin());
+  Instance *drvr_inst = network_->instance(drvr_pt_vertex.vertex()->pin());
 
-  // std::string debug_info = "";
-  // bool debug = false;
-  // if (std::string(network_->name(drvr_inst)) == "g213657")
-  //   debug = true;
-  // if (debug) {
-  //  debug_info = std::string("LOCALSTACHECK: Driver Instance: ") 
-  //            + network_->name(drvr_inst)
-  //            + " LibCell: " + pt_graph->refGate()->name()
-  //            + ", Arc: " + arc->to_string() 
-  //            + "DcalcAP: " + std::to_string(dcalc_ap->index());
+  // std::string debug_info = "LOCALSTACHECK: Driver Instance: ";
+  // if (drvr_inst) {
+  //     debug_info += std::string(network_->name(drvr_inst));
+  //     debug_info += " LibCell: " + std::string(network_->libertyCell(drvr_inst)->name());
+  // } else {
+  //     debug_info += "Top/Unknown";
   // }
+
+  // debug_info += ", Arc: " + arc->to_string() 
+  //           + " DcalcAP: " + std::to_string(dcalc_ap->index());
     
 
   Vertex *drvr_vertex = drvr_pt_vertex.vertex();
@@ -452,29 +773,32 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
     float load_cap;
     localParasiticLoad(drvr_pin, drvr_rf, dcalc_ap, multi_drvr_net, 
                        load_cap, parasitic);
-    // if (debug) {
+    
+    // if (parasitic)
     //   debug_info += ", Load Cap: " + std::to_string(local_parasitics_->capacitance(parasitic) * 1e15) + "fF";
-    // }
+    // else
+    //   debug_info += ", Load Cap: null";
+
 
     if (multi_drvr_net == nullptr) {
       PtVertex &from_pt_vertex = pt_graph->ptVertex(pt_edge.ptFromId());
-      const Slew in_slew = edgeFromSlew(from_pt_vertex, from_rf, pt_edge, 
+      const Slew in_slew = edgeFromLocalSlew(from_pt_vertex, from_rf, pt_edge, 
                                         dcalc_ap, pt_graph);
       ArcDcalcResult dcalc_result;
-      {
-        // Protect gateDelay call which accesses OpenDB objects internally
-        std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
-        dcalc_result = arc_delay_calc->gateDelay(
-                            drvr_pin, arc, in_slew, load_cap, parasitic,
-                            load_pin_index_map, dcalc_ap);
-      }
+      dcalc_result = arc_delay_calc->gateDelay(
+                          drvr_pin, arc, in_slew, load_cap, parasitic,
+                          load_pin_index_map, dcalc_ap);
+
+      // Slew prev_drvr_slew = pt_graph->slew(drvr_pt_vertex, drvr_rf, dcalc_ap->index());
       annotateDelaysSlews(pt_edge, arc, dcalc_result,
                           load_pin_index_map, dcalc_ap, pt_graph);
-      // if (debug) {
-      //   debug_info += ", In Slew: " + std::to_string(1e12 * in_slew)
-      //                 + ", Gate Delay: " + std::to_string(1e12 * (dcalc_result.gateDelay()))
-      //                 + ", Drvr Slew: " + std::to_string(1e12 * (dcalc_result.drvrSlew())) + "\n";
-      // }
+      // debug_info += ", In Slew: " + std::to_string(1e12 * in_slew)
+      //               + ", Gate Delay: " + std::to_string(1e12 * (dcalc_result.gateDelay()))
+      //               + ", Drvr Slew: " + std::to_string(1e12 * (dcalc_result.drvrSlew()))
+      //               + ", Cur Slew: " + std::to_string(1e12 * pt_graph->slew(drvr_pt_vertex, drvr_rf, dcalc_ap->index()))
+      //               + ", Prev Slew: " + std::to_string(1e12 * prev_drvr_slew)
+      //               + ", ref libcell: " + std::string(pt_graph->refGate()->name())
+      //               + "\n";
     } else {
       // ArcDcalcArg dcalc_args = makeArcDcalcArgs(drvr_pt_vertex,
                                   // multi_drvr_net, pt_edge, arc,
@@ -540,7 +864,12 @@ LocalSta::annotateLoadDelays(PtVertex &drvr_pt_vertex,
       Slew load_slew = dcalc_result.loadSlew(load_idx);
       if (!load_vertex->slewAnnotated(to_rf, slew_min_max)) {
     if (drvr_vertex->slewAnnotated(to_rf, slew_min_max)) {
-      const Slew &drvr_slew = pt_graph->slew(drvr_pt_vertex, to_rf, ap_index);
+      // Should take annotated slew from the underlying graph, 
+      // as pt_graph might not hold the annotated value.
+      printf("Warning: LocalSta::annotateLoadDelays: load vertex %s slew not annotated, taking from graph\n",
+             load_vertex->to_string(graph_).c_str());
+      fflush(stdout);
+      Slew drvr_slew = graph_->slew(drvr_vertex, to_rf, ap_index);
       pt_graph->setSlew(load_pt_vertex, to_rf, ap_index, drvr_slew);
       load_changed = true;
     } else {
@@ -662,19 +991,19 @@ LocalSta::makeLoadPinIndexMap(PtVertex &drvr_pt_vertex, PtGraph *pt_graph)
 }
 
 Slew
-LocalSta::edgeFromSlew(const PtVertex &from_pt_vertex,
+LocalSta::edgeFromLocalSlew(const PtVertex &from_pt_vertex,
                        const RiseFall *from_rf,
                        const PtEdge &pt_edge,
                        const DcalcAnalysisPt *dcalc_ap,
                        PtGraph *pt_graph)
 {
   const Edge *edge = pt_edge.edge();
-  return edgeFromSlew(from_pt_vertex, from_rf, edge->role(), 
+  return edgeFromLocalSlew(from_pt_vertex, from_rf, edge->role(), 
                       dcalc_ap, pt_graph);
 }
 
 Slew
-LocalSta::edgeFromSlew(const PtVertex &from_pt_vertex,
+LocalSta::edgeFromLocalSlew(const PtVertex &from_pt_vertex,
                        const RiseFall *from_rf,
                        const TimingRole *role,
                        const DcalcAnalysisPt *dcalc_ap,
@@ -773,7 +1102,7 @@ LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph,
   findLocalRequireds(pt_graph);
   const Corner *corner = corners_->findCorner("default");
   DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
-  return delayLmSum(pt_graph, dcalc_ap, true);
+  return delayLmSum(pt_graph, dcalc_ap, false);
 }
 
 // Recompute local parasitics after cell swap
@@ -842,7 +1171,7 @@ LocalSta::localParasiticLoad(const Pin *drvr_pin,
           pin_cap, wire_cap, fanout, has_net_load);
 
   parasitic = local_parasitics_->findLocalParasitic(drvr_pin, rf, dcalc_ap);
-  if (!has_net_load && parasitic != nullptr) {
+  if (parasitic != nullptr) {
     if (!local_parasitics_->isPiModel(parasitic)) {
       printf("LocalSta::localParasiticLoad: Non-PI model parasitic found for pin %s\n",
              network_->name(drvr_pin));
@@ -1043,6 +1372,7 @@ LocalSta::virtualReplaceCell(PtGraph *pt_graph, LibertyCell *new_cell)
   }
   pt_graph->setRefGate(new_cell);
   pt_graph->updateTimingArcSets();
+  recomputeLocalParasitics(pt_graph);
 }
 
 void 
@@ -1066,9 +1396,9 @@ LocalSta::initParallel()
 }
 
 void 
-LocalSta::runResize(rsz::Resizer *resizer, float average_delay, float average_leakage)
+LocalSta::runResize(rsz::Resizer *resizer, ParallelLrVisitor *visitor)
 {
-  task_arranger_->visitParallel(sta_, this, resizer, average_delay, average_leakage);
+  task_arranger_->visitParallel(sta_, this, resizer, visitor);
 }
 
 } // namespace lrf
