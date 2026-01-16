@@ -18,6 +18,7 @@
 #include "rsz/Resizer.hh"
 
 #include <unordered_map>
+#include <chrono>
 
 namespace lrf {
 // All logic is handled via dbStaState base; nothing additional yet.
@@ -232,6 +233,8 @@ IncreSta::setLocalStaParasiticsEst(est::EstimateParasitics *estimate_parasitics)
 void
 IncreSta::preSaveLibCellLeakage()
 {
+  if (!swap_cell_presaved_)
+    throw std::runtime_error("IncreSta::preSaveLibCellLeakage called before swappable cells are presaved\n");
   ensureActivities();
   sta::Corner *corner = sta_->corners()->findCorner("default");
   sta::LeafInstanceIterator* inst_iter = network_->leafInstanceIterator();
@@ -265,6 +268,7 @@ IncreSta::preSaveLibCellLeakage()
     }
   }
   delete inst_iter;
+  swap_cell_leakage_presaved_ = true;
 }
 
 //////////////////////////////////////////////////////////
@@ -313,6 +317,7 @@ IncreSta::makeSwappableCellsCache(rsz::Resizer *resizer)
       swappable_cells_cache_[equiv_cell] = swappable_cells;
     }
   }
+  swap_cell_presaved_ = true;
 }
 
 
@@ -322,15 +327,41 @@ IncreSta::makeSwappableCellsCache(rsz::Resizer *resizer)
 void 
 IncreSta::parallelResize(rsz::Resizer *resizer)
 {
+  auto start_total = std::chrono::high_resolution_clock::now();
+
   // We first create a serials of instance visitors
   local_sta_->initParallel();
+
+if (!swap_cell_presaved_) {
+  auto start_cache = std::chrono::high_resolution_clock::now();
   makeSwappableCellsCache(resizer);
+  auto end_cache = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_cache = end_cache - start_cache;
+  printf("makeSwappableCellsCache took %f s\n", diff_cache.count());
+}
+if (!swap_cell_leakage_presaved_) {
+  auto start_presave = std::chrono::high_resolution_clock::now();
+  preSaveLibCellLeakage();
+  auto end_presave = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_presave = end_presave - start_presave;
+  printf("preSaveLibCellLeakage took %f s\n", diff_presave.count());
+}
+
   float average_delay = averageDelayOnCritPath();
   float average_power = averageLeakage();
   printf("Average delay: %f, average power: %f\n", average_delay * 1e12, average_power * 1e9);
   ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_);
   visitor->init(average_delay, average_power, &swappable_cells_cache_, &inst_info_map_);
+  
+  auto start_resize = std::chrono::high_resolution_clock::now();
   local_sta_->runResize(resizer, visitor);
+  auto end_resize = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_resize = end_resize - start_resize;
+  printf("local_sta_->runResize took %f s\n", diff_resize.count());
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_total = end_total - start_total;
+  printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
 }
 
 void

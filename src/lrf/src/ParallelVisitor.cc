@@ -43,7 +43,7 @@ bool
 ParallelLrVisitor::checkVisitorStatus() const
 {
   if (db_sta_ == nullptr || local_sta_ == nullptr || arc_delay_calc_ == nullptr
-      || swappable_cells_cache_ == nullptr || inst_info_map_ == nullptr) {
+      || swappable_cells_cache_->empty() || inst_info_map_->empty()) {
     return false;
   }
   return true;
@@ -52,8 +52,8 @@ ParallelLrVisitor::checkVisitorStatus() const
 float
 ParallelLrVisitor::swapCost(float delay_lm_sum, float power)
 {
-  float swap_cost = 2 * delay_lm_sum / average_delay_ 
-                    + power / average_leakage_;
+  float swap_cost = 1000 * delay_lm_sum / average_delay_ ;
+                    // + power / average_leakage_;
   return swap_cost;
 }
 
@@ -73,23 +73,27 @@ ParallelLrVisitor::visit(sta::Instance *inst)
   visited_instances_.push_back(db_sta_->network()->pathName(inst));
   sta::LibertyCell *ori_cell = db_sta_->network()->libertyCell(inst);
   if (ori_cell) {
-    if (inst_info_map_->find(inst) == inst_info_map_->end()) {
-      printf("Warning: ParallelLrVisitor::visit no inst info cached for instance %s\n",
-             db_sta_->network()->pathName(inst));
+    auto info_it = inst_info_map_->find(inst);
+    if (info_it == inst_info_map_->end()) {
+      // Instance skipped during pre-calculation (likely no swappable cells), not an error.
+      printf("ParallelLrVisitor::visit instance %s of type %s not found in inst_info_map_, skipped\n",
+             db_sta_->network()->pathName(inst),
+             ori_cell->name());
       fflush(stdout);
       return false;
     }
-    sta::LibertyCellSeq *equiv_cells = (*inst_info_map_)[inst]->equiv_cells;
-    if (equiv_cells == nullptr) {
-      printf("Warning: ParallelLrVisitor::visit no equiv cells cached for %s, regenerating\n",
-             ori_cell->name());
-      fflush(stdout);
-      db_sta_->equivCells(ori_cell);
-    }
-    if (equiv_cells == nullptr) {
+    sta::LibertyCellSeq *equiv_cells = info_it->second->equiv_cells;
+    
+    if (equiv_cells == nullptr || equiv_cells->empty()) {
       printf("ParallelLrVisitor::visit no equiv cells for %s\n",
              ori_cell->name());
       fflush(stdout);
+      equiv_cells = db_sta_->equivCells(ori_cell);
+      if (equiv_cells == nullptr) {
+        printf("ParallelLrVisitor::visit no equiv cells from db_sta_ for %s\n",
+               ori_cell->name());
+        fflush(stdout);
+      }
       return false;
     } 
 
@@ -112,27 +116,22 @@ ParallelLrVisitor::visit(sta::Instance *inst)
       }
       float leakage = (*inst_info_map_)[inst]->cell_leakages[cnt++];
 
-      printf("ParallelLrVisitor::visit testing equiv cell %s for instance %s with leakage %f\n",
-             equiv_cell->name(),
-             db_sta_->network()->pathName(inst),
-             leakage * 1e9);
-      fflush(stdout);
+      // printf("ParallelLrVisitor::visit testing equiv cell %s for instance %s with leakage %f\n",
+      //        equiv_cell->name(),
+      //        db_sta_->network()->pathName(inst),
+      //        leakage * 1e9);
+      // fflush(stdout);
 
       float delay_lm_sum = local_sta_->
         increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, equiv_cell).delay_lm_sum;
       float swapped_cost = swapCost(delay_lm_sum, leakage);
       sta::Slack swapped_slack = 
                       local_sta_->localSlackAroundRef(pt_graph_);
-      // Do local slack check
-      // printf("from delay_lm_sum %f to %f for cell %s, slack before swap %f, after swap %f\n",
-      //        best_cost * 1e12,
-      //        swapped_cost * 1e12,
-      //        equiv_cell->name(),
-      //        slack_before_swap_ * 1e12,
-      //        swapped_slack * 1e12);
-      // fflush(stdout);
+      
+      // Do local slack check: ensure we do not degrade timing (allow small tolerance if needed)
+      // Original logic: swapped_slack >= slack_before_swap_ * 1.1 -- This is incorrect for negative slack.
       if (swapped_cost < best_cost
-          && swapped_slack >= slack_before_swap_ * 1.1 ) {
+          && swapped_slack >= slack_before_swap_ * 1.05) {
         best_cell_ = equiv_cell;
         best_cost = swapped_cost;
       }
@@ -219,9 +218,9 @@ ParallelLrVisitor::visit(sta::Instance *inst,
       if (cnt > 2) break; // Only test first 1 equiv cells
       // This first virtual swap the cell in pt graph,
       // then recompute local delays, arrivals, requireds.
-      printf("ParallelLrVisitor::visit testing equiv cell %s for instance %s\n",
-             equiv_cell->name(),
-             db_sta_->network()->pathName(inst));
+      // printf("ParallelLrVisitor::visit testing equiv cell %s for instance %s\n",
+      //        equiv_cell->name(),
+      //        db_sta_->network()->pathName(inst));
 
       DelayLmSumResult swapped_result = local_sta_->
         increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, equiv_cell);
