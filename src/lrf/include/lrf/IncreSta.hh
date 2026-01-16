@@ -84,6 +84,8 @@ protected:
   std::unordered_map<LibertyCell*, LibertyCellSeq*> swappable_cells_cache_;
   std::unordered_map<sta::Instance*, LocalCellInfo*> inst_info_map_;
   LocalCellInfo *cell_info_vec_ = nullptr;
+  bool swap_cell_presaved_ = false;
+  bool swap_cell_leakage_presaved_ = false;
 };
 
 } // namespace lrf
