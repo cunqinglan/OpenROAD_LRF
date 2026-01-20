@@ -1167,8 +1167,6 @@ LocalSta::localParasiticLoad(const Pin *drvr_pin,
   bool has_net_load;
   float fanout;
   float pin_cap, wire_cap;
-  netCaps(drvr_pin, rf, dcalc_ap, multi_drvr_net,
-          pin_cap, wire_cap, fanout, has_net_load);
 
   parasitic = local_parasitics_->findLocalParasitic(drvr_pin, rf, dcalc_ap);
   if (parasitic != nullptr) {
@@ -1181,6 +1179,8 @@ LocalSta::localParasiticLoad(const Pin *drvr_pin,
     load_cap = local_parasitics_->capacitance(parasitic);
   }
   else {
+    netCaps(drvr_pin, rf, dcalc_ap, multi_drvr_net,
+          pin_cap, wire_cap, fanout, has_net_load);
     printf("LocalSta::localParasiticLoad failed at pin %s: has_net_load=%d, pin_cap=%f fF, wire_cap=%f fF\n",
            network_->name(drvr_pin),
            has_net_load,

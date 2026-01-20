@@ -60,7 +60,8 @@ public:
 
   void testParallelResize(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
 
-  void testParallelLrResizing(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block, size_t thread_num, size_t max_resize_num, size_t iterations);
+  void testParallelLrResizing(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block, size_t thread_num, 
+    size_t max_resize_num, size_t iterations, size_t num_no_improve_tolerance);
 
   void testTimingComputeAndWriteBack(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block, const std::vector<odb::dbInst*> &insts);
 

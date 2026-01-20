@@ -11,7 +11,10 @@
 #include "search/Levelize.hh"
 #include "sta/SearchPred.hh"
 #include "sta/Corner.hh"
+#include "sta/SdcClass.hh"
+#include "sta/Clock.hh"
 #include "sta/TimingRole.hh"
+#include "sta/Sdc.hh"
 
 namespace lrf {
 using namespace sta;
@@ -139,9 +142,167 @@ LRHelper::BFSSort() {
   levelized_valid_ = true;
 }
 
+void 
+LRHelper::computeInLmSums(std::vector<LMValue> &in_lm_sums) {
+  int ap_count = graph_->corners()->dcalcAnalysisPtCount();
+  in_lm_sums.resize(sorted_lm_vertices_.size() * ap_count, 1.0);
+  for (size_t vertex_idx = 0; vertex_idx < sorted_lm_vertices_.size(); ++vertex_idx) {
+    Vertex *vertex = sorted_lm_vertices_[vertex_idx];
+    if (vertex->isRoot() || !vertex->hasFanin()) {
+      continue;
+    }
+    for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
+      const size_t ap_index = dcalc_ap->index();
+      size_t in_lm_index = vertex_idx * ap_count + ap_index;
+      VertexInEdgeIterator in_edge_iter(vertex, graph_);
+      LMValue in_lm_sum = 0.0;
+      size_t in_edge_count = 0;
+      while (in_edge_iter.hasNext()) {
+        Edge *in_edge = in_edge_iter.next();
+        if (!search_non_latch_pred_->searchThru(in_edge)) {
+          continue;
+        }
+        LMValue const *lms = in_edge->arcLms();
+        for (TimingArc *arc : in_edge->timingArcSet()->arcs()) {
+          size_t arc_lm_index = lmIndex(arc, graph_->apCount(), ap_index);
+          in_lm_sum += lms[arc_lm_index];
+        }
+        in_edge_count++;
+      }
+      if (in_edge_count > 0) {
+        in_lm_sums[in_lm_index] = in_lm_sum;
+        if (in_lm_sum <= 0.0) {
+          printf("LRHelper::computeInLmSums: vertex %s has non-positive in LM sum %.6f for ap %s\n",
+                 vertex->to_string(graph_).c_str(),
+                 in_lm_sum,
+                 dcalc_ap->corner()->name());
+          fflush(stdout);
+        }
+      } else {
+        printf("LRHelper::computeInLmSums: vertex %s has no inputs for ap %s\n",
+               vertex->to_string(graph_).c_str(),
+               dcalc_ap->corner()->name());
+        fflush(stdout);
+        in_lm_sums[in_lm_index] = 1.0; // Indicate no inputs
+      }
+    }
+  }
+}
+
+LMValue
+LRHelper::computeOutVertexLmSum(Vertex *vertex,
+                         DcalcAnalysisPt const* dcalc_ap) const 
+{
+  LMValue out_lm_sum = 0.0;
+  const size_t ap_index = dcalc_ap->index();
+  VertexOutEdgeIterator out_edge_iter(vertex, graph_);
+  size_t out_edge_count = 0;
+  while (out_edge_iter.hasNext()) {
+    Edge *out_edge = out_edge_iter.next();
+    if (!search_non_latch_pred_->searchThru(out_edge) || 
+        !search_non_latch_pred_->searchTo(out_edge->to(graph_))) {
+      continue;
+    }
+    const LMValue *lms = out_edge->arcLms();
+    for (TimingArc *arc : out_edge->timingArcSet()->arcs()) {
+      size_t lm_index = lmIndex(arc, graph_->apCount(), ap_index);
+      out_lm_sum += lms[lm_index];
+    }
+    out_edge_count++;
+  }
+  if (out_edge_count == 0 || out_lm_sum < 0.0) {
+    // printf("ERROR: LRHelper::computeOutVertexLmSum: vertex %s has no out edges for ap %s\n",
+    //        vertex->to_string(graph_).c_str(),
+    //        dcalc_ap->corner()->name());
+    // fflush(stdout);
+    // return -1.0;
+    throw std::runtime_error("LRHelper::computeOutVertexLmSum: no out edges");
+  }
+  return out_lm_sum;
+}
+
+void
+LRHelper::distributeLmOutToIn(Vertex *vertex)
+{
+  for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
+    const size_t ap_index = dcalc_ap->index();
+    
+    // Compute out LM sum on-the-fly to ensure freshness
+    LMValue out_lm_sum = computeOutVertexLmSum(vertex, dcalc_ap);
+    
+    // Compute in LM sum on-the-fly to ensure freshness
+    LMValue in_lm_sum = computeInVertexLmSum(vertex, dcalc_ap);
+    
+    float ratio = out_lm_sum / in_lm_sum;
+    
+    // Distribute out LM sum to in edges
+    VertexInEdgeIterator in_edge_iter(vertex, graph_);
+    while (in_edge_iter.hasNext()) {
+      Edge *in_edge = in_edge_iter.next();
+      if (!search_non_latch_pred_->searchThru(in_edge) || 
+          !search_non_latch_pred_->searchFrom(in_edge->from(graph_))) {
+        continue;
+      }
+      LMValue *lms = in_edge->arcLms();
+      for (TimingArc *arc : in_edge->timingArcSet()->arcs()) {
+        size_t lm_index = lmIndex(arc, graph_->apCount(), ap_index);
+        if (lms[lm_index] < 0.0) {
+          printf("Error: LRHelper::distributeLmOutToIn (before update): edge %s AP corner %s: negative LM %.6f\n",
+                 in_edge->to_string(graph_).c_str(),
+                 dcalc_ap->corner()->name(),
+                 lms[lm_index]);
+          fflush(stdout);
+          throw std::runtime_error("LRHelper::distributeLmOutToIn: negative LM");
+        }
+        lms[lm_index] = lms[lm_index] * ratio;
+      }
+    }
+  }
+}
+
+void 
+LRHelper::computeOutLmSumsAndDistributeToIn(const VertexSeq &sorted_vertices,
+                                      std::vector<LMValue> & /* unused */) {
+  int ap_count = graph_->corners()->dcalcAnalysisPtCount();
+  for (size_t vertex_idx = sorted_vertices.size(); vertex_idx-- > 0; ) {
+    Vertex *vertex = sorted_vertices[vertex_idx];
+    if (vertex->isRoot() || !vertex->hasFanin() || !vertex->hasFanout()
+  || search_non_latch_pred_->searchTo(vertex)
+  || search_non_latch_pred_->searchFrom(vertex)) {
+      continue;
+    }
+    distributeLmOutToIn(vertex);
+  }
+}
+
+
+
 // KKTProjection performs the Karush-Kuhn-Tucker projection step.
+bool 
+LRHelper::KKTProjection(Sta *sta)
+{
+  printf("LRHelper::KKTProjection()\n");
+  fflush(stdout);
+  // Ensure vertices are sorted in topological order
+  const VertexSeq &sorted_vertices = ensureSorted(sta);
+  std::vector<LMValue> in_lm_sums;
+  // computeInLmSums(in_lm_sums);
+  computeOutLmSumsAndDistributeToIn(sorted_vertices, in_lm_sums);
+
+  bool kkt_satisfied = checkKKTForAllVertices();
+  if (kkt_satisfied) {
+    printf("LRHelper::KKTProjection(): KKT conditions satisfied\n");
+  } else {
+    printf("LRHelper::KKTProjection(): KKT conditions NOT satisfied\n");
+  }
+  fflush(stdout);
+
+  return kkt_satisfied;
+}
+
+// // KKTProjection performs the Karush-Kuhn-Tucker projection step.
 bool
-LRHelper::KKTProjection(Sta *sta) {
+LRHelper::KKTProjection1(Sta *sta) {
   printf("LRHelper::KKTProjection()\n");
   fflush(stdout);
   // Ensure vertices are sorted in topological order
@@ -185,6 +346,11 @@ LRHelper::checkKKTForAllVertices() {
   const VertexSeq &ordered = sorted_lm_vertices_;
   for (auto vertex_it = ordered.begin(); 
     vertex_it != ordered.end(); ++vertex_it) {
+    if ((*vertex_it)->isRoot() || !(*vertex_it)->hasFanin() || !(*vertex_it)->hasFanout()
+  || search_non_latch_pred_->searchTo(*vertex_it)
+  || search_non_latch_pred_->searchFrom(*vertex_it)) {
+      continue;
+    }
     DcalcAPToLMValueMap out_lm_map;
     for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
       const size_t ap_index = dcalc_ap->index();
@@ -194,7 +360,8 @@ LRHelper::checkKKTForAllVertices() {
       VertexOutEdgeIterator out_edge_iter(*vertex_it, graph_);
       while (out_edge_iter.hasNext()) {
         Edge *out_edge = out_edge_iter.next();
-        if (out_edge->role()->isTimingCheck()) {
+        if (!search_non_latch_pred_->searchThru(out_edge) || 
+            !search_non_latch_pred_->searchTo(out_edge->to(graph_))) {
           continue;
         }
         // printf("LRHelper::checkKKTForAllVertices: vertex %s processing out edge %s\n",
@@ -204,14 +371,23 @@ LRHelper::checkKKTForAllVertices() {
         LMValue const *lms = out_edge->arcLms();
 
         for (TimingArc *arc : out_edge->timingArcSet()->arcs()) {
-          size_t lm_idx = arc->index() * graph_->apCount() + ap_index;
-          LMValue arc_lm = lms[lm_idx];
+          size_t lm_index = lmIndex(arc, graph_->apCount(), ap_index);
+          LMValue arc_lm = lms[lm_index];
+          if (arc_lm < 0.0) {
+            printf("Error: LRHelper::checkKKTForAllVertices: vertex %s out edge %s AP corner %s: negative LM %.6f\n",
+                   (*vertex_it)->to_string(graph_).c_str(),
+                   out_edge->to_string(graph_).c_str(),
+                   dcalc_ap->corner()->name(),
+                   arc_lm);
+            fflush(stdout);
+            throw std::runtime_error("LRHelper::checkKKTForAllVertices: negative LM");
+          }
           out_lm_sum += arc_lm;
         }
         out_edge_count++;
       }
       if (out_edge_count == 0) {
-        out_lm_sum = -1.0; // Indicate no outputs
+        throw std::runtime_error("LRHelper::checkKKTForAllVertices: no out edges");
       }
       out_lm_map[dcalc_ap] = out_lm_sum;
     }
@@ -224,7 +400,8 @@ LRHelper::checkKKTForAllVertices() {
       size_t in_edge_count = 0;
       while (in_edge_iter.hasNext()) {
         Edge *in_edge = in_edge_iter.next();
-        if (in_edge->role()->isTimingCheck()) {
+        if (!search_non_latch_pred_->searchThru(in_edge) || 
+            !search_non_latch_pred_->searchFrom(in_edge->from(graph_))) {
           continue;
         }
         LMValue const *lms = in_edge->arcLms();
@@ -233,24 +410,22 @@ LRHelper::checkKKTForAllVertices() {
         //        in_edge->to_string(graph_).c_str());
         //        fflush(stdout);
         for (TimingArc *arc : in_edge->timingArcSet()->arcs()) {
-          size_t lm_idx = arc->index() * graph_->apCount() + ap_index;
-          LMValue arc_lm = lms[lm_idx];
+          size_t lm_index = lmIndex(arc, graph_->apCount(), ap_index);
+          LMValue arc_lm = lms[lm_index];
           in_lm_sum += arc_lm;
         }
         in_edge_count++;
       }
 
       LMValue out_lm_sum = out_lm_map[dcalc_ap];
-      const float epsilon = 1e-4;
+      const float epsilon = 1e-17;
       if ((std::abs(out_lm_sum - in_lm_sum) > epsilon) && !(in_edge_count == 0) &&
           !(out_lm_sum == -1.0)) {
         all_satisfied = false;
-        printf("LRHelper::checkKKTForAllVertices: vertex %s KKT not satisfied for AP corner %s, delay min/max %s, slew min/max %s: out LM sum %.6f != in LM sum %.6f\n",
+        printf("LRHelper::checkKKTForAllVertices: vertex %s KKT not satisfied for AP corner %s, level = %d\n",
                 (*vertex_it)->to_string(graph_).c_str(),
                 dcalc_ap->corner()->name(),
-                dcalc_ap->delayMinMax()->to_string().c_str(),
-                dcalc_ap->slewMinMax()->to_string().c_str(),
-                out_lm_sum, in_lm_sum);
+                (*vertex_it)->level());
         fflush(stdout);
       }
     }
@@ -289,12 +464,78 @@ LRHelper::distributeLmOutToIn(Vertex *vertex,
         continue;
       }
       for (TimingArc *arc : in_edge->timingArcSet()->arcs()) {
-        size_t lm_idx = arc->index() * graph_->apCount() + ap_index;
-        lms[lm_idx] = out_lm_sum * (lms[lm_idx] / in_lm_sum);
+        size_t lm_index = lmIndex(arc, graph_->apCount(), ap_index);
+        lms[lm_index] = out_lm_sum * (lms[lm_index] / in_lm_sum);
       }
     }
   }
 }
+
+LMValue
+LRHelper::computeInVertexLmSum(Vertex *vertex, DcalcAnalysisPt const* dcalc_ap) const
+{
+  VertexInEdgeIterator in_edge_iter(vertex, graph_);
+  size_t in_edge_count = 0;
+  size_t ap_index = dcalc_ap->index();
+  LMValue in_lm_sum = 0.0;
+  while (in_edge_iter.hasNext()) {
+    Edge *in_edge = in_edge_iter.next();
+    if (!search_non_latch_pred_->searchThru(in_edge) || 
+        !search_non_latch_pred_->searchFrom(in_edge->from(graph_))) {
+      continue;
+    }
+    LMValue const *lms = in_edge->arcLms();
+
+    for (TimingArc *arc : in_edge->timingArcSet()->arcs()) {
+      // Sum early and late LMs separately
+      size_t lm_index = lmIndex(arc, graph_->apCount(), ap_index);
+      in_lm_sum += lms[lm_index];
+    }
+    in_edge_count++;
+  }
+  if (in_edge_count == 0 || in_lm_sum < 0.0) {
+    printf("LRHelper::computeInLmSums: vertex %s has lmSum %f, in_edge_count %zu, setting in LM sum to 1.0\n",
+            vertex->to_string(graph_).c_str(),
+            in_lm_sum,
+            in_edge_count);
+            fflush(stdout);
+    throw std::runtime_error("LRHelper::computeInLmSum: zero in LM sum or no in edges");
+  }
+  return in_lm_sum;
+}
+
+LMValue
+LRHelper::computeInLmSum(Vertex *vertex, DcalcAnalysisPt const* dcalc_ap) const
+{
+  VertexInEdgeIterator in_edge_iter(vertex, graph_);
+  size_t in_edge_count = 0;
+  size_t ap_index = dcalc_ap->index();
+  LMValue in_lm_sum = 0.0;
+  while (in_edge_iter.hasNext()) {
+    const Edge *in_edge = in_edge_iter.next();
+    if (in_edge->role()->isTimingCheck()) {
+      continue;
+    }
+    LMValue const *lms = in_edge->arcLms();
+
+    for (TimingArc *arc : in_edge->timingArcSet()->arcs()) {
+      // Sum early and late LMs separately
+      size_t lm_index = lmIndex(arc, graph_->apCount(), ap_index);
+      in_lm_sum += lms[lm_index];
+    }
+    in_edge_count++;
+  }
+  if (in_edge_count == 0 || in_lm_sum < 0.0) {
+    printf("LRHelper::computeInLmSums: vertex %s has lmSum %f, in_edge_count %zu, setting in LM sum to 1.0\n",
+            vertex->to_string(graph_).c_str(),
+            in_lm_sum,
+            in_edge_count);
+            fflush(stdout);
+    throw std::runtime_error("LRHelper::computeInLmSum: zero in LM sum or no in edges");
+  }
+  return in_lm_sum;
+}
+
 
 size_t
 LRHelper::computeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_map)
@@ -305,7 +546,7 @@ LRHelper::computeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_map)
   vertex_it != ordered.end(); ++vertex_it) {
     Vertex *vertex = *vertex_it;
 
-    if (vertex->isRoot()) {
+    if (vertex->isRoot() || !vertex->hasFanin()) {
       for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
         ap_lm_map[dcalc_ap].push_back(1.0);
       }
@@ -314,31 +555,8 @@ LRHelper::computeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_map)
     }
 
     for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
-      const size_t ap_index = dcalc_ap->index();
-
-      LMValue in_lm_sum = 0.0;
-      VertexInEdgeIterator in_edge_iter(vertex, graph_);
-      size_t in_edge_count = 0;
-      while (in_edge_iter.hasNext()) {
-        const Edge *in_edge = in_edge_iter.next();
-        if (in_edge->role()->isTimingCheck()) {
-          continue;
-        }
-        LMValue const *lms = in_edge->arcLms();
-
-        for (TimingArc *arc : in_edge->timingArcSet()->arcs()) {
-          // Sum early and late LMs separately
-          size_t lm_idx = arc->index() * graph_->apCount() + ap_index;
-          in_lm_sum += lms[lm_idx];
-        }
-        in_edge_count++;
-      }
-      if (in_lm_sum == 0.0 || in_edge_count == 0) {
-        printf("LRHelper::computeInLmSums: vertex %s has no in LM edges, setting in LM sum to 1.0\n",
-               vertex->to_string(graph_).c_str());
-               fflush(stdout);
-        in_lm_sum = 1.0;
-      }
+      LMValue in_lm_sum = computeInLmSum(vertex, dcalc_ap);
+      
       ap_lm_map[dcalc_ap].push_back(in_lm_sum);
     }
     in_sum_index++;
@@ -365,8 +583,8 @@ LRHelper::computeOutLmSum(Vertex *vertex) const
     for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
       const size_t ap_index = dcalc_ap->index();
       for (TimingArc *arc : out_edge->timingArcSet()->arcs()) {
-        size_t lm_idx = arc->index() * graph_->apCount() + ap_index;
-        LMValue arc_lm = lms[lm_idx];
+        size_t lm_index = lmIndex(arc, graph_->apCount(), ap_index);
+        LMValue arc_lm = lms[lm_index];
         out_lm_sums[ap_index] += arc_lm;
       }
     }
@@ -374,21 +592,111 @@ LRHelper::computeOutLmSum(Vertex *vertex) const
   return out_lm_sums;
 }
 
+float 
+LRHelper::updateLmMultiplier(Edge *edge,
+                        TimingArc *arc,
+                        DcalcAnalysisPt const *dcalc_ap,
+                        Sta *sta)
+{
+  float multiplier = 1.0;
+  Vertex *from_vertex = edge->from(graph_);
+  RiseFall  const *from_rf = arc->fromEdge()->asRiseFall();
+  MinMax const *delay_minmax = dcalc_ap->delayMinMax();
+  double clock_period = 0.0;
+  for (Clock const* clk : *(sdc_->clocks())) {
+    if (clk->period() > clock_period) {
+      clock_period = clk->period();
+      break;
+    }
+  }
+  if (clock_period == 0.0) {
+    throw std::runtime_error("LRHelper::updateLmValue: zero clock period");
+  }
+  if (delay_minmax == MinMax::max()) {
+    Arrival from_aat = sta->pinArrival(from_vertex->pin(), from_rf,
+        delay_minmax);
+    ArcDelay delay = sta->arcDelay(edge, arc, dcalc_ap);
+    Required to_rat = sta->vertexRequired(from_vertex, from_rf,
+        delay_minmax);
+    Slack arc_slack = to_rat - (from_aat + delay);
+    
+    multiplier = 1.0 - (arc_slack / clock_period);
+    // printf("LRHelper::updateLmValue: edge %s AP corner %s delay min/max %s: to_slack %.6f ps, clock_period %.6f ps, updated LM %.6f\n",
+    //        edge->to_string(graph_).c_str(),
+    //        dcalc_ap->corner()->name(),
+    //        delay_minmax->to_string().c_str(),
+    //        arc_slack * 1.0e12,
+    //        clock_period * 1.0e12,
+    //        multiplier);
+    // fflush(stdout);
+  } else {
+    Arrival from_aat = sta->pinArrival(from_vertex->pin(), from_rf,
+        delay_minmax);
+    ArcDelay delay = sta->arcDelay(edge, arc, dcalc_ap);
+    Required to_rat = sta->vertexRequired(from_vertex, from_rf,
+        delay_minmax);
+    Slack arc_slack = (from_aat + delay) - to_rat;
+    multiplier = 1.0 - (arc_slack / clock_period);
+  }
+  return pow(multiplier, 2);
+}
+
+void
+LRHelper::updateEndpointsArcLms(Edge *edge, TimingArc *arc, Sta *sta) 
+{
+  for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
+    const size_t ap_index = dcalc_ap->index();
+    size_t lm_index = lmIndex(arc, graph_->apCount(), ap_index);
+    Vertex *from_vertex = edge->from(graph_);;
+    Vertex *to_vertex = edge->to(graph_);
+    
+    RiseFall const *from_rf = arc->fromEdge()->asRiseFall();
+    RiseFall  const *to_rf = arc->toEdge()->asRiseFall();
+    MinMax const *delay_minmax = dcalc_ap->delayMinMax();
+    Arrival from_aat = sta->pinArrival(from_vertex->pin(), from_rf,
+        delay_minmax);
+    Arrival to_rat = sta->vertexRequired(to_vertex, to_rf,
+        delay_minmax);
+    Delay delay = sta->arcDelay(edge, arc, dcalc_ap);
+    LMValue *lms = edge->arcLms();
+    lms[lm_index] = lms[lm_index] * updateLmMultiplier(edge, arc, dcalc_ap, sta);
+  }
+}
+
+void
+LRHelper::updateEndpointLms(Vertex *vertex, Sta *sta) 
+{
+  VertexInEdgeIterator in_edge_iter(vertex, graph_);
+  while (in_edge_iter.hasNext()) {
+    Edge *in_edge = in_edge_iter.next();
+    for (sta::TimingArc *arc : in_edge->timingArcSet()->arcs()) {
+      updateEndpointsArcLms(in_edge, arc, sta);
+    }
+  }
+}
+
 void
 LRHelper::updateAllEdgeLms(Sta *sta) {
+  sta->findRequireds();
   printf("Size of sorted_lm_vertices_: %zu\n", sorted_lm_vertices_.size());
   fflush(stdout);
+  VertexSet *endpoints = sta->endpoints();
+  for (Vertex *vertex : *endpoints) {
+    vertex->setIsEndpoint(true);
+    updateEndpointLms(vertex, sta);
+  }
   copyState(sta);
   for (auto vertex_it = sorted_lm_vertices_.begin(); 
        vertex_it != sorted_lm_vertices_.end(); ++vertex_it) {
     Vertex *vertex = *vertex_it;
-    VertexOutEdgeIterator out_edge_iter(vertex, graph_);
-    while (out_edge_iter.hasNext()) {
-      Edge *out_edge = out_edge_iter.next();
-      if (out_edge->role()->isTimingCheck()) {
+    VertexInEdgeIterator in_edge_iter(vertex, graph_);
+    while (in_edge_iter.hasNext()) {
+      Edge *in_edge = in_edge_iter.next();
+      // if (out_edge->role()->isTimingCheck()) {
+      if (!search_non_latch_pred_->searchThru(in_edge)) {
         continue;
       }
-      updateEdgeLms(out_edge, sta);
+      updateEdgeLms(in_edge, sta);
     }
   }
 }
@@ -396,7 +704,11 @@ LRHelper::updateAllEdgeLms(Sta *sta) {
 void 
 LRHelper::updateEdgeLms(Edge *edge, Sta *sta) {
   for (TimingArc *arc : edge->timingArcSet()->arcs()) {
-    updateArcLms(edge, arc, sta);
+    if (search_non_latch_pred_->searchThru(edge) && 
+        search_non_latch_pred_->searchFrom(edge->from(graph_)) &&
+        search_non_latch_pred_->searchTo(edge->to(graph_))) {
+      updateArcLms(edge, arc, sta);
+    }
   }
 }
 
@@ -404,35 +716,21 @@ void
 LRHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta) {
   for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
     const size_t ap_index = dcalc_ap->index();
-    size_t lm_idx = arc->index() * graph_->apCount() + ap_index;
+    size_t lm_index = lmIndex(arc, graph_->apCount(), ap_index);
     Vertex *from_vertex = edge->from(graph_);;
     Vertex *to_vertex = edge->to(graph_);
     
     RiseFall const *from_rf = arc->fromEdge()->asRiseFall();
     RiseFall  const *to_rf = arc->toEdge()->asRiseFall();
     MinMax const *delay_minmax = dcalc_ap->delayMinMax();
-    Arrival aat = sta->vertexArrival(from_vertex, from_rf, 
-        clk_edge_wildcard, nullptr,  delay_minmax);
-    Arrival rat = sta->vertexArrival(to_vertex, to_rf,
-        clk_edge_wildcard, nullptr,  delay_minmax);
+    Arrival from_aat = sta->pinArrival(from_vertex->pin(), from_rf,
+        delay_minmax);
+    Arrival to_aat = sta->pinArrival(to_vertex->pin(), to_rf,
+        delay_minmax);
     Delay delay = sta->arcDelay(edge, arc, dcalc_ap);
     LMValue *lms = edge->arcLms();
-    LMValue origin = lms[lm_idx];
-    if (delay_minmax == MinMax::max()) {
-      if (rat == 0.0) rat = 1.0e-12;
-      lms[lm_idx] = lms[lm_idx] * (aat + delay) / rat;
-    } else {
-      if (aat + delay == 0.0) aat = 1.0e-12;
-      lms[lm_idx] = lms[lm_idx] * rat / (aat + delay);
-    }
-    // printf("LRHelper::updateArcLms: edge %s AP corner %s delay min/max %s: updated LM from %.6f to %.6f\n",
-    //        edge->to_string(graph_).c_str(),
-    //        dcalc_ap->corner()->name(),
-    //        delay_minmax->to_string().c_str(),
-    //        origin, lms[lm_idx]);
-    // printf("  with aat %.6f, rat %.6f, delay %.6f\n",
-    //        aat * 1.0e12, rat * 1.0e12, delay * 1.0e12);
-    // fflush(stdout);
+    // LMValue origin = lms[lm_index];
+    lms[lm_index] = lms[lm_index] * updateLmMultiplier(edge, arc, dcalc_ap, sta);
   }
 }
 
