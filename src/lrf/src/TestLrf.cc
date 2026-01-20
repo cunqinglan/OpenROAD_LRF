@@ -692,7 +692,7 @@ TestLrf::testParallelResize(sta::dbSta* sta,
   printf("----- Testing Parallel Resize -----\n");
   sta->searchPreamble();
   IncreSta *incre_sta = new IncreSta(sta);
-  incre_sta->parallelResize(resizer);
+  incre_sta->parallelResize(resizer, 1, 1);
   // incre_sta->localSta()->taskArranger()->printGraph();
   incre_sta->localSta()->taskArranger()->printFailed();
 }
@@ -729,10 +729,14 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
   sta::Slack wns;
   printf("Initial Worst Negative Slack: %f\n", best_wns * 1e12);
   printf("Initial Total Negative Slack: %f\n", best_tns * 1e12);
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+  printf("Initial Average Delay on Critical Path: %f\n", avg_delay * 1e12);
+  printf("Initial Average Leakage: %f\n", avg_leakage * 1e10);
   for (size_t i = 0; i < iterations; ++i) {
     sta->findRequireds();
     printf("----- LR Resizing Iteration %zu -----\n", i+1);
-    incre_sta->parallelResize(resizer);
+    incre_sta->parallelResize(resizer, avg_delay, avg_leakage);
     incre_sta->lmUpdate();
 
     est_parasitics->updateWireParasiticsNoDeleteNetwork();
