@@ -1,7 +1,3 @@
-
-
-
-
 #pragma once
 
 #include "lrf/LrfClass.hh"
@@ -27,6 +23,7 @@ public:
 
   VertexSeq &ensureSorted(Sta *sta);
   bool KKTProjection(Sta *sta);
+  bool KKTProjection1(Sta *sta);
   void updateAllEdgeLms(Sta *sta);
   void enqueueVertex(Vertex *vertex);
 
@@ -35,15 +32,29 @@ protected:
                             LMValueSeq &out_lm_sums,
                             DcalcAPToLMValueSeqMap &in_lm_seq_map,
                             size_t in_sum_index);
+  void computeOutLmSumsAndDistributeToIn(const VertexSeq &sorted_vertices,
+                                        std::vector<LMValue> &in_lm_sums);
+  void distributeLmOutToIn(Vertex *vertex);
 
   LMValueSeq computeOutLmSum(Vertex *vertex) const;
 
   size_t computeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_seq_map);
+  void computeInLmSums(std::vector<LMValue> &in_lm_sums);
+  LMValue computeInLmSum(Vertex *vertex, DcalcAnalysisPt const* dcalc_ap) const;
+  LMValue computeInVertexLmSum(Vertex *vertex, DcalcAnalysisPt const* dcalc_ap) const;
+  LMValue computeOutVertexLmSum(Vertex *vertex, DcalcAnalysisPt const* dcalc_ap) const;
+  float updateLmMultiplier(Edge *edge,
+                      TimingArc *arc,
+                      DcalcAnalysisPt const *dcalc_ap,
+                      Sta *sta);
+
   bool checkKKTForAllVertices();
   bool isBeforeReg(Vertex *vertex) const;
   void topoSort(LRHelper *lr_helper, VertexSeq &sorted_vertices);
   void updateEdgeLms(Edge *edge, Sta *sta);
   void updateArcLms(Edge *edge, TimingArc *arc, Sta *sta);
+  void updateEndpointLms(Vertex *vertex, Sta *sta);
+  void updateEndpointsArcLms(Edge *edge, TimingArc *arc, Sta *sta);
   void BFSSort();
   void levelSort(Sta *sta);
 

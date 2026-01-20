@@ -20,6 +20,7 @@
 #include "sta/EquivCells.hh"
 #include "sta/Path.hh"
 #include "search/TagGroup.hh"
+#include "odb/db.h"
   
 #include <cmath>
 #include <unordered_map>
@@ -702,7 +703,8 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
                             odb::dbBlock *block,
                             size_t thread_num,
                             size_t max_resize_num,
-                            size_t iterations)
+                            size_t iterations,
+                            size_t num_no_improve_tolerance)
 {
   // Test parallel LR resizing
   printf("----- Testing Parallel LR Resizing -----\n");
@@ -717,7 +719,18 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
   printf("Thread count has set to %d\n", thread_count);
   // Conduct iterative resizing
   incre_sta->lmUpdate();
+
+  odb::dbDatabase::beginEco(block);
+  float best_leakage = 0;
+  size_t no_improve_count_ = 0;
+  sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
+  sta::Slack best_tns = sta->totalNegativeSlack(sta::MinMax::max());
+  sta::Slack tns;
+  sta::Slack wns;
+  printf("Initial Worst Negative Slack: %f\n", best_wns * 1e12);
+  printf("Initial Total Negative Slack: %f\n", best_tns * 1e12);
   for (size_t i = 0; i < iterations; ++i) {
+    sta->findRequireds();
     printf("----- LR Resizing Iteration %zu -----\n", i+1);
     incre_sta->parallelResize(resizer);
     incre_sta->lmUpdate();
@@ -726,8 +739,8 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
     // After resizing, evaluate timing and power
     sta->delaysInvalid();
     sta->updateTiming(true);
-    sta::Slack tns = sta->totalNegativeSlack(sta::MinMax::max());
-    sta::Slack wns = sta->worstSlack(sta::MinMax::max());
+    tns = sta->totalNegativeSlack(sta::MinMax::max());
+    wns = sta->worstSlack(sta::MinMax::max());
     float leakage = 0;
     odb::dbSet<dbInst> insts = block->getInsts();
     for (odb::dbInst *inst : insts) {
@@ -741,6 +754,34 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
     printf("Total Negative Slack: %f\n", tns * 1e12);
     printf("Total Leakage Power: %f\n", leakage * 1e10);
     fflush(stdout);
+    if ( wns > best_wns ) {
+      best_wns = wns;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      printf("Improvement in WNS, accepting new design.\n");
+      no_improve_count_ = 0;
+    } 
+    else if (no_improve_count_ < num_no_improve_tolerance) {
+      printf("No improvement in WNS, but within tolerance, accepting new design.\n");
+      continue;
+    } 
+    else {
+      no_improve_count_++;
+      printf("No improvement in WNS for 3 iterations, reverting to previous design.\n");
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
+      odb::dbDatabase::beginEco(block);
+    }
+  }
+  tns = sta->totalNegativeSlack(sta::MinMax::max());
+  wns = sta->worstSlack(sta::MinMax::max());
+  if (wns > best_wns) {
+    odb::dbDatabase::endEco(block);
+    printf("Final design accepted with WNS: %f\n", wns * 1e12);
+  } else {
+    odb::dbDatabase::endEco(block);
+    odb::dbDatabase::undoEco(block);
+    printf("Reverted to best design with WNS: %f\n", best_wns * 1e12);
   }
 }
 
