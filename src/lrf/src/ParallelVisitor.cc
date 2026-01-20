@@ -57,7 +57,7 @@ ParallelLrVisitor::checkVisitorStatus() const
 float
 ParallelLrVisitor::swapCost(float delay_lm_sum, float power)
 {
-  float swap_cost = 10 * delay_lm_sum / average_delay_ 
+  float swap_cost = 1000 * delay_lm_sum / average_delay_ 
                     + power / average_leakage_;
   return swap_cost;
 }

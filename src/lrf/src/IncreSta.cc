@@ -325,7 +325,7 @@ IncreSta::makeSwappableCellsCache(rsz::Resizer *resizer)
 // APIs for LR resizing
 ///////////////////////////////////////////////////////////
 void 
-IncreSta::parallelResize(rsz::Resizer *resizer)
+IncreSta::parallelResize(rsz::Resizer *resizer, float avg_delay, float avg_power)
 {
   auto start_total = std::chrono::high_resolution_clock::now();
 
@@ -347,11 +347,11 @@ if (!swap_cell_leakage_presaved_) {
   printf("preSaveLibCellLeakage took %f s\n", diff_presave.count());
 }
 
-  float average_delay = averageDelayOnCritPath();
-  float average_power = averageLeakage();
-  printf("Average delay: %f, average power: %f\n", average_delay * 1e12, average_power * 1e9);
+  // float average_delay = averageDelayOnCritPath();
+  // float average_power = averageLeakage();
+  printf("Average delay: %f, average power: %f\n", avg_delay * 1e12, avg_power * 1e9);
   ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_);
-  visitor->init(average_delay, average_power, &swappable_cells_cache_, &inst_info_map_);
+  visitor->init(avg_delay, avg_power, &swappable_cells_cache_, &inst_info_map_);
   
   auto start_resize = std::chrono::high_resolution_clock::now();
   local_sta_->runResize(resizer, visitor);
