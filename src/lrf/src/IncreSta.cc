@@ -331,28 +331,29 @@ IncreSta::parallelResize(rsz::Resizer *resizer, float avg_delay, float avg_power
 
   // We first create a serials of instance visitors
   local_sta_->initParallel();
+  Slack wns = sta_->worstSlack(MinMax::max());
 
-if (!swap_cell_presaved_) {
-  auto start_cache = std::chrono::high_resolution_clock::now();
-  makeSwappableCellsCache(resizer);
-  auto end_cache = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> diff_cache = end_cache - start_cache;
-  printf("makeSwappableCellsCache took %f s\n", diff_cache.count());
-}
-if (!swap_cell_leakage_presaved_) {
-  auto start_presave = std::chrono::high_resolution_clock::now();
-  preSaveLibCellLeakage();
-  auto end_presave = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> diff_presave = end_presave - start_presave;
-  printf("preSaveLibCellLeakage took %f s\n", diff_presave.count());
-}
+  if (!swap_cell_presaved_) {
+    auto start_cache = std::chrono::high_resolution_clock::now();
+    makeSwappableCellsCache(resizer);
+    auto end_cache = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> diff_cache = end_cache - start_cache;
+    printf("makeSwappableCellsCache took %f s\n", diff_cache.count());
+  }
+  if (!swap_cell_leakage_presaved_) {
+    auto start_presave = std::chrono::high_resolution_clock::now();
+    preSaveLibCellLeakage();
+    auto end_presave = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> diff_presave = end_presave - start_presave;
+    printf("preSaveLibCellLeakage took %f s\n", diff_presave.count());
+  }
 
   // float average_delay = averageDelayOnCritPath();
   // float average_power = averageLeakage();
   printf("Average delay: %f, average power: %f\n", avg_delay * 1e12, avg_power * 1e9);
   ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_);
-  visitor->init(avg_delay, avg_power, &swappable_cells_cache_, &inst_info_map_);
-  
+  visitor->init(avg_delay, avg_power, wns, &swappable_cells_cache_, &inst_info_map_);
+
   auto start_resize = std::chrono::high_resolution_clock::now();
   local_sta_->runResize(resizer, visitor);
   auto end_resize = std::chrono::high_resolution_clock::now();

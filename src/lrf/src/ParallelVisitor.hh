@@ -46,7 +46,7 @@ public:
   PtGraph *ptGraph() const { return pt_graph_; }
   sta::Instance *refInst() const { return ref_inst_; }
   sta::LibertyCell *bestCell() const { return best_cell_; }
-  void init(float averge_delay, float average_power, 
+  void init(float averge_delay, float average_power, float wns,
     std::unordered_map<sta::LibertyCell*, sta::LibertyCellSeq*> *cache,
     std::unordered_map<sta::Instance*, LocalCellInfo*> *inst_info_map);
   void setAverageDelay(float avg_delay) { average_delay_ = avg_delay; }
@@ -74,6 +74,7 @@ protected:
   sta::LibertyCell *best_cell_ = nullptr;
   float average_delay_ = 1.0;
   float average_leakage_ = 1.0;
+  float slack_margin_= 0.0;
   std::unordered_map<sta::LibertyCell*, sta::LibertyCellSeq*> *swappable_cells_cache_ = nullptr;
   std::unordered_map<sta::Instance*, LocalCellInfo*> *inst_info_map_;
 };

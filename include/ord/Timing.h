@@ -110,6 +110,7 @@ class Timing
   void testParallelResize();
   void testParallelLrResizing(size_t thread_num, size_t max_resize_num, size_t iterations, size_t num_no_improve_tolerance);
   void testTimingComputeAndWriteBack(const std::vector<odb::dbInst*> &insts);
+  void testReportVertices();
   /////////////////////////////////////////////////////////////
   // End functions for testing LR sizing
   /////////////////////////////////////////////////////////////

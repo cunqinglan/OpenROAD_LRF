@@ -7,6 +7,8 @@
 #include "rsz/Resizer.hh"
 #include "PtGraph.hh"
 #include "sta/Delay.hh"
+#include "sta/Sdc.hh"
+#include "sta/Clock.hh"
 #include "sta/Graph.hh"
 #include "sta/TimingArc.hh"
 #include "sta/Search.hh"
@@ -16,6 +18,7 @@
 
 #include <vector>
 #include <mutex>
+#include <algorithm>
 
 namespace sta {
 }
@@ -57,7 +60,7 @@ ParallelLrVisitor::checkVisitorStatus() const
 float
 ParallelLrVisitor::swapCost(float delay_lm_sum, float power)
 {
-  float swap_cost = 1000 * delay_lm_sum / average_delay_ 
+  float swap_cost = 10 * delay_lm_sum / average_delay_ 
                     + power / average_leakage_;
   return swap_cost;
 }
@@ -149,7 +152,7 @@ ParallelLrVisitor::visit(sta::Instance *inst)
       float cost = vec_cost_slack[i * 2];
       float slack = vec_cost_slack[i * 2 + 1];
       if (cost < best_cost
-          && slack >= slack_before_swap_ * 1.1 ) {
+          && slack >= slack_before_swap_ * 1.05) {
         best_cell_ = (*equiv_cells)[i];
         best_cost = cost;
       }
@@ -448,12 +451,23 @@ ParallelLrVisitor::recordGraphTimingFromPtGraphPara(sta::dbSta* sta, PtGraph *pt
 }
 
 void 
-ParallelLrVisitor::init(float average_delay, float average_power, 
+ParallelLrVisitor::init(float average_delay, float average_power, float wns,
   std::unordered_map<LibertyCell*, LibertyCellSeq*> *cache,
   std::unordered_map<sta::Instance*, LocalCellInfo*> *inst_info_map)
 {
   average_delay_ = average_delay;
   average_leakage_ = average_power;
+  float clock_period = 0.0;
+  for (auto *clock : *db_sta_->sdc()->clocks()) {
+    if (clock->period() > clock_period) {
+      clock_period = clock->period();
+      break;
+    }
+  }
+  slack_margin_ = -std::min(wns, 0.0f) / clock_period + 1.0f;
+  printf("ParallelLrVisitor::init average_delay: %f, average_leakage: %f, slack_margin: %f\n",
+         average_delay_, average_leakage_, slack_margin_);
+  fflush(stdout);
   swappable_cells_cache_ = cache;
   inst_info_map_ = inst_info_map;
 }

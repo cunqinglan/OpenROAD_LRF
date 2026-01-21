@@ -25,6 +25,7 @@
 #include "sta/Search.hh"
 #include "sta/TimingArc.hh"
 #include "sta/TimingRole.hh"
+#include "sta/Graph.hh"
 #include "utl/Logger.h"
 
 
@@ -612,6 +613,42 @@ Timing::testTimingComputeAndWriteBack(const std::vector<odb::dbInst*> &insts)
   sta::dbSta* sta = getSta();
   lrf::TestLrf test_lrf;
   test_lrf.testTimingComputeAndWriteBack(sta, resizer, design_->getBlock(), insts);
+}
+
+void 
+Timing::testReportVertices() {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  odb::dbBlock* block = design_->getBlock();
+  sta::dbNetwork* network = sta->getDbNetwork();
+  test_lrf.testReportVertices(sta, resizer, block);
+  // grep a inst and print its vertices
+  char *inst_name = "u_NV_NVDLA_sdp_u_wdma_u_intr_stl_cnt_cur_reg[22]";
+  odb::dbInst* inst = block->findInst(inst_name);
+  if (inst) {
+    sta::InstancePinIterator* pin_iterator = sta->network()->pinIterator(
+        sta->getDbNetwork()->dbToSta(inst));
+    while (pin_iterator->hasNext()) {
+      sta::Pin* pin = pin_iterator->next();
+      sta::Vertex *vertex, *bidirect_vertex;
+      sta->graph()->pinVertices(pin, vertex, bidirect_vertex);
+      if (vertex) {
+        printf("Pin %s Vertex ID: %s\n", sta->network()->name(pin), vertex->to_string(sta->graph()).c_str());
+      }
+      sta::VertexOutEdgeIterator out_edge_iterator(vertex, sta->graph());
+      while (out_edge_iterator.hasNext()) {
+        sta::Edge* edge = out_edge_iterator.next();
+        printf("  Out Edge %s\n", edge->to_string(sta->graph()).c_str());
+      }
+      sta::VertexInEdgeIterator in_edge_iterator(vertex, sta->graph());
+      while (in_edge_iterator.hasNext()) {
+        sta::Edge* edge = in_edge_iterator.next();
+        printf("  In Edge %s\n", edge->to_string(sta->graph()).c_str());
+      }
+    }
+  }
 }
 
 }  // namespace ord
