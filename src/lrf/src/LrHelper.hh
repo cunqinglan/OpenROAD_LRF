@@ -29,6 +29,7 @@ public:
   bool KKTProjection(Sta *sta);
   void updateAllEdgeLms(Sta *sta);
   void enqueueVertex(Vertex *vertex);
+  void setRatcons(bool ratcons) { RATCONS_ = ratcons; }
 
 protected:
   void distributeLmOutToIn(Vertex *vertex,
@@ -52,6 +53,8 @@ protected:
   BfsFwdIterator* iter_;
   VertexSeq sorted_lm_vertices_;
   bool levelized_valid_;
+  bool RATCONS_ = false;
+  bool strict_constraint_ = false;
 
 private:
   friend class Graph;

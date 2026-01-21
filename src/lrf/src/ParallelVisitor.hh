@@ -46,7 +46,8 @@ public:
   PtGraph *ptGraph() const { return pt_graph_; }
   sta::Instance *refInst() const { return ref_inst_; }
   sta::LibertyCell *bestCell() const { return best_cell_; }
-  void init(float averge_delay, float average_power, float wns,
+  void init(float averge_delay, float average_power, float wns, 
+    float PT_tradeoff,
     std::unordered_map<sta::LibertyCell*, sta::LibertyCellSeq*> *cache,
     std::unordered_map<sta::Instance*, LocalCellInfo*> *inst_info_map);
   void setAverageDelay(float avg_delay) { average_delay_ = avg_delay; }
@@ -59,6 +60,8 @@ public:
   {
     inst_info_map_ = map;
   }
+  void setPTTradeoff(float PT_tradeoff) { PT_tradeoff_ = PT_tradeoff; }
+  void setSlackMargin(float slack_margin) { slack_margin_ = slack_margin; }
 
 protected:  
   void recordGraphTimingFromPtGraphPara(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing);
@@ -75,6 +78,7 @@ protected:
   float average_delay_ = 1.0;
   float average_leakage_ = 1.0;
   float slack_margin_= 0.0;
+  float PT_tradeoff_ = 100.0;
   std::unordered_map<sta::LibertyCell*, sta::LibertyCellSeq*> *swappable_cells_cache_ = nullptr;
   std::unordered_map<sta::Instance*, LocalCellInfo*> *inst_info_map_;
 };

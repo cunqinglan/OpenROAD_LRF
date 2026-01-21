@@ -704,7 +704,9 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
                             size_t thread_num,
                             size_t max_resize_num,
                             size_t iterations,
-                            size_t num_no_improve_tolerance)
+                            size_t num_no_improve_tolerance,
+                            bool ratcons,
+                            float PT_tradeoff)
 {
   // Test parallel LR resizing
   printf("----- Testing Parallel LR Resizing -----\n");
@@ -714,6 +716,9 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   lrf::LocalSta *local_sta = incre_sta->localSta();
+  lrf::LRHelper *lr_helper = incre_sta->lrHelper();
+  lr_helper->setRatcons(ratcons);
+
   int thread_count = local_sta->threadCount();
   incre_sta->setMaxResizeNum(max_resize_num); // Limit max resize number per iteration
   printf("Thread count has set to %d\n", thread_count);
@@ -736,7 +741,7 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
   for (size_t i = 0; i < iterations; ++i) {
     sta->findRequireds();
     printf("----- LR Resizing Iteration %zu -----\n", i+1);
-    incre_sta->parallelResize(resizer, avg_delay, avg_leakage);
+    incre_sta->parallelResize(resizer, avg_delay, avg_leakage, PT_tradeoff);
     incre_sta->lmUpdate();
 
     est_parasitics->updateWireParasiticsNoDeleteNetwork();

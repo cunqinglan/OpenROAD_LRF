@@ -477,7 +477,7 @@ LRHelper::updateEdgeLms(Edge *edge, Sta *sta) {
     vertex->setIsEndpoint(true);
   }
   for (TimingArc *arc : edge->timingArcSet()->arcs()) {
-    if (edge->to(graph_)->isEndPoint()) {
+    if (edge->to(graph_)->isEndPoint() && RATCONS_) {
       updateEndPointArcLms(edge, arc, sta);
     } else
     updateArcLms(edge, arc, sta);
