@@ -61,7 +61,8 @@ public:
   void setLocalStaParasiticsEst(est::EstimateParasitics *estimate_parasitics);
                            
   // APIs for gate swapping
-  void parallelResize(rsz::Resizer *resizer, float avg_delay, float avg_power);
+  void parallelResize(rsz::Resizer *resizer, float avg_delay = 1, float avg_power = 1,
+                      float PT_tradeoff = 100.0);
   void setMaxResizeNum(size_t max_resize_num);
 
   // APIs for power optimization

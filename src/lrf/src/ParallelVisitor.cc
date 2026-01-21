@@ -60,7 +60,7 @@ ParallelLrVisitor::checkVisitorStatus() const
 float
 ParallelLrVisitor::swapCost(float delay_lm_sum, float power)
 {
-  float swap_cost = 10 * delay_lm_sum / average_delay_ 
+  float swap_cost = 100 * delay_lm_sum / average_delay_ 
                     + power / average_leakage_;
   return swap_cost;
 }
@@ -291,6 +291,8 @@ ParallelLrVisitor::copy() const
   new_visitor->setAverageLeakage(average_leakage_);
   new_visitor->setSwappableCellsCache(swappable_cells_cache_);
   new_visitor->setInstInfoMap(inst_info_map_);
+  new_visitor->setSlackMargin(slack_margin_);
+  new_visitor->setPTTradeoff(PT_tradeoff_);
   return new_visitor;
 }
 
@@ -452,6 +454,7 @@ ParallelLrVisitor::recordGraphTimingFromPtGraphPara(sta::dbSta* sta, PtGraph *pt
 
 void 
 ParallelLrVisitor::init(float average_delay, float average_power, float wns,
+  float PT_tradeoff,
   std::unordered_map<LibertyCell*, LibertyCellSeq*> *cache,
   std::unordered_map<sta::Instance*, LocalCellInfo*> *inst_info_map)
 {
@@ -464,9 +467,9 @@ ParallelLrVisitor::init(float average_delay, float average_power, float wns,
       break;
     }
   }
-  slack_margin_ = -std::min(wns, 0.0f) / clock_period + 1.0f;
-  printf("ParallelLrVisitor::init average_delay: %f, average_leakage: %f, slack_margin: %f\n",
-         average_delay_, average_leakage_, slack_margin_);
+  slack_margin_ = std::max((-std::min(wns, 0.0f) / clock_period + 1.0f), 1.1f);
+  PT_tradeoff_ = PT_tradeoff;
+  printf("slack_margin: %f\n", slack_margin_);
   fflush(stdout);
   swappable_cells_cache_ = cache;
   inst_info_map_ = inst_info_map;

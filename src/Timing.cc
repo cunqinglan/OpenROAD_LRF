@@ -592,7 +592,8 @@ Timing::testParallelResize() {
 }
 
 void
-Timing::testParallelLrResizing(size_t thread_num, size_t max_resize_num, size_t iterations, size_t num_no_improve_tolerance) {
+Timing::testParallelLrResizing(size_t thread_num, size_t max_resize_num, size_t iterations, 
+  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff) {
   printf("Starting testParallelLrResizing with %zu threads\n", thread_num);
   printf("First compute all parasitic networks...\n");
   fflush(stdout);
@@ -602,7 +603,9 @@ Timing::testParallelLrResizing(size_t thread_num, size_t max_resize_num, size_t 
   lrf::TestLrf test_lrf;
   printf("Starting testParallelLrResizing\n");
   fflush(stdout);
-  test_lrf.testParallelLrResizing(sta, resizer, design_->getBlock(), thread_num, max_resize_num, iterations, num_no_improve_tolerance);
+  test_lrf.testParallelLrResizing(sta, resizer, design_->getBlock(), 
+thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons, 
+  PT_tradeoff);
 }
 
 void 

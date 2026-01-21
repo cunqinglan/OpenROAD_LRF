@@ -108,7 +108,8 @@ class Timing
   void testParallelVisitor(const std::vector<odb::dbInst*> &inst_names);
   void testMEEAssignments();
   void testParallelResize();
-  void testParallelLrResizing(size_t thread_num, size_t max_resize_num, size_t iterations, size_t num_no_improve_tolerance);
+  void testParallelLrResizing(size_t thread_num, size_t max_resize_num, size_t iterations, size_t num_no_improve_tolerance,
+                             bool ratcons = false, float PT_tradeoff = 100.0);
   void testTimingComputeAndWriteBack(const std::vector<odb::dbInst*> &insts);
   void testReportVertices();
   /////////////////////////////////////////////////////////////
