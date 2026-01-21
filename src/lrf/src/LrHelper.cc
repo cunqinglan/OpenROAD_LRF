@@ -191,6 +191,11 @@ LRHelper::checkKKTForAllVertices() {
   LMValue min_lm = MAX_LM_VALUE;
   for (auto vertex_it = ordered.begin(); 
     vertex_it != ordered.end(); ++vertex_it) {
+    if ((*vertex_it)->isRoot() || (!(*vertex_it)->hasFanin()
+        || !(*vertex_it)->hasFanout()) || 
+        network_->isRegClkPin((*vertex_it)->pin())) {
+      continue;
+    }
     DcalcAPToLMValueMap out_lm_map;
     for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
       const size_t ap_index = dcalc_ap->index();
@@ -219,6 +224,13 @@ LRHelper::checkKKTForAllVertices() {
           }
           if (arc_lm < min_lm) {
             min_lm = arc_lm;
+            if (min_lm == 0.0) {
+              printf("LRHelper::checkKKTForAllVertices(): encountered zero LM value on vertex %s, edge %s, arc %s\n",
+                     (*vertex_it)->to_string(graph_).c_str(),
+                     out_edge->to_string(graph_).c_str(),
+                     arc->to_string().c_str());
+              fflush(stdout);
+            }
           }
           ///////////////////
         }
@@ -256,6 +268,13 @@ LRHelper::checkKKTForAllVertices() {
           }
           if (arc_lm < min_lm) {
             min_lm = arc_lm;
+            if (min_lm == 0.0) {
+              printf("LRHelper::checkKKTForAllVertices(): encountered zero LM value on vertex %s, edge %s, arc %s\n",
+                     (*vertex_it)->to_string(graph_).c_str(),
+                     in_edge->to_string(graph_).c_str(),
+                     arc->to_string().c_str());
+              fflush(stdout);
+            }
           }
           ///////////////////
         }
@@ -357,9 +376,9 @@ LRHelper::computeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_map)
         in_edge_count++;
       }
       if (in_lm_sum == 0.0 || in_edge_count == 0) {
-        printf("LRHelper::computeInLmSums: vertex %s has no in LM edges, setting in LM sum to 1.0\n",
-               vertex->to_string(graph_).c_str());
-               fflush(stdout);
+        // printf("LRHelper::computeInLmSums: vertex %s has no in LM edges, setting in LM sum to 1.0\n",
+        //        vertex->to_string(graph_).c_str());
+        //        fflush(stdout);
         in_lm_sum = 1.0;
       }
       ap_lm_map[dcalc_ap].push_back(in_lm_sum);
@@ -401,6 +420,7 @@ void
 LRHelper::updateAllEdgeLms(Sta *sta) {
   printf("Size of sorted_lm_vertices_: %zu\n", sorted_lm_vertices_.size());
   fflush(stdout);
+  sta->findRequireds();
   copyState(sta);
   for (auto vertex_it = sorted_lm_vertices_.begin(); 
        vertex_it != sorted_lm_vertices_.end(); ++vertex_it) {
@@ -428,27 +448,14 @@ LRHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta) {
     Vertex *from_vertex = edge->from(graph_);
     Vertex *to_vertex = edge->to(graph_);
     Arrival from_aat = sta->pinArrival(from_vertex->pin(), from_rf, delay_minmax);
-    Arrival from_dbc_aat = sta->vertexArrival(from_vertex,
-        from_rf,
-        clk_edge_wildcard,
-        nullptr,
-        delay_minmax);
-    if (from_dbc_aat != from_aat) {
-      printf("LRHelper::updateEndPointArcLms: Warning: from_aat %.6f != from_dbc_aat %.6f for edge %s AP corner %s, delay min/max %s\n",
-             from_aat * 1.0e12, from_dbc_aat * 1.0e12,
-             edge->to_string(graph_).c_str(),
-             dcalc_ap->corner()->name(),
-             dcalc_ap->delayMinMax()->to_string().c_str());
-      fflush(stdout);
-      throw std::runtime_error("LRHelper::updateEndPointArcLms: from_aat mismatch");
-    }
     Required to_rat = sta->vertexRequired(to_vertex, to_rf, delay_minmax);
     LMValue *lms = edge->arcLms();
     if (delay_minmax == MinMax::max()) {
-      printf("LRHelper::updateEndPointArcLms: edge %s AP corner %s, delay min/max %s: aat %.6f, rat %.6f, delay %.6f, original LM %.6f\n",
+      printf("LRHelper::updateEndPointArcLms: edge %s AP corner %s, delay min/max %s: aat %f, rat %f, delay %f, original LM %f\n",
              edge->to_string(graph_).c_str(),
              dcalc_ap->corner()->name(),
              dcalc_ap->delayMinMax()->to_string().c_str(),
+             from_aat * 1.0e12, to_rat * 1.0e12, delay * 1.0e12,
              lms[lm_idx]);
       fflush(stdout);
       lms[lm_idx] = lms[lm_idx] * (from_aat + delay) / to_rat;
@@ -465,10 +472,14 @@ LRHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta) {
 
 void 
 LRHelper::updateEdgeLms(Edge *edge, Sta *sta) {
+  // First annotate endpoints
+  for (Vertex *vertex : *(sta->endpoints())) {
+    vertex->setIsEndpoint(true);
+  }
   for (TimingArc *arc : edge->timingArcSet()->arcs()) {
-    // if (edge->to(graph_)->isEndPoint()) {
-    //   updateEndPointArcLms(edge, arc, sta);
-    // } else
+    if (edge->to(graph_)->isEndPoint()) {
+      updateEndPointArcLms(edge, arc, sta);
+    } else
     updateArcLms(edge, arc, sta);
   }
 }

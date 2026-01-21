@@ -789,6 +789,23 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
   }
 }
 
+void 
+TestLrf::testReportVertices(sta::dbSta* sta, 
+                            rsz::Resizer *resizer, 
+                            odb::dbBlock *block)
+{
+  // Test report vertices
+  printf("----- Testing Report Vertices -----\n");
+  lrf::IncreSta *incre_sta = new IncreSta(sta, 1);
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+  lrf::LRHelper *lr_helper = incre_sta->lrHelper();
+  auto &ordered_vertices = lr_helper->ensureSorted(sta);
+  for (auto *vertex : ordered_vertices) {
+    printf("Vertex: %s, level = %d\n", vertex->to_string(sta->network()).c_str(), vertex->level());
+    fflush(stdout);
+  }
+}
+
 void
 TestLrf::testTimingComputeAndWriteBack(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block, const std::vector<odb::dbInst*> &db_insts)
 {

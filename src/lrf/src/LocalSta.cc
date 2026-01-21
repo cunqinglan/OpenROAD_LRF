@@ -139,6 +139,9 @@ LocalSta::collectLocalFanoutVertices(sta::Vertex *drvr_vertex,
   VertexOutEdgeIterator edge_iter(drvr_vertex, graph_);
   while (edge_iter.hasNext()) {
     Edge *out_edge = edge_iter.next();
+    if (!search_pred_->searchThru(out_edge)) {
+      continue;
+    }
     Vertex *load_vertex = out_edge->to(graph_);
     if (!network_->isLoad(load_vertex->pin())) {
       printf("Warining: LocalSta::collectLocalFanoutVertices: vertex %s is not a load\n",
@@ -147,14 +150,27 @@ LocalSta::collectLocalFanoutVertices(sta::Vertex *drvr_vertex,
     }
     if (out_edge->isWire())
       local_vertices.insert(load_vertex);
+    else {
+      printf("LocalSta::collectLocalFanoutVertices: skipping non-wire edge %s\n",
+             out_edge->to_string(graph_).c_str());
+      fflush(stdout);
+      continue;
+    }
 
     VertexOutEdgeIterator in_inst_edge_iter(load_vertex, graph_);
     while (in_inst_edge_iter.hasNext()) {
       Edge *in_inst_edge = in_inst_edge_iter.next();
       Vertex *out_driver_vertex = in_inst_edge->to(graph_);
+      if (!search_pred_->searchThru(in_inst_edge) || 
+                      !search_pred_->searchFrom(load_vertex)) {
+        continue;
+      }
       if (!network_->isDriver(out_driver_vertex->pin())) {
-        printf("Warining: LocalSta::collectLocalFanoutVertices: vertex %s is not a driver\n",
-               out_driver_vertex->to_string(graph_).c_str());
+        printf("Warining: LocalSta::collectLocalFanoutVertices: from driver %s vertex %s of edge %s is not a driver\n",
+                drvr_vertex->to_string(graph_).c_str(),
+               out_driver_vertex->to_string(graph_).c_str(),
+               in_inst_edge->to_string(graph_).c_str());
+        fflush(stdout);
         continue;
       }
       // We avoid collecting latches in the local graph.
