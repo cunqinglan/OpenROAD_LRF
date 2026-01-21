@@ -187,6 +187,8 @@ LRHelper::checkKKTForAllVertices() {
   fflush(stdout);
   bool all_satisfied = true;
   const VertexSeq &ordered = sorted_lm_vertices_;
+  LMValue max_lm = MIN_LM_VALUE;
+  LMValue min_lm = MAX_LM_VALUE;
   for (auto vertex_it = ordered.begin(); 
     vertex_it != ordered.end(); ++vertex_it) {
     DcalcAPToLMValueMap out_lm_map;
@@ -211,6 +213,14 @@ LRHelper::checkKKTForAllVertices() {
           size_t lm_idx = arc->index() * graph_->apCount() + ap_index;
           LMValue arc_lm = lms[lm_idx];
           out_lm_sum += arc_lm;
+          ///////////////////
+          if (arc_lm > max_lm) {
+            max_lm = arc_lm;
+          }
+          if (arc_lm < min_lm) {
+            min_lm = arc_lm;
+          }
+          ///////////////////
         }
         out_edge_count++;
       }
@@ -240,6 +250,14 @@ LRHelper::checkKKTForAllVertices() {
           size_t lm_idx = arc->index() * graph_->apCount() + ap_index;
           LMValue arc_lm = lms[lm_idx];
           in_lm_sum += arc_lm;
+          ///////////////////
+          if (arc_lm > max_lm) {
+            max_lm = arc_lm;
+          }
+          if (arc_lm < min_lm) {
+            min_lm = arc_lm;
+          }
+          ///////////////////
         }
         in_edge_count++;
       }
@@ -259,6 +277,7 @@ LRHelper::checkKKTForAllVertices() {
       }
     }
   }
+  printf("LRHelper::checkKKTForAllVertices(): max LM & min LM value encountered: %.6f, %.6f\n", max_lm, min_lm);
   return all_satisfied;
 }
 
@@ -433,13 +452,13 @@ LRHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta) {
              lms[lm_idx]);
       fflush(stdout);
       lms[lm_idx] = lms[lm_idx] * (from_aat + delay) / to_rat;
-      if (lms[lm_idx] > MAX_LM_VALUE) lms[lm_idx] = MAX_LM_VALUE;
-      if (lms[lm_idx] < MIN_LM_VALUE) lms[lm_idx] = MIN_LM_VALUE;
+      // if (lms[lm_idx] > MAX_LM_VALUE) lms[lm_idx] = MAX_LM_VALUE;
+      // if (lms[lm_idx] < MIN_LM_VALUE) lms[lm_idx] = MIN_LM_VALUE;
     } else {
       if (to_rat <= 0) to_rat = 1.0e-16;
       lms[lm_idx] = lms[lm_idx] * to_rat / (from_aat + delay);
-      if (lms[lm_idx] > MAX_LM_VALUE) lms[lm_idx] = MAX_LM_VALUE;
-      if (lms[lm_idx] < MIN_LM_VALUE) lms[lm_idx] = MIN_LM_VALUE;
+      // if (lms[lm_idx] > MAX_LM_VALUE) lms[lm_idx] = MAX_LM_VALUE;
+      // if (lms[lm_idx] < MIN_LM_VALUE) lms[lm_idx] = MIN_LM_VALUE;
     }
   }
 }
@@ -447,9 +466,9 @@ LRHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta) {
 void 
 LRHelper::updateEdgeLms(Edge *edge, Sta *sta) {
   for (TimingArc *arc : edge->timingArcSet()->arcs()) {
-    if (edge->to(graph_)->isEndPoint()) {
-      updateEndPointArcLms(edge, arc, sta);
-    } else
+    // if (edge->to(graph_)->isEndPoint()) {
+    //   updateEndPointArcLms(edge, arc, sta);
+    // } else
     updateArcLms(edge, arc, sta);
   }
 }
@@ -475,13 +494,13 @@ LRHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta) {
     if (delay_minmax == MinMax::max()) {
       if (rat == 0.0) rat = 1.0e-12;
       lms[lm_idx] = lms[lm_idx] * (aat + delay) / rat;
-      if (lms[lm_idx] > MAX_LM_VALUE) lms[lm_idx] = MAX_LM_VALUE;
-      if (lms[lm_idx] < MIN_LM_VALUE) lms[lm_idx] = MIN_LM_VALUE;
+      // if (lms[lm_idx] > MAX_LM_VALUE) lms[lm_idx] = MAX_LM_VALUE;
+      // if (lms[lm_idx] < MIN_LM_VALUE) lms[lm_idx] = MIN_LM_VALUE;
     } else {
       if (aat + delay == 0.0) aat = 1.0e-12;
       lms[lm_idx] = lms[lm_idx] * rat / (aat + delay);
-      if (lms[lm_idx] > MAX_LM_VALUE) lms[lm_idx] = MAX_LM_VALUE;
-      if (lms[lm_idx] < MIN_LM_VALUE) lms[lm_idx] = MIN_LM_VALUE;
+      // if (lms[lm_idx] > MAX_LM_VALUE) lms[lm_idx] = MAX_LM_VALUE;
+      // if (lms[lm_idx] < MIN_LM_VALUE) lms[lm_idx] = MIN_LM_VALUE;
     }
     // printf("LRHelper::updateArcLms: edge %s AP corner %s delay min/max %s: updated LM from %.6f to %.6f\n",
     //        edge->to_string(graph_).c_str(),

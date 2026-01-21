@@ -1173,20 +1173,23 @@ LocalSta::localParasiticLoad(const Pin *drvr_pin,
     if (!local_parasitics_->isPiModel(parasitic)) {
       printf("LocalSta::localParasiticLoad: Non-PI model parasitic found for pin %s\n",
              network_->name(drvr_pin));
-      fflush(stdout);
+      // fflush(stdout);
       return;
     }
     load_cap = local_parasitics_->capacitance(parasitic);
+  } else if (network_->net(drvr_pin) == nullptr) {
+    load_cap = 0.0;
   }
   else {
     netCaps(drvr_pin, rf, dcalc_ap, multi_drvr_net,
           pin_cap, wire_cap, fanout, has_net_load);
+    // if (has_net_load)
     printf("LocalSta::localParasiticLoad failed at pin %s: has_net_load=%d, pin_cap=%f fF, wire_cap=%f fF\n",
-           network_->name(drvr_pin),
-           has_net_load,
-           pin_cap * 1.0e15,
-           wire_cap * 1.0e15);
-    fflush(stdout);
+          network_->name(drvr_pin),
+          has_net_load,
+          pin_cap * 1.0e15,
+          wire_cap * 1.0e15);
+    // fflush(stdout);
     load_cap = pin_cap + wire_cap;
     // throw std::runtime_error("LocalSta::localParasiticLoad: Net load not supported yet");
   }

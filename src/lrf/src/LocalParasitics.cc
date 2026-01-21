@@ -307,8 +307,8 @@ LocalParasitics::findLocalParasitic(const Pin *drvr_pin, const RiseFall *rf, con
       local_drvr_parasitic_map_.findKey(drvr_pin);
     
     if (!parasitic_array) {
-      printf("Error: LocalParasitics::findLocalParasitic: No parasitic array found for driver pin %s\n",
-             network_->name(drvr_pin));
+      // printf("Error: LocalParasitics::findLocalParasitic: No parasitic array found for driver pin %s\n",
+      //        network_->name(drvr_pin));
       fflush(stdout);
       return nullptr;
     }
