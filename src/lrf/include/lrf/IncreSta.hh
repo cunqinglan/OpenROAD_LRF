@@ -52,8 +52,7 @@ public:
   // Check violations
   bool checkCapViolated(Pin *pin, const Corner *corner, const MinMax *min_max);
   bool checkSlewViolated(Pin *pin, const Corner *corner, const MinMax *min_max);
-  float maxInputSlew(const Pin* input_pin,
-                            const Corner* corner) const;
+  float maxInputSlew(const Pin* input_pin, const Corner* corner) const;
   float averageDelayOnCritPath();
   float averageLeakage();
 
@@ -71,9 +70,11 @@ public:
   void getSwappableCells(LibertyCell* source_cell);
   void preSaveLibCellLeakage();
 
+  // APIs for LM update
+  void makeLRHelper(std::string method = "LRHelper");
+
 protected:
   void makeLocalSta();
-  void makeLRHelper();
   void checkeTopoOrder(InstanceSeq &);
   void ensureLocalSta();
 

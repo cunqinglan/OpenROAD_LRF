@@ -706,7 +706,8 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
                             size_t iterations,
                             size_t num_no_improve_tolerance,
                             bool ratcons,
-                            float PT_tradeoff)
+                            float PT_tradeoff,
+                            std::string lr_helper_method)
 {
   // Test parallel LR resizing
   printf("----- Testing Parallel LR Resizing -----\n");
@@ -716,6 +717,9 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   lrf::LocalSta *local_sta = incre_sta->localSta();
+
+  // Set configuration for LRHelper
+  incre_sta->makeLRHelper(lr_helper_method);
   lrf::LRHelper *lr_helper = incre_sta->lrHelper();
   lr_helper->setRatcons(ratcons);
 
@@ -727,7 +731,8 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
 
   odb::dbDatabase::beginEco(block);
   float best_leakage = 0;
-  size_t no_improve_count_ = 0;
+  size_t no_improve_count_ = 0; // Count of no improvement iterations of each ECO record.
+  size_t eco_iter = 0; // Termination flag, when eco cannot improve PPA
   sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
   sta::Slack best_tns = sta->totalNegativeSlack(sta::MinMax::max());
   sta::Slack tns;
@@ -771,15 +776,20 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
       no_improve_count_ = 0;
     } 
     else if (no_improve_count_ < num_no_improve_tolerance) {
+      no_improve_count_++;
       printf("No improvement in WNS, but within tolerance, accepting new design.\n");
       continue;
     } 
+    else if (eco_iter > 2) {
+      printf("No improvement in WNS for %zu ECO iterations, terminating resizing.\n", eco_iter);
+      break;
+    }
     else {
-      no_improve_count_++;
       printf("No improvement in WNS for 3 iterations, reverting to previous design.\n");
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
       odb::dbDatabase::beginEco(block);
+      eco_iter++;
     }
   }
   tns = sta->totalNegativeSlack(sta::MinMax::max());
