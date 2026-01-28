@@ -23,9 +23,10 @@ PtVertexPathIterator::PtVertexPathIterator(PtVertex &pt_vertex,
     path_index_(0),
     next_(nullptr)
 {
-
-  sta::TagGroup *tag_group = search_->tagGroup(pt_vertex.tagGroupIndex());
-  if (tag_group) {
+  // If the tag group index is valid, initialize the path count
+  int tag_group_index = pt_vertex.tagGroupIndex();
+  if (tag_group_index != tag_group_index_max) {
+    sta::TagGroup *tag_group = search_->tagGroup(pt_vertex.tagGroupIndex());
     path_count_ = tag_group->pathCount();
     findNext();
   }

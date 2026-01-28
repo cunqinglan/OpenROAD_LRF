@@ -592,8 +592,10 @@ Timing::testParallelResize() {
 }
 
 void
-Timing::testParallelLrResizing(size_t thread_num, size_t max_resize_num, size_t iterations, 
-  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff) {
+Timing::testParallelLrResizing(size_t max_resize_num, size_t iterations, 
+  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
+  const char *lr_helper_method) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
   printf("Starting testParallelLrResizing with %zu threads\n", thread_num);
   printf("First compute all parasitic networks...\n");
   fflush(stdout);
@@ -605,7 +607,7 @@ Timing::testParallelLrResizing(size_t thread_num, size_t max_resize_num, size_t 
   fflush(stdout);
   test_lrf.testParallelLrResizing(sta, resizer, design_->getBlock(), 
 thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons, 
-  PT_tradeoff);
+  PT_tradeoff, lr_helper_method);
 }
 
 void 
@@ -625,10 +627,9 @@ Timing::testReportVertices() {
   sta::dbSta* sta = getSta();
   lrf::TestLrf test_lrf;
   odb::dbBlock* block = design_->getBlock();
-  sta::dbNetwork* network = sta->getDbNetwork();
   test_lrf.testReportVertices(sta, resizer, block);
   // grep a inst and print its vertices
-  char *inst_name = "u_NV_NVDLA_sdp_u_wdma_u_intr_stl_cnt_cur_reg[22]";
+  const char *inst_name = "u_NV_NVDLA_sdp_u_wdma_u_intr_stl_cnt_cur_reg[22]";
   odb::dbInst* inst = block->findInst(inst_name);
   if (inst) {
     sta::InstancePinIterator* pin_iterator = sta->network()->pinIterator(

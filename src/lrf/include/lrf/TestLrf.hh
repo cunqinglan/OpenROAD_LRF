@@ -64,7 +64,7 @@ public:
 
   void testParallelLrResizing(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block, size_t thread_num, 
     size_t max_resize_num, size_t iterations, size_t num_no_improve_tolerance, bool ratcons = false,
-    float PT_tradeoff = 100.0);
+    float PT_tradeoff = 100.0, std::string lr_helper_method = "LRHelper");
 
   void testTimingComputeAndWriteBack(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block, const std::vector<odb::dbInst*> &insts);
 

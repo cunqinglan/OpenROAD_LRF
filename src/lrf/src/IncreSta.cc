@@ -38,8 +38,11 @@ IncreSta::IncreSta(dbSta *db_sta, size_t thread_count)
     : local_sta_(nullptr),
       lr_helper_(nullptr)
 {
-  db_sta->setThreadCount(thread_count);
   dbStaState::init(db_sta);
+  if (thread_count != threadCount()) {
+    printf("IncreSta: setting STA thread count to %zu\n", thread_count);
+    sta_->setThreadCount(thread_count);
+  }
   makeLocalSta();
   makeLRHelper();
   swappable_cells_cache_.clear();
@@ -89,11 +92,18 @@ IncreSta::makeLocalSta()
 }
 
 void 
-IncreSta::makeLRHelper()
+IncreSta::makeLRHelper(std::string method)
 {
+  std::transform(method.begin(), method.end(), method.begin(),
+                 [](unsigned char ch){ return static_cast<char>(std::tolower(ch)); });
   if (lr_helper_)
     delete lr_helper_;
-  lr_helper_ = new LRHelper(sta_);
+  if (method == "lrhelper")
+    lr_helper_ = new LRHelper(sta_);
+  else if (method == "rapidlrhelper")
+    lr_helper_ = new RapidLrHelper(sta_);
+  else
+    lr_helper_ = new LRHelper(sta_);
 }
 
 InstanceSeq &

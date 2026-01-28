@@ -1,4 +1,5 @@
 #include <mutex>
+#include <cstring>
 
 #include "sta/Sta.hh"
 #include "sta/Corner.hh"
@@ -1199,14 +1200,19 @@ LocalSta::localParasiticLoad(const Pin *drvr_pin,
   else {
     netCaps(drvr_pin, rf, dcalc_ap, multi_drvr_net,
           pin_cap, wire_cap, fanout, has_net_load);
+    load_cap = pin_cap + wire_cap;
     // if (has_net_load)
-    printf("LocalSta::localParasiticLoad failed at pin %s: has_net_load=%d, pin_cap=%f fF, wire_cap=%f fF\n",
+    char *exclude_pin_name = "CON";
+    if (strstr(network_->name(drvr_pin), exclude_pin_name) == nullptr) {
+      // Skip printing for CON pins
+      printf("LocalSta::localParasiticLoad failed at pin %s: has_net_load=%d, pin_cap=%f fF, wire_cap=%f fF\n",
           network_->name(drvr_pin),
           has_net_load,
           pin_cap * 1.0e15,
           wire_cap * 1.0e15);
+      return;
+    }
     // fflush(stdout);
-    load_cap = pin_cap + wire_cap;
     // throw std::runtime_error("LocalSta::localParasiticLoad: Net load not supported yet");
   }
 }
