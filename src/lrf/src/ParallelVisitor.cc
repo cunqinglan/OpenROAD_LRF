@@ -685,7 +685,10 @@ ParallelLrVisitor::init(float average_delay, float average_power, float wns,
       break;
     }
   }
-  slack_margin_ = std::max((-std::min(wns, 0.0f) / clock_period + 1.0f), 1.05f);
+  if (wns >= 0.0f) {
+    slack_margin_ = 1.05f;
+  } else
+    slack_margin_ = std::min((-std::min(wns, 0.0f) / clock_period + 1.0f), 1.05f);
   PT_tradeoff_ = PT_tradeoff;
   printf("slack_margin: %f\n", slack_margin_);
   fflush(stdout);
@@ -717,7 +720,11 @@ ParallelLrVisitor::init(float averge_delay, float average_power, float wns,
 bool
 ParallelLrVisitor::bufferInsertion(sta::Instance *inst)
 {
-  // 1. 
+  // 1. Vitually insert buffers at the output net of the instance
+  // 2. Compute the local timing cost after buffer insertion
+  // 3. If cost improved, keep the buffer insertion
+  // 4. Submmit the buffer insertion
+  
   return false;
 }
 
