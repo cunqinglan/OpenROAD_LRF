@@ -837,6 +837,7 @@ void
 TaskArranger::createTask(InstVertex* inst_vertex)
 {
   // Record the instance name being visited
+  if (verbose_)
   {
     std::lock_guard<std::mutex> lock(visited_inst_names_mutex_);
     if (visited_inst_vertices_.size() > max_resize_num_) {

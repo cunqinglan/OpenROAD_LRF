@@ -746,7 +746,7 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
   for (size_t i = 0; i < iterations; ++i) {
     sta->findRequireds();
     printf("----- LR Resizing Iteration %zu -----\n", i+1);
-    incre_sta->parallelResize(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    incre_sta->parallelResizeV1(resizer, avg_delay, avg_leakage, PT_tradeoff);
     incre_sta->lmUpdate();
 
     est_parasitics->updateWireParasiticsNoDeleteNetwork();

@@ -2108,6 +2108,128 @@ LibertyCellSeq Resizer::getSwappableCells(LibertyCell* source_cell)
   return swappable_cells;
 }
 
+bool 
+Resizer::isLegalCellCandidate(LibertyCell *equiv_cell, LibertyCell * source_cell)
+{
+  dbMaster* master = db_network_->staToDb(source_cell);
+  if (dontUse(equiv_cell) || !isLinkCell(equiv_cell)) {
+    return false;
+  }
+  if (!sta::equivCellsArcs(source_cell, equiv_cell))
+  {
+    return false;
+  }
+  dbMaster* equiv_cell_master = db_network_->staToDb(equiv_cell);
+  if (!equiv_cell_master) {
+    return false;
+  }
+  if (sizing_keep_site_) {
+    if (master->getSite() != equiv_cell_master->getSite()) {
+      return false;
+    }
+  }
+  if (sizing_keep_vt_) {
+    if (cellVTType(master).vt_index
+        != cellVTType(equiv_cell_master).vt_index) {
+      printf("Skipping %s due to VT difference\n",
+              equiv_cell->name());
+      return false;
+    }
+  }
+  if (match_cell_footprint_) {
+    const bool footprints_match = sta::stringEqIf(source_cell->footprint(),
+                                                  equiv_cell->footprint());
+    if (!footprints_match) {
+      return false;
+    }
+  }
+  if (source_cell->userFunctionClass()) {
+    const bool user_function_classes_match = sta::stringEqIf(
+        source_cell->userFunctionClass(), equiv_cell->userFunctionClass());
+    if (!user_function_classes_match) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Helper struct to aggregate data during the single pass
+struct VTGroup {
+  sta::LibertyCellSeq cells;
+  double total_leakage = 0.0;
+  int count = 0;
+};
+
+std::vector<sta::LibertyCellSeq>
+Resizer::makeSwappableCellsVec(LibertyCell *source_cell)
+{
+  dbMaster* master = db_network_->staToDb(source_cell);
+  if (master == nullptr || !master->isCore()) {
+    return {};
+  }
+
+  std::map<VTCategory, VTGroup> groups;
+  sta::LibertyCellSeq* equiv_cells = sta_->equivCells(source_cell);
+
+  if (equiv_cells) {
+    for (LibertyCell* equiv_cell : *equiv_cells) {
+      if (!isLegalCellCandidate(equiv_cell, source_cell)) {
+        continue;
+      }
+      dbMaster* equiv_cell_master = db_network_->staToDb(equiv_cell);
+      
+      // Group by VT Category and accumulate leakage in one pass
+      VTGroup& group = groups[cellVTType(equiv_cell_master)];
+      group.cells.push_back(equiv_cell);
+      
+      std::optional<float> cell_leakage = cellLeakage(equiv_cell);
+      if (cell_leakage) {
+        group.total_leakage += *cell_leakage;
+        group.count++;
+      }
+    }
+  } else {
+    // Fallback: only the source cell exists
+    VTGroup& group = groups[cellVTType(master)];
+    group.cells.push_back(source_cell);
+    // No need to calc leakage if size is 1 (optimization below)
+  }
+
+  // 1. Fast path: If only one VT group exists, no need to sort by leakage
+  if (groups.size() == 1) {
+    std::vector<sta::LibertyCellSeq> single_result;
+    single_result.push_back(std::move(groups.begin()->second.cells));
+    return single_result;
+  }
+
+  // 2. Prepare for sorting
+  // Convert map values to a vector of pointers to avoid copying the cell lists
+  std::vector<VTGroup*> sorted_groups;
+  sorted_groups.reserve(groups.size());
+  for (auto& [vt_cat, group] : groups) {
+    if (!group.cells.empty()) {
+      sorted_groups.push_back(&group);
+    }
+  }
+
+  // 3. Sort based on average leakage
+  std::sort(sorted_groups.begin(), sorted_groups.end(),
+    [](const VTGroup* a, const VTGroup* b) {
+      float avg_a = (a->count > 0) ? (a->total_leakage / a->count) : 0.0f;
+      float avg_b = (b->count > 0) ? (b->total_leakage / b->count) : 0.0f;
+      return avg_a < avg_b;
+    });
+
+  // 4. Construct final result
+  std::vector<sta::LibertyCellSeq> final_result;
+  final_result.reserve(sorted_groups.size());
+  for (VTGroup* group : sorted_groups) {
+    final_result.emplace_back(std::move(group->cells));
+  }
+
+  return final_result;
+}
+
 LibertyCellSeq *Resizer::makeSwappableCells(LibertyCell* source_cell)
 {
   dbMaster* master = db_network_->staToDb(source_cell);

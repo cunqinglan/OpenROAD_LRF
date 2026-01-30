@@ -25,6 +25,8 @@ using namespace sta;
 
 class LocalSta;
 class LRHelper;
+class ParallelLibData;
+class TaskArranger;
 
 class IncreSta : public dbStaState
 {
@@ -62,6 +64,8 @@ public:
   // APIs for gate swapping
   void parallelResize(rsz::Resizer *resizer, float avg_delay = 1, float avg_power = 1,
                       float PT_tradeoff = 100.0);
+  void parallelResizeV1(rsz::Resizer *resizer, float avg_delay = 1, float avg_power = 1,
+                        float PT_tradeoff = 100.0);
   void setMaxResizeNum(size_t max_resize_num);
 
   // APIs for power optimization
@@ -69,6 +73,8 @@ public:
   void makeSwappableCellsCache(rsz::Resizer *resizer);
   void getSwappableCells(LibertyCell* source_cell);
   void preSaveLibCellLeakage();
+  void makeParallelLibData(rsz::Resizer *resizer, TaskArranger *task_arranger);
+  ParallelLibData *parallelLibData() { return parallel_lib_data_; }
 
   // APIs for LM update
   void makeLRHelper(std::string method = "LRHelper");
@@ -88,6 +94,7 @@ protected:
   LocalCellInfo *cell_info_vec_ = nullptr;
   bool swap_cell_presaved_ = false;
   bool swap_cell_leakage_presaved_ = false;
+  ParallelLibData *parallel_lib_data_ = nullptr;
 };
 
 } // namespace lrf
