@@ -492,13 +492,13 @@ LRHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta, DcalcAnalys
   to_rat = std::max(to_rat, 1e-17f);
 
   if (delay_minmax == MinMax::max()) {
-    printf("LRHelper::updateEndPointArcLms: edge %s AP corner %s, delay min/max %s: aat %f, rat %f, delay %f, original LM %f\n",
-            edge->to_string(graph_).c_str(),
-            dcalc_ap->corner()->name(),
-            dcalc_ap->delayMinMax()->to_string().c_str(),
-            from_aat * 1.0e12, to_rat * 1.0e12, delay * 1.0e12,
-            lms[lm_idx]);
-    fflush(stdout);
+    // printf("LRHelper::updateEndPointArcLms: edge %s AP corner %s, delay min/max %s: aat %f, rat %f, delay %f, original LM %f\n",
+    //         edge->to_string(graph_).c_str(),
+    //         dcalc_ap->corner()->name(),
+    //         dcalc_ap->delayMinMax()->to_string().c_str(),
+    //         from_aat * 1.0e12, to_rat * 1.0e12, delay * 1.0e12,
+    //         lms[lm_idx]);
+    // fflush(stdout);
     lms[lm_idx] = lms[lm_idx] * (from_aat + delay) / to_rat;
     // if (lms[lm_idx] > MAX_LM_VALUE) lms[lm_idx] = MAX_LM_VALUE;
     // if (lms[lm_idx] < MIN_LM_VALUE) lms[lm_idx] = MIN_LM_VALUE;

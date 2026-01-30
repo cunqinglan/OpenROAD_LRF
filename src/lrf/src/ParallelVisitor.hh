@@ -72,7 +72,7 @@ public:
 
 protected:  
   // Function for testing purpose
-  void recordGraphTimingFromPtGraphPara(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing);
+  void recordGraphTimingFromPtGraphPara(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing, bool verbose = false);
 
   // Function of paralllel gate sizing
   float swapCost(float delay_lm_sum, float power);

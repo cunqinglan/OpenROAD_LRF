@@ -438,7 +438,11 @@ ParallelLrVisitor::visit(sta::Instance *inst,
                 initAndGetLocalTimingCost(pt_graph_, arc_delay_calc_);
     // Initialize the slack before swap
     slack_before_swap_ = local_sta_->localSlackAroundRef(pt_graph_);
-    
+    printf("Original delay_lm_sum %f, slack %f for instance %s with cell %s\n",
+           original_result.delay_lm_sum * 1e12,
+           slack_before_swap_ * 1e12,
+           db_sta_->network()->pathName(inst),
+           ori_cell->name());
     // Record original timing
     // GraphTiming orig_cell_timing;
     // orig_cell_timing.cell = ori_cell;
@@ -447,15 +451,15 @@ ParallelLrVisitor::visit(sta::Instance *inst,
     
     best_cell_ = ori_cell;
     DelayLmSumResult best_result = original_result;
-    int cnt = 1;
     for (sta::LibertyCell *equiv_cell : legal_equiv_cells) {
-      cnt++;
-      if (cnt > 2) break; // Only test first 1 equiv cells
       // This first virtual swap the cell in pt graph,
       // then recompute local delays, arrivals, requireds.
       // printf("ParallelLrVisitor::visit testing equiv cell %s for instance %s\n",
       //        equiv_cell->name(),
       //        db_sta_->network()->pathName(inst));
+      printf("Collecting timing info for instance %s with equiv cell %s, original cell %s\n", 
+              db_sta_->network()->pathName(inst), equiv_cell->name(), ori_cell->name());
+      fflush(stdout);
 
       DelayLmSumResult swapped_result = local_sta_->
         increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, equiv_cell);
@@ -467,7 +471,11 @@ ParallelLrVisitor::visit(sta::Instance *inst,
       GraphTiming cell_type_timing;
       cell_type_timing.cell = equiv_cell;
       // Record timing after computing slack (to ensure full propagation)
-      recordGraphTimingFromPtGraph(db_sta_, pt_graph_, cell_type_timing);
+      printf("LocalSTA: recordGraphTimingFromPtGraph \n");
+      if (std::string(db_sta_->network()->pathName(inst)) == "g111231") {
+        recordGraphTimingFromPtGraph(db_sta_, pt_graph_, cell_type_timing, true);
+      } else
+        recordGraphTimingFromPtGraph(db_sta_, pt_graph_, cell_type_timing);
       timing_record.liberty_timing_map[std::string(equiv_cell->name())] = cell_type_timing;
 
       // Do local slack check
@@ -483,6 +491,7 @@ ParallelLrVisitor::visit(sta::Instance *inst,
         best_cell_ = equiv_cell;
         best_result = swapped_result;
       }
+      break; // Only test first legal equiv cell for now
     }
     if (best_cell_ == ori_cell) {
       // printf("ParallelLrVisitor::visit no better cell found for instance %s with cell %s, delaylmsum = %f\n",
@@ -626,7 +635,7 @@ ParallelLrVisitor::updateEdgeInfo(sta::EdgeId edge_id)
 }
 
 void 
-ParallelLrVisitor::recordGraphTimingFromPtGraphPara(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing)
+ParallelLrVisitor::recordGraphTimingFromPtGraphPara(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing, bool verbose)
 {
   printf("LocalSta::Recording Graph Timing from PtGraph for cell %s\n", 
           graph_timing.cell ? graph_timing.cell->name() : "nullptr");
@@ -650,6 +659,15 @@ ParallelLrVisitor::recordGraphTimingFromPtGraphPara(sta::dbSta* sta, PtGraph *pt
     for (int i = 0; i < path_count; ++i) {
       sta::Path path = pt_paths[i];
       vertex_timing_info.paths.push_back(path);
+      if (verbose) {
+        printf(" LocalSta: Recorded path for vertex %s: dcalc_pt %u, arrival %f, required %f, tagIndex %d\n",
+              vertex_name.c_str(),
+              path.dcalcAnalysisPt(sta) ? path.dcalcAnalysisPt(sta)->index() : 0,
+              path.arrival() * 1e12,
+              path.required() * 1e12,
+              path.tagIndex(sta));
+      fflush(stdout);
+      }
     }
     vertex_timing_info.tag_group_index = pt_vertex.tagGroupIndex();
     graph_timing.vertex_timing_map[vertex_name] = vertex_timing_info;

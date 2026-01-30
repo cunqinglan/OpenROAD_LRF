@@ -20,8 +20,17 @@
 namespace lrf {
 size_t ptPathIndex(PtVertex &pt_vertex, Path *path)
 {
+  // IMPORTANT CONTRACT:
+  // The index must match the TagGroup path order (0..pathCount-1).
+  // This is true iff `path` points inside `pt_vertex.paths()`.
+  // Guard against nullptr and mismatched storage to avoid UB.
   Path *paths = pt_vertex.paths();
-  return path - paths;
+  if (paths == nullptr || path == nullptr)
+    return 0;
+  ptrdiff_t idx = path - paths;
+  if (idx < 0)
+    return 0;
+  return static_cast<size_t>(idx);
 }
 
 LocalPathVisitor::LocalPathVisitor(StaState *state, PtGraph *pt_graph)
@@ -380,19 +389,25 @@ LocalArrivalVisitor::localSetVertexArrivals(PtVertex &pt_vertex, TagGroupBldr *t
   if (tag_group == prev_tag_group) {
     // Even if tag_group is the same, we need to ensure prev_paths is not null
     if (prev_paths == nullptr) {
+      printf("LocalArrivalVisitor::localSetVertexArrivals:prev_paths == nullptr for %s.\n",
+             network_->name(pt_vertex.pin()));
+      fflush(stdout);
       size_t path_count = tag_bldr->pathCount();
       Path *paths = pt_graph_->makePaths(pt_vertex.objectIdx(), path_count);
-      tag_bldr->copyPaths(tag_group, paths);
+      tag_bldr->ptCopyPaths(tag_group, paths);
     } else {
-      tag_bldr->copyPaths(tag_group, prev_paths);
+      tag_bldr->ptCopyPaths(tag_group, prev_paths);
     }
   } else {
+    printf("LocalArrivalVisitor::localSetVertexArrivals: new tag group for %s.\n",
+           network_->name(pt_vertex.pin()));
+    fflush(stdout);
     if (prev_tag_group) {
       pt_graph_->deletePaths(pt_vertex.objectIdx());
     }
     size_t path_count = tag_bldr->pathCount();
     Path *paths = pt_graph_->makePaths(pt_vertex.objectIdx(), path_count);
-    tag_bldr->copyPaths(tag_group, paths);
+    tag_bldr->ptCopyPaths(tag_group, paths);
     pt_vertex.setTagGroupIndex(tag_group->index());
   }
   // We don't consider filtered paths since we don't consider
@@ -466,13 +481,14 @@ LocalRequiredCmp::requiredsSave(PtVertex &pt_vertex,
 			   const StaState *sta)
 {
   bool requireds_changed = false;
+  // If no required values were produced (no fanout propagation and no
+  // endpoint seeding), don't overwrite the requireds that were copied
+  // into the local graph during PtGraph::initPaths().
+  if (!have_requireds_)
+    return false;
   PtVertexPathIterator path_iter(pt_vertex, sta);
   while (path_iter.hasNext()) {
     Path *path = path_iter.next();
-    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    // This should be resivesed, since path index in local graph
-    // may be different from that in original graph.
-    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     size_t path_index = ptPathIndex(pt_vertex, path);
     Required req = requireds_[path_index];
     Required &prev_req = path->required();
@@ -598,12 +614,6 @@ LocalRequiredVisitor::printRequireds()
       path_num++;
     }
   }
-}
-
-size_t
-PtVertexPathIterator::pathIndex() const
-{
-  return std::min(path_index_ - 1, size_t(0)); 
 }
 
 
