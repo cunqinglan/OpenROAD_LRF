@@ -781,8 +781,8 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
     printf("Total Negative Slack: %f\n", tns * 1e12);
     printf("Total Leakage Power: %f\n", leakage * 1e10);
     fflush(stdout);
-    if ( tns > best_tns ) {
-      best_tns = tns;
+    if ( wns > best_wns ) {
+      best_wns = wns;
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::beginEco(block);
       printf("Improvement in WNS, accepting new design.\n");
@@ -809,11 +809,11 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
   wns = sta->worstSlack(sta::MinMax::max());
   if (wns > best_wns) {
     odb::dbDatabase::endEco(block);
-    printf("Final design accepted with WNS: %f\n", wns * 1e12);
+    printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
   } else {
     odb::dbDatabase::endEco(block);
     odb::dbDatabase::undoEco(block);
-    printf("Reverted to best design with WNS: %f\n", best_wns * 1e12);
+    printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
   }
 }
 
@@ -872,6 +872,8 @@ TestLrf::collectTimingInfoForInstancesUsingOpenSta(sta::dbSta* sta,
           std::vector<sta::Instance*> &sta_insts,
           std::unordered_map<sta::Instance*, TimingRecord> &instance_timing_map)
 {
+  sta->updateTiming(true);
+  sta->findRequireds();
   lrf::IncreSta *incre_sta = new lrf::IncreSta(sta, 1);
   lrf::LocalSta *local_sta = incre_sta->localSta();
 
@@ -903,14 +905,16 @@ TestLrf::collectTimingInfoForInstancesUsingOpenSta(sta::dbSta* sta,
 
     odb::dbMaster *orig_master = sta->getDbNetwork()->staToDb(orig_cell);
 
-    int cnt = 1;
+    lrf::PtGraph *pt_graph = nullptr;
     for (auto *equiv_cell : legal_equiv_cells) {
-      cnt++;
-      if (cnt > 2) break; // Only test first 2 equiv cells
       GraphTiming cell_graph_timing;
       cell_graph_timing.cell = equiv_cell;
-      printf("Collecting timing info for instance %s with equiv cell %s\n", 
-              sta->getDbNetwork()->name(sta_inst), equiv_cell->name());
+      pt_graph = local_sta->makePtGraph(sta_inst, true);
+      printf("OpenSTA: recordGraphTimingFromPtGraph \n");
+      recordGraphTimingFromPtGraph(sta, pt_graph, cell_graph_timing, true);
+      float slack_before = local_sta->localSlackAroundRef(pt_graph);
+      printf("Collecting timing info for instance %s with equiv cell %s, original cell %s\n", 
+              sta->getDbNetwork()->name(sta_inst), equiv_cell->name(), orig_cell->name());
       fflush(stdout);
 
       odb::dbMaster *master = sta->getDbNetwork()->staToDb(equiv_cell);
@@ -919,12 +923,21 @@ TestLrf::collectTimingInfoForInstancesUsingOpenSta(sta::dbSta* sta,
       // sta->delaysInvalid();
       sta->updateTiming(true);
       sta->findRequireds();
-      lrf::PtGraph *pt_graph = local_sta->makePtGraph(sta_inst, true);
+      pt_graph = local_sta->makePtGraph(sta_inst, true);
+      float slack = local_sta->localSlackAroundRef(pt_graph);
+      printf("Instance %s libcell %s Local Slack around Ref: %f ps, original slack %f ps\n", 
+              sta->getDbNetwork()->name(sta_inst), sta->network()->libertyCell(sta_inst)->name(), slack * 1e12, slack_before * 1e12);
+      fflush(stdout);
 
       // We can further collect slacks here
-      recordGraphTimingFromPtGraph(sta, pt_graph, cell_graph_timing);
+      printf("OpenSTA: recordGraphTimingFromPtGraph \n");
+      if (std::string(sta->network()->pathName(sta_inst)) == "g111231") {
+        recordGraphTimingFromPtGraph(sta, pt_graph, cell_graph_timing, true);
+      } else 
+        recordGraphTimingFromPtGraph(sta, pt_graph, cell_graph_timing);
       inst_timing_record.liberty_timing_map[std::string(equiv_cell->name())] = cell_graph_timing;
       pt_graph->printGraph("dotfile", true);
+      break; // Only test the first legal equiv cell for now
     }
     
     // Restore original master
@@ -948,6 +961,7 @@ TestLrf::collectTimingInfoForInstancesUsingLocalSta(sta::dbSta* sta,
   std::vector<sta::Instance*> &sta_insts, 
   std::unordered_map<sta::Instance*, TimingRecord> &instance_timing_map)
 {
+  sta->updateTiming(true);
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new lrf::IncreSta(sta, 1);
   lrf::LocalSta *local_sta = incre_sta->localSta();
@@ -978,16 +992,18 @@ TestLrf::collectTimingInfoForInstancesUsingLocalSta(sta::dbSta* sta,
 }
 
 void 
-recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing)
+recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing, bool verbose)
 {
-  printf("OpenSta::Recording Graph Timing from PtGraph for cell %s\n", 
+  printf("Recording Graph Timing from PtGraph for cell %s\n", 
           graph_timing.cell ? graph_timing.cell->name() : "nullptr");
   fflush(stdout);
   // First copy slews and paths from pt_graph's vertex to graph_timing
   for (PtVertex &pt_vertex : pt_graph->ptVertices()) {
-    if (!pt_vertex.vertex() || pt_vertex.type() != PtVertexType::RefInput
-  || pt_vertex.type() != PtVertexType::RefOutput) 
+    if (pt_vertex.vertex() == nullptr) 
       continue;
+    // if (!pt_vertex.vertex() || pt_vertex.type() != PtVertexType::RefInput
+    //  && pt_vertex.type() != PtVertexType::RefOutput) 
+    //   continue;
     // First copy slews from pt_vertex to graph_timing
     std::string vertex_name = pt_vertex.vertex()->name(sta->network());
     TimingInfo vertex_timing_info;
@@ -1004,6 +1020,14 @@ recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &gr
     for (int i = 0; i < path_count; ++i) {
       sta::Path path = pt_paths[i];
       vertex_timing_info.paths.push_back(path);
+      printf(" OpenSta: Recorded path for vertex %s: dcalc_pt %u, rf %d, arrival %f, required %f, tagIndex %d\n",
+              vertex_name.c_str(),
+              path.dcalcAnalysisPt(sta) ? path.dcalcAnalysisPt(sta)->index() : 0,
+              path.rfIndex(sta),
+              path.arrival() * 1e12,
+              path.required() * 1e12,
+              path.tagIndex(sta));
+      fflush(stdout);
     }
     vertex_timing_info.tag_group_index = pt_vertex.tagGroupIndex();
     graph_timing.vertex_timing_map[vertex_name] = vertex_timing_info;

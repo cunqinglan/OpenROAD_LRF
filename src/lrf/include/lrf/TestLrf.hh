@@ -90,6 +90,6 @@ protected:
   std::vector<ErrorPoint> error_points_;
 };
 
-void recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing);
+void recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing, bool verbose = false);
 
 }  // namespace lrf
