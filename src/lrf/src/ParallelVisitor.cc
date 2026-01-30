@@ -376,14 +376,14 @@ bool
 ParallelLrVisitor::visit(sta::Instance *inst)
 {
   // std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
-  // if (!checkVisitorStatus()) {
-  //   throw std::runtime_error("ParallelLrVisitor::visit visitor status invalid");
-  // }
-  if (!parallel_lib_data_) {
-    printf("ParallelLrVisitor::visit parallel_lib_data_ is null\n");
-    fflush(stdout);
-    return false;
+  if (!checkVisitorStatus()) {
+    throw std::runtime_error("ParallelLrVisitor::visit visitor status invalid");
   }
+  // if (!parallel_lib_data_) {
+  //   printf("ParallelLrVisitor::visit parallel_lib_data_ is null\n");
+  //   fflush(stdout);
+  //   return false;
+  // }
   return singleGateSizing(inst);
   // return singleGateSizingV1(inst);
 }
@@ -712,6 +712,13 @@ ParallelLrVisitor::init(float averge_delay, float average_power, float wns,
   printf("slack_margin: %f\n", slack_margin_);
   fflush(stdout);
   parallel_lib_data_ = parallel_lib_data;
+}
+
+bool
+ParallelLrVisitor::bufferInsertion(sta::Instance *inst)
+{
+  // 1. 
+  return false;
 }
 
 } // namespace lrf

@@ -71,13 +71,19 @@ public:
   void setParallelLibData(ParallelLibData *parallel_lib_data) { parallel_lib_data_ = parallel_lib_data; }
 
 protected:  
+  // Function for testing purpose
   void recordGraphTimingFromPtGraphPara(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing);
+
+  // Function of paralllel gate sizing
   float swapCost(float delay_lm_sum, float power);
   bool singleGateSizing(sta::Instance *inst);
   bool singleGateSizingV1(sta::Instance *inst);
   std::vector<std::pair<sta::LibertyCell*, std::pair<size_t, size_t>>> getLegalEquivCells(
                                   std::vector<sta::LibertyCellSeq> *equiv_cells_vec,
                                   sta::LibertyCell *ori_cell);
+
+  // Functions for buffer insertion
+  bool bufferInsertion(sta::Instance *inst);
 
   sta::dbSta *db_sta_;
   sta::Instance *ref_inst_;

@@ -25,6 +25,7 @@
 #include <cmath>
 #include <unordered_map>
 #include <vector>
+#include <chrono>
 
 namespace lrf
 {
@@ -746,10 +747,20 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
   for (size_t i = 0; i < iterations; ++i) {
     sta->findRequireds();
     printf("----- LR Resizing Iteration %zu -----\n", i+1);
-    incre_sta->parallelResizeV1(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    // incre_sta->parallelResizeV1(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    auto start = std::chrono::high_resolution_clock::now();
+    incre_sta->parallelResize(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end - start;
+    printf("Parallel resize took %f seconds\n", elapsed.count());
     incre_sta->lmUpdate();
+    std::chrono::duration<double> elapsed_lm = std::chrono::high_resolution_clock::now() - end;
+    printf("LM update took %f seconds\n", elapsed_lm.count());
 
+    // Update parasitics after resizing
     est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    std::chrono::duration<double> elapsed_parasitics = std::chrono::high_resolution_clock::now() - end - elapsed_lm;
+    printf("Parasitics update took %f seconds\n", elapsed_parasitics.count());
     // After resizing, evaluate timing and power
     sta->delaysInvalid();
     sta->updateTiming(true);
@@ -763,7 +774,9 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
       sta::PowerResult power_result = sta->power(sta_inst, corner);
       leakage += power_result.leakage();
     }
-    
+    auto end_eval = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed_eval = end_eval - end - elapsed_lm - elapsed_parasitics;
+    printf("Evaluation took %f seconds\n", elapsed_eval.count());
     printf("Worst Negative Slack: %f\n", wns * 1e12);
     printf("Total Negative Slack: %f\n", tns * 1e12);
     printf("Total Leakage Power: %f\n", leakage * 1e10);
