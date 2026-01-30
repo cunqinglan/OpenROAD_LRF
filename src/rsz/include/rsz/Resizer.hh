@@ -450,7 +450,10 @@ class Resizer : public dbStaState, public dbNetworkObserver
 
   void resizePreamble();
   LibertyCellSeq getSwappableCells(LibertyCell* source_cell);
+  bool isLegalCellCandidate(LibertyCell* equiv_cell, LibertyCell* source_cell);
   LibertyCellSeq *makeSwappableCells(LibertyCell* source_cell);
+  std::vector<sta::LibertyCellSeq> 
+  makeSwappableCellsVec(LibertyCell* source_cell);
   LibertyCellSeq getVTEquivCells(LibertyCell* source_cell);
 
  protected:

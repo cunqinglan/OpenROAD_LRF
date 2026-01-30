@@ -171,6 +171,11 @@ public:
   void printVisitedInstNames() const;
 
   void setMaxResizeNum(size_t max_resize_num) { max_resize_num_ = max_resize_num; }
+  size_t vertexCount() const { return vertices_.size(); }
+  const std::unordered_map<const sta::Instance*, VertexId> *instToVidMap() const { return &inst_to_vid_; }
+  
+  // Flag of verbose printing
+  bool verbose_ = false;
 
 protected:
   // Vertices before num_com_ are combinational.

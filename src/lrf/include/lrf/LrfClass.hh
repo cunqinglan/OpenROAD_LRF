@@ -120,5 +120,11 @@ public:
   float *cell_leakages = nullptr;
 };
 
+class ParallelLocalCellInfo {
+public:
+  std::vector<sta::LibertyCellSeq> *equiv_cells = nullptr;
+  std::vector<std::vector<float>> cell_leakages; 
+};
+
 } // namespace lrf
 

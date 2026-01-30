@@ -22,6 +22,7 @@ namespace lrf {
 
 class LocalSta;
 class PtGraph;
+class ParallelLibData;
 
 // We don't want to copy this visitor, each swap examination should
 // have its own instance.
@@ -50,6 +51,9 @@ public:
     float PT_tradeoff,
     std::unordered_map<sta::LibertyCell*, sta::LibertyCellSeq*> *cache,
     std::unordered_map<sta::Instance*, LocalCellInfo*> *inst_info_map);
+  void init(float averge_delay, float average_power, float wns, 
+    float PT_tradeoff, ParallelLibData *parallel_lib_data);
+
   void setAverageDelay(float avg_delay) { average_delay_ = avg_delay; }
   void setAverageLeakage(float avg_leakage) { average_leakage_ = avg_leakage; }
   void setSwappableCellsCache(std::unordered_map<sta::LibertyCell*, sta::LibertyCellSeq*> *cache)
@@ -62,10 +66,18 @@ public:
   }
   void setPTTradeoff(float PT_tradeoff) { PT_tradeoff_ = PT_tradeoff; }
   void setSlackMargin(float slack_margin) { slack_margin_ = slack_margin; }
+  bool equivVtCells(sta::LibertyCell *cell1, sta::LibertyCell *cell2);
+  void setClockPeriod(float clock_period) { clock_period_ = clock_period; }
+  void setParallelLibData(ParallelLibData *parallel_lib_data) { parallel_lib_data_ = parallel_lib_data; }
 
 protected:  
   void recordGraphTimingFromPtGraphPara(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing);
   float swapCost(float delay_lm_sum, float power);
+  bool singleGateSizing(sta::Instance *inst);
+  bool singleGateSizingV1(sta::Instance *inst);
+  std::vector<std::pair<sta::LibertyCell*, std::pair<size_t, size_t>>> getLegalEquivCells(
+                                  std::vector<sta::LibertyCellSeq> *equiv_cells_vec,
+                                  sta::LibertyCell *ori_cell);
 
   sta::dbSta *db_sta_;
   sta::Instance *ref_inst_;
@@ -81,6 +93,8 @@ protected:
   float PT_tradeoff_ = 100.0;
   std::unordered_map<sta::LibertyCell*, sta::LibertyCellSeq*> *swappable_cells_cache_ = nullptr;
   std::unordered_map<sta::Instance*, LocalCellInfo*> *inst_info_map_;
+  ParallelLibData *parallel_lib_data_ = nullptr;
+  float clock_period_ = 0.0;
 };
 
 

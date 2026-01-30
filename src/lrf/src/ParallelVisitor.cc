@@ -15,10 +15,12 @@
 #include "search/TagGroup.hh"
 #include "sta/EquivCells.hh"
 #include "lrf/TestLrf.hh"
+#include "ParallelLibData.hh"
 
 #include <vector>
 #include <mutex>
 #include <algorithm>
+#include "sta/Fuzzy.hh"
 
 namespace sta {
 }
@@ -50,8 +52,10 @@ ParallelLrVisitor::~ParallelLrVisitor()
 bool 
 ParallelLrVisitor::checkVisitorStatus() const
 {
-  if (db_sta_ == nullptr || local_sta_ == nullptr || arc_delay_calc_ == nullptr
-      || swappable_cells_cache_->empty() || inst_info_map_->empty()) {
+  if (db_sta_ == nullptr || local_sta_ == nullptr || arc_delay_calc_ == nullptr) {
+    return false;
+  }
+  if (swappable_cells_cache_->empty() || inst_info_map_->empty()) {
     return false;
   }
   return true;
@@ -65,22 +69,16 @@ ParallelLrVisitor::swapCost(float delay_lm_sum, float power)
   return swap_cost;
 }
 
-bool
-ParallelLrVisitor::visit(sta::Instance *inst)
+bool 
+ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
 {
-  // std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
-  if (!checkVisitorStatus()) {
-    throw std::runtime_error("ParallelLrVisitor::visit visitor status invalid");
-  }
   best_cell_ = nullptr;
-  // The visit do following things:
   // 1. Get the target instance and set up a ptgraph for it.
   // 2. For each equivalent cell, virtual swap the instance to the cell,
   //    and compute the local timing cost.
   // 3. Keep track of the best cell and cost.
   // 4. Submmit the best cell swap to the resizer.
   visited_instances_.push_back(db_sta_->network()->pathName(inst));
-  
   sta::LibertyCell *ori_cell = db_sta_->network()->libertyCell(inst);
   if (ori_cell) {
     auto info_it = inst_info_map_->find(inst);
@@ -122,8 +120,7 @@ ParallelLrVisitor::visit(sta::Instance *inst)
     int cnt = 0;
     for (sta::LibertyCell *equiv_cell : *equiv_cells) {
       if (!sta::equivCellsArcs(ori_cell, equiv_cell)) {
-        cnt++;
-        continue;
+        throw std::runtime_error("ParallelLrVisitor::visit found non-equivalent cell in equiv_cells");
       }
       float leakage = (*inst_info_map_)[inst]->cell_leakages[cnt];
       float delay_lm_sum = local_sta_->
@@ -169,6 +166,226 @@ ParallelLrVisitor::visit(sta::Instance *inst)
          db_sta_->network()->pathName(inst));
   fflush(stdout);
   return false;
+}
+
+bool
+ParallelLrVisitor::equivVtCells(sta::LibertyCell *cell1, sta::LibertyCell *cell2)
+{
+  sta::dbNetwork *network = db_sta_->getDbNetwork();
+  odb::dbMaster *master1 = network->staToDb(cell1);
+  odb::dbMaster *master2 = network->staToDb(cell2);
+  if (master1 == nullptr || master2 == nullptr) {
+    return false;
+  }
+  if (!fuzzyEqual(master1->getArea(), master2->getArea())) {
+    return false;
+  }
+  if (master1->getSite() != master2->getSite()) {
+    return false;
+  }
+  if (!sta::stringEqIf(cell1->footprint(), cell2->footprint())) {
+    return false;
+  }
+  if (cell1->userFunctionClass() && cell2->userFunctionClass() &&
+    !sta::stringEqIf(cell1->userFunctionClass(), cell2->userFunctionClass())) {
+    return false;
+  }
+  return true;
+}
+
+std::vector<std::pair<sta::LibertyCell*, std::pair<size_t, size_t>>>
+ParallelLrVisitor::getLegalEquivCells(
+    std::vector<sta::LibertyCellSeq> *equiv_cells_vec,
+    sta::LibertyCell *ori_cell)
+{
+  std::vector<std::pair<sta::LibertyCell*, std::pair<size_t, size_t>>> legal_equiv_cells;
+  size_t scope_count = 4;
+  size_t i = 0, j;
+  for (const sta::LibertyCellSeq &cell_seq : *equiv_cells_vec) {
+    j = 0;
+    if (cell_seq.size() == 0) {
+      i++;
+      continue;
+    }
+    for (sta::LibertyCell *equiv_cell : cell_seq) {
+      if (ori_cell == equiv_cell) {
+        size_t start_index = (j > scope_count) ? (j - scope_count) : 0;
+        size_t end_index = std::min(cell_seq.size() - 1, j + scope_count);
+        // Add cells with same VT as orig into legal_equiv_cells
+        for (size_t k = start_index; k <= end_index; k++) {
+          sta::LibertyCell *near_cell = cell_seq[k];
+          legal_equiv_cells.push_back(std::make_pair(near_cell, std::make_pair(i, k)));
+        }
+        if (i > 0) {
+          // Also add cells from lower VT
+          sta::LibertyCellSeq lower_vt_seq = (*equiv_cells_vec)[i - 1];
+          j = 0;
+          for (sta::LibertyCell *lower_vt_cell : lower_vt_seq) {
+            if (equivVtCells(ori_cell, lower_vt_cell)) {
+              size_t start_index = (j > scope_count) ? (j - scope_count) : 0;
+              size_t end_index = std::min(lower_vt_seq.size() - 1, j + scope_count);
+              // Add nearby cells with lower VT into legal_equiv_cells
+              for (size_t k = start_index; k <= end_index; k++) {
+                sta::LibertyCell *near_cell = lower_vt_seq[k];
+                legal_equiv_cells.push_back(std::make_pair(near_cell, std::make_pair(i - 1, k)));
+              }
+              break;
+            }
+            j++;
+          }
+          j = 0;
+          // Also add cells from higher VT
+          if (i + 1 < equiv_cells_vec->size()) {
+            sta::LibertyCellSeq higher_vt_seq = (*equiv_cells_vec)[i + 1];
+            for (sta::LibertyCell *higher_vt_cell : higher_vt_seq) {
+              if (equivVtCells(ori_cell, higher_vt_cell)) {
+                size_t start_index = (j > scope_count) ? (j - scope_count) : 0;
+                size_t end_index = std::min(higher_vt_seq.size() - 1, j + scope_count);
+                // Add nearby cells with higher VT into legal_equiv_cells
+                for (size_t k = start_index; k <= end_index; k++) {
+                  sta::LibertyCell *near_cell = higher_vt_seq[k];
+                  legal_equiv_cells.push_back(std::make_pair(near_cell, std::make_pair(i + 1, k)));
+                }
+                return legal_equiv_cells;
+              }
+              j++;
+            }
+          }
+        }
+        break;
+      }
+      j++;
+    }
+    i++;
+  }
+  return legal_equiv_cells;
+}
+
+bool 
+ParallelLrVisitor::singleGateSizingV1(sta::Instance *inst)
+{
+  best_cell_ = nullptr;
+  // 1. Get the target instance and set up a ptgraph for it.
+  // 2. For each equivalent cell, virtual swap the instance to the cell,
+  //    and compute the local timing cost.
+  // 3. Keep track of the best cell and cost.
+  // 4. Submmit the best cell swap to the resizer.
+  visited_instances_.push_back(db_sta_->network()->pathName(inst));
+  sta::LibertyCell *ori_cell = db_sta_->network()->libertyCell(inst);
+  if (ori_cell) {
+    if (parallel_lib_data_ == nullptr || parallel_lib_data_->inst_to_vid_map_ == nullptr) {
+      throw std::runtime_error("ParallelLrVisitor::singleGateSizingV1 parallel_lib_data/inst_to_vid_map_ is null");
+    }
+    const auto vid_it = parallel_lib_data_->inst_to_vid_map_->find(inst);
+    if (vid_it == parallel_lib_data_->inst_to_vid_map_->end()) {
+      printf("ParallelLrVisitor::singleGateSizingV1 inst %s not found in inst_to_vid_map_\n",
+             db_sta_->network()->pathName(inst));
+      fflush(stdout);
+      return false;
+    }
+    ParallelLocalCellInfo &cell_info = parallel_lib_data_->cell_info_vec_[vid_it->second];
+    std::vector<sta::LibertyCellSeq> *equiv_cells_vec = cell_info.equiv_cells;
+    
+    if (equiv_cells_vec == nullptr || equiv_cells_vec->empty() ||
+        (equiv_cells_vec->size() == 1 && (*equiv_cells_vec)[0].size() == 1)) {
+      printf("ParallelLrVisitor::singleGateSizingV1 no equiv cells for %s, inst = %s\n",
+             ori_cell->name(),
+             db_sta_->network()->pathName(inst));
+      fflush(stdout);
+      return false;
+    }
+    std::vector<std::pair<sta::LibertyCell*, std::pair<size_t, size_t>>> 
+                    legal_equiv_cells = getLegalEquivCells(equiv_cells_vec, ori_cell);
+    if (legal_equiv_cells.size() < 2) {
+      printf("ParallelLrVisitor::singleGateSizingV1 for inst %s no legal equiv cells for %s\n",
+             db_sta_->network()->pathName(inst),
+             ori_cell->name());
+      fflush(stdout);
+      return false;
+    }
+
+    // printf("ParallelLrVisitor::visit instance %s of type %s with %lu legal equivalent cells\n",
+    //      db_sta_->network()->pathName(inst),
+    //      db_sta_->network()->libertyCell(inst)->name(),
+    //      legal_equiv_cells.size());
+    // fflush(stdout);
+
+    pt_graph_ = local_sta_->makePtGraph(inst, false);
+    
+    best_cell_ = ori_cell;
+    float best_cost = std::numeric_limits<float>::max();
+    std::vector<float> vec_cost_slack(legal_equiv_cells.size() * 2, std::numeric_limits<float>::max());
+    bool orig_inequiv = false;
+    int cnt = 0;
+    for (auto &equiv_cell_pair : legal_equiv_cells) {
+      sta::LibertyCell *equiv_cell = equiv_cell_pair.first;
+      float leakage = cell_info.cell_leakages[equiv_cell_pair.second.first][equiv_cell_pair.second.second]; 
+      float delay_lm_sum = local_sta_->
+        increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, equiv_cell).delay_lm_sum;
+      float swapped_cost = swapCost(delay_lm_sum, leakage);
+      sta::Slack swapped_slack = 
+                      local_sta_->localSlackAroundRef(pt_graph_);
+      vec_cost_slack[cnt * 2] = swapped_cost;
+      vec_cost_slack[cnt * 2 + 1] = swapped_slack;
+      if (equiv_cell == ori_cell) {
+        // For original cell, update best cost directly
+        slack_before_swap_ = swapped_slack;
+        orig_inequiv = true;
+      }
+      cnt++;
+      
+      // printf("ParallelLrVisitor::visit metics: from delay_lm_sum %f to %f for cell %s, slack before swap %f, after swap %f\n",
+      //        best_cost * 1e12,
+      //        swapped_cost * 1e12,
+      //        equiv_cell->name(),
+      //        slack_before_swap_ * 1e12,
+      //        swapped_slack * 1e12);
+      // fflush(stdout);
+    }
+    if (!orig_inequiv) {
+      printf("ParallelLrVisitor::singleGateSizingV1 for inst %s original cell %s not in legal equiv cells\n",
+             db_sta_->network()->pathName(inst),
+             ori_cell->name());
+      fflush(stdout);
+      throw std::runtime_error("Original cell not in legal equiv cells");
+    }
+    for (size_t i = 0; i < legal_equiv_cells.size(); i++) {
+      float cost = vec_cost_slack[i * 2];
+      float slack = vec_cost_slack[i * 2 + 1];
+      if (cost < best_cost
+          && slack >= slack_before_swap_ * slack_margin_) {
+        best_cell_ = legal_equiv_cells[i].first;
+        best_cost = cost;
+      }
+    }
+    if (best_cell_ == ori_cell) {
+      return false;
+    }
+    // First compute the final timing after choosing best cell
+    if (best_cell_ != legal_equiv_cells[legal_equiv_cells.size() - 1].first) 
+      local_sta_->increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, best_cell_);
+    return true;
+  } 
+  printf("ParallelLrVisitor::visit no liberty cell for instance %s\n",
+         db_sta_->network()->pathName(inst));
+  fflush(stdout);
+  return false;
+}
+
+bool
+ParallelLrVisitor::visit(sta::Instance *inst)
+{
+  // std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
+  // if (!checkVisitorStatus()) {
+  //   throw std::runtime_error("ParallelLrVisitor::visit visitor status invalid");
+  // }
+  if (!parallel_lib_data_) {
+    printf("ParallelLrVisitor::visit parallel_lib_data_ is null\n");
+    fflush(stdout);
+    return false;
+  }
+  return singleGateSizing(inst);
+  // return singleGateSizingV1(inst);
 }
 
 bool 
@@ -293,6 +510,8 @@ ParallelLrVisitor::copy() const
   new_visitor->setInstInfoMap(inst_info_map_);
   new_visitor->setSlackMargin(slack_margin_);
   new_visitor->setPTTradeoff(PT_tradeoff_);
+  new_visitor->setParallelLibData(parallel_lib_data_);
+  new_visitor->setClockPeriod(clock_period_);
   return new_visitor;
 }
 
@@ -345,9 +564,8 @@ void
 ParallelLrVisitor::updateVertexInfo(sta::VertexId vertex_id)
 {
   PtVertex &pt_vertex = pt_graph_->ptVertex(vertex_id);
-  if (!pt_vertex.vertex() || pt_vertex.type() != PtVertexType::RefInput
-      || pt_vertex.type() != PtVertexType::RefOutput
-     ) {
+  if (!pt_vertex.vertex() || (pt_vertex.type() != PtVertexType::RefInput)
+       && (pt_vertex.type() != PtVertexType::RefOutput)) {
     return;
   }
   sta::Vertex *sta_vertex = pt_vertex.vertex();
@@ -393,8 +611,8 @@ ParallelLrVisitor::updateEdgeInfo(sta::EdgeId edge_id)
 {
   PtEdge &pt_edge = pt_graph_->edge(edge_id);
   PtVertex &pt_to_vertex = pt_graph_->ptVertex(pt_edge.ptToId());
-  if (!pt_edge.edge() || pt_to_vertex.type() != PtVertexType::RefOutput
-|| pt_to_vertex.type() != PtVertexType::RefDriver) {
+  if (!pt_edge.edge() || (pt_to_vertex.type() != PtVertexType::RefOutput)
+   && (pt_to_vertex.type() != PtVertexType::RefDriver)) {
     return;
   }
   sta::Edge *sta_edge = pt_edge.edge();
@@ -467,12 +685,33 @@ ParallelLrVisitor::init(float average_delay, float average_power, float wns,
       break;
     }
   }
-  slack_margin_ = std::max((-std::min(wns, 0.0f) / clock_period + 1.0f), 1.1f);
+  slack_margin_ = std::max((-std::min(wns, 0.0f) / clock_period + 1.0f), 1.05f);
   PT_tradeoff_ = PT_tradeoff;
   printf("slack_margin: %f\n", slack_margin_);
   fflush(stdout);
   swappable_cells_cache_ = cache;
   inst_info_map_ = inst_info_map;
+}
+
+void
+ParallelLrVisitor::init(float averge_delay, float average_power, float wns, 
+    float PT_tradeoff, ParallelLibData *parallel_lib_data)
+{
+  average_delay_ = averge_delay;
+  average_leakage_ = average_power;
+  float clock_period = 0.0;
+  for (auto *clock : *db_sta_->sdc()->clocks()) {
+    if (clock->period() > clock_period) {
+      clock_period = clock->period();
+      break;
+    }
+  }
+  clock_period_ = clock_period;
+  slack_margin_ = std::max((-std::min(wns, 0.0f) / clock_period + 1.0f), 1.05f);
+  PT_tradeoff_ = PT_tradeoff;
+  printf("slack_margin: %f\n", slack_margin_);
+  fflush(stdout);
+  parallel_lib_data_ = parallel_lib_data;
 }
 
 } // namespace lrf

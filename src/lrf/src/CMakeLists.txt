@@ -26,6 +26,7 @@ add_library(lrf_lib
     GraphBase.cc
     TaskArranger.cc
     LocalCellInfo.cc
+    ParallelLibData.cc
 )
 
 target_sources(lrf
