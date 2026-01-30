@@ -781,8 +781,8 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
     printf("Total Negative Slack: %f\n", tns * 1e12);
     printf("Total Leakage Power: %f\n", leakage * 1e10);
     fflush(stdout);
-    if ( wns > best_wns ) {
-      best_wns = wns;
+    if ( tns > best_tns ) {
+      best_tns = tns;
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::beginEco(block);
       printf("Improvement in WNS, accepting new design.\n");
