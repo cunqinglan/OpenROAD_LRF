@@ -1559,9 +1559,12 @@ EstimateParasitics::checkIfParasiticsNetworkExists(const Net* net)
         Parasitic* parasitic
             = parasitics_->findParasiticNetwork(net, parasitics_ap);
         if (parasitic == nullptr) {
-          printf("Error: Parasitic network does not exist for net %s\n",
-                 network_->name(net));
-          fflush(stdout);
+          const char *except_name = "UNCONNECTED";
+          if (strstr(network_->name(net), except_name) == nullptr) {
+            printf("Error: Parasitic network does not exist for net %s\n",
+                  network_->name(net));
+            fflush(stdout);
+          }
         }
       }
     }

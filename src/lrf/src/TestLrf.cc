@@ -933,10 +933,8 @@ TestLrf::collectTimingInfoForInstancesUsingOpenSta(sta::dbSta* sta,
       GraphTiming cell_graph_timing;
       cell_graph_timing.cell = equiv_cell;
       pt_graph = local_sta->makePtGraph(sta_inst, true);
-      printf("OpenSTA: recordGraphTimingFromPtGraph \n");
-      recordGraphTimingFromPtGraph(sta, pt_graph, cell_graph_timing, true);
       float slack_before = local_sta->localSlackAroundRef(pt_graph);
-      printf("Collecting timing info for instance %s with equiv cell %s, original cell %s\n", 
+      printf("OpenSTA::Collecting timing info for instance %s with equiv cell %s, original cell %s\n", 
               sta->getDbNetwork()->name(sta_inst), equiv_cell->name(), orig_cell->name());
       fflush(stdout);
 
@@ -954,10 +952,7 @@ TestLrf::collectTimingInfoForInstancesUsingOpenSta(sta::dbSta* sta,
 
       // We can further collect slacks here
       printf("OpenSTA: recordGraphTimingFromPtGraph \n");
-      if (std::string(sta->network()->pathName(sta_inst)) == "g111231") {
-        recordGraphTimingFromPtGraph(sta, pt_graph, cell_graph_timing, true);
-      } else 
-        recordGraphTimingFromPtGraph(sta, pt_graph, cell_graph_timing);
+      recordGraphTimingFromPtGraph(sta, pt_graph, cell_graph_timing, true);
       inst_timing_record.liberty_timing_map[std::string(equiv_cell->name())] = cell_graph_timing;
       pt_graph->printGraph("dotfile", true);
       break; // Only test the first legal equiv cell for now
@@ -1024,8 +1019,8 @@ recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &gr
   for (PtVertex &pt_vertex : pt_graph->ptVertices()) {
     if (pt_vertex.vertex() == nullptr) 
       continue;
-    // if (!pt_vertex.vertex() || pt_vertex.type() != PtVertexType::RefInput
-    //  && pt_vertex.type() != PtVertexType::RefOutput) 
+    // if (!pt_vertex.vertex() || (pt_vertex.type() != PtVertexType::RefInput
+    //  && pt_vertex.type() != PtVertexType::RefOutput)) 
     //   continue;
     // First copy slews from pt_vertex to graph_timing
     std::string vertex_name = pt_vertex.vertex()->name(sta->network());

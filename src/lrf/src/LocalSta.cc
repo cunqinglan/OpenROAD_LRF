@@ -1213,7 +1213,7 @@ LocalSta::localParasiticLoad(const Pin *drvr_pin,
           pin_cap, wire_cap, fanout, has_net_load);
     load_cap = pin_cap + wire_cap;
     // if (has_net_load)
-    char *exclude_pin_name = "CON";
+    const char *exclude_pin_name = "CON";
     if (strstr(network_->name(drvr_pin), exclude_pin_name) == nullptr) {
       // Skip printing for CON pins
       printf("LocalSta::localParasiticLoad failed at pin %s: has_net_load=%d, pin_cap=%f fF, wire_cap=%f fF\n",
