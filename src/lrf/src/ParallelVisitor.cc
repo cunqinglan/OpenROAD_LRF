@@ -20,6 +20,7 @@
 #include <vector>
 #include <mutex>
 #include <algorithm>
+#include <chrono>
 #include "sta/Fuzzy.hh"
 
 namespace sta {
@@ -110,9 +111,12 @@ ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
     //      db_sta_->network()->libertyCell(inst)->name(),
     //      legal_equiv_cells.size());
     // fflush(stdout);
-
+    auto start_pt_graph_construction = std::chrono::high_resolution_clock::now();
     pt_graph_ = local_sta_->makePtGraph(inst, false);
+    auto end_pt_graph_construction = std::chrono::high_resolution_clock::now();
+    runtime_map_["pt_graph_construction"] += std::chrono::duration<double>(end_pt_graph_construction - start_pt_graph_construction).count();
     
+    std::chrono::time_point<std::chrono::high_resolution_clock> start_equiv_cell_check = std::chrono::high_resolution_clock::now();
     best_cell_ = ori_cell;
     bool orig_inequiv = false;
     std::vector<float> vec_cost_slack(equiv_cells->size() * 2, std::numeric_limits<float>::max());
@@ -145,6 +149,9 @@ ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
       //        swapped_slack * 1e12);
       // fflush(stdout);
     }
+    auto end_equiv_cell_check = std::chrono::high_resolution_clock::now();
+    runtime_map_["equiv_cell_check"] += std::chrono::duration<double>(end_equiv_cell_check - start_equiv_cell_check).count();
+    runtime_map_["equiv_cell_count"] += equiv_cells->size();
     for (size_t i = 0; i < equiv_cells->size(); i++) {
       float cost = vec_cost_slack[i * 2];
       float slack = vec_cost_slack[i * 2 + 1];
@@ -261,6 +268,20 @@ ParallelLrVisitor::getLegalEquivCells(
   return legal_equiv_cells;
 }
 
+void 
+ParallelLrVisitor::printRuntimeProfile() const
+{
+  printf("ParallelLrVisitor Runtime Profile:\n");
+  for (const auto &entry : runtime_map_) {
+    printf("  %s: %.6f seconds\n", entry.first.c_str(), entry.second);
+  }
+  double equiv_cell_count = runtime_map_.at("equiv_cell_count");
+  double equiv_cell_check_time = runtime_map_.at("equiv_cell_check");
+  if (equiv_cell_count > 0) {
+    printf("  Average equiv cell check time: %.9f seconds\n", equiv_cell_check_time / equiv_cell_count);
+  }
+}
+
 bool 
 ParallelLrVisitor::singleGateSizingV1(sta::Instance *inst)
 {
@@ -375,6 +396,7 @@ ParallelLrVisitor::singleGateSizingV1(sta::Instance *inst)
 bool
 ParallelLrVisitor::visit(sta::Instance *inst)
 {
+  std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
   // std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
   if (!checkVisitorStatus()) {
     throw std::runtime_error("ParallelLrVisitor::visit visitor status invalid");
@@ -384,7 +406,11 @@ ParallelLrVisitor::visit(sta::Instance *inst)
   //   fflush(stdout);
   //   return false;
   // }
-  return singleGateSizing(inst);
+  bool success = singleGateSizing(inst);
+  std::chrono::steady_clock::time_point end_time = std::chrono::steady_clock::now();
+  std::chrono::duration<double> duration = end_time - start_time;
+  runtime_map_["visit"] += duration.count();
+  return success;
   // return singleGateSizingV1(inst);
 }
 
@@ -535,6 +561,7 @@ ParallelLrVisitor::printVisitedInstNames() const
 void
 ParallelLrVisitor::applyChangesToDb(rsz::Resizer *resizer)
 {
+  std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
   // First apply best cell type changes to OpenROAD
   if (best_cell_ && pt_graph_->refInstance()) {
     sta::LibertyCell *from_lib_cell = 
@@ -555,7 +582,15 @@ ParallelLrVisitor::applyChangesToDb(rsz::Resizer *resizer)
     // fflush(stdout);
     db_sta_->replaceCell(pt_graph_->refInstance(), best_cell_);
   }
+  std::chrono::steady_clock::time_point mid_time = std::chrono::steady_clock::now();
+  std::chrono::duration<double> mid_duration = mid_time - start_time;
+  runtime_map_["swap"] += mid_duration.count();
   updateTimingFromPtGraph();
+  std::chrono::steady_clock::time_point end_time = std::chrono::steady_clock::now();
+  std::chrono::duration<double> duration = end_time - start_time;
+  std::chrono::duration<double> update_duration = end_time - mid_time;
+  runtime_map_["writeTimingToDb"] += duration.count();
+  runtime_map_["applyDb"] += duration.count();
 }
 
 void
@@ -706,7 +741,7 @@ ParallelLrVisitor::init(float average_delay, float average_power, float wns,
   if (wns >= 0.0f) {
     slack_margin_ = 1.05f;
   } else
-    slack_margin_ = std::min((-std::min(wns, 0.0f) / clock_period + 1.0f), 1.05f);
+    slack_margin_ = std::max((-std::min(wns, 0.0f) / clock_period + 1.0f), 1.05f);
   PT_tradeoff_ = PT_tradeoff;
   printf("slack_margin: %f\n", slack_margin_);
   fflush(stdout);

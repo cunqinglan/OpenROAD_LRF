@@ -23,6 +23,7 @@
 #include "TaskArranger.hh"
 #include "db_sta/dbSta.hh"
 #include "TaskArranger.hh"
+#include "sta/PortDirection.hh"
 
 
 
@@ -145,8 +146,18 @@ LocalSta::collectLocalFanoutVertices(sta::Vertex *drvr_vertex,
     }
     Vertex *load_vertex = out_edge->to(graph_);
     if (!network_->isLoad(load_vertex->pin())) {
-      printf("Warining: LocalSta::collectLocalFanoutVertices: vertex %s is not a load\n",
+      const Pin *pin = load_vertex->pin();
+      const Instance *inst = network_->instance(pin);
+      PortDirection *dir = network_->direction(pin);
+      printf("Warning: LocalSta::collectLocalFanoutVertices: vertex %s is not a load\n",
              load_vertex->to_string(graph_).c_str());
+      printf("  Instance: %s, isLeaf: %d, Pin direction: %s, isAnyInput: %d, isAnyOutput: %d\n",
+             network_->pathName(inst),
+             network_->isLeaf(inst),
+             dir->name(),
+             dir->isAnyInput(),
+             dir->isAnyOutput());
+      fflush(stdout);
       continue;
     }
     if (out_edge->isWire())

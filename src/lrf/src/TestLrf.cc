@@ -839,16 +839,33 @@ TestLrf::testTimingComputeAndWriteBack(sta::dbSta* sta, rsz::Resizer *resizer, o
 {
   // Test timing compute and write back
   printf("----- Testing Timing Compute and Write Back -----\n");
+  printf("Received %zu db_insts to process\n", db_insts.size());
+  fflush(stdout);
+  
   lrf::IncreSta *incre_sta = new IncreSta(sta, 1);
   lrf::LocalSta *local_sta = incre_sta->localSta();
   // incre_sta->lmUpdate();
   resizer->makeEquivCells();
 
   std::vector<sta::Instance*> sta_insts;
-  for (auto *db_inst : db_insts) {
+  for (size_t i = 0; i < db_insts.size(); ++i) {
+    auto *db_inst = db_insts[i];
+    if (db_inst == nullptr) {
+      printf("Warning: nullptr db_inst found at index %zu in db_insts vector\n", i);
+      continue;
+    }
     sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(db_inst);
+    if (sta_inst == nullptr) {
+      printf("Warning: dbToSta returned nullptr for db_inst %s at index %zu\n", 
+             db_inst->getName().c_str(), i);
+      continue;
+    }
     sta_insts.push_back(sta_inst);
   }
+  
+  printf("Successfully converted %zu db_insts to %zu sta_insts\n", 
+         db_insts.size(), sta_insts.size());
+  fflush(stdout);
 
   local_sta->initParallel();
   float average_delay = incre_sta->averageDelayOnCritPath();
@@ -878,12 +895,18 @@ TestLrf::collectTimingInfoForInstancesUsingOpenSta(sta::dbSta* sta,
   lrf::LocalSta *local_sta = incre_sta->localSta();
 
   for (auto *sta_inst : sta_insts) {
+    // Validate instance pointer first
+    if (sta_inst == nullptr) {
+      printf("Warning: nullptr sta_inst found in sta_insts, skipping\n");
+      continue;
+    }
+    
     /////////
     TimingRecord inst_timing_record;
     inst_timing_record.inst = sta_inst;
-    inst_timing_record.orig_cell = sta->network()->libertyCell(sta_inst);
-    /////////
     sta::LibertyCell *orig_cell = sta->network()->libertyCell(sta_inst);
+    inst_timing_record.orig_cell = orig_cell;
+    /////////
     
     if (!orig_cell) {
       printf("Original cell not found for instance %s\n", sta->getDbNetwork()->name(sta_inst));
