@@ -4,7 +4,6 @@
 #include <cassert>
 #include <cmath>
 #include <cstddef>
-#include <cstdint>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
@@ -21,6 +20,10 @@
 #include "GRNet.h"
 #include "GRTree.h"
 #include "geo.h"
+#include "odb/db.h"
+#include "odb/dbTransform.h"
+#include "odb/dbTypes.h"
+#include "odb/geom.h"
 #include "robin_hood.h"
 #include "utl/Logger.h"
 
@@ -36,6 +39,7 @@ GridGraph::GridGraph(const Design* design,
       num_layers_(design->getNumLayers()),
       x_size_(gridlines_[0].size() - 1),
       y_size_(gridlines_[1].size() - 1),
+      design_(design),
       constants_(constants)
 {
   grid_centers_.resize(2);
@@ -272,8 +276,7 @@ IntervalT GridGraph::rangeSearchRows(const int dimension,
               : std::max(lineRange.low() - 1, 0),
           gridlines_[dimension][lineRange.high()] == loc_interval.high()
               ? lineRange.high() - 1
-              : std::min(lineRange.high(),
-                         static_cast<int>(getSize(dimension)) - 1)};
+              : std::min(lineRange.high(), getSize(dimension) - 1)};
 }
 
 BoxT GridGraph::getCellBox(PointT point) const
@@ -365,7 +368,113 @@ CostT GridGraph::getViaCost(const int layer_index, const PointT loc) const
   return cost;
 }
 
-AccessPointSet GridGraph::selectAccessPoints(const GRNet* net) const
+std::vector<AccessPoint> GridGraph::translateAccessPointsToGrid(
+    const std::vector<odb::dbAccessPoint*>& aps,
+    const odb::Point& inst_location) const
+{
+  const int amount_per_x = design_->getDieRegion().hx() / x_size_;
+  const int amount_per_y = design_->getDieRegion().hy() / y_size_;
+  std::vector<AccessPoint> aps_on_grid;
+  for (const auto& ap : aps) {
+    odb::Point ap_position = ap->getPoint();
+    odb::dbTechLayer* layer = ap->getLayer();
+
+    // Transform AP position according to instance location and orientation.
+    odb::dbTransform xform;
+    xform.setOffset({inst_location.getX(), inst_location.getY()});
+    xform.setOrient(odb::dbOrientType(odb::dbOrientType::R0));
+    xform.apply(ap_position);
+
+    const int ap_x = (ap_position.getX() / amount_per_x >= x_size_)
+                         ? x_size_ - 1
+                         : ap_position.getX() / amount_per_x;
+    const int ap_y = ((ap_position.getY() / amount_per_y >= y_size_)
+                          ? y_size_ - 1
+                          : ap_position.getY() / amount_per_y);
+    const PointT selected_point = PointT(ap_x, ap_y);
+    const int num_layer = ((layer->getNumber() - 2) > (getNumLayers() - 1))
+                              ? getNumLayers() - 1
+                              : layer->getNumber() - 2;
+    const IntervalT selected_layer = IntervalT(num_layer);
+    aps_on_grid.emplace_back(selected_point, selected_layer);
+  }
+
+  return aps_on_grid;
+}
+
+AccessPoint GridGraph::selectAccessPoint(
+    const std::vector<AccessPoint>& access_points) const
+{
+  AccessPoint best_ap;
+  int votes = -1;
+
+  for (const AccessPoint& ap : access_points) {
+    int equals = std::count(access_points.begin(), access_points.end(), ap);
+    if (equals > votes) {
+      votes = equals;
+      best_ap = ap;
+    }
+  }
+  return best_ap;
+}
+
+bool GridGraph::findODBAccessPoints(
+    GRNet* net,
+    AccessPointSet& selected_access_points) const
+{
+  bool has_aps = false;
+  std::vector<odb::dbAccessPoint*> access_points;
+  odb::dbNet* db_net = net->getDbNet();
+
+  for (odb::dbBTerm* bterm : db_net->getBTerms()) {
+    for (const odb::dbBPin* bpin : bterm->getBPins()) {
+      const std::vector<odb::dbAccessPoint*>& bpin_pas
+          = bpin->getAccessPoints();
+      access_points.insert(
+          access_points.begin(), bpin_pas.begin(), bpin_pas.end());
+    }
+    std::vector<AccessPoint> aps_on_grid
+        = translateAccessPointsToGrid(access_points, odb::Point(0, 0));
+    if (!aps_on_grid.empty()) {
+      AccessPoint selected_ap = selectAccessPoint(aps_on_grid);
+      selected_access_points.emplace(selected_ap);
+      net->addBTermAccessPoint(bterm, selected_ap);
+      access_points.clear();
+      has_aps = true;
+    }
+  }
+
+  for (auto iterm : db_net->getITerms()) {
+    const auto& pref_access_points = iterm->getPrefAccessPoints();
+    if (!pref_access_points.empty()) {
+      access_points.insert(access_points.end(),
+                           pref_access_points.begin(),
+                           pref_access_points.end());
+    } else if (!iterm->getInst()->isCore()) {
+      // For non-core cells, DRT does not assign preferred APs.
+      // Use all APs to ensure the guides covering at least one AP.
+      for (const auto& [pin, aps] : iterm->getAccessPoints()) {
+        access_points.insert(access_points.end(), aps.begin(), aps.end());
+      }
+    }
+
+    int x, y;
+    iterm->getInst()->getLocation(x, y);
+    std::vector<AccessPoint> aps_on_grid
+        = translateAccessPointsToGrid(access_points, odb::Point(x, y));
+    AccessPoint selected_ap = selectAccessPoint(aps_on_grid);
+    if (!aps_on_grid.empty()) {
+      selected_access_points.emplace(selected_ap);
+      net->addITermAccessPoint(iterm, selected_ap);
+      access_points.clear();
+      has_aps = true;
+    }
+  }
+
+  return has_aps;
+}
+
+AccessPointSet GridGraph::selectAccessPoints(GRNet* net) const
 {
   AccessPointHash hasher(y_size_);
   AccessPointSet selected_access_points(0, hasher);
@@ -373,53 +482,63 @@ AccessPointSet GridGraph::selectAccessPoints(const GRNet* net) const
   selected_access_points.reserve(net->getNumPins());
   const auto& boundingBox = net->getBoundingBox();
   const PointT netCenter(boundingBox.cx(), boundingBox.cy());
-  for (const std::vector<GRPoint>& accessPoints : net->getPinAccessPoints()) {
-    std::pair<int, int> bestAccessDist = {0, std::numeric_limits<int>::max()};
-    int bestIndex = -1;
-    for (int index = 0; index < accessPoints.size(); index++) {
-      const GRPoint& point = accessPoints[index];
-      int accessibility = 0;
-      if (point.getLayerIdx() >= constants_.min_routing_layer) {
-        const int direction = getLayerDirection(point.getLayerIdx());
-        accessibility
-            += getEdge(point.getLayerIdx(), point.x(), point.y()).capacity >= 1;
-        if (point[direction] > 0) {
-          auto lower = point;
-          lower[direction] -= 1;
+  // Skips calculations if DRT already created APs in ODB
+  if (!findODBAccessPoints(net, selected_access_points)) {
+    int pin_idx = 0;
+    for (const std::vector<GRPoint>& accessPoints : net->getPinAccessPoints()) {
+      std::pair<int, int> bestAccessDist = {0, std::numeric_limits<int>::max()};
+      int bestIndex = -1;
+      for (int index = 0; index < accessPoints.size(); index++) {
+        const GRPoint& point = accessPoints[index];
+        int accessibility = 0;
+        if (point.getLayerIdx() >= constants_.min_routing_layer) {
+          const int direction = getLayerDirection(point.getLayerIdx());
           accessibility
-              += getEdge(lower.getLayerIdx(), lower.x(), lower.y()).capacity
+              += getEdge(point.getLayerIdx(), point.x(), point.y()).capacity
                  >= 1;
+          if (point[direction] > 0) {
+            auto lower = point;
+            lower[direction] -= 1;
+            accessibility
+                += getEdge(lower.getLayerIdx(), lower.x(), lower.y()).capacity
+                   >= 1;
+          }
+        } else {
+          accessibility = 1;
         }
-      } else {
-        accessibility = 1;
+        const int distance
+            = abs(netCenter.x() - point.x()) + abs(netCenter.y() - point.y());
+        if (accessibility > bestAccessDist.first
+            || (accessibility == bestAccessDist.first
+                && distance < bestAccessDist.second)) {
+          bestIndex = index;
+          bestAccessDist = {accessibility, distance};
+        }
       }
-      const int distance
-          = abs(netCenter.x() - point.x()) + abs(netCenter.y() - point.y());
-      if (accessibility > bestAccessDist.first
-          || (accessibility == bestAccessDist.first
-              && distance < bestAccessDist.second)) {
-        bestIndex = index;
-        bestAccessDist = {accessibility, distance};
+      if (bestAccessDist.first == 0) {
+        logger_->warn(utl::GRT, 274, "pin is hard to access.");
       }
-    }
-    if (bestAccessDist.first == 0) {
-      logger_->warn(utl::GRT, 274, "pin is hard to access.");
-    }
-    const PointT selectedPoint = accessPoints[bestIndex];
-    const AccessPoint ap{selectedPoint, {}};
-    auto it = selected_access_points.emplace(ap).first;
-    IntervalT& fixedLayerInterval = it->layers;
-    for (const auto& point : accessPoints) {
-      if (point.x() == selectedPoint.x() && point.y() == selectedPoint.y()) {
-        fixedLayerInterval.Update(point.getLayerIdx());
+
+      if (bestIndex == -1) {
+        logger_->error(utl::GRT,
+                       283,
+                       "No preferred access point found for pin on net {}.",
+                       net->getName());
       }
+
+      const PointT selectedPoint = accessPoints[bestIndex];
+      const AccessPoint ap{.point = selectedPoint, .layers = {}};
+      auto it = selected_access_points.emplace(ap).first;
+      IntervalT& fixedLayerInterval = it->layers;
+      for (const auto& point : accessPoints) {
+        if (point.x() == selectedPoint.x() && point.y() == selectedPoint.y()) {
+          fixedLayerInterval.Update(point.getLayerIdx());
+        }
+      }
+
+      net->addPreferredAccessPoint(pin_idx, *it);
+      pin_idx++;
     }
-  }
-  // Extend the fixed layers to 2 layers higher to facilitate track switching
-  for (auto& accessPoint : selected_access_points) {
-    IntervalT& fixedLayers = accessPoint.layers;
-    fixedLayers.SetHigh(
-        std::min(fixedLayers.high() + 2, (int) getNumLayers() - 1));
   }
   return selected_access_points;
 }

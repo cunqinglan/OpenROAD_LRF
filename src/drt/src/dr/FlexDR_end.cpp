@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/infra/frPoint.h"
 #include "db/infra/frSegStyle.h"
 #include "db/obj/frBTerm.h"
 #include "db/obj/frBlockObject.h"
@@ -26,7 +27,9 @@ void FlexDRWorker::endGetModNets(frOrderedIdSet<frNet*>& modNets)
 {
   for (auto& net : nets_) {
     if (net->isModified()) {
-      modNets.insert(net->getFrNet());
+      auto fr_net = net->getFrNet();
+      fr_net->setModified(true);
+      modNets.insert(fr_net);
     }
   }
   // change modified flag to true if another subnet get routed
@@ -278,7 +281,7 @@ void FlexDRWorker::endRemoveNets(
           endRemoveNets_pathSeg(design, cptr, boundPts[cptr->getNet()]);
         }
       } else {
-        std::cout << "Error: endRemoveNet hasNet() empty" << std::endl;
+        std::cout << "Error: endRemoveNet hasNet() empty\n";
       }
     } else if (rptr->typeId() == frcVia) {
       auto cptr = static_cast<frVia*>(rptr);
@@ -287,7 +290,7 @@ void FlexDRWorker::endRemoveNets(
           endRemoveNets_via(design, cptr);
         }
       } else {
-        std::cout << "Error: endRemoveNet hasNet() empty" << std::endl;
+        std::cout << "Error: endRemoveNet hasNet() empty\n";
       }
     } else if (rptr->typeId() == frcPatchWire) {
       auto cptr = static_cast<frPatchWire*>(rptr);
@@ -296,10 +299,10 @@ void FlexDRWorker::endRemoveNets(
           endRemoveNets_patchWire(design, cptr);
         }
       } else {
-        std::cout << "Error: endRemoveNet hasNet() empty" << std::endl;
+        std::cout << "Error: endRemoveNet hasNet() empty\n";
       }
     } else {
-      std::cout << "Error: endRemoveNets unsupported type" << std::endl;
+      std::cout << "Error: endRemoveNets unsupported type\n";
     }
   }
 }
@@ -608,7 +611,7 @@ void FlexDRWorker::endAddNets(
       } else if (connFig->typeId() == drcPatchWire) {
         endAddNets_patchWire(design, static_cast<drPatchWire*>(connFig.get()));
       } else {
-        std::cout << "Error: endAddNets unsupported type" << std::endl;
+        std::cout << "Error: endAddNets unsupported type\n";
       }
     }
     if (net->hasExtFigUpdates()) {

@@ -4,9 +4,12 @@
 #include "ram/ram.h"
 
 #include <array>
+#include <cmath>
 #include <functional>
 #include <limits>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "db_sta/dbNetwork.hh"
@@ -35,7 +38,9 @@ using std::vector;
 
 ////////////////////////////////////////////////////////////////
 
-RamGen::RamGen(sta::dbNetwork* network, odb::dbDatabase* db, Logger* logger)
+RamGen::RamGen(sta::dbNetwork* network,
+               odb::dbDatabase* db,
+               utl::Logger* logger)
     : network_(network), db_(db), logger_(logger)
 {
 }
@@ -109,7 +114,7 @@ std::unique_ptr<Cell> RamGen::makeCellBit(const std::string& prefix,
 }
 
 void RamGen::makeCellByte(Grid& ram_grid,
-                          const int byte_number,
+                          const int byte_idx,
                           const std::string& prefix,
                           const int read_ports,
                           dbNet* clock,
@@ -126,19 +131,22 @@ void RamGen::makeCellByte(Grid& ram_grid,
   auto gclock_net = makeNet(prefix, "gclock");
   auto we0_net = makeNet(prefix, "we0");
 
-  int first_byte = byte_number * 9;
-  for (int bit = first_byte; bit < first_byte + 8; ++bit) {
-    auto name = fmt::format("{}.bit{}", prefix, bit);
+  int bit_idx = byte_idx * 9;
+  for (int local_bit = 0; local_bit < 8; ++local_bit) {
+    const int global_bit_idx = bit_idx + local_bit;
+    auto name = fmt::format("{}.bit{}", prefix, global_bit_idx);
     vector<dbNet*> outs;
     outs.reserve(read_ports);
     for (int read_port = 0; read_port < read_ports; ++read_port) {
-      outs.push_back(data_output[read_port][bit]->getNet());
+      outs.push_back(data_output[read_port][local_bit]->getNet());
     }
-
-    ram_grid.addCell(
-        makeCellBit(
-            name, read_ports, gclock_net, select_b_nets, data_input[bit], outs),
-        bit);
+    ram_grid.addCell(makeCellBit(name,
+                                 read_ports,
+                                 gclock_net,
+                                 select_b_nets,
+                                 data_input[local_bit],
+                                 outs),
+                     global_bit_idx);
   }
 
   auto sel_cell = std::make_unique<Cell>();
@@ -167,7 +175,23 @@ void RamGen::makeCellByte(Grid& ram_grid,
                  {{"A", selects[i]}, {"Y", select_b_nets[i]}});
   }
 
-  ram_grid.addCell(std::move(sel_cell), (byte_number * 9) + 8);
+  ram_grid.addCell(std::move(sel_cell), (byte_idx * 9) + 8);
+}
+
+std::unique_ptr<Layout> RamGen::generateTapColumn(const int word_count,
+                                                  const int tapcell_col)
+{
+  auto tapcell_layout = std::make_unique<Layout>(odb::vertical);
+  for (int i = 0; i <= word_count; ++i) {
+    auto tapcell_cell = std::make_unique<Cell>();
+    makeCellInst(tapcell_cell.get(),
+                 "tapcell",
+                 fmt::format("cell{}_{}", tapcell_col, i),
+                 tapcell_,
+                 {});
+    tapcell_layout->addCell(std::move(tapcell_cell));
+  }
+  return tapcell_layout;
 }
 
 std::unique_ptr<Cell> RamGen::makeDecoder(
@@ -368,7 +392,9 @@ void RamGen::generate(const int bytes_per_word,
                       const int read_ports,
                       dbMaster* storage_cell,
                       dbMaster* tristate_cell,
-                      dbMaster* inv_cell)
+                      dbMaster* inv_cell,
+                      dbMaster* tapcell,
+                      int max_tap_dist)
 {
   const int bits_per_word = bytes_per_word * 8;
   const std::string ram_name
@@ -379,6 +405,7 @@ void RamGen::generate(const int bytes_per_word,
   storage_cell_ = storage_cell;
   tristate_cell_ = tristate_cell;
   inv_cell_ = inv_cell;
+  tapcell_ = tapcell;
   and2_cell_ = nullptr;
   clock_gate_cell_ = nullptr;
   buffer_cell_ = nullptr;
@@ -439,8 +466,32 @@ void RamGen::generate(const int bytes_per_word,
     }
   }
 
-  vector<dbNet*> decoder_output_nets;
+  // word decoder signals to have one deccoder per word, shared between all
+  // bytes of a word
+  vector<vector<dbNet*>> word_decoder_nets(word_count);
 
+  for (int row = 0; row < word_count; ++row) {
+    auto decoder_name = fmt::format("decoder_{}", row);
+
+    if (word_count == 2) {
+      dbNet* addr_net = (row == 0 ? inv_addr[0] : addr[0]->getNet());
+      for (int i = 0; i < read_ports; ++i) {
+        word_decoder_nets[row].push_back(addr_net);
+      }
+    } else {
+      word_decoder_nets[row] = selectNets(decoder_name, read_ports);
+
+      auto decoder_and_cell = makeDecoder(decoder_name,
+                                          word_count,
+                                          read_ports,
+                                          word_decoder_nets[row],
+                                          decoder_input_nets[row]);
+
+      ram_grid.addCell(std::move(decoder_and_cell), col_cell_count);
+    }
+  }
+
+  // create bytes within a word, shared decoder net for each word
   for (int col = 0; col < bytes_per_word; ++col) {
     array<dbBTerm*, 8> D_bTerms;  // array for b-term for external inputs
     array<dbNet*, 8> D_nets;      // net for buffers
@@ -472,13 +523,6 @@ void RamGen::generate(const int bytes_per_word,
 
     for (int row = 0; row < word_count; ++row) {
       auto cell_name = fmt::format("storage_{}_{}", row, col);
-      if (word_count == 2) {
-        decoder_output_nets.clear();
-        decoder_output_nets.push_back(row == 0 ? inv_addr[0]
-                                               : addr[0]->getNet());
-      } else {
-        decoder_output_nets = selectNets(cell_name, read_ports);
-      }
 
       makeCellByte(ram_grid,
                    col,
@@ -486,27 +530,19 @@ void RamGen::generate(const int bytes_per_word,
                    read_ports,
                    clock->getNet(),
                    write_enable[col]->getNet(),
-                   decoder_output_nets,
+                   word_decoder_nets[row],
                    D_nets,
                    Q);
-      auto decoder_name = fmt::format("decoder_{}_{}", row, col);
-      auto decoder_and_cell = makeDecoder(decoder_name,
-                                          word_count,
-                                          read_ports,
-                                          decoder_output_nets,
-                                          decoder_input_nets[row]);
-
-      ram_grid.addCell(std::move(decoder_and_cell), (bytes_per_word * 9));
     }
 
     for (int bit = 0; bit < 8; ++bit) {
-      auto buffer_cell = std::make_unique<Cell>();
-      makeCellInst(buffer_cell.get(),
+      auto buffer_grid_cell = std::make_unique<Cell>();
+      makeCellInst(buffer_grid_cell.get(),
                    "buffer",
-                   fmt::format("in[{}]", bit),
+                   fmt::format("in[{}]", bit + col * 8),
                    buffer_cell_,
                    {{"A", D_bTerms[bit]->getNet()}, {"X", D_nets[bit]}});
-      ram_grid.addCell(std::move(buffer_cell), bit);
+      ram_grid.addCell(std::move(buffer_grid_cell), col * 9 + bit);
     }
   }
 
@@ -514,26 +550,26 @@ void RamGen::generate(const int bytes_per_word,
   // check for AND gate, specific case for 2 words
   if (num_inputs > 1) {
     for (int i = num_inputs - 1; i >= 0; --i) {
-      auto inv_cell = std::make_unique<Cell>();
-      makeCellInst(inv_cell.get(),
+      auto inv_grid_cell = std::make_unique<Cell>();
+      makeCellInst(inv_grid_cell.get(),
                    "decoder",
                    fmt::format("inv_{}", i),
                    inv_cell_,
                    {{"A", addr[i]->getNet()}, {"Y", inv_addr[i]}});
-      cell_inv_layout->addCell(std::move(inv_cell));
+      cell_inv_layout->addCell(std::move(inv_grid_cell));
       for (int filler_count = 0; filler_count < num_inputs - 1;
            ++filler_count) {
         cell_inv_layout->addCell(nullptr);
       }
     }
   } else {
-    auto inv_cell = std::make_unique<Cell>();
-    makeCellInst(inv_cell.get(),
+    auto inv_grid_cell = std::make_unique<Cell>();
+    makeCellInst(inv_grid_cell.get(),
                  "decoder",
                  fmt::format("inv_{}", 0),
                  inv_cell_,
                  {{"A", addr[0]->getNet()}, {"Y", inv_addr[0]}});
-    cell_inv_layout->addCell(std::move(inv_cell));
+    cell_inv_layout->addCell(std::move(inv_grid_cell));
   }
 
   ram_grid.addLayout(std::move(cell_inv_layout));
@@ -541,6 +577,38 @@ void RamGen::generate(const int bytes_per_word,
   auto ram_origin(odb::Point(0, 0));
 
   ram_grid.setOrigin(ram_origin);
+  ram_grid.gridInit();
+
+  if (tapcell_) {
+    // max tap distance specified is greater than the length of ram
+    if (ram_grid.getRowWidth() <= max_tap_dist) {
+      auto tapcell_layout = generateTapColumn(word_count, 0);
+      ram_grid.insertLayout(std::move(tapcell_layout), 0);
+    } else {
+      // needed this calculation so first cells have right distance
+      int nearest_tap
+          = (max_tap_dist / ram_grid.getWidth()) * ram_grid.getLayoutWidth(0);
+      int tapcell_count = 0;
+      // iterates through each of the columns
+      for (int col = 0; col < ram_grid.numLayouts(); ++col) {
+        if (nearest_tap + ram_grid.getLayoutWidth(col) >= max_tap_dist) {
+          // if the nearest_tap is too far, generate tap column
+          auto tapcell_layout = generateTapColumn(word_count, tapcell_count);
+          ram_grid.insertLayout(std::move(tapcell_layout), col);
+          ++col;  // col adjustment after insertion
+          nearest_tap = 0;
+          ++tapcell_count;
+        }
+        nearest_tap += ram_grid.getLayoutWidth(col);
+      }
+      // check for last column in the grid
+      if (nearest_tap >= max_tap_dist) {
+        auto tapcell_layout = generateTapColumn(word_count, tapcell_count);
+        ram_grid.addLayout(std::move(tapcell_layout));
+      }
+    }
+  }
+
   ram_grid.gridInit();
 
   auto db_libs = db_->getLibs().begin();

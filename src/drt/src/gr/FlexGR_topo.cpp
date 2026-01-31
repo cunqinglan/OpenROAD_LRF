@@ -2,6 +2,7 @@
 // Copyright (c) 2019-2025, The OpenROAD Authors
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <cstdlib>
 #include <deque>
@@ -14,6 +15,7 @@
 #include <vector>
 
 #include "db/obj/frBlockObject.h"
+#include "db/obj/frNode.h"
 #include "frBaseTypes.h"
 #include "gr/FlexGR.h"
 #include "odb/geom.h"

@@ -4,14 +4,19 @@
 #pragma once
 
 #include <array>
+#include <memory>
 #include <string>
+#include <vector>
 
 #include "db_sta/dbSta.hh"
 #include "gtest/gtest.h"
 #include "odb/db.h"
 #include "odb/dbTypes.h"
 #include "odb/geom.h"
+#include "sta/Corner.hh"
+#include "sta/Liberty.hh"
 #include "sta/MinMax.hh"
+#include "tcl.h"
 #include "utl/Logger.h"
 #include "utl/deleter.h"
 
@@ -34,7 +39,7 @@ struct InstOptions
   odb::dbSourceType type{odb::dbSourceType::NONE};
   odb::Point location;
   odb::dbPlacementStatus status{odb::dbPlacementStatus::NONE};
-  std::vector<ITermInfo> iterms{};
+  std::vector<ITermInfo> iterms;
 };
 
 struct BTermOptions
@@ -48,7 +53,7 @@ struct BTermOptions
 
   odb::dbIoType io_type{odb::dbIoType::INPUT};
   odb::dbSigType sig_type{odb::dbSigType::SIGNAL};
-  std::vector<BPinInfo> bpins{};
+  std::vector<BPinInfo> bpins;
 };
 
 class Fixture : public ::testing::Test
