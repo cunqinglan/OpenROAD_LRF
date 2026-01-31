@@ -190,16 +190,16 @@ class EstimateParasitics : public sta::dbStaState
   //////////////////////////////////////////////////
   // API for LR ISTA
   //////////////////////////////////////////////////
-  void updateParasiticsNoDeleteNetwork(const Net* net);
+  void updateParasiticsNoDeleteNetwork(const sta::Net* net);
   void updateWireParasiticsNoDeleteNetwork();
-  void estimateWireParasiticNoDeleteNetwork(const Net* net);      
-  void estimateWireParasiticSteinerNoDeleteNetwork(const Pin* drvr_pin,
-                                                   const Net* net);
-  void checkIfParasiticsNetworkExists(const Net* net);
-  void estimateWireParasiticSteinerLrf(const Pin* drvr_pin,
-                                        const Net* net,
+  void estimateWireParasiticNoDeleteNetwork(const sta::Net* net);      
+  void estimateWireParasiticSteinerNoDeleteNetwork(const sta::Pin* drvr_pin,
+                                                   const sta::Net* net);
+  void checkIfParasiticsNetworkExists(const sta::Net* net);
+  void estimateWireParasiticSteinerLrf(const sta::Pin* drvr_pin,
+                                        const sta::Net* net,
                                         sta::ArcDelayCalc* external_arc_delay_calc,
-                                        Parasitic *&parasitic_network);
+                                        sta::Parasitic *&parasitic_network);
   /////////////////////////////////////////////////
   // End of APIs for LR ISTA
   /////////////////////////////////////////////////
