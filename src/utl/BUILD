@@ -34,6 +34,7 @@ cc_library(
         "src/mem_stats.cpp",
         "src/prometheus/metrics_server.cpp",
         "src/timer.cpp",
+        "src/unionFind.cpp",
     ],
     hdrs = [
         "include/utl/CFileUtils.h",
@@ -50,6 +51,7 @@ cc_library(
         "include/utl/exception.h",
         "include/utl/histogram.h",
         "include/utl/mem_stats.h",
+        "include/utl/options.h",
         "include/utl/prometheus/atomic_floating.h",
         "include/utl/prometheus/benchmark.h",
         "include/utl/prometheus/builder.h",
@@ -71,6 +73,7 @@ cc_library(
         "include/utl/prometheus/time_window_quantiles.h",
         "include/utl/scope.h",
         "include/utl/timer.h",
+        "include/utl/unionFind.h",
         "include/utl/unique_name.h",
         "include/utl/validation.h",
     ],

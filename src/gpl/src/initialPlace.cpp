@@ -4,6 +4,7 @@
 #include "initialPlace.h"
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -11,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-#include "gpl/AbstractGraphics.h"
+#include "AbstractGraphics.h"
 #include "odb/dbTypes.h"
 #include "placerBase.h"
 #include "solver.h"
@@ -21,19 +22,16 @@ namespace gpl {
 
 using T = Eigen::Triplet<float>;
 
-InitialPlaceVars::InitialPlaceVars()
+InitialPlaceVars::InitialPlaceVars(const PlaceOptions& options,
+                                   const bool debug)
+    : maxIter(options.initialPlaceMaxIter),
+      minDiffLength(options.initialPlaceMinDiffLength),
+      maxSolverIter(options.initialPlaceMaxSolverIter),
+      maxFanout(options.initialPlaceMaxFanout),
+      netWeightScale(options.initialPlaceNetWeightScale),
+      debug(debug),
+      forceCenter(options.forceCenterInitialPlace)
 {
-  reset();
-}
-
-void InitialPlaceVars::reset()
-{
-  maxIter = 20;
-  minDiffLength = 1500;
-  maxSolverIter = 100;
-  maxFanout = 200;
-  netWeightScale = 800.0;
-  debug = false;
 }
 
 InitialPlace::InitialPlace(InitialPlaceVars ipVars,
@@ -51,20 +49,24 @@ InitialPlace::InitialPlace(InitialPlaceVars ipVars,
 
 void InitialPlace::doBicgstabPlace(int threads)
 {
+  log_->info(utl::GPL, 5, "---- Execute Conjugate Gradient Initial Placement.");
   ResidualError error;
 
-  graphics_->setDebugOn(ipVars_.debug);
-  if (ipVars_.debug) {
+  if (graphics_) {
+    graphics_->setDebugOn(ipVars_.debug);
+  }
+  const bool graphics_enabled = graphics_ && graphics_->enabled();
+  if (graphics_enabled) {
     graphics_->debugForInitialPlace(pbc_, pbVec_);
   }
 
-  placeInstsCenter();
+  placeInstsInitialPositions();
 
   // set ExtId for idx reference // easy recovery
   setPlaceInstExtId();
 
-  if (graphics_ && graphics_->enabled()) {
-    graphics_->gifStart("initPlacement.gif");
+  if (graphics_enabled) {
+    gif_key_ = graphics_->gifStart("initPlacement.gif");
   }
 
   for (size_t iter = 1; iter <= ipVars_.maxIter; iter++) {
@@ -81,19 +83,19 @@ void InitialPlace::doBicgstabPlace(int threads)
                            log_,
                            threads);
 
-    if (graphics_ && graphics_->enabled()) {
+    if (graphics_enabled) {
       graphics_->cellPlot(true);
 
       odb::Rect region;
       odb::Rect bbox = pbc_->db()->getChip()->getBlock()->getBBox()->getBox();
       int max_dim = std::max(bbox.dx(), bbox.dy());
       double dbu_per_pixel = static_cast<double>(max_dim) / 1000.0;
-      graphics_->gifAddFrame(region, 500, dbu_per_pixel, 20);
+      graphics_->gifAddFrame(gif_key_, region, 500, dbu_per_pixel, 20);
     }
 
     if (std::isnan(error.x) || std::isnan(error.y)) {
       log_->warn(utl::GPL,
-                 154,
+                 325,
                  "Conjugate gradient initial placement solver failed at "
                  "iteration {}. ",
                  iter);
@@ -114,16 +116,18 @@ void InitialPlace::doBicgstabPlace(int threads)
     }
   }
 
-  if (graphics_ && graphics_->enabled()) {
-    graphics_->gifEnd();
+  if (graphics_enabled) {
+    graphics_->gifEnd(gif_key_);
+    graphics_->setDebugOn(false);
+    graphics_->cellPlot(false);
   }
 }
 
 // starting point of initial place is center.
-void InitialPlace::placeInstsCenter()
+void InitialPlace::placeInstsInitialPositions()
 {
-  const int center_x = pbc_->getDie().coreCx();
-  const int center_y = pbc_->getDie().coreCy();
+  const int core_center_x = pbc_->getDie().coreCx();
+  const int core_center_y = pbc_->getDie().coreCy();
 
   int count_region_center = 0;
   int count_db_location = 0;
@@ -154,27 +158,25 @@ void InitialPlace::placeInstsCenter()
       inst->setCenterLocation(region_x_max - (region_x_max - region_x_min) / 2,
                               region_y_max - (region_y_max - region_y_min) / 2);
       ++count_region_center;
-    } else if (pbc_->isSkipIoMode() && db_inst->isPlaced()) {
-      // It is helpful to pick up the placement from mpl if available,
-      // particularly when you are going to run skip_io.
+    } else if (!ipVars_.forceCenter && db_inst->isPlaced()) {
       const auto bbox = db_inst->getBBox()->getBox();
       inst->setCenterLocation(bbox.xCenter(), bbox.yCenter());
       ++count_db_location;
     } else {
-      inst->setCenterLocation(center_x, center_y);
+      inst->setCenterLocation(core_center_x, core_center_y);
       ++count_core_center;
     }
   }
 
-  debugPrint(log_,
-             utl::GPL,
-             "init",
-             1,
-             "[InitialPlace] origin position counters: region center = {}, db "
-             "location = {}, core center = {}",
-             count_region_center,
+  log_->info(utl::GPL,
+             51,
+             "Source of initial instance position counters:\n"
+             "\tOdb location = {}"
+             "\tCore center = {}"
+             "\tRegion center = {}",
              count_db_location,
-             count_core_center);
+             count_core_center,
+             count_region_center);
 }
 
 void InitialPlace::setPlaceInstExtId()

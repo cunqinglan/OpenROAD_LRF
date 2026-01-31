@@ -26,17 +26,8 @@
 namespace lrf {
 size_t ptPathIndex(PtVertex &pt_vertex, Path *path)
 {
-  // IMPORTANT CONTRACT:
-  // The index must match the TagGroup path order (0..pathCount-1).
-  // This is true iff `path` points inside `pt_vertex.paths()`.
-  // Guard against nullptr and mismatched storage to avoid UB.
   Path *paths = pt_vertex.paths();
-  if (paths == nullptr || path == nullptr)
-    return 0;
-  ptrdiff_t idx = path - paths;
-  if (idx < 0)
-    return 0;
-  return static_cast<size_t>(idx);
+  return path - paths;
 }
 
 LocalPathVisitor::LocalPathVisitor(StaState *state, PtGraph *pt_graph)
@@ -100,11 +91,6 @@ void
 LocalArrivalVisitor::findLocalArrivals()
 {
   for (VertexId vertex_id : pt_graph_->sortedVertexIds()) {
-    PtVertex &pt_vertex = pt_graph_->ptVertex(vertex_id);
-    sta::Vertex *v = pt_vertex.vertex();
-    
-    if (v == nullptr) continue;
-
     findVertexArrival(vertex_id);
   }
 }
@@ -120,13 +106,7 @@ void
 LocalArrivalVisitor::findVertexArrival(VertexId vertex_id)
 {
   PtVertex &pt_vertex = pt_graph_->ptVertex(vertex_id);
-  if (!pt_vertex.hasFanin() || (!pt_vertex.hasFanout()
-      && pt_vertex.type() != PtVertexType::RefOutput))
-    // When the vertex is not a refoutput, its arrival is
-    // not used in local slack calculation. Since the output
-    // slack is calculated by top/bottom req - arc_delay.
-    // But when the vertex is a refoutput, its arrival 
-    // is needed.
+  if (!pt_vertex.hasFanin())
     seedLocalRootArrivals(pt_vertex);
   else
     findVertexArrival(pt_vertex);
@@ -149,12 +129,6 @@ LocalArrivalVisitor::findVertexArrival(PtVertex &pt_vertex)
   Pin *pin = pt_vertex.pin();
   Vertex *vertex = pt_vertex.vertex();
 
-  // If error occurs, we don't rewrite the arrival.
-  bool arrival_changed = true;
-
-  // Debug for g42937/Y: track pathCount changes
-  bool is_debug_pin = (strcmp(network_->name(pin), "g42937/Y") == 0);
-  
   tag_bldr_->init(vertex);
   has_fanin_one_ = graph_->hasFaninOne(vertex);
   
@@ -164,29 +138,23 @@ LocalArrivalVisitor::findVertexArrival(PtVertex &pt_vertex)
     localVisitFaninPaths(pt_vertex);
   }
 
-  // Insert paths that originate here.
-  if (!network_->isTopLevelPort(pin)
-      && sdc_->hasInputDelay(pin)) {
-    // set_input_delay on internal pin.
-    search_->seedInputSegmentArrival(pin, vertex, tag_bldr_);
-  }
-
-  if (network_->isLatchData(pin)) {
+  // Warn if unsupported SDC constructs are used.
+  // We should support these in the future.
+  // if (!network_->isTopLevelPort(pin)
+  //     && sdc_->hasInputDelay(pin))
+  //   printf("WARNING: Local arrival analysis does not support input delays on pin %s\n",
+  //          network_->name(pin));
+  // if (sdc_->isPathDelayInternalFrom(pin))
+  //   printf("WARNING: Local arrival analysis does not support path delay breaks on pin %s\n",
+  //          network_->name(pin));
+  // if (sdc_->isLeafPinClock(pin))
+  //   printf("WARNING: Local arrival analysis does not support leaf pin clocks on pin %s\n",
+  //          network_->name(pin));
+  if (network_->isLatchData(pin))
     printf("WARNING: Local arrival analysis does not support latch data pins %s\n",
            network_->name(pin));
-    fflush(stdout);
-    arrival_changed = false;
-  }
-  if (sdc_->isPathDelayInternalFrom(pin)) {
-    // set_min/max_delay -from internal pin.
-    search_->makeUnclkedPaths(vertex, false, true, tag_bldr_);
-  }
-  if (sdc_->isLeafPinClock(pin)) {
-    // set_min/max_delay -to internal pin also a clock src. Bizzaroland.
-    // Re-seed the clock arrivals on top of the propagated paths.
-    search_->localSeedClkArrivals(pin, vertex, tag_bldr_);
-  }
-    
+  fflush(stdout);
+
   bool is_clk = tag_bldr_->hasClkTag();
   if (vertex->isRegClk() && !is_clk) {
     printf("WARNING: Local arrival analysis found reg clk vertex %s without clk tag\n",
@@ -195,18 +163,9 @@ LocalArrivalVisitor::findVertexArrival(PtVertex &pt_vertex)
     search_->makeUnclkedPaths(vertex, true, false, tag_bldr_);
   }
 
-  // Debug: Print tag_bldr contents before calling localSetVertexArrivals
-  const char *ref_cell_name = (pt_graph_->refGate()->name());
-  if (is_debug_pin) {
-    printf("\n[DEBUG] tag_bldr for %s: pathCount = %zu, ref_cell = %s\n", 
-           network_->name(pin), tag_bldr_->pathCount(), ref_cell_name);
-    fflush(stdout);
-  }
-
   // We don't do arrival change judgement, cause it will definitely
   // change in along with gate sizing.
-  if (arrival_changed)
-    localSetVertexArrivals(pt_vertex, tag_bldr_);
+  localSetVertexArrivals(pt_vertex, tag_bldr_);
 }
 
 void
@@ -252,8 +211,6 @@ bool
 LocalPathVisitor::localVisitEdge(PtVertex &from_pt_vertex, 
                         PtEdge &pt_edge, PtVertex &to_pt_vertex)
 {
-  if (from_pt_vertex.tagGroupIndex() == sta::tag_group_index_max)
-    return true; 
   TagGroup *from_tag_group = 
               search_->tagGroup(from_pt_vertex.tagGroupIndex());
   if (from_tag_group) {
@@ -261,14 +218,6 @@ LocalPathVisitor::localVisitEdge(PtVertex &from_pt_vertex,
     PtVertexPathIterator from_iter(from_pt_vertex, search_);
     while (from_iter.hasNext()) {
       Path *from_path = from_iter.next();
-      // Check if the path has a valid tag index before accessing it
-      TagIndex tag_idx = from_path->tagIndex(this);
-      if (tag_idx == sta::tag_group_index_max || tag_idx >= search_->tagCount()) {
-        printf("Warning: LocalPathVisitor::localVisitEdge: Skipping invalid path on vertex %s that may have been corrupted by copyPaths.\n",
-               network_->name(from_pt_vertex.pin()));
-        fflush(stdout);
-        continue;
-      }
       PathAnalysisPt *from_path_ap = from_path->pathAnalysisPt(this);
       const MinMax *min_max = from_path_ap->pathMinMax();
       const RiseFall *from_rf = from_path->transition(this);
@@ -281,6 +230,8 @@ LocalPathVisitor::localVisitEdge(PtVertex &from_pt_vertex,
                          arc2, to_pt_vertex, min_max, from_path_ap))
         return false;
     }
+  } else {
+    throw std::runtime_error("Local arrival analysis found from vertex without tag group");
   }
   return true;
 }
@@ -335,97 +286,34 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
 
   const TimingRole *role = edge->role();
   Tag *from_tag = from_path->tag(this);
-  const ClkInfo *from_clk_info = from_tag->clkInfo();
   Tag *to_tag = nullptr;
-  const ClockEdge *clk_edge = from_clk_info->clkEdge();
-  const Clock *clk = from_clk_info->clock();
   // This from arrival should load local arrival of to_path.
   Arrival from_arrival = from_path->arrival();
   ArcDelay arc_delay = 0.0;
   Arrival to_arrival;
-
-  if (from_clk_info->isGenClkSrcPath()) {
-    printf("Local arrival analysis supports gen clk src paths.\n");
-    if (!sdc_->clkStopPropagation(clk,from_pin,from_rf,to_pin,to_rf)
-	&& (variables_->clkThruTristateEnabled()
-	    || !(role == TimingRole::tristateEnable()
-		 || role == TimingRole::tristateDisable()))) {
-      const Clock *gclk = from_tag->genClkSrcPathClk(this);
-      if (gclk) {
-	Genclks *genclks = search_->genclks();
-	VertexSet *fanins = genclks->fanins(gclk);
-	// Note: encountering a latch d->q edge means find the
-	// latch feedback edges, but they are referenced for 
-	// other edges in the gen clk fanout.
-	EdgeSet *fdbk_edges = genclks->latchFdbkEdges(gclk);
-	if ((role == TimingRole::combinational()
-	     || role == TimingRole::wire()
-	     || !gclk->combinational())
-	    && fanins->hasKey(to_pt_vertex.vertex())
-	    && !(fdbk_edges && fdbk_edges->hasKey(edge))) {
-          arc_delay = search_->deratedDelay(from_pt_vertex.vertex(), arc, edge,
-                                            true, path_ap);
-          const PathAnalysisPt *path_ap_opp =
-            path_ap->corner()->findPathAnalysisPt(min_max->opposite());
-          Delay arc_delay_opp = search_->deratedDelay(from_pt_vertex.vertex(), arc, edge,
-                                                      true, path_ap_opp);
-          bool arc_delay_min_max_eq =
-            fuzzyEqual(delayAsFloat(arc_delay), delayAsFloat(arc_delay_opp));
-	  to_tag = search_->thruClkTag(from_path, from_pt_vertex.vertex(), from_tag, true,
-                                       edge, to_rf, arc_delay_min_max_eq,
-                                       min_max, path_ap);
-          to_arrival = from_arrival + arc_delay;
-	}
-      }
-    }
-  }
-  else if (role->genericRole() == TimingRole::regClkToQ()) {
+  
+  // if (from_clk_info->isGenClkSrcPath()) {
+  //   printf("ERROR: Local arrival analysis does not support gen clk src paths yet.\n");
+  //   fflush(stdout);
+  //   continue;
+  // }else 
+  if (role->genericRole() == TimingRole::regClkToQ()) {
     // reg clk to q
-    if (clk == nullptr
-	|| !sdc_->clkStopPropagation(from_pin, clk)) {
-    arc_delay = pt_graph_->arcDelay(pt_edge, arc, path_ap->dcalcAnalysisPt()->index());
+    printf("ERROR: Local arrival analysis does not support reg clk to q paths yet.\n");
+    fflush(stdout);
+    return true;
 
-      // Propagate from unclocked reg/latch clk pins, which have no
-      // clk but are distinguished with a segment_start flag.
-      if ((clk_edge == nullptr
-	   && from_tag->isSegmentStart())
-	  // Do not propagate paths from input ports with default
-	  // input arrival clk thru CLK->Q edges.
-	  || (clk != sdc_->defaultArrivalClock()
-	      // Only propagate paths from clocks that have not
-	      // passed thru reg/latch D->Q edges.
-	      && from_tag->isClock())) {
-  const RiseFall *clk_rf = clk_edge ? clk_edge->transition() : nullptr;
-	const ClkInfo *to_clk_info = from_clk_info;
-	if (from_clk_info->crprClkPath(this) == nullptr
-            || sta_->network()->direction(to_pin)->isInternal())
-	  to_clk_info = search_->clkInfoWithCrprClkPath(from_clk_info,
-                                                        from_path, path_ap);
-  to_tag = search_->fromRegClkTag(from_pin, from_rf, clk, clk_rf,
-                                        to_clk_info, to_pin, to_rf, min_max,
-                                        path_ap);
-  if (to_tag)
-    to_tag = search_->thruTag(to_tag, edge, to_rf, min_max, path_ap, tag_cache_);
-  from_arrival = search_->clkPathArrival(from_path, from_clk_info,
-                                               clk_edge, min_max, path_ap);
-	to_arrival = from_arrival + arc_delay;
-      }
-      else 
-  to_tag = nullptr;
-    }
-  } 
-  else if (edge->role() == TimingRole::latchDtoQ()) {
+  } else if (role == TimingRole::latchDtoQ()) {
+    // latch clk to q
     printf("ERROR: Local arrival analysis does not support latch clk to q paths yet.\n");
     fflush(stdout);
     return true;
   } else if (from_tag->isClock()) {
     // clk to ff/dl/comb
-    printf("Skipping clock to ff/dl/comb path in local arrival analysis.\n");
+    printf("ERROR: Local arrival analysis does not support clk to ff/dl/comb paths yet.\n");
     fflush(stdout);
     return true;
-  }
-    else {
-    // This is a data path (unclocked or after clock capture)
+  } else {
     if (!(sdc_->isPathDelayInternalFromBreak(to_pin)
           || sdc_->isPathDelayInternalToBreak(from_pin))) {
       to_tag = search_->thruTag(from_tag, edge, to_rf, min_max, path_ap, tag_cache_);
@@ -437,14 +325,6 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
       if (!delayInf(arc_delay)) {
         to_arrival = from_arrival + arc_delay;
       }
-      
-      // 调试：记录成功传播的 unclocked paths (已禁用以减少输出)
-      // if (is_unclocked && to_tag) {
-      //   printf("[PATH_PROPAGATE] %s path from %s to %s: tag=%s, delay=%.3f\n",
-      //          path_type, network_->name(from_pin), network_->name(to_pin),
-      //          to_tag->to_string(this).c_str(), delayAsFloat(arc_delay));
-      //   fflush(stdout);
-      // }
     }
   }
   if (to_tag) {
@@ -455,6 +335,8 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
                                       min_max, path_ap);
   }
   else {
+    printf("Error: Local arrival analysis found to vertex without tag\n");
+    fflush(stdout);
     return true;
   }
 }
@@ -476,43 +358,11 @@ LocalArrivalVisitor::localVisitFromToPath(
                     const MinMax *min_max,
                     const PathAnalysisPt *path_ap)
 {
-  // Debug arrival calculation for g37293/Y
-  const char *to_pin_name = network_->name(to_pt_vertex.pin());
-  bool is_debug_pin = (strcmp(to_pin_name, "g37293/Y") == 0);
-  
   Path *match;
   size_t path_index;
   tag_bldr_->tagMatchPath(to_tag, match, path_index);
-  
-  if (is_debug_pin) {
-    printf("[LOCAL_ARRIVAL] %s <- %s:\n", 
-           to_pin_name, network_->name(from_pt_vertex.pin()));
-    printf("  from_tag: %s\n", from_tag->to_string(this).c_str());
-    printf("  to_tag: %s\n", to_tag->to_string(this).c_str());
-    printf("  from_arrival: %.6f ps\n", delayAsFloat(from_arrival) * 1e12);
-    printf("  arc_delay: %.6f ps\n", delayAsFloat(arc_delay) * 1e12);
-    printf("  to_arrival: %.6f ps\n", delayAsFloat(to_arrival) * 1e12);
-    printf("  BEFORE setMatchPath: match=%p, path_index=%zu\n", match, path_index);
-    if (match) {
-      printf("  match->arrival: %.6f ps\n", delayAsFloat(match->arrival()) * 1e12);
-    }
-    printf("  will_update: %s\n", 
-           (match == nullptr || delayGreater(to_arrival, match->arrival(), min_max, this)) ? "YES" : "NO");
-    fflush(stdout);
-  }
-  
   if (match == nullptr || delayGreater(to_arrival, match->arrival(), min_max, this)) {
     tag_bldr_->setMatchPath(match, path_index, to_tag, to_arrival, from_path, pt_edge.edge(), arc);
-    
-    // Debug: print final path_index after setMatchPath
-    if (is_debug_pin) {
-      size_t final_index;
-      Path *final_match;
-      tag_bldr_->tagMatchPath(to_tag, final_match, final_index);
-      printf("  AFTER setMatchPath: final_path_index=%zu, tag_bldr pathCount=%zu\n", 
-             final_index, tag_bldr_->pathCount());
-      fflush(stdout);
-    }
   }
   return true;
 }
@@ -522,50 +372,27 @@ LocalArrivalVisitor::localSetVertexArrivals(PtVertex &pt_vertex, TagGroupBldr *t
 {
   if (tag_bldr->empty())
     return;
-  if (pt_vertex.tagGroupIndex() == sta::tag_group_index_max) {
-    return;
-  }
-  TagGroup *prev_tag_group = search_->tagGroup(pt_vertex.tagGroupIndex());
+  TagGroup *prev_tag_group = 
+              search_->tagGroup(pt_vertex.tagGroupIndex());
   Path *prev_paths = pt_vertex.paths();
   TagGroup *tag_group = search_->findExistingTagGroup(tag_bldr);
   if (tag_group == prev_tag_group) {
     // Even if tag_group is the same, we need to ensure prev_paths is not null
     if (prev_paths == nullptr) {
-      printf("LocalArrivalVisitor::localSetVertexArrivals: prev_paths == nullptr for %s.\n",
-             network_->name(pt_vertex.pin()));
-      fflush(stdout);
       size_t path_count = tag_bldr->pathCount();
       Path *paths = pt_graph_->makePaths(pt_vertex.objectIdx(), path_count);
-      // Since prev_paths is nullptr, we can't preserve required, just copy arrivals
-      // This should be rare - only happens on first arrival computation
       tag_bldr->copyPaths(tag_group, paths);
     } else {
-      // Normal case: preserve required while updating arrivals
-      tag_bldr->ptCopyPaths(prev_tag_group, prev_paths);
+      tag_bldr->copyPaths(tag_group, prev_paths);
     }
   } else {
-    printf("Warning: LocalArrivalVisitor::localSetVertexArrivals: TagGroup changed for %s (may lose requireds).\n",
-           network_->name(pt_vertex.pin()));
-
-    const char *pin_name = network_->name(pt_vertex.pin());
-    // 只为特定的 pin 输出详细信息
-    bool is_debug_pin = (strcmp(pin_name, "g42937/Y") == 0);
-    
-    if (is_debug_pin) {
-      printf("\n=== NEW TagGroup for %s ===\n", pin_name);
-      
-      if (prev_tag_group && tag_group) {
-        printf("Previous: index=%u, paths=%zu\n",
-                prev_tag_group->index(), prev_tag_group->pathCount());
-        printf("New: index=%u, paths=%zu\n",
-                tag_group->index(), tag_group->pathCount());
-      }
-      fflush(stdout);
+    if (prev_tag_group) {
+      pt_graph_->deletePaths(pt_vertex.objectIdx());
     }
-    
-    // Save required values before deleting old paths
-    
-    tag_bldr->ptCopyPaths(prev_tag_group, prev_paths);
+    size_t path_count = tag_bldr->pathCount();
+    Path *paths = pt_graph_->makePaths(pt_vertex.objectIdx(), path_count);
+    tag_bldr->copyPaths(tag_group, paths);
+    pt_vertex.setTagGroupIndex(tag_group->index());
   }
   // We don't consider filtered paths since we don't consider
   // false path in the local graph (we can prevent it from the
@@ -611,6 +438,9 @@ LocalRequiredCmp::requiredsInit(PtVertex &pt_vertex,
       const MinMax *min_max = path_ap->pathMinMax();
       requireds_[path_index] = delayInitValue(min_max->opposite());
     }
+  } else {
+    throw std::runtime_error("LocalRequiredCmp::requiredsInit: No tag group found");
+    return;
   }
   have_requireds_ = false;
 }
@@ -638,14 +468,13 @@ LocalRequiredCmp::requiredsSave(PtVertex &pt_vertex,
 			   const StaState *sta)
 {
   bool requireds_changed = false;
-  // If no required values were produced (no fanout propagation and no
-  // endpoint seeding), don't overwrite the requireds that were copied
-  // into the local graph during PtGraph::initPaths().
-  if (!have_requireds_)
-    return false;
   PtVertexPathIterator path_iter(pt_vertex, sta);
   while (path_iter.hasNext()) {
     Path *path = path_iter.next();
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    // This should be resivesed, since path index in local graph
+    // may be different from that in original graph.
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     size_t path_index = ptPathIndex(pt_vertex, path);
     Required req = requireds_[path_index];
     Required &prev_req = path->required();
@@ -681,10 +510,6 @@ void
 LocalRequiredVisitor::findVertexRequired(VertexId vertex_id)
 {
   PtVertex &pt_vertex = pt_graph_->ptVertex(vertex_id);
-  if (pt_vertex.vertex() == nullptr)
-    return;
-  if (pt_vertex.tagGroupIndex() == sta::tag_group_index_max)
-    return;
   if (!pt_vertex.hasFanout())
     seedLocalRootRequireds(pt_vertex);
   else
@@ -771,6 +596,12 @@ LocalRequiredVisitor::printRequireds()
       path_num++;
     }
   }
+}
+
+size_t
+PtVertexPathIterator::pathIndex() const
+{
+  return std::min(path_index_ - 1, size_t(0)); 
 }
 
 
