@@ -70,6 +70,9 @@ public:
   void setClockPeriod(float clock_period) { clock_period_ = clock_period; }
   void setParallelLibData(ParallelLibData *parallel_lib_data) { parallel_lib_data_ = parallel_lib_data; }
 
+  // Functions for runtime profiling
+  void printRuntimeProfile() const;
+
 protected:  
   // Function for testing purpose
   void recordGraphTimingFromPtGraphPara(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing, bool verbose = false);
@@ -101,6 +104,18 @@ protected:
   std::unordered_map<sta::Instance*, LocalCellInfo*> *inst_info_map_;
   ParallelLibData *parallel_lib_data_ = nullptr;
   float clock_period_ = 0.0;
+
+  std::map<std::string, double> runtime_map_ = {
+    {"visit", 0.0},
+    {"pt_graph_construction", 0.0},
+    {"equiv_cell_check", 0.0},
+    {"equiv_cell_count", 0.0},
+    {"swap", 0.0},
+    {"writeTimingToDb", 0.0},
+    {"applyDb", 0.0},
+    {"single_gate_sizing", 0.0},
+    {"buffer_insertion", 0.0}
+  };
 };
 
 

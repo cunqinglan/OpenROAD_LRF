@@ -10,6 +10,7 @@
 #include "sta/PathAnalysisPt.hh"
 #include "sta/Debug.hh"
 
+#include <vector>
 
 #include "PtGraph.hh"
 #include "LocalSta.hh"
@@ -109,7 +110,13 @@ void
 LocalArrivalVisitor::findVertexArrival(VertexId vertex_id)
 {
   PtVertex &pt_vertex = pt_graph_->ptVertex(vertex_id);
-  if (!pt_vertex.hasFanin())
+  if (!pt_vertex.hasFanin() || (!pt_vertex.hasFanout()
+      && pt_vertex.type() != PtVertexType::RefOutput))
+    // When the vertex is not a refoutput, its arrival is
+    // not used in local slack calculation. Since the output
+    // slack is calculated by top/bottom req - arc_delay.
+    // But when the vertex is a refoutput, its arrival 
+    // is needed.
     seedLocalRootArrivals(pt_vertex);
   else
     findVertexArrival(pt_vertex);
@@ -230,6 +237,14 @@ LocalPathVisitor::localVisitEdge(PtVertex &from_pt_vertex,
     PtVertexPathIterator from_iter(from_pt_vertex, search_);
     while (from_iter.hasNext()) {
       Path *from_path = from_iter.next();
+      // Check if the path has a valid tag index before accessing it
+      TagIndex tag_idx = from_path->tagIndex(this);
+      if (tag_idx == sta::tag_group_index_max || tag_idx >= search_->tagCount()) {
+        printf("Warning: LocalPathVisitor::localVisitEdge: Skipping invalid path on vertex %s that may have been corrupted by copyPaths.\n",
+               network_->name(from_pt_vertex.pin()));
+        fflush(stdout);
+        continue;
+      }
       PathAnalysisPt *from_path_ap = from_path->pathAnalysisPt(this);
       const MinMax *min_max = from_path_ap->pathMinMax();
       const RiseFall *from_rf = from_path->transition(this);
@@ -389,25 +404,55 @@ LocalArrivalVisitor::localSetVertexArrivals(PtVertex &pt_vertex, TagGroupBldr *t
   if (tag_group == prev_tag_group) {
     // Even if tag_group is the same, we need to ensure prev_paths is not null
     if (prev_paths == nullptr) {
-      printf("LocalArrivalVisitor::localSetVertexArrivals:prev_paths == nullptr for %s.\n",
+      printf("LocalArrivalVisitor::localSetVertexArrivals: prev_paths == nullptr for %s.\n",
              network_->name(pt_vertex.pin()));
       fflush(stdout);
       size_t path_count = tag_bldr->pathCount();
       Path *paths = pt_graph_->makePaths(pt_vertex.objectIdx(), path_count);
-      tag_bldr->ptCopyPaths(tag_group, paths);
+      // Since prev_paths is nullptr, we can't preserve required, just copy arrivals
+      // This should be rare - only happens on first arrival computation
+      tag_bldr->copyPaths(tag_group, paths);
     } else {
+      // Normal case: preserve required while updating arrivals
       tag_bldr->ptCopyPaths(tag_group, prev_paths);
     }
   } else {
-    printf("LocalArrivalVisitor::localSetVertexArrivals: new tag group for %s.\n",
+    printf("Warning: LocalArrivalVisitor::localSetVertexArrivals: new tag group for %s.\n",
            network_->name(pt_vertex.pin()));
     fflush(stdout);
+    
+    // Save required values before deleting old paths
+    std::vector<Required> saved_requireds;
+    if (prev_paths && prev_tag_group) {
+      size_t prev_path_count = prev_tag_group->pathCount();
+      saved_requireds.reserve(prev_path_count);
+      for (size_t i = 0; i < prev_path_count; i++) {
+        saved_requireds.push_back(prev_paths[i].required());
+      }
+    }
+    
     if (prev_tag_group) {
       pt_graph_->deletePaths(pt_vertex.objectIdx());
     }
+    
     size_t path_count = tag_bldr->pathCount();
     Path *paths = pt_graph_->makePaths(pt_vertex.objectIdx(), path_count);
-    tag_bldr->ptCopyPaths(tag_group, paths);
+    tag_bldr->copyPaths(tag_group, paths);
+    
+    // Restore required values by matching tags
+    if (!saved_requireds.empty() && prev_tag_group) {
+      for (size_t new_idx = 0; new_idx < path_count; new_idx++) {
+        Tag *new_tag = paths[new_idx].tag(this);
+        // Find this tag in the old tag group
+        size_t old_idx;
+        bool found;
+        prev_tag_group->pathIndex(new_tag, old_idx, found);
+        if (found && old_idx < saved_requireds.size()) {
+          paths[new_idx].setRequired(saved_requireds[old_idx]);
+        }
+      }
+    }
+    
     pt_vertex.setTagGroupIndex(tag_group->index());
   }
   // We don't consider filtered paths since we don't consider

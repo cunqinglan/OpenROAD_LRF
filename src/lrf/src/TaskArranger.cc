@@ -826,7 +826,13 @@ TaskArranger::visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *
   }
   finishTasks();
   
-  for (auto v : visitors_) delete v;
+  int cnt = 0;
+  for (auto v : visitors_) {
+    printf("Visitor %d runtime profile:\n", cnt);
+    v->printRuntimeProfile();
+    delete v;
+    cnt++;
+  }
   visitors_.clear();
 
   // Next time we visit, reuse the graph.
