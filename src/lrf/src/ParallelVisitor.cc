@@ -497,11 +497,8 @@ ParallelLrVisitor::visit(sta::Instance *inst,
       GraphTiming cell_type_timing;
       cell_type_timing.cell = equiv_cell;
       // Record timing after computing slack (to ensure full propagation)
-      printf("LocalSTA: recordGraphTimingFromPtGraph \n");
-      if (std::string(db_sta_->network()->pathName(inst)) == "g111231") {
-        recordGraphTimingFromPtGraph(db_sta_, pt_graph_, cell_type_timing, true);
-      } else
-        recordGraphTimingFromPtGraph(db_sta_, pt_graph_, cell_type_timing);
+
+      recordGraphTimingFromPtGraph(db_sta_, pt_graph_, cell_type_timing, true);
       timing_record.liberty_timing_map[std::string(equiv_cell->name())] = cell_type_timing;
 
       // Do local slack check
@@ -608,8 +605,10 @@ void
 ParallelLrVisitor::updateVertexInfo(sta::VertexId vertex_id)
 {
   PtVertex &pt_vertex = pt_graph_->ptVertex(vertex_id);
-  if (!pt_vertex.vertex() || (pt_vertex.type() != PtVertexType::RefInput)
-       && (pt_vertex.type() != PtVertexType::RefOutput)) {
+  if (!pt_vertex.vertex())
+    return;
+  if (pt_vertex.type() != PtVertexType::RefInput
+   && pt_vertex.type() != PtVertexType::RefOutput) {
     return;
   }
   sta::Vertex *sta_vertex = pt_vertex.vertex();

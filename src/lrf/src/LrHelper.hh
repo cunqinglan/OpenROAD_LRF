@@ -84,4 +84,11 @@ private:
   int non_critical_arc_k_ = 1;
 };
 
+class AdaptiveLrHelper : public LRHelper {
+public:
+  AdaptiveLrHelper(StaState *sta) : LRHelper(sta) {}
+  ~AdaptiveLrHelper() override = default;
+  virtual std::string strategyName() const override;
+};
+
 } // namespace lrf

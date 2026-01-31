@@ -507,6 +507,16 @@ LRHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta, DcalcAnalys
     // if (lms[lm_idx] > MAX_LM_VALUE) lms[lm_idx] = MAX_LM_VALUE;
     // if (lms[lm_idx] < MIN_LM_VALUE) lms[lm_idx] = MIN_LM_VALUE;
   }
+  if (lms[lm_idx] < 0.0) {
+    printf("LRHelper::updateEndPointArcLms: edge %s AP corner %s delay min/max %s: computed negative LM %.6f with aat %.6f, rat %.6f, delay %.6f\n",
+            edge->to_string(graph_).c_str(),
+            dcalc_ap->corner()->name(),
+            delay_minmax->to_string().c_str(),
+            lms[lm_idx],
+            from_aat * 1.0e12, to_rat * 1.0e12, delay * 1.0e12);
+    fflush(stdout);
+    lms[lm_idx] = 0.0;
+  }
 }
 
 void 
@@ -544,12 +554,12 @@ LRHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, DcalcAnalysisPt con
   LMValue origin = lms[lm_idx];
 
   if (from_aat <= 0.0 && to_aat <= 0.0) {
-    printf("LRHelper::updateArcLms: ERROR: edge %s AP corner %s, delay min/max %s: from_aat %f, to_aat %f\n",
-            edge->to_string(graph_).c_str(),
-            dcalc_ap->corner()->name(),
-            dcalc_ap->delayMinMax()->to_string().c_str(),
-            from_aat * 1.0e12, to_aat * 1.0e12);
-    fflush(stdout);
+    // printf("LRHelper::updateArcLms: ERROR: edge %s AP corner %s, delay min/max %s: from_aat %f, to_aat %f\n",
+    //         edge->to_string(graph_).c_str(),
+    //         dcalc_ap->corner()->name(),
+    //         dcalc_ap->delayMinMax()->to_string().c_str(),
+    //         from_aat * 1.0e12, to_aat * 1.0e12);
+    // fflush(stdout);
     lms[lm_idx] = 1e-20;
     return;
   } 
@@ -608,6 +618,9 @@ RapidLrHelper::getMultiplier(Slack arc_slack) {
     fflush(stdout);
     throw std::runtime_error("RapidLrHelper::updateArcLms: found zero clock period");
   }
+  if (arc_slack >= clock_period) {
+    return 0.0f;
+  }
   float scaling_factor = std::pow((clock_period - arc_slack) / clock_period, k);
   return scaling_factor;
 }
@@ -649,9 +662,28 @@ RapidLrHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta,
 
   // Here we use path_delay / clock_period as the scaling factor
   float multiplier = getMultiplier(arc_slack);
+  if (multiplier < 0.0) {
+    printf("RapidLrHelper::updateEndPointArcLms: ERROR: edge %s AP corner %s delay min/max %s: computed non-positive multiplier %.6f with aat %.6f, rat %.6f, delay %.6f\n",
+            edge->to_string(graph_).c_str(),
+            dcalc_ap->corner()->name(),
+            delay_minmax->to_string().c_str(),
+            multiplier,
+            from_aat * 1.0e12, to_rat * 1.0e12, delay * 1.0e12);
+    fflush(stdout);
+    throw std::runtime_error("RapidLrHelper::updateEndPointArcLms: computed non-positive multiplier");
+  }
 
   if (delay_minmax == MinMax::max()) {
+    LMValue original_lms = lms[lm_idx];
     lms[lm_idx] = lms[lm_idx] * multiplier;
+    // printf("RapidLrHelper::updateEndPointArcLms: edge %s AP corner %s delay min/max %s: original LM %.6f updated LM %.6f with aat %.6f, rat %.6f, delay %.6f, multiplier %.6f\n",
+    //         edge->to_string(graph_).c_str(),
+    //         dcalc_ap->corner()->name(),
+    //         delay_minmax->to_string().c_str(),
+    //         original_lms, lms[lm_idx],
+    //         from_aat * 1.0e12, to_rat * 1.0e12, delay * 1.0e12,
+    //         multiplier);
+    // fflush(stdout);
   } else {
     lms[lm_idx] = lms[lm_idx] * multiplier;
   }
@@ -662,7 +694,7 @@ RapidLrHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta,
             delay_minmax->to_string().c_str(),
             lms[lm_idx], lms[lm_idx],
             from_aat * 1.0e12, to_rat * 1.0e12, delay * 1.0e12);
-    fflush(stdout);
+    // fflush(stdout);
     lms[lm_idx] = 0.0;
   }
 }
@@ -704,7 +736,6 @@ RapidLrHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta,
 
   // Only consider the first clock now
   float multiplier = getMultiplier(arc_slack);
-
   if (delay_minmax == MinMax::max()) {
     lms[lm_idx] = lms[lm_idx] * multiplier;
   } else {
@@ -721,5 +752,13 @@ RapidLrHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta,
     lms[lm_idx] = 0.0;
   }
 }
+
+std::string
+AdaptiveLrHelper::strategyName() const
+{
+  return "Adaptive LRHelper:  on basis of base LRHelper, we adaptively control the step of LM update\n"; 
+}
+
+
 
 } // namespace lrf

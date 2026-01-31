@@ -828,9 +828,8 @@ TaskArranger::visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *
   
   int cnt = 0;
   for (auto v : visitors_) {
-    // printf("Visitor %d runtime profile:\n", cnt);
-    // v->printRuntimeProfile();
-    // v->printVisitedInstNames();
+    printf("Visitor %d runtime profile:\n", cnt);
+    v->printRuntimeProfile();
     delete v;
     cnt++;
   }
