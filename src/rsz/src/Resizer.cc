@@ -2172,16 +2172,16 @@ Resizer::makeSwappableCellsVec(LibertyCell *source_cell)
   return final_result;
 }
 
-LibertyCellSeq *Resizer::makeSwappableCells(LibertyCell* source_cell)
+sta::LibertyCellSeq *Resizer::makeSwappableCells(LibertyCell* source_cell)
 {
-  dbMaster* master = db_network_->staToDb(source_cell);
+  odb::dbMaster* master = db_network_->staToDb(source_cell);
   if (master == nullptr || !master->isCore()) {
     return nullptr;
   }
-  LibertyCellSeq* swappable_cells = new LibertyCellSeq();
-  LibertyCellSeq* equiv_cells = sta_->equivCells(source_cell);
+  sta::LibertyCellSeq* swappable_cells = new sta::LibertyCellSeq();
+  sta::LibertyCellSeq* equiv_cells = sta_->equivCells(source_cell);
   if (equiv_cells) {
-    for (LibertyCell* equiv_cell : *equiv_cells) {
+    for (sta::LibertyCell* equiv_cell : *equiv_cells) {
       if (dontUse(equiv_cell) || !isLinkCell(equiv_cell)) {
         continue;
       }
@@ -2189,7 +2189,7 @@ LibertyCellSeq *Resizer::makeSwappableCells(LibertyCell* source_cell)
       {
         continue;
       }
-      dbMaster* equiv_cell_master = db_network_->staToDb(equiv_cell);
+      odb::dbMaster* equiv_cell_master = db_network_->staToDb(equiv_cell);
       if (!equiv_cell_master) {
         continue;
       }

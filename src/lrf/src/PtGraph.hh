@@ -10,6 +10,7 @@
 #include "sta/TimingArc.hh"
 #include "sta/Map.hh"
 #include "lrf/LrfClass.hh"
+#include <stdexcept>
 
 namespace sta {
 class Sta;
