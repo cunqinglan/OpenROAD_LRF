@@ -1322,27 +1322,27 @@ EstimateParasitics::updateWireParasiticsNoDeleteNetwork()
 
     odb::dbSet<odb::dbNet> nets = block_->getNets();
     for (auto db_net : nets) {
-      Net *cur_net = db_network_->dbToSta(db_net);
+      sta::Net *cur_net = db_network_->dbToSta(db_net);
       estimateWireParasiticNoDeleteNetwork(cur_net);
     }
     parasitics_src_ = ParasiticsSrc::placement;
     parasitics_invalid_.clear();
 
     for (auto db_net : nets) {
-      Net *net = db_network_->dbToSta(db_net);
+      sta::Net *net = db_network_->dbToSta(db_net);
       checkIfParasiticsNetworkExists(net);
     }
   }
 }
 
 void 
-EstimateParasitics::estimateWireParasiticNoDeleteNetwork(const Net* net)
+EstimateParasitics::estimateWireParasiticNoDeleteNetwork(const sta::Net* net)
 {
-  PinSet *drivers = network_->drivers(net);
-  PinSet visited(network_);
+  sta::PinSet *drivers = network_->drivers(net);
+  sta::PinSet visited(network_);
   if (drivers && !drivers->empty()) {
-    PinSet::Iterator drvr_iter(drivers);
-    const Pin *drvr_pin = drvr_iter.next();
+    sta::PinSet::Iterator drvr_iter(drivers);
+    const sta::Pin *drvr_pin = drvr_iter.next();
     if (!network_->isPower(net) && !network_->isGround(net)
         && !sta_->isIdealClock(drvr_pin)
         && !db_network_->staToDb(net)->isSpecial()) {
@@ -1364,8 +1364,8 @@ EstimateParasitics::estimateWireParasiticNoDeleteNetwork(const Net* net)
 
 void
 EstimateParasitics::estimateWireParasiticSteinerNoDeleteNetwork(
-    const Pin* drvr_pin,
-    const Net* net)
+    const sta::Pin* drvr_pin,
+    const sta::Net* net)
 {
   SteinerTree* tree = makeSteinerTree(drvr_pin);
   if (tree) {
@@ -1375,11 +1375,11 @@ EstimateParasitics::estimateWireParasiticSteinerNoDeleteNetwork(
                1,
                "estimate wire {}",
                sdc_network_->pathName(net));
-    for (Corner* corner : *sta_->corners()) {
-      std::set<const Pin*> connected_pins;
+    for (sta::Corner* corner : *sta_->corners()) {
+      std::set<const sta::Pin*> connected_pins;
       const sta::ParasiticAnalysisPt* parasitics_ap
           = corner->findParasiticAnalysisPt(max_);
-      Parasitic* parasitic
+      sta::Parasitic* parasitic
           = sta_->makeParasiticNetwork(net, false, parasitics_ap);
       bool is_clk = global_router_->isNonLeafClock(db_network_->staToDb(net));
       double wire_cap = 0.0;
@@ -1414,9 +1414,9 @@ EstimateParasitics::estimateWireParasiticSteinerNoDeleteNetwork(
           wire_res = is_clk ? wireClkResistance(corner)
                             : wireSignalResistance(corner);
         }
-        ParasiticNode* n1 = parasitics_->ensureParasiticNode(
+        sta::ParasiticNode* n1 = parasitics_->ensureParasiticNode(
             parasitic, net, steiner_pt1, network_);
-        ParasiticNode* n2 = parasitics_->ensureParasiticNode(
+        sta::ParasiticNode* n2 = parasitics_->ensureParasiticNode(
             parasitic, net, steiner_pt2, network_);
         if (wire_length_dbu == 0) {
           // Use a small resistor to keep the connectivity intact.
@@ -1479,8 +1479,8 @@ EstimateParasitics::estimateWireParasiticSteinerNoDeleteNetwork(
 
 void
 EstimateParasitics::estimateWireParasiticSteinerLrf(
-    const Pin* drvr_pin,
-    const Net* net,
+    const sta::Pin* drvr_pin,
+    const sta::Net* net,
     sta::ArcDelayCalc* external_arc_delay_calc,
     // Return value.
     sta::Parasitic *&out_parasitic_network)
@@ -1493,8 +1493,8 @@ EstimateParasitics::estimateWireParasiticSteinerLrf(
                1,
                "estimate wire {}",
                sdc_network_->pathName(net));
-    for (Corner* corner : *sta_->corners()) {
-      std::set<const Pin*> connected_pins;
+    for (sta::Corner* corner : *sta_->corners()) {
+      std::set<const sta::Pin*> connected_pins;
       // sta::Parasitic* parasitic_network = 
       //       parasitics_->newParasiticNetwork(net,
       //                                        false);
@@ -1534,9 +1534,9 @@ EstimateParasitics::estimateWireParasiticSteinerLrf(
           wire_res = is_clk ? wireClkResistance(corner)
                             : wireSignalResistance(corner);
         }
-        ParasiticNode* n1 = parasitics_->ensureParasiticNode(
+        sta::ParasiticNode* n1 = parasitics_->ensureParasiticNode(
             parasitic_network, net, steiner_pt1, network_);
-        ParasiticNode* n2 = parasitics_->ensureParasiticNode(
+        sta::ParasiticNode* n2 = parasitics_->ensureParasiticNode(
             parasitic_network, net, steiner_pt2, network_);
         if (wire_length_dbu == 0) {
           // Use a small resistor to keep the connectivity intact.
@@ -1598,19 +1598,19 @@ EstimateParasitics::estimateWireParasiticSteinerLrf(
 }
 
 void 
-EstimateParasitics::checkIfParasiticsNetworkExists(const Net* net)
+EstimateParasitics::checkIfParasiticsNetworkExists(const sta::Net* net)
 {
-  PinSet *drivers = network_->drivers(net);
+  sta::PinSet *drivers = network_->drivers(net);
   if (drivers && !drivers->empty()) {
-    PinSet::Iterator drvr_iter(drivers);
-    const Pin *drvr_pin = drvr_iter.next();
+    sta::PinSet::Iterator drvr_iter(drivers);
+    const sta::Pin *drvr_pin = drvr_iter.next();
     if (!network_->isPower(net) && !network_->isGround(net)
         && !sta_->isIdealClock(drvr_pin)
         && !db_network_->staToDb(net)->isSpecial()) {
-      for (Corner* corner : *sta_->corners()) {
+      for (sta::Corner* corner : *sta_->corners()) {
         const sta::ParasiticAnalysisPt* parasitics_ap
             = corner->findParasiticAnalysisPt(max_);
-        Parasitic* parasitic
+        sta::Parasitic* parasitic
             = parasitics_->findParasiticNetwork(net, parasitics_ap);
         if (parasitic == nullptr) {
           const char *except_name = "UNCONNECTED";

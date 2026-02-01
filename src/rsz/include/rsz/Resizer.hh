@@ -526,12 +526,12 @@ class Resizer : public sta::dbStaState, public sta::dbNetworkObserver
                            std::map<const sta::Pin*, float>& load_pin_slew);
 
   void resizePreamble();
-  LibertyCellSeq getSwappableCells(LibertyCell* source_cell);
-  bool isLegalCellCandidate(LibertyCell* equiv_cell, LibertyCell* source_cell);
-  LibertyCellSeq *makeSwappableCells(LibertyCell* source_cell);
+  sta::LibertyCellSeq getSwappableCells(sta::LibertyCell* source_cell);
+  bool isLegalCellCandidate(sta::LibertyCell* equiv_cell, sta::LibertyCell* source_cell);
+  sta::LibertyCellSeq *makeSwappableCells(sta::LibertyCell* source_cell);
   std::vector<sta::LibertyCellSeq> 
-  makeSwappableCellsVec(LibertyCell* source_cell);
-  LibertyCellSeq getVTEquivCells(LibertyCell* source_cell);
+  makeSwappableCellsVec(sta::LibertyCell* source_cell);
+  sta::LibertyCellSeq getVTEquivCells(sta::LibertyCell* source_cell);
 
  protected:
   void init();
@@ -594,10 +594,6 @@ class Resizer : public sta::dbStaState, public sta::dbNetworkObserver
                              sta::Slew slews[],
                              int counts[]);
   bool hasMultipleOutputs(const sta::Instance* inst);
-
-  void resizePreamble();
-  sta::LibertyCellSeq getSwappableCells(sta::LibertyCell* source_cell);
-  sta::LibertyCellSeq getVTEquivCells(sta::LibertyCell* source_cell);
 
   bool getCin(const sta::LibertyCell* cell, float& cin);
   // Resize drvr_pin instance to target slew.
