@@ -16,6 +16,7 @@
 
 #include <vector>
 #include <set>
+#include <stdexcept>
 
 #include "PtGraph.hh"
 #include "LocalSta.hh"
@@ -120,8 +121,7 @@ void
 LocalArrivalVisitor::findVertexArrival(VertexId vertex_id)
 {
   PtVertex &pt_vertex = pt_graph_->ptVertex(vertex_id);
-  if (!pt_vertex.hasFanin() || (!pt_vertex.hasFanout()
-      && pt_vertex.type() != PtVertexType::RefOutput))
+  if (!pt_vertex.hasFanin())
     // When the vertex is not a refoutput, its arrival is
     // not used in local slack calculation. Since the output
     // slack is calculated by top/bottom req - arc_delay.
@@ -197,11 +197,11 @@ LocalArrivalVisitor::findVertexArrival(PtVertex &pt_vertex)
 
   // Debug: Print tag_bldr contents before calling localSetVertexArrivals
   const char *ref_cell_name = (pt_graph_->refGate()->name());
-  if (is_debug_pin) {
-    printf("\n[DEBUG] tag_bldr for %s: pathCount = %zu, ref_cell = %s\n", 
-           network_->name(pin), tag_bldr_->pathCount(), ref_cell_name);
-    fflush(stdout);
-  }
+  // if (is_debug_pin) {
+  //   printf("\n[DEBUG] tag_bldr for %s: pathCount = %zu, ref_cell = %s\n", 
+  //          network_->name(pin), tag_bldr_->pathCount(), ref_cell_name);
+  //   fflush(stdout);
+  // }
 
   // We don't do arrival change judgement, cause it will definitely
   // change in along with gate sizing.
@@ -484,35 +484,35 @@ LocalArrivalVisitor::localVisitFromToPath(
   size_t path_index;
   tag_bldr_->tagMatchPath(to_tag, match, path_index);
   
-  if (is_debug_pin) {
-    printf("[LOCAL_ARRIVAL] %s <- %s:\n", 
-           to_pin_name, network_->name(from_pt_vertex.pin()));
-    printf("  from_tag: %s\n", from_tag->to_string(this).c_str());
-    printf("  to_tag: %s\n", to_tag->to_string(this).c_str());
-    printf("  from_arrival: %.6f ps\n", delayAsFloat(from_arrival) * 1e12);
-    printf("  arc_delay: %.6f ps\n", delayAsFloat(arc_delay) * 1e12);
-    printf("  to_arrival: %.6f ps\n", delayAsFloat(to_arrival) * 1e12);
-    printf("  BEFORE setMatchPath: match=%p, path_index=%zu\n", match, path_index);
-    if (match) {
-      printf("  match->arrival: %.6f ps\n", delayAsFloat(match->arrival()) * 1e12);
-    }
-    printf("  will_update: %s\n", 
-           (match == nullptr || delayGreater(to_arrival, match->arrival(), min_max, this)) ? "YES" : "NO");
-    fflush(stdout);
-  }
+  // if (is_debug_pin) {
+  //   printf("[LOCAL_ARRIVAL] %s <- %s:\n", 
+  //          to_pin_name, network_->name(from_pt_vertex.pin()));
+  //   printf("  from_tag: %s\n", from_tag->to_string(this).c_str());
+  //   printf("  to_tag: %s\n", to_tag->to_string(this).c_str());
+  //   printf("  from_arrival: %.6f ps\n", delayAsFloat(from_arrival) * 1e12);
+  //   printf("  arc_delay: %.6f ps\n", delayAsFloat(arc_delay) * 1e12);
+  //   printf("  to_arrival: %.6f ps\n", delayAsFloat(to_arrival) * 1e12);
+  //   printf("  BEFORE setMatchPath: match=%p, path_index=%zu\n", match, path_index);
+  //   if (match) {
+  //     printf("  match->arrival: %.6f ps\n", delayAsFloat(match->arrival()) * 1e12);
+  //   }
+  //   printf("  will_update: %s\n", 
+  //          (match == nullptr || delayGreater(to_arrival, match->arrival(), min_max, this)) ? "YES" : "NO");
+  //   fflush(stdout);
+  // }
   
   if (match == nullptr || delayGreater(to_arrival, match->arrival(), min_max, this)) {
     tag_bldr_->setMatchPath(match, path_index, to_tag, to_arrival, from_path, pt_edge.edge(), arc);
     
     // Debug: print final path_index after setMatchPath
-    if (is_debug_pin) {
-      size_t final_index;
-      Path *final_match;
-      tag_bldr_->tagMatchPath(to_tag, final_match, final_index);
-      printf("  AFTER setMatchPath: final_path_index=%zu, tag_bldr pathCount=%zu\n", 
-             final_index, tag_bldr_->pathCount());
-      fflush(stdout);
-    }
+    // if (is_debug_pin) {
+    //   size_t final_index;
+    //   Path *final_match;
+    //   tag_bldr_->tagMatchPath(to_tag, final_match, final_index);
+    //   printf("  AFTER setMatchPath: final_path_index=%zu, tag_bldr pathCount=%zu\n", 
+    //          final_index, tag_bldr_->pathCount());
+    //   fflush(stdout);
+    // }
   }
   return true;
 }
@@ -544,24 +544,24 @@ LocalArrivalVisitor::localSetVertexArrivals(PtVertex &pt_vertex, TagGroupBldr *t
       tag_bldr->ptCopyPaths(prev_tag_group, prev_paths);
     }
   } else {
-    printf("Warning: LocalArrivalVisitor::localSetVertexArrivals: TagGroup changed for %s (may lose requireds).\n",
-           network_->name(pt_vertex.pin()));
+    // printf("Warning: LocalArrivalVisitor::localSetVertexArrivals: TagGroup changed for %s (may lose requireds).\n",
+    //        network_->name(pt_vertex.pin()));
 
     const char *pin_name = network_->name(pt_vertex.pin());
     // 只为特定的 pin 输出详细信息
     bool is_debug_pin = (strcmp(pin_name, "g42937/Y") == 0);
     
-    if (is_debug_pin) {
-      printf("\n=== NEW TagGroup for %s ===\n", pin_name);
+    // if (is_debug_pin) {
+    //   printf("\n=== NEW TagGroup for %s ===\n", pin_name);
       
-      if (prev_tag_group && tag_group) {
-        printf("Previous: index=%u, paths=%zu\n",
-                prev_tag_group->index(), prev_tag_group->pathCount());
-        printf("New: index=%u, paths=%zu\n",
-                tag_group->index(), tag_group->pathCount());
-      }
-      fflush(stdout);
-    }
+    //   if (prev_tag_group && tag_group) {
+    //     printf("Previous: index=%u, paths=%zu\n",
+    //             prev_tag_group->index(), prev_tag_group->pathCount());
+    //     printf("New: index=%u, paths=%zu\n",
+    //             tag_group->index(), tag_group->pathCount());
+    //   }
+    //   fflush(stdout);
+    // }
     
     // Save required values before deleting old paths
     

@@ -759,6 +759,16 @@ AdaptiveLrHelper::strategyName() const
   return "Adaptive LRHelper:  on basis of base LRHelper, we adaptively control the step of LM update\n"; 
 }
 
+void
+AdaptiveLrHelper::updateArcLms(sta::Edge *edge, sta::TimingArc *arc, Sta *sta, sta::DcalcAnalysisPt const *dcalc_ap)
+{
+}
+
+float
+AdaptiveLrHelper::getMultiplier(Slack arc_slack)
+{
+  return 1.0f;
+}
 
 
 } // namespace lrf

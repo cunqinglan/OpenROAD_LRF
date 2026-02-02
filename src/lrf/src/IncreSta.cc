@@ -139,51 +139,51 @@ IncreSta::delayLmSum(Instance *inst, const MinMax *minmax, float &delay_lambda_s
   delay_lambda_sum = local_sta_->delayLmSum(inst, minmax);
 }
 
-void 
-IncreSta::lmUpdate()
-{
-  printf("DEBUG: IncreSta::lmUpdate start\n");
-  fflush(stdout);
-  init();
-  printf("DEBUG: IncreSta::lmUpdate calling updateAllEdgeLms\n");
-  fflush(stdout);
-  lr_helper_->updateAllEdgeLms(sta_);
-  printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (projected_)\n");
-  fflush(stdout);
-  lr_helper_->KKTProjection(sta_);
-  printf("DEBUG: IncreSta::lmUpdate end\n");
-  fflush(stdout);
-}
-
 // void 
 // IncreSta::lmUpdate()
 // {
 //   printf("DEBUG: IncreSta::lmUpdate start\n");
 //   fflush(stdout);
 //   init();
-//   printf("DEBUG: IncreSta::lmUpdate init done\n");
+//   printf("DEBUG: IncreSta::lmUpdate calling updateAllEdgeLms\n");
 //   fflush(stdout);
-//   if (projected_) {
-//     printf("DEBUG: IncreSta::lmUpdate calling updateAllEdgeLms\n");
-//     fflush(stdout);
-//     lr_helper_->updateAllEdgeLms(sta_);
-//     printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (projected_)\n");
-//     fflush(stdout);
-//     lr_helper_->KKTProjection(sta_);
-//   } else {
-//     printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (else)\n");
-//     fflush(stdout);
-//     bool kkt_satisfied = lr_helper_->KKTProjection(sta_);
-//     if (kkt_satisfied)
-//       projected_ = true;
-//     else {
-//       printf("KKT not satisfied, should be checked\n");
-//       fflush(stdout);
-//     }
-//   }
+//   lr_helper_->updateAllEdgeLms(sta_);
+//   printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (projected_)\n");
+//   fflush(stdout);
+//   lr_helper_->KKTProjection(sta_);
 //   printf("DEBUG: IncreSta::lmUpdate end\n");
 //   fflush(stdout);
 // }
+
+void 
+IncreSta::lmUpdate()
+{
+  printf("DEBUG: IncreSta::lmUpdate start\n");
+  fflush(stdout);
+  init();
+  printf("DEBUG: IncreSta::lmUpdate init done\n");
+  fflush(stdout);
+  if (projected_) {
+    printf("DEBUG: IncreSta::lmUpdate calling updateAllEdgeLms\n");
+    fflush(stdout);
+    lr_helper_->updateAllEdgeLms(sta_);
+    printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (projected_)\n");
+    fflush(stdout);
+    lr_helper_->KKTProjection(sta_);
+  } else {
+    printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (else)\n");
+    fflush(stdout);
+    bool kkt_satisfied = lr_helper_->KKTProjection(sta_);
+    if (kkt_satisfied)
+      projected_ = true;
+    else {
+      printf("KKT not satisfied, should be checked\n");
+      fflush(stdout);
+    }
+  }
+  printf("DEBUG: IncreSta::lmUpdate end\n");
+  fflush(stdout);
+}
 
 bool
 IncreSta::checkCapViolated(Pin *pin, const Corner *corner, const MinMax *min_max)
