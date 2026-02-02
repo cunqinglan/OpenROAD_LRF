@@ -553,7 +553,7 @@ float Timing::leakagePower(odb::dbInst* inst, odb::dbMaster* master, sta::Corner
 //   sta->lmUpdate();
 // }
 
-
+/*
 // Test functions of Seqremapper
 void Timing::testSeqRemapper()
 {
@@ -573,7 +573,7 @@ void Timing::testSeqRemapper()
   remapper.runOpt();
 
 }
-
+*/
 
 
 

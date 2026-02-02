@@ -6,10 +6,8 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdio>
-#include <limits>
 #include <vector>
 
-#include "Strategy.hh"
 #include "aig/gia/gia.h"
 #include "aig/gia/giaAig.h"
 #include "base/abc/abc.h"
@@ -39,8 +37,17 @@
 #include "dpl/Opendp.h"
 
 #include "rmp/SeqRemapper.hh"
+#include "Strategy.hh"
 
 namespace abc {
+extern Abc_Ntk_t * Abc_NtkTimingRewrite( Abc_Ntk_t * pNtk, 
+                        Mio_Library_t* userLib, double DelayTarget, 
+                        double AreaMulti, double DelayMulti, 
+                        float LogFan, float Slew, float Gain, 
+                        int nGatesMin, int fRecovery, 
+                        int fSwitching, int fSkipFanout, 
+                        int fUseProfile, int fUseBuffs, 
+                        int fVerbose );
 extern Abc_Ntk_t* Abc_NtkFromAigPhase(Aig_Man_t* pMan);
 extern Abc_Ntk_t* Abc_NtkFromCellMappedGia(Gia_Man_t* p, int fUseBuffs);
 extern Abc_Ntk_t* Abc_NtkFromDarChoices(Abc_Ntk_t* pNtkOld, Aig_Man_t* pMan);
@@ -115,7 +122,7 @@ void
 MappingResult::show(utl::Logger* logger)
 {
   // Use existing RMP tool category instead of undefined RES.
-  logger->info(utl::RES, 305, "Mapping Result: WNS = {:.3f}, TNS = {:.3f}, Area = {:.3f}, Power = {:.3f}",
+  logger->info(utl::RMP, 12, "Mapping Result: WNS = {:.3f}, TNS = {:.3f}, Area = {:.3f}, Power = {:.3f}",
                wns * 1e12, tns * 1e12, area, power);
 }
 
@@ -136,7 +143,7 @@ SeqRemapper::SeqRemapper(sta::dbSta* sta, odb::dbDatabase* db,
   buildAbcLibrary(); 
   block_ = db_->getChip()->getBlock();
   if (est_ == nullptr) {
-    logger_->error(utl::RES, 311, "EstimateParasitics is null in SeqRemapper");
+    logger_->error(utl::RMP, 311, "EstimateParasitics is null in SeqRemapper");
   }
   checkTracksAndRows();
 }
@@ -168,54 +175,46 @@ SeqRemapper::buildAbcLibrary()
 }
 
 cut::LogicCut
-SeqRemapper::extractBottleneck(Strategy *strategy)
+SeqRemapper::extractBottleneck(Strategy &strategy)
 {
-  // Assume 
-  //sta::dbNetwork* network = sta_->getDbNetwork();
-  //sta::Instance* ref_gate = network->findInstance("g218487");  // 示例实例名，可替换为实际需要的名称
-  //if (ref_gate == nullptr) {
-    //logger_->error(
-        //utl::RES, 318, "Reference gate 'ref_gate' not found in the design.");
-  //}
-  //strategy->setRefGate(ref_gate);
-  return strategy->extractBottleneck(*this);
+  sta_->ensureGraph();
+  sta_->ensureLevelized();
+
+  return strategy.extractBottleneck(*this);
 }
 
 utl::UniquePtrWithDeleter<abc::Abc_Ntk_t>
-SeqRemapper::cutToAig(cut::LogicCut& logic_cut)
+SeqRemapper::netlistToAig(cut::LogicCut& logic_cut)
 {
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> mapped_abc_ntk =
       logic_cut.BuildMappedAbcNetwork(*abc_library_, sta_->getDbNetwork(), logger_);
+  utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> aig_abc_ntk(
+      abc::Abc_NtkToLogic(const_cast<abc::Abc_Ntk_t*>(mapped_abc_ntk.get())),
+      abc::Abc_NtkDelete);
 
   // Get the library before converting (it's stored in mapped_abc_ntk->pManFunc)
   auto library
-        = static_cast<abc::Mio_Library_t*>(mapped_abc_ntk->pManFunc);
-  // Install library for NtkMap (needed for unmap and later remap)
+      = static_cast<abc::Mio_Library_t*>(mapped_abc_ntk->pManFunc);
+
+  // Install library for NtkMap
   abc::Abc_FrameSetLibGen(library);
 
-  // Convert to Logic network - this preserves ABC_FUNC_MAP
-  utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> aig_abc_ntk = WrapUnique(
-      abc::Abc_NtkToLogic(const_cast<abc::Abc_Ntk_t*>(mapped_abc_ntk.get())));
+  debugPrint(logger_,
+              utl::RMP,
+              "annealing",
+              91,
+              "Mapped ABC network has {} nodes and {} POs.",
+              abc::Abc_NtkNodeNum(mapped_abc_ntk.get()),
+              abc::Abc_NtkPoNum(mapped_abc_ntk.get()));
 
-  // Unmap the network: convert from ABC_FUNC_MAP to ABC_FUNC_SOP
-  // This is necessary because Abc_NtkStrash expects SOP/BDD/AIG, not MAP
-  if (abc::Abc_NtkHasMapping(aig_abc_ntk.get())) {
-    printf("DEBUG: Before unmap - ntkFunc=%d (MAP=%d, SOP=%d)\n", 
-           aig_abc_ntk->ntkFunc, abc::ABC_FUNC_MAP, abc::ABC_FUNC_SOP);
-    printf("DEBUG: pManFunc=%p, FrameLibGen=%p\n", 
-           aig_abc_ntk->pManFunc, abc::Abc_FrameReadLibGen());
-    fflush(stdout);
-    int result = abc::Abc_NtkMapToSop(aig_abc_ntk.get());
-    printf("DEBUG: After unmap - result=%d, ntkFunc=%d\n", 
-           result, aig_abc_ntk->ntkFunc);
-    fflush(stdout);
-  }
-
-  printf("Original mapped ABC network info:\n");
-  fflush(stdout);
-  printNtkInfo(aig_abc_ntk, logger_);
+  aig_abc_ntk->pManFunc = library;
       
-  return aig_abc_ntk;
+  auto ntk_ptr = aig_abc_ntk.get();
+  assert(!Abc_NtkIsStrash(ntk_ptr) && "AIG network is expected to be strashed.");
+  utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> 
+    strashed_aig(Abc_NtkStrash(ntk_ptr, false, false, false), &abc::Abc_NtkDelete);
+  
+  return strashed_aig;
 }
 
 abc::Gia_Man_t*
@@ -223,43 +222,11 @@ SeqRemapper::aigToGia(
     utl::UniquePtrWithDeleter<abc::Abc_Ntk_t>& strashed_aig)
 {
   auto ntk_ptr = strashed_aig.get();
-  printf("DEBUG aigToGia: ntkType=%d (LOGIC=%d), ntkFunc=%d (SOP=%d, MAP=%d, AIG=%d)\n",
-         ntk_ptr->ntkType, abc::ABC_NTK_LOGIC,
-         ntk_ptr->ntkFunc, abc::ABC_FUNC_SOP, abc::ABC_FUNC_MAP, abc::ABC_FUNC_AIG);
-  printf("DEBUG aigToGia: IsStrash=%d, HasMapping=%d, HasSop=%d, HasAig=%d\n",
-         Abc_NtkIsStrash(ntk_ptr), abc::Abc_NtkHasMapping(ntk_ptr),
-         abc::Abc_NtkHasSop(ntk_ptr), abc::Abc_NtkHasAig(ntk_ptr));
-  fflush(stdout);
-  assert(!Abc_NtkIsStrash(ntk_ptr) && "AIG network is expected to be not strashed.");
-  
-  // Check network before strashing
-  printf("DEBUG: Checking network before Abc_NtkStrash...\n");
-  printf("DEBUG: Abc_NtkIsLogic=%d, Abc_NtkCheck=%d\n", 
-         abc::Abc_NtkIsLogic(ntk_ptr), abc::Abc_NtkCheck(ntk_ptr));
-  fflush(stdout);
-  
-  // Check if we need to convert to AIG first for SOP networks
-  if (abc::Abc_NtkHasSop(ntk_ptr)) {
-    printf("DEBUG: Network has SOP, converting to AIG first...\n");
-    fflush(stdout);
-    if (!abc::Abc_NtkToAig(ntk_ptr)) {
-      printf("ERROR: Abc_NtkToAig failed!\n");
-      fflush(stdout);
-      return nullptr;
-    }
-    printf("DEBUG: After Abc_NtkToAig - HasAig=%d, HasSop=%d\n",
-           abc::Abc_NtkHasAig(ntk_ptr), abc::Abc_NtkHasSop(ntk_ptr));
-    fflush(stdout);
-  }
-  
-  printf("DEBUG: Calling Abc_NtkStrash...\n");
-  fflush(stdout);
-  auto stash  = Abc_NtkStrash(ntk_ptr, false, true, false);
-  auto aig = Abc_NtkToDar(stash, false, false);
-  Abc_NtkDelete(stash);  // Fix memory leak
-  abc::Gia_Man_t* gia = Gia_ManFromAig(aig);
+  assert(Abc_NtkIsStrash(ntk_ptr) && "AIG network is expected to be strashed.");
+  abc::Gia_Man_t* gia = nullptr;
+  auto aig = Abc_NtkToDar(strashed_aig.get(), false, false);
+  gia = Gia_ManFromAig(aig);
   Aig_ManStop(aig);
-  // Perform undc/zero
   auto inits = Abc_NtkCollectLatchValuesStr(ntk_ptr);
   auto temp = gia;
   gia = Gia_ManDupZeroUndc(gia, inits, 0, false, false);
@@ -282,11 +249,11 @@ SeqRemapper::checkTracksAndRows()
     }
   }
   if (!has_valid_site) {
-    logger_->warn(utl::RES, 335, "No valid site found for GPL, skipping incremental global placement");
+    logger_->warn(utl::RMP, 233, "No valid site found for GPL, skipping incremental global placement");
     return;
   }
 }
-/*
+
 void 
 SeqRemapper::setIncrePlaceParam(PlaceMode::Mode mode, float density_penalty,
                                  int place_iter)
@@ -304,11 +271,12 @@ SeqRemapper::setIncrePlaceParam(PlaceMode::Mode mode, float density_penalty,
     gpl_->setInitialPlaceMaxIter(place_iter);
   }
 }
-*/
+
 utl::UniquePtrWithDeleter<abc::Abc_Ntk_t>
 SeqRemapper::giaToAig(abc::Gia_Man_t* gia)
 {
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> aig_ntk;
+  debugPrint(logger_, utl::RMP, "annealing", 5, "Converting GIA to network");
   abc::Extra_UtilGetoptReset();
 
   if (Gia_ManHasCellMapping(gia)) {
@@ -318,25 +286,28 @@ SeqRemapper::giaToAig(abc::Gia_Man_t* gia)
   } else {
     if (Gia_ManHasDangling(gia) != 0) {
       debugPrint(
-          logger_, utl::RES, "annealing", 6, "Rehashing before conversion");
+          logger_, utl::RMP, "annealing", 6, "Rehashing before conversion");
       replaceGia(gia, Gia_ManRehash(gia, false));
     }
     assert(Gia_ManHasDangling(gia) == 0);
     auto aig = Gia_ManToAig(gia, false);
     if (aig == nullptr) {
-      logger_->error(utl::RES, 314, "Gia_ManToAig returned null");
+      logger_->error(utl::RMP, 204, "Gia_ManToAig returned null");
     }
     // Debug: print AIG statistics before calling Abc_NtkFromAigPhase
-    printNtkInfo(aig, logger_);
-
+    logger_->info(utl::RMP, 210, "AIG before Abc_NtkFromAigPhase: nObjs={}, nPis={}, nPos={}, nRegs={}",
+                  abc::Aig_ManObjNum(aig),
+                  abc::Aig_ManCiNum(aig),
+                  abc::Aig_ManCoNum(aig),
+                  abc::Aig_ManRegNum(aig));
     // Check if AIG is valid
     if (abc::Aig_ManObjNum(aig) == 0) {
-      logger_->warn(utl::RES, 316, "AIG has 0 objects, network may be empty");
+      logger_->warn(utl::RMP, 211, "AIG has 0 objects, network may be empty");
     }
     aig_ntk = WrapUnique(Abc_NtkFromAigPhase(aig));
     if (aig_ntk == nullptr) {
       Aig_ManStop(aig);
-      logger_->error(utl::RES, 315, "Abc_NtkFromAigPhase returned null");
+      logger_->error(utl::RMP, 205, "Abc_NtkFromAigPhase returned null");
     }
     aig_ntk->pName = abc::Extra_UtilStrsav(aig->pName);
     Aig_ManStop(aig);
@@ -440,7 +411,7 @@ SeqRemapper::insertMappedAbcNetwork(utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> &m
                             sta_->getDbNetwork(), name_generator_,
                             logger_);
 }
-/*
+
 void 
 SeqRemapper::performIncrePlace(cut::LogicCut& logic_cut, gpl::Replace *gpl, dpl::Opendp* dpl)
 { 
@@ -459,7 +430,7 @@ void
 SeqRemapper::performIncreGpl(cut::LogicCut& logic_cut, gpl::Replace *gpl)
 {
   if (gpl == nullptr) {
-    logger_->warn(utl::RES, 336, "GPL is nullptr, cannot perform incremental global placement");
+    logger_->warn(utl::RMP, 232, "GPL is nullptr, cannot perform incremental global placement");
     return;
   }
   
@@ -468,14 +439,14 @@ SeqRemapper::performIncreGpl(cut::LogicCut& logic_cut, gpl::Replace *gpl)
 
   setIncrePlaceParam(PlaceMode::ROUTE_DRIVEN, 0.5, 10);
   gpl->doNesterovPlace(thread_count);
-  logger_->info(utl::RES, 312, "Incremental global placement completed");
+  logger_->info(utl::RMP, 202, "Incremental global placement completed");
 }
 
 void
 SeqRemapper::performIncreDpl(cut::LogicCut& logic_cut, dpl::Opendp* dpl)
 {
   if (dpl == nullptr) {
-    logger_->warn(utl::RES, 337, "DPL is nullptr, cannot perform incremental detailed placement");
+    logger_->warn(utl::RMP, 234, "DPL is nullptr, cannot perform incremental detailed placement");
     return;
   }
   // TODO: develop incremental DPL placement in two steps:
@@ -497,20 +468,22 @@ SeqRemapper::performIncreDpl(cut::LogicCut& logic_cut, dpl::Opendp* dpl)
       dpl->legalCellPos(db_inst);
     }
   }
-  logger_->info(utl::RES, 338, "Incremental detailed placement completed");
+  logger_->info(utl::RMP, 235, "Incremental detailed placement completed");
 }
 
 void 
 SeqRemapper::runOpt() {
   remapPreamble();
 
-  ExtractLocalWindow extrac_strategy(logger_);
-  cut::LogicCut logic_cut = extractBottleneck(&extrac_strategy);
+  ExtractFaninConeOfBadEndPoints extrac_strategy(logger_);
+  // ExtractLocalWindow extrac_strategy(logger_);
+  cut::LogicCut logic_cut = extractBottleneck(extrac_strategy);
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> strashed_aig = 
-                                        cutToAig(logic_cut);
+                                        netlistToAig(logic_cut);
   printNtkInfo(strashed_aig, logger_);
-  for (size_t i = 0; i < 10; ++i)
-    TryOptWithAig(strashed_aig, NtkType::GIA, i, logic_cut);
+
+  // for (size_t i = 0; i < 10; ++i)
+  TryOptWithAig(strashed_aig, NtkType::AIG, 2, logic_cut);
 }
 
 void 
@@ -518,42 +491,55 @@ SeqRemapper::TryOptWithAig(utl::UniquePtrWithDeleter<abc::Abc_Ntk_t>& aig_ntk,
                            NtkType::Type ntk_type, size_t action, 
                            cut::LogicCut& logic_cut)
 {
-  if (ntk_type == NtkType::GIA) {
-    std::vector<GiaOp> ops = GiaOptOperator::getAllOperations(logger_);
-    auto gia = aigToGia(aig_ntk);
-    for (size_t i = 0; i < action && i < ops.size(); ++i) {
-      ops[i](gia);
-      logger_->info(utl::RES, 313, "Applied GiaOp {}", i);
-    }
-    aig_ntk = giaToAig(gia);
-    evaluateTemporary(aig_ntk, logic_cut);
-  } else if (ntk_type == NtkType::AIG) {
-    printf("AIG optimization not implemented yet.\n");
-    fflush(stdout);
+  checkNtkType(aig_ntk.get(), logger_);
+  if (aig_ntk.get() == nullptr) {
+    logger_->error(utl::RMP, 223, "Input AIG network is null");
   }
+
+  abc::Abc_Ntk_t *opted_aig = Abc_NtkTimingRewrite(aig_ntk.get(),
+                                      nullptr,
+                                      /*DelayTarget=*/1.0,
+                                      /*AreaMulti=*/0.0,
+                                      /*DelayMulti=*/2.5,
+                                      /*LogFan=*/0.0,
+                                      /*Slew=*/0.0,
+                                      /*Gain=*/250.0,
+                                      /*nGatesMin=*/0,
+                                      /*fRecovery=*/true,
+                                      /*fSwitching=*/false,
+                                      /*fSkipFanout=*/false,
+                                      /*fUseProfile=*/false,
+                                      /*fUseBuffs=*/false,
+                                      /*fVerbose=*/false);
+  printNtkInfo(opted_aig, logger_);
+
+  for (size_t i = 0; i < 10; ++i)
+  {
+    auto *gia = aigToGia(aig_ntk);
+    printNtkInfo(gia, logger_);
+    if (gia == nullptr) {
+      logger_->error(utl::RMP, 225, "aigToGia returned null gia");
+    }
+    opt_operator_factory_->runOptOperator(gia, i, logger_);
+    aig_ntk = giaToAig(gia);
+    checkNtkType(aig_ntk.get(), logger_);
+
+    // Evaluate the optimized AIG network
+    
+    checkNtkType(aig_ntk.get(), logger_);
+    evaluate(aig_ntk, logic_cut);
+    printNtkInfo(aig_ntk, logger_);
+
+    checkNtkType(aig_ntk.get(), logger_);
+  } 
 }
 
 MappingResult
-SeqRemapper::evaluateTemporary(utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> &aig_ntk, cut::LogicCut& logic_cut) 
-{
-  utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> mapped_aig = performMapping(aig_ntk);
-    // Temporarily insert to get metrics
-  insertMappedAbcNetwork(mapped_aig, logic_cut);
-  
-  performIncrePlace(logic_cut, gpl_, dpl_);
-  performTimingRepair(logic_cut);
-  MappingResult result;
-  getMetrics(logic_cut, result);
-  result.show(logger_);
-  return result;
-}
-
-MappingResult
-SeqRemapper::applyBestResult(utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> &aig_ntk, cut::LogicCut& logic_cut) 
+SeqRemapper::evaluate(utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> &aig_ntk, cut::LogicCut& logic_cut) 
 {
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> mapped_aig = performMapping(aig_ntk);
   {
-    // Permanently insert the best result
+    // est::IncrementalParasiticsGuard parasitics_guard(est_);
     insertMappedAbcNetwork(mapped_aig, logic_cut);
     
     // Update STA graph after instance deletion/insertion
@@ -569,12 +555,6 @@ SeqRemapper::applyBestResult(utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> &aig_ntk,
   return result;
 }
 
-MappingResult
-SeqRemapper::evaluate(utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> &aig_ntk, cut::LogicCut& logic_cut) 
-{
-  return evaluateTemporary(aig_ntk, logic_cut);
-}
-*/
 void 
 SeqRemapper::performTimingRepair(cut::LogicCut& logic_cut)
 {

@@ -14,6 +14,7 @@ target_include_directories(jsonout
 target_link_libraries(jsonout
     db
     utl_lib
+    #OpenSTA
 )
 
 set_target_properties(jsonout

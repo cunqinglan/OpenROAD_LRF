@@ -48,12 +48,24 @@ class LogicCut
       AbcLibrary& abc_library,
       sta::dbNetwork* network,
       utl::Logger* logger);
-
+  /*
+  utl::UniquePtrWithDeleter<abc::Design_Info_t> BuildAbcDesignInfo(
+      AbcLibrary& abc_library,
+      sta::dbNetwork* network,
+      utl::Logger* logger);
+  */
   void InsertMappedAbcNetwork(abc::Abc_Ntk_t* abc_network,
                               AbcLibrary& abc_library,
                               sta::dbNetwork* network,
                               utl::UniqueName& unique_name,
                               utl::Logger* logger);
+  /*
+  utl::UniquePtrWithDeleter<std::pair<abc::Abc_Ntk_t*, abc::Design_Info_t*>> 
+       BuildAbcNetworkWithPositions(
+           AbcLibrary& abc_library,
+           sta::dbNetwork* network,
+           utl::Logger* logger);
+  */
 
  private:
   std::vector<sta::Net*> primary_inputs_;

@@ -19,11 +19,6 @@
 
 #include "db_sta/dbSta.hh"
 
-// Forward declaration for Strategy
-namespace rmp {
-class Strategy;
-}
-
 namespace odb {
 class dbDatabase;
 }
@@ -120,10 +115,9 @@ class SeqRemapper : public sta::dbStaState
   // Preparation before remapping
   void remapPreamble();
   // Identify bottleneck area and extract subsircuit
-  cut::LogicCut extractBottleneck(Strategy *strategy);
+  cut::LogicCut extractBottleneck(Strategy &strategy);
   // Convert subsircuit into AIG representation
-  utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> cutToAig(
-      cut::LogicCut& logic_cut);
+  utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> netlistToAig(cut::LogicCut& logic_cut);
   // Convert AIG to GIA format
   abc::Gia_Man_t* aigToGia(
       utl::UniquePtrWithDeleter<abc::Abc_Ntk_t>& strashed_aig);
@@ -139,12 +133,6 @@ class SeqRemapper : public sta::dbStaState
   ////////////////////////////////////////////////
   // Evaluate the optimized subcircuit
   MappingResult evaluate(utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> &aig_ntk,
-                cut::LogicCut& logic_cut);
-  // Temporarily evaluate without permanent changes (for comparison)
-  MappingResult evaluateTemporary(utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> &aig_ntk,
-                cut::LogicCut& logic_cut);
-  // Apply the best optimization result permanently
-  MappingResult applyBestResult(utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> &aig_ntk,
                 cut::LogicCut& logic_cut);
   // Function to perform the evaluation process
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> 
@@ -182,12 +170,6 @@ protected:
 private:
   friend class Strategy;
 };
-
-/////////////////////////////////////////////////
-// Strategy class for bottleneck extraction
-////////////////////////////////////////////////
-
-
 
 /////////////////////////////////////////////////
 // Operator class of logic optimization
