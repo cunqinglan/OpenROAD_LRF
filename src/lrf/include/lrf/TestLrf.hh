@@ -4,6 +4,8 @@
 #include "sta/NetworkClass.hh"
 #include "lrf/LrfClass.hh"
 
+#include <stdexcept>
+
 namespace rsz
 {
 class Resizer;

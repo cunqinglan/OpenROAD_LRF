@@ -77,6 +77,7 @@ protected:
                     DcalcAnalysisPt const *dcalc_ap) override;
   virtual void updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta, 
                                     DcalcAnalysisPt const *dcalc_ap) override;
+  // This can only be invoked by RapidLrHelper's own methods
   float getMultiplier(Slack arc_slack);
 
 private:
@@ -89,6 +90,11 @@ public:
   AdaptiveLrHelper(StaState *sta) : LRHelper(sta) {}
   ~AdaptiveLrHelper() override = default;
   virtual std::string strategyName() const override;
+  virtual void updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, 
+                    DcalcAnalysisPt const *dcalc_ap) override;
+  // This can only be invoked by AdaptiveLrHelper's own methods
+  float getMultiplier(Slack arc_slack);
+  
 };
 
 } // namespace lrf

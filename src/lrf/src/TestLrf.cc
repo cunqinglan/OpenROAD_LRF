@@ -767,7 +767,7 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
     tns = sta->totalNegativeSlack(sta::MinMax::max());
     wns = sta->worstSlack(sta::MinMax::max());
     float leakage = 0;
-    odb::dbSet<dbInst> insts = block->getInsts();
+    odb::dbSet<odb::dbInst> insts = block->getInsts();
     for (odb::dbInst *inst : insts) {
       sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(inst);
       if (!sta_inst) continue;
@@ -783,6 +783,7 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
     fflush(stdout);
     if ( wns > best_wns ) {
       best_wns = wns;
+      best_tns = tns;
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::beginEco(block);
       printf("Improvement in WNS, accepting new design.\n");
