@@ -21,6 +21,10 @@
 #include "odb/geom.h"
 #include "utl/Logger.h"
 #include "utl/ScopedTemporaryFile.h"
+//#include "sta/Liberty.hh"
+//#include "sta/Network.hh"
+//#include "sta/Graph.hh"
+//#include "sta/Sta.hh"
 
 namespace odb {
 
@@ -71,6 +75,10 @@ bool JsonOut::Impl::writeBlock(dbBlock* block, std::ostream& stream)
 {
   _out = &stream;
   _dist_factor = 1.0 / (double) block->getDbUnitsPerMicron();
+
+//  // Get STA database
+//  sta::dbSta* sta = block->getDataBase()->getDbSta();
+//  sta::dbNetwork* network = sta ? sta->getDbNetwork() : nullptr;
 
   // Get all instances
   dbSet<dbInst> insts = block->getInsts();
@@ -127,8 +135,31 @@ bool JsonOut::Impl::writeBlock(dbBlock* block, std::ostream& stream)
       dbNet* net = iterm->getNet();
       if (net) {
         *_out << "{\n";
-        *_out << "          \"net\": \"" << net->getName() << "\",\n";
-        *_out << "          \"connected_gates\": [";
+        /*
+        *_out << "          \"net\": \"" << net->getName() << "\"";
+
+        // Add timing information if STA is available
+        if (sta && network) {
+          sta::Pin* sta_pin = network->dbToSta(iterm);
+          if (sta_pin) {
+            sta::Vertex* vertex = sta->graph()->pinLoadVertex(sta_pin);
+            if (vertex) {
+              // Get required and actual arrival times
+              sta::Arrival arrival = sta->vertexArrival(vertex, sta::RiseFall::rise(), sta::MinMax::max());
+              sta::Required required = sta->vertexRequired(vertex, sta::RiseFall::rise(), sta::MinMax::max());
+              
+              if (!sta::delayInf(arrival)) {
+                *_out << ",\n          \"actual_arrival_time\": " << sta->delayAsFloat(arrival);
+              }
+              if (!sta::delayInf(required)) {
+                *_out << ",\n          \"required_arrival_time\": " << sta->delayAsFloat(required);
+              }
+            }
+          }
+        }
+
+        *_out << ",\n          \"connected_gates\": [";
+        */
 
         // Get all other instances connected to this net
         std::set<std::string> connected_insts;

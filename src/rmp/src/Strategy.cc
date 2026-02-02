@@ -296,7 +296,7 @@ ExtractLocalWindow::extractBottleneck(SeqRemapper& remapper)
 
   sta::Graph* graph = sta_->graph();
   sta::VertexSet cut_vertices(graph);
-  collectAdjacentInsts(ref_gate_, 2, cut_vertices);
+  collectAdjacentInsts(ref_gate_, window_size_, cut_vertices);
   LogicExtractorFactoryPro logic_extractor(sta_, logger_);
   cut::LogicCut cut = logic_extractor.buildLogicCutFromCutVertices(cut_vertices, *remapper.getAbcLibrary());
   return cut;

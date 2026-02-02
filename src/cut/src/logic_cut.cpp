@@ -24,6 +24,8 @@
 #include "utl/Logger.h"
 #include "utl/deleter.h"
 #include "utl/unique_name.h"
+#include "odb/db.h"
+#include "odb/dbTypes.h"
 
 namespace cut {
 
@@ -751,4 +753,149 @@ void LogicCut::InsertMappedAbcNetwork(abc::Abc_Ntk_t* abc_network,
   }
 }
 
+// get a group of mapped abc network, try them one by one
+
+// void LogicCut::InsertMappedAbcNetworkGroup(
+
+
+/*utl::UniquePtrWithDeleter<std::pair<abc::Abc_Ntk_t*, abc::Design_Info_t*>> 
+       LogicCut::BuildAbcNetworkWithPositions(
+       AbcLibrary& abc_library,
+           sta::dbNetwork* network,
+           utl::Logger* logger)
+{
+  utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> abc_network(
+    abc::Abc_NtkAlloc(abc::Abc_NtkType_t::ABC_NTK_NETLIST,
+                      abc::Abc_NtkFunc_t::ABC_FUNC_MAP,
+                      //fUseMemMan=
+                      1),
+    &abc::Abc_NtkDelete);
+  abc_network = BuildMappedAbcNetwork(abc_library, network, logger);
+
+}
+
+utl::UniquePtrWithDeleter<abc::Design_Info_t> LogicCut::BuildAbcDesignInfo(
+    AbcLibrary& abc_library,
+    sta::dbNetwork* network,
+    utl::Logger* logger)
+{
+  // Allocate Design_Info_t
+  auto design_info = utl::UniquePtrWithDeleter<abc::Design_Info_t>(
+    static_cast<abc::Design_Info_t*>(malloc(sizeof(abc::Design_Info_t))),
+    [](abc::Design_Info_t* p) {
+      if (p) {
+        if (p->designName) free(p->designName);
+        if (p->units) free(p->units);
+        if (p->gates) {
+          for (int i = 0; i < abc::Vec_PtrSize(p->gates); i++) {
+            auto gate = static_cast<abc::Gate_Info_t*>(abc::Vec_PtrEntry(p->gates, i));
+            if (gate) {
+              if (gate->name) free(gate->name);
+              if (gate->type) free(gate->type);
+              if (gate->connections) {
+                abc::st__stfree(gate->connections);
+              }
+              free(gate);
+            }
+          }
+          abc::Vec_PtrFree(p->gates);
+        }
+        free(p);
+      }
+    });
+
+  // Get the database block
+  odb::dbDatabase* db = network->getBlock()->getDataBase();
+  odb::dbBlock* block = network->getBlock();
+  double dist_factor = 1.0 / static_cast<double>(block->getDbUnitsPerMicron());
+
+  // Set design name and units
+  design_info->designName = strdup(block->getName().c_str());
+  design_info->units = strdup("microns");
+  design_info->gates = abc::Vec_PtrAlloc(cut_instances_.size());
+
+  // Sort instances for stability
+  std::vector<const sta::Instance*> sorted_instances(cut_instances_.begin(),
+                                                      cut_instances_.end());
+  std::sort(sorted_instances.begin(),
+            sorted_instances.end(),
+            [network](const sta::Instance* a, const sta::Instance* b) {
+              return network->id(a) < network->id(b);
+            });
+
+  /////////////////////////
+  // Change the order of instances, to match the order in the Abc_ntk_t?
+  /////////////////////////
+
+  // Iterate through all instances in the cut
+  for (const sta::Instance* instance : sorted_instances) {
+    // Allocate Gate_Info_t
+    auto gate_info = static_cast<abc::Gate_Info_t*>(malloc(sizeof(abc::Gate_Info_t)));
+    
+    // Get instance name and cell type
+    std::string inst_name = network->name(instance);
+    sta::LibertyCell* cell = network->libertyCell(instance);
+    std::string cell_name = cell->name();
+    
+    gate_info->name = strdup(inst_name.c_str());
+    gate_info->type = strdup(cell_name.c_str());
+
+    // Get position from OpenDB
+    odb::dbInst* db_inst = network->staToDb(instance);
+    if (db_inst) {
+      int x, y;
+      db_inst->getLocation(x, y);
+      gate_info->position.x = x * dist_factor;
+      gate_info->position.y = y * dist_factor;
+    } else {
+      // Default position if not found
+      gate_info->position.x = 0.0;
+      gate_info->position.y = 0.0;
+    }
+
+    // Create connections hash table
+    gate_info->connections = abc::st__init_table(abc::strcmp, abc::strhash);
+
+    // Iterate through pins to get connections
+    auto pin_iterator = std::unique_ptr<sta::InstancePinIterator>(
+        network->pinIterator(instance));
+    while (pin_iterator->hasNext()) {
+      sta::Pin* pin = pin_iterator->next();
+      sta::Port* port = network->port(pin);
+      std::string pin_name = network->name(port);
+      
+      sta::Net* net = network->net(pin);
+      if (net) {
+        // Allocate Gate_Connection_t
+        auto connection = static_cast<abc::Gate_Connection_t*>(
+            malloc(sizeof(abc::Gate_Connection_t)));
+        connection->netName = strdup(network->pathName(net));
+        connection->connectedGates = abc::Vec_PtrAlloc(10);
+
+        // Find other instances connected to this net
+        sta::NetConnectedPinIterator* net_pin_iter = network->connectedPinIterator(net);
+        while (net_pin_iter->hasNext()) {
+          sta::Pin* connected_pin = net_pin_iter->next();
+          sta::Instance* connected_inst = network->instance(connected_pin);
+          
+          if (connected_inst != instance && !network->isTopInstance(connected_inst)) {
+            std::string connected_name = network->name(connected_inst);
+            abc::Vec_PtrPush(connection->connectedGates, strdup(connected_name.c_str()));
+          }
+        }
+        delete net_pin_iter;
+
+        // Add to hash table
+        abc::st__insert(gate_info->connections, 
+                       strdup(pin_name.c_str()), 
+                       reinterpret_cast<char*>(connection));
+      }
+    }
+
+    abc::Vec_PtrPush(design_info->gates, gate_info);
+  }
+
+  return design_info;
+}
+*/
 }  // namespace cut

@@ -105,7 +105,7 @@ class Timing
   /////////////////////////////////////////////////////////////
 
   // Test functions of Seqremapper
-  void testSeqRemapper();
+  //void testSeqRemapper();
 
  private:
   sta::dbSta* getSta();
