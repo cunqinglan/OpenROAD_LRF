@@ -783,6 +783,7 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
     fflush(stdout);
     if ( wns > best_wns ) {
       best_wns = wns;
+      best_tns = tns;
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::beginEco(block);
       printf("Improvement in WNS, accepting new design.\n");

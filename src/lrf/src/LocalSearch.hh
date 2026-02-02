@@ -7,6 +7,7 @@
 #include "sta/NetworkClass.hh"
 #include "sta/Delay.hh"
 
+#include <stdexcept>
 
 namespace sta
 {

@@ -85,12 +85,14 @@ TaskArranger::~TaskArranger()
 void
 TaskArranger::init()
 {
-  vertices_.clear();
-  edges_.clear();
-  inst_to_vid_.clear();
-  makeGraph();
-  initVertexRefCounts();
-  ensureGraphVertices();
+  if (vertices_.empty()) {
+    makeGraph();
+    initVertexRefCounts();
+    ensureGraphVertices();
+  } else {
+    initVertexRefCounts();
+    ensureGraphVertices();
+  }
 }
 
 void 
@@ -98,6 +100,7 @@ TaskArranger::reinit()
 {
   printf("TaskArranger::reinit checking graph consistency...\n");
   fflush(stdout);
+  // This number is completely wrong, need to double check
   if (network_->instanceCount() != vertices_.size() + 1) { // +1 for TOP instance
     init();
   } else {
@@ -829,7 +832,7 @@ TaskArranger::visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *
   int cnt = 0;
   for (auto v : visitors_) {
     // printf("Visitor %d runtime profile:\n", cnt);
-    // v->printRuntimeProfile();
+    v->printRuntimeProfile();
     // v->printVisitedInstNames();
     delete v;
     cnt++;
