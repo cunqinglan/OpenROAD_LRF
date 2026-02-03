@@ -369,7 +369,6 @@ LocalSta::makePtGraph(PtGraph *pt_graph, Instance *inst,
 PtGraph *
 LocalSta::makePtGraph(Instance *inst, bool update_timing_first)
 {
-  // std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
   PtGraph *pt_graph = new PtGraph(sta_);
   makePtGraph(pt_graph, inst);
   if (update_timing_first) {
@@ -378,6 +377,7 @@ LocalSta::makePtGraph(Instance *inst, bool update_timing_first)
     search_->findArrivals(top_level);
     pt_graph->initVertexAndEdges();
   }
+  std::lock_guard<std::mutex> lock(pt_graph_vector_mutex_);
   local_graphs_.push_back(pt_graph);
   return pt_graph;
 }
@@ -1671,6 +1671,7 @@ LocalSta::initParallel()
 void 
 LocalSta::runResize(rsz::Resizer *resizer, ParallelLrVisitor *visitor)
 {
+  // task_arranger_->enableTopologyCheck(true);
   task_arranger_->visitParallel(sta_, this, resizer, visitor);
 }
 

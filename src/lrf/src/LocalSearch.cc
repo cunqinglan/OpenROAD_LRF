@@ -171,12 +171,12 @@ LocalArrivalVisitor::findVertexArrival(PtVertex &pt_vertex)
     search_->seedInputSegmentArrival(pin, vertex, tag_bldr_);
   }
 
-  if (network_->isLatchData(pin)) {
-    printf("WARNING: Local arrival analysis does not support latch data pins %s\n",
-           network_->name(pin));
-    fflush(stdout);
-    arrival_changed = false;
-  }
+  // if (network_->isLatchData(pin)) {
+  //   printf("WARNING: Local arrival analysis does not support latch data pins %s\n",
+  //          network_->name(pin));
+  //   fflush(stdout);
+  //   arrival_changed = false;
+  // }
   if (sdc_->isPathDelayInternalFrom(pin)) {
     // set_min/max_delay -from internal pin.
     search_->makeUnclkedPaths(vertex, false, true, tag_bldr_);
