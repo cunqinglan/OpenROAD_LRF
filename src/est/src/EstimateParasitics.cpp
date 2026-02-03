@@ -1268,14 +1268,14 @@ EstimateParasitics::updateWireParasiticsNoDeleteNetwork()
 
     odb::dbSet<odb::dbNet> nets = block_->getNets();
     for (auto db_net : nets) {
-      Net *cur_net = db_network_->dbToSta(db_net);
+      sta::Net *cur_net = db_network_->dbToSta(db_net);
       estimateWireParasiticNoDeleteNetwork(cur_net);
     }
     parasitics_src_ = ParasiticsSrc::placement;
     parasitics_invalid_.clear();
 
     for (auto db_net : nets) {
-      Net *net = db_network_->dbToSta(db_net);
+      sta::Net *net = db_network_->dbToSta(db_net);
       checkIfParasiticsNetworkExists(net);
     }
   }

@@ -140,6 +140,9 @@ LocalParasitics::makeLocalPiElmore(const Parasitic *parasitic_network,
                                    const MinMax *min_max,
                                    const ParasiticAnalysisPt *ap)
 {
+  // Protect access to OpenDB/STA network objects which may have internal state
+  std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
+  
   float c2, rpi, c1;
   LocalReduceToPiElmore reducer(this, pt_graph);
   reducer.reduceToPi(parasitic_network, drvr_pin, drvr_node,
@@ -183,9 +186,6 @@ LocalParasitics::makeLocalPiElmore(const Parasitic *parasitic_network,
 void 
 LocalParasitics::recomputeLocalParasitics(PtGraph *pt_graph)
 {
-  // Protect access to OpenDB/STA network objects which may have internal state
-  std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
-  
   for (const auto &pt_vertex: pt_graph->ptVertices()) {
     if (pt_vertex.type() == PtVertexType::RefDriver) {
       const Net *net = findParasiticNet(pt_vertex.vertex()->pin());

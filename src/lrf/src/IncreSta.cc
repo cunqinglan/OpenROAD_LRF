@@ -368,9 +368,6 @@ IncreSta::parallelResize(rsz::Resizer *resizer, float avg_delay, float avg_power
                       float PT_tradeoff)
 {
   auto start_total = std::chrono::high_resolution_clock::now();
-
-  // We first create a serials of instance visitors
-  local_sta_->initParallel();
   Slack wns = sta_->worstSlack(MinMax::max());
 
   if (!swap_cell_presaved_) {

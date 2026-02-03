@@ -298,6 +298,7 @@ protected:
   bool equiv_cells_made_ = false;
   SearchPred *pred_;
   SearchPred *search_pred_;
+  std::mutex pt_graph_vector_mutex_;
 
   std::string debug_label_ = "LocalSTA";
 

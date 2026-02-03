@@ -1,6 +1,8 @@
 #include <atomic>
+#include <thread>
 
 #include "TaskArranger.hh"
+#include "TopologyChecker.hh"
 #include "search/Levelize.hh"
 #include "sta/ObjectTable.hh"
 #include "sta/Search.hh"
@@ -86,11 +88,9 @@ void
 TaskArranger::init()
 {
   if (vertices_.empty()) {
+    printf("TaskArranger::init making graph...\n");
     makeGraph();
-    initVertexRefCounts();
-    ensureGraphVertices();
-  } else {
-    initVertexRefCounts();
+    initVertexRefCounts(true);
     ensureGraphVertices();
   }
 }
@@ -99,14 +99,13 @@ void
 TaskArranger::reinit()
 {
   printf("TaskArranger::reinit checking graph consistency...\n");
-  fflush(stdout);
   // This number is completely wrong, need to double check
-  if (network_->instanceCount() != vertices_.size() + 1) { // +1 for TOP instance
-    init();
-  } else {
-    initVertexRefCounts();
+  // if (network_->instanceCount() != vertices_.size() + 1) { // +1 for TOP instance
+  //   init();
+  // } else {
+    initVertexRefCounts(false);
     ensureGraphVertices();
-  }
+  // }
 }
 
 void
@@ -430,10 +429,11 @@ TaskArranger::makeEdges()
 }
 
 void 
-TaskArranger::initVertexRefCounts()
+TaskArranger::initVertexRefCounts(bool reset)
 {
   // Initialize all reference counts
-  vertex_ref_counts_ = std::make_unique<std::atomic<size_t>[]>(vertices_.size());
+  if (reset || vertex_ref_counts_ == nullptr)
+    vertex_ref_counts_ = std::make_unique<std::atomic<size_t>[]>(vertices_.size());
 
   // Set all to its vertex's temp_ref_num_
   // Initialize all vertices to match the size of allocated array.
@@ -457,6 +457,8 @@ TaskArranger::FanoutsInstances(const sta::Pin *drvr_pin)
         if (!pred_->searchThru(base_edge))
           continue;
         sta::Vertex* base_to_vertex = graph_->vertex(base_edge->to());
+        if (!network_->isLoad(base_to_vertex->pin()))
+          continue;
         sta::Instance* to_inst = network_->instance(base_to_vertex->pin());
         // Make sure not to add port.
         if (to_inst)
@@ -807,6 +809,13 @@ TaskArranger::visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *
   // Clear previous visit records
   clearVisitedInstVertices();
   resizer_ = resizer;
+  
+  // Initialize topology checker if enabled
+  if (enable_topology_check_) {
+    printf("Topology check enabled.\n");
+    topology_checker_ = std::make_unique<TopologyChecker>(this);
+  }
+  
   // Clean up old visitors if any
   for (auto v : visitors_) delete v;
   visitors_.clear();
@@ -835,6 +844,12 @@ TaskArranger::visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *
     cnt++;
   }
   visitors_.clear();
+  
+  // Print topology violations if any
+  if (enable_topology_check_ && topology_checker_) {
+    topology_checker_->printViolations();
+    topology_checker_.reset();
+  }
 
   // Next time we visit, reuse the graph.
   incremental_ = true;
@@ -870,13 +885,28 @@ TaskArranger::createTask(InstVertex* inst_vertex)
 void 
 TaskArranger::runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex)
 {
+  // Topology validation: check if this vertex is ready to visit
+  if (enable_topology_check_ && topology_checker_) {
+    topology_checker_->onVisit(inst_vertex, std::this_thread::get_id());
+  }
+  
   if (visitor->visit(inst_vertex->inst())) 
   {
+    // Topology validation: mark before modification
+    if (enable_topology_check_ && topology_checker_) {
+      topology_checker_->onBeforeModify(inst_vertex, std::this_thread::get_id());
+    }
+    
     // Use the global mutex to protect DB/STA modification
     // ensuring exclusive access against other readers and writers.
     std::lock_guard<std::mutex> lock_odb(g_odb_sta_access_mutex);
     
     visitor->applyChangesToDb(resizer_);
+    
+    // Topology validation: mark after modification
+    if (enable_topology_check_ && topology_checker_) {
+      topology_checker_->onAfterModify(inst_vertex, std::this_thread::get_id());
+    }
   }
   std::set<VertexId> zero_ref_vertices = decreOutRefCount(inst_vertex);
   for (VertexId zero_ref_id : zero_ref_vertices) {
@@ -913,6 +943,38 @@ InstVertexOutEdgeIterator::next()
 
 bool 
 InstVertexOutEdgeIterator::hasNext() const
+{
+  return next_ < arranger_->edges_.size();
+}
+
+InstVertexInEdgeIterator::InstVertexInEdgeIterator(const InstVertex* vertex,
+                                                   const TaskArranger* arranger)
+  : next_(vertex->in_edges_),
+    arranger_(arranger)
+{
+}
+
+InstVertexInEdgeIterator::InstVertexInEdgeIterator(const InstVertex &vertex,
+                                                   const TaskArranger* arranger)
+  : next_(vertex.in_edges_),
+    arranger_(arranger)
+{
+}
+
+EdgeId
+InstVertexInEdgeIterator::next()
+{
+  EdgeId next = next_;
+  if (next_ < arranger_->edges_.size()) {
+    next_ = arranger_->edge(next_)->vertex_in_link_;
+  } else {
+    next_ = edge_id_null;
+  }
+  return next;
+}
+
+bool
+InstVertexInEdgeIterator::hasNext() const
 {
   return next_ < arranger_->edges_.size();
 }
@@ -975,6 +1037,16 @@ TaskArranger::printVisitedInstNames() const
   }
   printf("=========================================\n");
   fflush(stdout);
+}
+
+void
+TaskArranger::printTopologyViolations() const
+{
+  if (topology_checker_) {
+    topology_checker_->printViolations();
+  } else {
+    printf("Topology checker not initialized. Call enableTopologyCheck(true) before visitParallel().\n");
+  }
 }
 
 } // namespace lrf
