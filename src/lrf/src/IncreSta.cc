@@ -155,6 +155,22 @@ IncreSta::delayLmSum(Instance *inst, const MinMax *minmax, float &delay_lambda_s
 //   fflush(stdout);
 // }
 
+// void 
+// IncreSta::lmUpdate()
+// {
+//   printf("DEBUG: IncreSta::lmUpdate start\n");
+//   fflush(stdout);
+//   init();
+//   printf("DEBUG: IncreSta::lmUpdate calling updateAllEdgeLms\n");
+//   fflush(stdout);
+//   lr_helper_->updateAllEdgeLms(sta_);
+//   printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (projected_)\n");
+//   fflush(stdout);
+//   lr_helper_->KKTProjection(sta_);
+//   printf("DEBUG: IncreSta::lmUpdate end\n");
+//   fflush(stdout);
+// }
+
 void 
 IncreSta::lmUpdate()
 {
@@ -368,9 +384,6 @@ IncreSta::parallelResize(rsz::Resizer *resizer, float avg_delay, float avg_power
                       float PT_tradeoff)
 {
   auto start_total = std::chrono::high_resolution_clock::now();
-
-  // We first create a serials of instance visitors
-  local_sta_->initParallel();
   Slack wns = sta_->worstSlack(MinMax::max());
 
   if (!swap_cell_presaved_) {

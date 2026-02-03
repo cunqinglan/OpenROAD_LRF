@@ -113,7 +113,7 @@ LocalArrivalVisitor::findLocalArrivals()
 void 
 LocalArrivalVisitor::visit(Vertex *vertex)
 {
-  PtVertex &pt_vertex = pt_graph_->ptVertex(vertex);
+  PtVertex &pt_vertex = *pt_graph_->ptVertex(vertex);
   findVertexArrival(pt_vertex);
 }
   
@@ -171,12 +171,12 @@ LocalArrivalVisitor::findVertexArrival(PtVertex &pt_vertex)
     search_->seedInputSegmentArrival(pin, vertex, tag_bldr_);
   }
 
-  if (network_->isLatchData(pin)) {
-    printf("WARNING: Local arrival analysis does not support latch data pins %s\n",
-           network_->name(pin));
-    fflush(stdout);
-    arrival_changed = false;
-  }
+  // if (network_->isLatchData(pin)) {
+  //   printf("WARNING: Local arrival analysis does not support latch data pins %s\n",
+  //          network_->name(pin));
+  //   fflush(stdout);
+  //   arrival_changed = false;
+  // }
   if (sdc_->isPathDelayInternalFrom(pin)) {
     // set_min/max_delay -from internal pin.
     search_->makeUnclkedPaths(vertex, false, true, tag_bldr_);
@@ -189,9 +189,6 @@ LocalArrivalVisitor::findVertexArrival(PtVertex &pt_vertex)
     
   bool is_clk = tag_bldr_->hasClkTag();
   if (vertex->isRegClk() && !is_clk) {
-    printf("WARNING: Local arrival analysis found reg clk vertex %s without clk tag\n",
-           network_->name(pin));
-    fflush(stdout);
     search_->makeUnclkedPaths(vertex, true, false, tag_bldr_);
   }
 
@@ -712,7 +709,7 @@ LocalRequiredVisitor::findVertexRequired(PtVertex &pt_vertex)
 void
 LocalRequiredVisitor::visit(Vertex *vertex)
 {
-  PtVertex &pt_vertex = pt_graph_->ptVertex(vertex);
+  PtVertex &pt_vertex = *pt_graph_->ptVertex(vertex);
   findVertexRequired(pt_vertex);
 }
 

@@ -744,6 +744,8 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
   float avg_leakage = incre_sta->averageLeakage();
   printf("Initial Average Delay on Critical Path: %f\n", avg_delay * 1e12);
   printf("Initial Average Leakage: %f\n", avg_leakage * 1e10);
+  // Initialize conflict graph in task arranger
+  local_sta->initParallel();
   for (size_t i = 0; i < iterations; ++i) {
     sta->findRequireds();
     printf("----- LR Resizing Iteration %zu -----\n", i+1);
