@@ -56,12 +56,15 @@ public:
   const PtVertex &ptVertex(sta::VertexId vertex_id) const {
      return pt_vertices_[vertex_id];
   }
-  PtVertex &ptVertex(const sta::Vertex *vertex) {
+  PtVertex *ptVertex(const sta::Vertex *vertex) {
     auto it = vertex_map_.find(vertex);
     if (it == vertex_map_.end()) {
-      throw std::runtime_error("PtGraph::ptVertex: vertex not found in map");
+      printf("PtGraph::ptVertex: vertex %s not found in map\n",
+             vertex->to_string(sta_).c_str());
+             fflush(stdout);
+      return nullptr;
     }
-    return pt_vertices_[it->second];
+    return &pt_vertices_[it->second];
   }
 
   void setGraphMade(bool made) { graph_made_ = made; }

@@ -126,9 +126,19 @@ ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
       if (!sta::equivCellsArcs(ori_cell, equiv_cell)) {
         throw std::runtime_error("ParallelLrVisitor::visit found non-equivalent cell in equiv_cells");
       }
+
+  if (!local_sta_->legalCheckBeforeSwap(inst, equiv_cell, nullptr, nullptr, pt_graph_)) {
+    cnt++;
+    continue;
+  }
+  
       float leakage = (*inst_info_map_)[inst]->cell_leakages[cnt];
       float delay_lm_sum = local_sta_->
         increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, equiv_cell).delay_lm_sum;
+  if (!local_sta_->legalCheckAfterSwap(inst, equiv_cell, nullptr, nullptr, pt_graph_)) {
+    cnt++;
+    continue;
+  }
       float swapped_cost = swapCost(delay_lm_sum, leakage);
       sta::Slack swapped_slack = 
                       local_sta_->localSlackAroundRef(pt_graph_);
@@ -168,7 +178,7 @@ ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
     if (best_cell_ != equiv_cells->at(equiv_cells->size() - 1)) 
       local_sta_->increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, best_cell_);
     return true;
-  } 
+  }
   printf("ParallelLrVisitor::visit no liberty cell for instance %s\n",
          db_sta_->network()->pathName(inst));
   fflush(stdout);
@@ -397,7 +407,6 @@ bool
 ParallelLrVisitor::visit(sta::Instance *inst)
 {
   std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
-  // std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
   if (!checkVisitorStatus()) {
     throw std::runtime_error("ParallelLrVisitor::visit visitor status invalid");
   }
@@ -418,7 +427,7 @@ bool
 ParallelLrVisitor::visit(sta::Instance *inst,
                              TimingRecord &timing_record)
 {
-  // std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
+  std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
   best_cell_ = nullptr;
   timing_record.inst = inst;
   // The visit do following things:

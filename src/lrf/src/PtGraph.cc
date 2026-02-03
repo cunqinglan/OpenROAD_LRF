@@ -338,9 +338,9 @@ PtGraph::initPaths(PtVertex &pt_vertex)
   sta::Vertex *vertex = pt_vertex.vertex();
   sta::TagGroup *tag_group = sta_->search()->tagGroup(vertex);
   if (tag_group == nullptr) {
-    printf("PtGraph::initPaths: vertex %s has no tag group\n",
-           sta_->network()->name(vertex->pin()));
-    fflush(stdout);
+    // printf("PtGraph::initPaths: vertex %s has no tag group\n",
+    //        sta_->network()->name(vertex->pin()));
+    // fflush(stdout);
     pt_vertex.setPaths(nullptr);
     pt_vertex.setTagGroupIndex(sta::tag_group_index_max);
     return;
@@ -851,7 +851,9 @@ PtGraph::annotateVerticesType()
         continue;
       auto it = vertex_map_.find(load_vertex);
       if (it == vertex_map_.end()) {
-        printf("PtGraph::annotateRefFaninVertices: load vertex not found in vertex_map_\n");
+        // Commonly these vertices are !searchFrom vertices
+        printf("PtGraph::annotateRefFaninVertices: load vertex %s not found in vertex_map_\n",
+               load_vertex->to_string(sta_).c_str());
         fflush(stdout);
         continue;
       }

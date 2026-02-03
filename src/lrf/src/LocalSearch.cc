@@ -113,7 +113,7 @@ LocalArrivalVisitor::findLocalArrivals()
 void 
 LocalArrivalVisitor::visit(Vertex *vertex)
 {
-  PtVertex &pt_vertex = pt_graph_->ptVertex(vertex);
+  PtVertex &pt_vertex = *pt_graph_->ptVertex(vertex);
   findVertexArrival(pt_vertex);
 }
   
@@ -712,7 +712,7 @@ LocalRequiredVisitor::findVertexRequired(PtVertex &pt_vertex)
 void
 LocalRequiredVisitor::visit(Vertex *vertex)
 {
-  PtVertex &pt_vertex = pt_graph_->ptVertex(vertex);
+  PtVertex &pt_vertex = *pt_graph_->ptVertex(vertex);
   findVertexRequired(pt_vertex);
 }
 

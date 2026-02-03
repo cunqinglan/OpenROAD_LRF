@@ -585,6 +585,9 @@ TaskArranger::makeEdge(InstVertex* from_vertex,
   if (from_vertex == to_vertex) {
     return edge_id_null; // Disallow self-loop.
   }
+  if (from_vertex->inst() == to_vertex->inst()) {
+    throw std::runtime_error("from_vertex and to_vertex have the same instance in makeEdge.");
+  }
   InstVertexLevelLess level_less;
   if (!level_less(from_vertex, to_vertex)) 
     return edge_id_null;
@@ -780,13 +783,7 @@ TaskArranger::decreRefCount(VertexId vid)
   if (vid >= num_com_) {
     throw std::runtime_error("Attempting to decreRefCount on non-combinational vertex.");
   }
-  if (std::string(network_->name(vertices_[vid].inst())) == "g219519") {
-    printf("decrementing g219519 ref count from %zu\n", vertex_ref_counts_[vid].load());
-  }
   size_t old = vertex_ref_counts_[vid].fetch_sub(1);
-  if (std::string(network_->name(vertices_[vid].inst())) == "g219519") {
-    printf("decrementing g219519 ref count to %zu\n", vertex_ref_counts_[vid].load());
-  }
   if (old == 0) {
     throw std::runtime_error("Reference count underflow in decreRefCount.");
   }
