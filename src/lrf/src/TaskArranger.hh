@@ -39,6 +39,7 @@ class ParallelLrVisitor;
 class LocalSta;
 class InstVertex;
 class InstEdge;
+class TopologyChecker;
 
 enum class VertexType {
   COMBINATIONAL,
@@ -145,7 +146,7 @@ public:
   sta::InstanceSet FanoutsInstances(const sta::Pin *pin);
   void makeFanoutsMEEWithLevelSort(sta::Instance* inst);
   // Initialize atomic reference counts for all vertices.
-  void initVertexRefCounts();
+  void initVertexRefCounts(bool reset);
 
   EdgeId makeEdge(InstVertex *from_vertex,
                 InstVertex *to_vertex);
@@ -173,6 +174,10 @@ public:
   void setMaxResizeNum(size_t max_resize_num) { max_resize_num_ = max_resize_num; }
   size_t vertexCount() const { return vertices_.size(); }
   const std::unordered_map<const sta::Instance*, VertexId> *instToVidMap() const { return &inst_to_vid_; }
+  
+  // Topology validation
+  void enableTopologyCheck(bool enable) { enable_topology_check_ = enable; }
+  void printTopologyViolations() const;
   
   // Flag of verbose printing
   bool verbose_ = false;
@@ -202,9 +207,14 @@ protected:
   size_t max_resize_num_ = 1000000;
   // Flag of if the first time visitParallel
   bool incremental_ = false;
+  
+  // Topology validation
+  bool enable_topology_check_ = false;
+  std::unique_ptr<TopologyChecker> topology_checker_;
 
 private:
   friend class InstVertexOutEdgeIterator;
+  friend class InstVertexInEdgeIterator;
 };
 
 class InstVertexOutEdgeIterator {
@@ -213,6 +223,21 @@ public:
                             const TaskArranger* arranger);
   InstVertexOutEdgeIterator(const InstVertex &vertex,
                             const TaskArranger* arranger);
+  bool hasNext() const;
+  EdgeId next();
+protected:
+  EdgeId next_;
+  const TaskArranger* arranger_;
+private:
+  friend class TaskArranger;
+};
+
+class InstVertexInEdgeIterator {
+public:
+  InstVertexInEdgeIterator(const InstVertex* vertex,
+                           const TaskArranger* arranger);
+  InstVertexInEdgeIterator(const InstVertex &vertex,
+                           const TaskArranger* arranger);
   bool hasNext() const;
   EdgeId next();
 protected:

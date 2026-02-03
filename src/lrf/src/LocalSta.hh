@@ -95,7 +95,26 @@ public:
   void initParallel();
   void runResize(rsz::Resizer *resizer, ParallelLrVisitor *visitor);
 
+  // Functions for ERC check
+  float getPinMaxSlewLimit(sta::Pin *pin, sta::LibertyCell *cell);
+  float getPinMaxCapLimit(sta::Pin *pin, sta::LibertyCell *lib_cell);
+  float getPinSlew(sta::Pin *pin, const sta::Corner *corner,
+                     const sta::MinMax *min_max, PtGraph *pt_graph);
+  float getNetCap(sta::Net *net, const sta::Corner *corner,
+                  const sta::MinMax *min_max, PtGraph *pt_graph);
+  bool legalCheckBeforeSwap(sta::Instance *inst, 
+                            sta::LibertyCell *to_lib_cell,
+                            const sta::Corner *corner,
+                            const sta::MinMax *min_max,
+                            PtGraph *pt_graph);
+  bool legalCheckAfterSwap(sta::Instance *inst, 
+                           sta::LibertyCell *to_lib_cell,
+                           const sta::Corner *corner,
+                           const sta::MinMax *min_max,
+                           PtGraph *pt_graph);
+
 protected:
+  const Pin *findNetParasiticDrvrPin(sta::Net *net) const;
   void collectLocalFanouts(Pin *drvr_pin, InstanceSet &local_instances);
   void collectLocalFaninSiblings(Pin *pin, PinSet &visited_pins, 
                                  InstanceSet &local_instances);
@@ -279,6 +298,7 @@ protected:
   bool equiv_cells_made_ = false;
   SearchPred *pred_;
   SearchPred *search_pred_;
+  std::mutex pt_graph_vector_mutex_;
 
   std::string debug_label_ = "LocalSTA";
 

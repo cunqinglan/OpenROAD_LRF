@@ -27,6 +27,7 @@ add_library(lrf_lib
     TaskArranger.cc
     LocalCellInfo.cc
     ParallelLibData.cc
+    TopologyChecker.cc
 )
 
 target_sources(lrf
