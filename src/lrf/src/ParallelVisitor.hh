@@ -79,6 +79,7 @@ protected:
 
   // Function of paralllel gate sizing
   float swapCost(float delay_lm_sum, float power);
+  
   bool singleGateSizing(sta::Instance *inst);
   bool singleGateSizingV1(sta::Instance *inst);
   std::vector<std::pair<sta::LibertyCell*, std::pair<size_t, size_t>>> getLegalEquivCells(

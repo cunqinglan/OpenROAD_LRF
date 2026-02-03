@@ -150,9 +150,7 @@ LocalParasitics::makeLocalPiElmore(const Parasitic *parasitic_network,
     local_drvr_parasitic_map_.findKey(drvr_pin);
   if (!parasitic_array) {
     if (parallelism_exists_) {
-      printf("Error: LocalParasitics::makeLocalPiElmore: Do not use it where parallelism exists\n");
-      fflush(stdout);
-      return nullptr;
+      throw std::runtime_error("Error: LocalParasitics::makeLocalPiElmore: Do not use it where parallelism exists\n");
     }
     int ap_count = corners_->parasiticAnalysisPtCount();
     int ap_rf_count = ap_count * RiseFall::index_count;

@@ -22,8 +22,11 @@
 #include "LocalSearch.hh"
 #include "TaskArranger.hh"
 #include "db_sta/dbSta.hh"
+#include "db_sta/dbNetwork.hh"
 #include "TaskArranger.hh"
 #include "sta/PortDirection.hh"
+
+#include <stdexcept>
 
 
 
@@ -145,19 +148,23 @@ LocalSta::collectLocalFanoutVertices(sta::Vertex *drvr_vertex,
       continue;
     }
     Vertex *load_vertex = out_edge->to(graph_);
+    // There might be internal arcs within a cell, still need to collect
     if (!network_->isLoad(load_vertex->pin())) {
       const Pin *pin = load_vertex->pin();
       const Instance *inst = network_->instance(pin);
       PortDirection *dir = network_->direction(pin);
       printf("Warning: LocalSta::collectLocalFanoutVertices: vertex %s is not a load\n",
              load_vertex->to_string(graph_).c_str());
-      printf("  Instance: %s, isLeaf: %d, Pin direction: %s, isAnyInput: %d, isAnyOutput: %d\n",
+      printf(" Collect From %s Instance: %s, isLeaf: %d, Pin direction: %s, isAnyInput: %d, isAnyOutput: %d\n",
+             drvr_vertex->to_string(graph_).c_str(),
              network_->pathName(inst),
              network_->isLeaf(inst),
              dir->name(),
              dir->isAnyInput(),
              dir->isAnyOutput());
       fflush(stdout);
+      // Skip here, since driver will still be collected in collect 
+      // vertices.
       continue;
     }
     if (out_edge->isWire())
@@ -350,7 +357,7 @@ LocalSta::makePtGraph(PtGraph *pt_graph, Instance *inst,
   collectLocalVertices(inst, local_vertices);
   pt_graph->makeGraph(local_vertices, inst);
   if (dcalc_ap == nullptr) {
-    Corner *corner = sta_->corners()->findCorner(0);
+    Corner *corner = sta_->corners()->findCorner("default");
     dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
     if (dcalc_ap == nullptr) {
       throw std::runtime_error("LocalSta::makePtGraph: No dcalc analysis point found");
@@ -362,7 +369,7 @@ LocalSta::makePtGraph(PtGraph *pt_graph, Instance *inst,
 PtGraph *
 LocalSta::makePtGraph(Instance *inst, bool update_timing_first)
 {
-  std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
+  // std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
   PtGraph *pt_graph = new PtGraph(sta_);
   makePtGraph(pt_graph, inst);
   if (update_timing_first) {
@@ -1130,7 +1137,7 @@ LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph,
   findLocalRequireds(pt_graph);
   const Corner *corner = corners_->findCorner("default");
   DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
-  return delayLmSum(pt_graph, dcalc_ap, false);
+  return delayLmSum(pt_graph, dcalc_ap, true);
 }
 
 // Recompute local parasitics after cell swap
@@ -1216,11 +1223,11 @@ LocalSta::localParasiticLoad(const Pin *drvr_pin,
     const char *exclude_pin_name = "CON";
     if (strstr(network_->name(drvr_pin), exclude_pin_name) == nullptr) {
       // Skip printing for CON pins
-      printf("LocalSta::localParasiticLoad failed at pin %s: has_net_load=%d, pin_cap=%f fF, wire_cap=%f fF\n",
-          network_->name(drvr_pin),
-          has_net_load,
-          pin_cap * 1.0e15,
-          wire_cap * 1.0e15);
+      // printf("LocalSta::localParasiticLoad failed at pin %s: has_net_load=%d, pin_cap=%f fF, wire_cap=%f fF\n",
+      //     network_->name(drvr_pin),
+      //     has_net_load,
+      //     pin_cap * 1.0e15,
+      //     wire_cap * 1.0e15);
       return;
     }
     // fflush(stdout);
@@ -1365,6 +1372,236 @@ LocalSta::printLocalSlews(PtGraph *pt_graph) const
     }
   }
   fflush(stdout);
+}
+
+/////////////////////////////////////////////////////
+// Legality checking methods
+/////////////////////////////////////////////////////
+float 
+LocalSta::getPinMaxSlewLimit(sta::Pin *pin, sta::LibertyCell *lib_cell)
+{
+  if (pin == nullptr || lib_cell == nullptr)
+    throw std::runtime_error("LocalSta::getPinMaxSlewLimit: pin or lib_cell is nullptr");
+  sta::dbNetwork *network = sta_->getDbNetwork();
+  const char *port_name = network->portName(pin);
+  sta::LibertyPort *sta_port = lib_cell->findLibertyPort(port_name);
+  if (sta_port == nullptr)
+    throw std::runtime_error("LocalSta::getPinMaxSlewLimit: sta_port is nullptr");
+  odb::dbMTerm *db_iterm = network->staToDb(sta_port);
+  if (db_iterm == nullptr) {
+    printf("LocalSta::getPinMaxSlewLimit: db_iterm is nullptr for port %s of pin %s\n",
+           port_name,
+           network->name(pin));
+    // If DB mapping fails, try to get limit from Liberty port directly
+    sta::LibertyLibrary *lib = network->defaultLibertyLibrary();
+    bool max_slew_exists;
+    float max_slew = 0.0;
+    sta_port->slewLimit(MinMax::max(), max_slew, max_slew_exists);
+    if (!max_slew_exists) {
+      lib->defaultMaxSlew(max_slew, max_slew_exists);
+      if (!max_slew_exists)
+        max_slew = INF;
+    }
+    return max_slew;
+  }
+  sta::LibertyLibrary *lib = network->defaultLibertyLibrary();
+  bool max_slew_exists;
+  float max_slew = 0.0;
+  if (!db_iterm->getSigType().isSupply()) {
+    sta_port->slewLimit(MinMax::max(), max_slew, max_slew_exists);
+    if (!max_slew_exists) {
+      lib->defaultMaxSlew(max_slew, max_slew_exists);
+      if (!max_slew_exists)
+        max_slew = INF;
+    }
+  } else {
+    printf("LocalSta::getPinMaxSlewLimit: Supply pin %s, setting max_slew to INF\n",
+           network->name(pin));
+    max_slew = INF;
+  }
+  return max_slew;
+}
+
+float
+LocalSta::getPinMaxCapLimit(sta::Pin *pin, sta::LibertyCell *lib_cell)
+{
+  if (pin == nullptr || lib_cell == nullptr) {
+    throw std::runtime_error("LocalSta::getPinMaxCapLimit: pin or lib_cell is nullptr");
+  }
+  sta::dbNetwork *network = sta_->getDbNetwork();
+  const char *port_name = network->portName(pin);
+  sta::LibertyPort *sta_port = lib_cell->findLibertyPort(port_name);
+  if (sta_port == nullptr) 
+    throw std::runtime_error("LocalSta::getPinMaxCapLimit: sta_port is nullptr");
+  odb::dbMTerm *db_iterm = network->staToDb(sta_port);
+  if (db_iterm == nullptr) {
+    printf("LocalSta::getPinMaxCapLimit: db_iterm is nullptr for port %s of pin %s\n",
+           port_name,
+           network->name(pin));
+    // If DB mapping fails, try to get limit from Liberty port directly
+    sta::LibertyLibrary *lib = network->defaultLibertyLibrary();
+    float max_cap = 0.0;
+    bool max_cap_exists;
+    sta_port->capacitanceLimit(sta::MinMax::max(), max_cap, max_cap_exists);
+    if (!max_cap_exists) {
+      lib->defaultMaxCapacitance(max_cap, max_cap_exists);
+      if (!max_cap_exists)
+        max_cap = INF;
+    }
+    return max_cap;
+  }
+  sta::LibertyLibrary *lib = network->defaultLibertyLibrary();
+  float max_cap = 0.0;
+  bool max_cap_exists;
+  if (!db_iterm->getSigType().isSupply()) {
+    sta_port->capacitanceLimit(sta::MinMax::max(), max_cap, max_cap_exists);
+    if (!max_cap_exists) {
+      lib->defaultMaxCapacitance(max_cap, max_cap_exists);
+    if (!max_cap_exists)
+        max_cap = INF;
+    }
+  }
+  return max_cap;
+}
+
+float
+LocalSta::getPinSlew(sta::Pin *pin, const sta::Corner *corner,
+                     const sta::MinMax *min_max, PtGraph *pt_graph)
+{
+  sta::Vertex *vertex, *bidir_vertex;
+  graph_->pinVertices(pin, vertex, bidir_vertex);
+  if (vertex == nullptr)
+    throw std::runtime_error("LocalSta::getPinSlew: vertex is nullptr");
+  PtVertex *pt_vertex = pt_graph->ptVertex(vertex);
+  if (pt_vertex == nullptr)
+    return 0.0;
+  float max_vertex_slew = 0.0;
+  for (const RiseFall *rf : RiseFall::range()) {
+    float vertex_slew = pt_graph->slew(*pt_vertex, rf, corner->findDcalcAnalysisPt(min_max)->index());
+    if (vertex_slew > max_vertex_slew)
+      max_vertex_slew = vertex_slew;
+  }
+  return max_vertex_slew;
+}
+
+const Pin*
+LocalSta::findNetParasiticDrvrPin(sta::Net *net) const
+{
+  const Pin *load_pin = nullptr;
+  sta::NetConnectedPinIterator *pin_iter = network_->connectedPinIterator(net);
+  while (pin_iter->hasNext()) {
+    const Pin *pin = pin_iter->next();
+    if (network_->isDriver(pin)) {
+      delete pin_iter;
+      return pin;
+    }
+    if (network_->isLoad(pin))
+      load_pin = pin;
+  }
+  delete pin_iter;
+  return load_pin;
+}
+
+float
+LocalSta::getNetCap(sta::Net *net, const sta::Corner *corner,
+                        const sta::MinMax *min_max, PtGraph *pt_graph)
+{
+  const sta::Pin *pin = findNetParasiticDrvrPin(net);
+  sta::Vertex *vertex, *bidir_vertex;
+  graph_->pinVertices(pin, vertex, bidir_vertex);
+  sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(min_max);
+  if (vertex == nullptr)
+    throw std::runtime_error("LocalSta::getPinLoadCap: vertex is nullptr");
+  const sta::Parasitic *parasitic;
+  float max_cap = 0.0;
+  for (const RiseFall *rf : RiseFall::range()) {
+    float load_cap = 0.0;
+    localParasiticLoad(pin, rf, dcalc_ap, nullptr, load_cap, parasitic);
+    arc_delay_calc_->finishDrvrPin();
+    if (max_cap < load_cap)
+      max_cap = load_cap;
+  }
+  return max_cap;
+}
+
+bool
+LocalSta::legalCheckBeforeSwap(sta::Instance *inst, 
+                               sta::LibertyCell *to_lib_cell,
+                               const sta::Corner *corner,
+                               const sta::MinMax *min_max,
+                               PtGraph *pt_graph)
+{
+  // Check input slew and output load legality for each pin.
+  // We can check input slew and output load in advance.
+  if (corner == nullptr)
+    corner = corners_->findCorner("default");
+  if (min_max == nullptr)
+    min_max = sta::MinMax::max();
+  sta::InstancePinIterator *pin_iter = network_->pinIterator(inst);
+  while (pin_iter->hasNext()) {
+    sta::Pin *pin = pin_iter->next();
+    // Check input slew legality.
+    if (network_->isLoad(pin)) {
+      float slew_limit = getPinMaxSlewLimit(pin, to_lib_cell);
+      float pin_slew = getPinSlew(pin, corner, min_max, pt_graph);
+      if (pin_slew > slew_limit) {
+        delete pin_iter;
+        return false;
+      }
+    }
+    // Check output load legality.
+    else if (network_->isDriver(pin)) {
+      float cap_limit = getPinMaxCapLimit(pin, to_lib_cell);
+      sta::Net *net = network_->net(pin);
+      float pin_load = getNetCap(net, corner, min_max, pt_graph);
+      if (pin_load > cap_limit) {
+        delete pin_iter;
+        return false;
+      }
+    }
+  }
+  delete pin_iter;
+  return true;
+}
+
+bool
+LocalSta::legalCheckAfterSwap(sta::Instance *inst, 
+                              sta::LibertyCell *to_lib_cell,
+                              const sta::Corner *corner,
+                              const sta::MinMax *min_max,
+                              PtGraph *pt_graph)
+{
+  // Check output slew and input load legality for each pin.
+  // We can only get the output slew and input cap after swap.
+  if (corner == nullptr)
+    corner = corners_->findCorner("default");
+  if (min_max == nullptr)
+    min_max = sta::MinMax::max();
+  sta::InstancePinIterator *pin_iter = network_->pinIterator(inst);
+  while (pin_iter->hasNext()) {
+    sta::Pin *pin = pin_iter->next();
+    // Check output slew legality.
+    if (network_->isDriver(pin)) {
+      float slew_limit = getPinMaxSlewLimit(pin, to_lib_cell);
+      float pin_slew = getPinSlew(pin, corner, min_max, pt_graph);
+      if (pin_slew > slew_limit) {
+        delete pin_iter;
+        return false;
+      }
+    }
+    // Check input load legality.
+    else if (network_->isLoad(pin)) {
+      float cap_limit = getPinMaxCapLimit(pin, to_lib_cell);
+      sta::Net *net = network_->net(pin);
+      float pin_load = getNetCap(net, corner, min_max, pt_graph);
+      if (pin_load > cap_limit) {
+        delete pin_iter;
+        return false;
+      }
+    }
+  }
+  delete pin_iter;
+  return true;
 }
 
 
