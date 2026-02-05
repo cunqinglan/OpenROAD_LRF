@@ -28,14 +28,14 @@ report_tns
 
 puts "-- After --\n"
 
-resynth -corner fast
+resynth -corner fast -split_large_inputs 5
 report_timing_histogram
 report_cell_usage
 report_checks
 report_wns
 report_tns
 
-resynth -corner fast
+resynth -corner fast -split_large_inputs 5
 report_timing_histogram
 report_cell_usage
 report_checks

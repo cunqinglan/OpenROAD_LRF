@@ -28,13 +28,14 @@ sta::define_cmd_args "restructure" { \
                                       [-liberty_file liberty_file]\
                                       [-tielo_port tielow_port]\
                                       [-tiehi_port tiehigh_port]\
+                                      [-split_large_inputs split_large_inputs]\
                                       [-work_dir workdir_name]
                                     }
 
 proc restructure { args } {
   sta::parse_key_args "restructure" args \
     keys {-slack_threshold -depth_threshold -target -liberty_file -abc_logfile\
-          -tielo_port -tiehi_port -work_dir} \
+          -tielo_port -tiehi_port -work_dir -split_large_inputs} \
     flags {}
 
   set slack_threshold_value 0
@@ -42,6 +43,7 @@ proc restructure { args } {
   set target "area"
   set workdir_name "."
   set abc_logfile ""
+  set split_large_inputs_value 0
 
   if { [info exists keys(-slack_threshold)] } {
     set slack_threshold_value $keys(-slack_threshold)
@@ -101,17 +103,27 @@ proc restructure { args } {
     set workdir_name $keys(-work_dir)
   }
 
+  if { [info exists keys(-split_large_inputs)] } {
+    set split_large_inputs_value $keys(-split_large_inputs)
+  }
+  rmp::set_split_large_inputs $split_large_inputs_value
+
   rmp::restructure_cmd $liberty_file_name $target $slack_threshold_value \
     $depth_threshold_value $workdir_name $abc_logfile
 }
 
-sta::define_cmd_args "resynth" {[-corner corner]}
+sta::define_cmd_args "resynth" {[-corner corner] [-split_large_inputs split_large_inputs]}
 
 proc resynth { args } {
   sta::parse_key_args "resynth" args \
-    keys {-corner} \
+    keys {-corner -split_large_inputs} \
     flags {}
   set corner [sta::parse_corner keys]
+  if { [info exists keys(-split_large_inputs)] } {
+    rmp::set_split_large_inputs $keys(-split_large_inputs)
+  } else {
+    rmp::set_split_large_inputs 0
+  }
   rmp::resynth_cmd $corner
 }
 
@@ -123,11 +135,12 @@ sta::define_cmd_args "resynth_annealing" {
                                             [-iters iters]
                                             [-revert_after revert_after]
                                             [-initial_ops initial_ops]
+                                            [-split_large_inputs split_large_inputs]
                                           }
 
 proc resynth_annealing { args } {
   sta::parse_key_args "resynth_annealing" args \
-    keys {-corner -iters -revert_after -seed -temp -initial_ops -slack_threshold} \
+    keys {-corner -iters -revert_after -seed -temp -initial_ops -slack_threshold -split_large_inputs} \
     flags {}
 
   set corner [sta::parse_corner keys]
@@ -148,6 +161,11 @@ proc resynth_annealing { args } {
   }
   if { [info exists keys(-initial_ops)] } {
     rmp::set_annealing_initial_ops $keys(-initial_ops)
+  }
+  if { [info exists keys(-split_large_inputs)] } {
+    rmp::set_split_large_inputs $keys(-split_large_inputs)
+  } else {
+    rmp::set_split_large_inputs 0
   }
 
   rmp::resynth_annealing_cmd $corner

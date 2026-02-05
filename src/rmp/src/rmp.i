@@ -78,6 +78,12 @@ set_annealing_initial_ops(int set_annealing_initial_ops)
   getRestructure()->setAnnealingInitialOps(set_annealing_initial_ops);
 }
 
+void
+set_split_large_inputs(int k)
+{
+  getRestructure()->setSplitLargeInputs(k);
+}
+
 void resynth_cmd(Corner* corner) {
   getRestructure()->resynth(corner);
 }

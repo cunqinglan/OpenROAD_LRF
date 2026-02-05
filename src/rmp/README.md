@@ -35,6 +35,7 @@ restructure
     [-liberty_file liberty_file]
     [-tielo_port  tielo_pin_name]
     [-tiehi_port tiehi_pin_name]
+    [-split_large_inputs k]
     [-work_dir work_dir]
 ```
 
@@ -49,6 +50,7 @@ restructure
 | `-tielo_pin` | Tie cell pin that can drive constant zero. The format is `<cell>/<port>`. |
 | `-tiehi_pin` | Tie cell pin that can drive constant one. The format is `<cell>/<port>`. |
 | `-abc_logfile` | Output file to save abc logs to. |
+| `-split_large_inputs` | Enable splitting of large-input cells during timing optimization. For value `k` (>=2), cells with `>= k` inputs are remapped into an equivalent network using cells with `<= k-1` inputs. Set to `0` to disable (default). |
 | `-work_dir` | Name of the working directory for temporary files. If not provided, `run` directory would be used. |
 
 ### Resynth
@@ -58,6 +60,7 @@ Resynthesize parts of the design in an attempt to fix negative slack.
 ```tcl
 resynth
     [-corner corner]
+    [-split_large_inputs k]
 ```
 
 #### Options
@@ -65,6 +68,7 @@ resynth
 | Switch Name | Description |
 | ----- | ----- |
 | `-corner` | Process corner to use. |
+| `-split_large_inputs` | Enable splitting of large-input cells. For value `k` (>=2), cells with `>= k` inputs are remapped into an equivalent network using cells with `<= k-1` inputs. Set to `0` to disable (default). |
 
 ### Resynth with simulated annealing
 
@@ -82,6 +86,7 @@ resynth_annealing
     [-iters iters]
     [-revert_after revert_after]
     [-initial_ops initial_ops]
+    [-split_large_inputs k]
 ```
 
 #### Options
@@ -95,6 +100,7 @@ resynth_annealing
 | `-iters` | Number of iterations to run simulated annealing for. |
 | `-revert_after` | After the given number of iterations that worsen slack, revert to best found solution. |
 | `-initial_ops` | Size of the initial random solution (number of commands in the script for ABC). |
+| `-split_large_inputs` | Enable splitting of large-input cells. For value `k` (>=2), cells with `>= k` inputs are remapped into an equivalent network using cells with `<= k-1` inputs. Set to `0` to disable (default). |
 
 ## Example scripts
 

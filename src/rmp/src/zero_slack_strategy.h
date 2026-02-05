@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <optional>
+
 #include "db_sta/dbSta.hh"
 #include "resynthesis_strategy.h"
 #include "rsz/Resizer.hh"
@@ -15,7 +17,12 @@ namespace rmp {
 class ZeroSlackStrategy : public ResynthesisStrategy
 {
  public:
-  explicit ZeroSlackStrategy(sta::Corner* corner = nullptr) : corner_(corner) {}
+  explicit ZeroSlackStrategy(sta::Corner* corner = nullptr,
+                             std::optional<int> split_large_inputs_k
+                             = std::nullopt)
+      : corner_(corner), split_large_inputs_k_(split_large_inputs_k)
+  {
+  }
   void OptimizeDesign(sta::dbSta* sta,
                       utl::UniqueName& name_generator,
                       rsz::Resizer* resizer,
@@ -23,6 +30,7 @@ class ZeroSlackStrategy : public ResynthesisStrategy
 
  private:
   sta::Corner* corner_;
+  std::optional<int> split_large_inputs_k_;
 };
 
 }  // namespace rmp

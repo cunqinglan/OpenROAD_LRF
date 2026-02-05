@@ -85,6 +85,15 @@ utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> DelayOptimizationStrategy::Optimize(
     cut::AbcLibrary& abc_library,
     utl::Logger* logger)
 {
+  return Optimize(ntk, abc_library, nullptr, logger);
+}
+
+utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> DelayOptimizationStrategy::Optimize(
+    const abc::Abc_Ntk_t* ntk,
+    cut::AbcLibrary& abc_library,
+    abc::Mio_Library_t* map_library,
+    utl::Logger* logger)
+{
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> current_network(
       abc::Abc_NtkToLogic(const_cast<abc::Abc_Ntk_t*>(ntk)),
       &abc::Abc_NtkDelete);
@@ -101,11 +110,16 @@ utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> DelayOptimizationStrategy::Optimize(
     // Lock the tech mapping and buffer since they rely on static variables.
     const std::lock_guard<std::mutex> lock(abc_library_mutex);
 
-    auto library = static_cast<abc::Mio_Library_t*>(ntk->pManFunc);
+    if (!map_library) {
+      map_library = static_cast<abc::Mio_Library_t*>(ntk->pManFunc);
+    }
+    if (!map_library) {
+      map_library = abc_library.mio_library();
+    }
 
     // Install library for NtkMap
-    abc::Abc_FrameSetLibGen(library);
-    abc::Mio_Gate_t* buffer_cell = abc::Mio_LibraryReadBuf(library);
+    abc::Abc_FrameSetLibGen(map_library);
+    abc::Mio_Gate_t* buffer_cell = abc::Mio_LibraryReadBuf(map_library);
     if (!buffer_cell) {
       logger->error(
           utl::RMP,
@@ -116,7 +130,7 @@ utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> DelayOptimizationStrategy::Optimize(
     abc::Abc_FrameSetDrivingCell(strdup(abc::Mio_GateReadName(buffer_cell)));
 
     current_network = WrapUnique(abc::Abc_NtkMap(current_network.get(),
-                                                 nullptr,
+                                                 map_library,
                                                  /*DelayTarget=*/1.0,
                                                  /*AreaMulti=*/0.0,
                                                  /*DelayMulti=*/2.5,
