@@ -74,6 +74,23 @@ static bool IsCombinational(sta::LibertyCell* cell)
           && !cell->isIsolationCell() && !cell->isMemory());
 }
 
+static int CountInputPins(sta::LibertyCell* cell)
+{
+  if (!cell) {
+    return 0;
+  }
+  sta::LibertyCellPortIterator cell_port_iterator(cell);
+  int input_count = 0;
+  while (cell_port_iterator.hasNext()) {
+    sta::LibertyPort* port = cell_port_iterator.next();
+    if (port->direction()->isInput()) {
+      input_count++;
+    }
+  }
+
+  return input_count;
+}
+
 static int CountOutputPins(sta::LibertyCell* cell)
 {
   sta::LibertyCellPortIterator cell_port_iterator(cell);
@@ -368,6 +385,12 @@ AbcLibraryFactory& AbcLibraryFactory::SetCorner(sta::Corner* corner)
   return *this;
 }
 
+AbcLibraryFactory& AbcLibraryFactory::SetMaxInputCount(int max_inputs)
+{
+  max_input_count_ = max_inputs;
+  return *this;
+}
+
 AbcLibrary AbcLibraryFactory::Build()
 {
   if (!db_sta_) {
@@ -473,6 +496,12 @@ void AbcLibraryFactory::PopulateAbcSclLibFromSta(
   for (sta::LibertyCell* cell : cells) {
     if (!isCompatibleWithAbc(cell, resizer_)) {
       continue;
+    }
+    if (max_input_count_) {
+      const int input_count = CountInputPins(cell);
+      if (input_count > *max_input_count_) {
+        continue;
+      }
     }
 
     abc::SC_Cell* abc_cell = abc::Abc_SclCellAlloc();

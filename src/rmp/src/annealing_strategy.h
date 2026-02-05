@@ -30,13 +30,16 @@ class AnnealingStrategy : public ResynthesisStrategy
                              std::optional<float> temperature,
                              unsigned iterations,
                              std::optional<unsigned> revert_after,
-                             unsigned initial_ops)
+                             unsigned initial_ops,
+                             std::optional<int> split_large_inputs_k
+                             = std::nullopt)
       : corner_(corner),
         slack_threshold_(slack_threshold),
         temperature_(temperature),
         iterations_(iterations),
         revert_after_(revert_after),
-        initial_ops_(initial_ops)
+        initial_ops_(initial_ops),
+        split_large_inputs_k_(split_large_inputs_k)
   {
     if (seed) {
       random_.seed(*seed);
@@ -49,6 +52,8 @@ class AnnealingStrategy : public ResynthesisStrategy
   void RunGia(sta::dbSta* sta,
               const std::vector<sta::Vertex*>& candidate_vertices,
               cut::AbcLibrary& abc_library,
+              cut::AbcLibrary* map_library,
+              abc::Mio_Library_t* map_mio,
               const std::vector<GiaOp>& gia_ops,
               size_t resize_iters,
               utl::UniqueName& name_generator,
@@ -61,6 +66,7 @@ class AnnealingStrategy : public ResynthesisStrategy
   unsigned iterations_;
   std::optional<unsigned> revert_after_;
   unsigned initial_ops_;
+  std::optional<int> split_large_inputs_k_;
   std::mt19937 random_;
 };
 

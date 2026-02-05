@@ -11,8 +11,13 @@
 #include "rsz/Resizer.hh"
 #include "sta/Corner.hh"
 #include "sta/Delay.hh"
+#include "sta/Liberty.hh"
 #include "utl/Logger.h"
 #include "utl/deleter.h"
+
+namespace cut {
+class LogicCut;
+}  // namespace cut
 
 namespace rmp {
 
@@ -21,5 +26,12 @@ utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> WrapUnique(abc::Abc_Ntk_t* ntk);
 std::vector<sta::Vertex*> GetEndpoints(sta::dbSta* sta,
                                        rsz::Resizer* resizer,
                                        sta::Slack slack_threshold);
+
+int CountInputPins(const sta::LibertyCell* cell);
+
+bool HasLargeInputCells(const cut::LogicCut& cut,
+                        sta::dbNetwork* network,
+                        int min_inputs,
+                        int* large_cell_count = nullptr);
 
 }  // namespace rmp
