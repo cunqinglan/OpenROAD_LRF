@@ -88,17 +88,9 @@ void
 TaskArranger::init()
 {
   if (vertices_.empty()) {
-<<<<<<< HEAD
-    makeGraph();
-    initVertexRefCounts();
-    ensureGraphVertices();
-  } else {
-    initVertexRefCounts();
-=======
     printf("TaskArranger::init making graph...\n");
     makeGraph();
     initVertexRefCounts(true);
->>>>>>> develop
     ensureGraphVertices();
   }
 }
@@ -107,20 +99,11 @@ void
 TaskArranger::reinit()
 {
   printf("TaskArranger::reinit checking graph consistency...\n");
-<<<<<<< HEAD
-  fflush(stdout);
-  // This number is completely wrong, need to double check
-  if (network_->instanceCount() != vertices_.size() + 1) { // +1 for TOP instance
-    init();
-  } else {
-    initVertexRefCounts();
-=======
   // This number is completely wrong, need to double check
   // if (network_->instanceCount() != vertices_.size() + 1) { // +1 for TOP instance
   //   init();
   // } else {
     initVertexRefCounts(false);
->>>>>>> develop
     ensureGraphVertices();
   // }
 }

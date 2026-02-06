@@ -28,6 +28,8 @@ include/ord/Version.hh
 build
 build_linux
 build_mac
+build_new
+sota_lrf
 test/results
 
 docs/main
