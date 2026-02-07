@@ -283,9 +283,13 @@ IncreSta::preSaveLibCellLeakage()
   sta::Corner *corner = sta_->corners()->findCorner("default");
   // Clear any previous allocation before creating new one.
   clearLocalCellInfoMap();
-  cell_info_vec_ = new LocalCellInfo[network_->leafInstanceCount() + 1];
+  cell_info_vec_ = new LocalCellInfo[int(network_->leafInstanceCount() * 1.1)];
   inst_info_map_.clear();
-  inst_info_map_.reserve(network_->leafInstanceCount() * 1.1);
+  inst_info_map_.reserve(int(network_->leafInstanceCount() * 1.1));
+  // clearLocalCellInfoMap();
+  // cell_info_vec_ = new LocalCellInfo[network_->leafInstanceCount() + 1];
+  // inst_info_map_.clear();
+  // inst_info_map_.reserve(network_->leafInstanceCount() * 1.1);
 
   int cnt = 0;
   sta::LeafInstanceIterator* inst_iter = network_->leafInstanceIterator();
@@ -503,7 +507,7 @@ IncreSta::parallelResizeCPS(rsz::Resizer *resizer, float avg_delay, float avg_po
   sta_->findRequireds();
   double tns_after_resize = sta_->totalNegativeSlack(MinMax::max());
   double wns_after_resize = sta_->worstSlack(MinMax::max());
-  printf("After parallel resize, TNS: %e, WNS: %e\n", tns_after_resize, wns_after_resize);
+  printf("After parallel LR resize, TNS: %e, WNS: %e\n", tns_after_resize, wns_after_resize);
   printf("parallel resize time: %f s\n", diff_resize.count());
 
   // Run critical path sizing
@@ -520,7 +524,7 @@ IncreSta::parallelResizeCPS(rsz::Resizer *resizer, float avg_delay, float avg_po
 
   double tns_after_cps = sta_->totalNegativeSlack(MinMax::max());
   double wns_after_cps = sta_->worstSlack(MinMax::max());
-  printf("After critical path sizing, TNS: %f, WNS: %f\n", tns_after_cps, wns_after_cps);
+  printf("After critical path sizing, TNS: %e, WNS: %e\n", tns_after_cps, wns_after_cps);
   printf("critical path sizing time: %f s\n", diff_cps.count());
   delete critical_path_visitor;
 
