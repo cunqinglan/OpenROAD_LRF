@@ -473,17 +473,25 @@ IncreSta::parallelResizeCPS(rsz::Resizer *resizer, float avg_delay, float avg_po
   Slack wns = sta_->worstSlack(MinMax::max());
   TaskArranger *task_arranger = local_sta_->taskArranger();
 
-  if (parallel_lib_data_ == nullptr) {
-    auto start_pld = std::chrono::high_resolution_clock::now();
-    makeParallelLibData(resizer, task_arranger);
-    auto end_pld = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> diff_pld = end_pld - start_pld;
-    printf("makeParallelLibData took %f s\n", diff_pld.count());
+  if (!swap_cell_presaved_) {
+    auto start_cache = std::chrono::high_resolution_clock::now();
+    makeSwappableCellsCache(resizer);
+    auto end_cache = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> diff_cache = end_cache - start_cache;
+    printf("makeSwappableCellsCache took %f s\n", diff_cache.count());
+  }
+  if (!swap_cell_leakage_presaved_) {
+    auto start_presave = std::chrono::high_resolution_clock::now();
+    preSaveLibCellLeakage();
+    auto end_presave = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> diff_presave = end_presave - start_presave;
+    printf("preSaveLibCellLeakage took %f s\n", diff_presave.count());
   }
 
   auto start_resize = std::chrono::high_resolution_clock::now();
   ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_);
-  visitor->init(avg_delay, avg_power, wns, PT_tradeoff, parallel_lib_data_);
+  visitor->init(avg_delay, avg_power, wns, PT_tradeoff, 
+      &swappable_cells_cache_, &inst_info_map_);
   local_sta_->runResize(resizer, visitor);
   auto end_resize = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_resize = end_resize - start_resize;
@@ -497,7 +505,8 @@ IncreSta::parallelResizeCPS(rsz::Resizer *resizer, float avg_delay, float avg_po
 
   // Run critical path sizing
   ParallelLrVisitor *critical_path_visitor = new ParallelLrVisitor(sta_, local_sta_);
-  critical_path_visitor->init(avg_delay, avg_power, wns_after_resize, PT_tradeoff, parallel_lib_data_);
+  critical_path_visitor->init(avg_delay, avg_power, wns_after_resize, 
+      PT_tradeoff, &swappable_cells_cache_, &inst_info_map_);
 
   // Time the critical-path sizing phase
   auto start_cps = std::chrono::high_resolution_clock::now();
