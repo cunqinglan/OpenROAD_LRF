@@ -150,19 +150,19 @@ LocalSta::collectLocalFanoutVertices(sta::Vertex *drvr_vertex,
     Vertex *load_vertex = out_edge->to(graph_);
     // There might be internal arcs within a cell, still need to collect
     if (!network_->isLoad(load_vertex->pin())) {
-      const Pin *pin = load_vertex->pin();
-      const Instance *inst = network_->instance(pin);
-      PortDirection *dir = network_->direction(pin);
-      printf("Warning: LocalSta::collectLocalFanoutVertices: vertex %s is not a load\n",
-             load_vertex->to_string(graph_).c_str());
-      printf(" Collect From %s Instance: %s, isLeaf: %d, Pin direction: %s, isAnyInput: %d, isAnyOutput: %d\n",
-             drvr_vertex->to_string(graph_).c_str(),
-             network_->pathName(inst),
-             network_->isLeaf(inst),
-             dir->name(),
-             dir->isAnyInput(),
-             dir->isAnyOutput());
-      fflush(stdout);
+      // const Pin *pin = load_vertex->pin();
+      // const Instance *inst = network_->instance(pin);
+      // PortDirection *dir = network_->direction(pin);
+      // printf("Warning: LocalSta::collectLocalFanoutVertices: vertex %s is not a load\n",
+      //        load_vertex->to_string(graph_).c_str());
+      // printf(" Collect From %s Instance: %s, isLeaf: %d, Pin direction: %s, isAnyInput: %d, isAnyOutput: %d\n",
+      //        drvr_vertex->to_string(graph_).c_str(),
+      //        network_->pathName(inst),
+      //        network_->isLeaf(inst),
+      //        dir->name(),
+      //        dir->isAnyInput(),
+      //        dir->isAnyOutput());
+      // fflush(stdout);
       // Skip here, since driver will still be collected in collect 
       // vertices.
       continue;
