@@ -751,7 +751,10 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
     printf("----- LR Resizing Iteration %zu -----\n", i+1);
     // incre_sta->parallelResizeV1(resizer, avg_delay, avg_leakage, PT_tradeoff);
     auto start = std::chrono::high_resolution_clock::now();
-    incre_sta->parallelResize(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    if (i < 6)
+      incre_sta->parallelResize(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    else 
+      incre_sta->parallelResizeCPS(resizer, avg_delay, avg_leakage, PT_tradeoff);
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
     printf("Parallel resize took %f seconds\n", elapsed.count());

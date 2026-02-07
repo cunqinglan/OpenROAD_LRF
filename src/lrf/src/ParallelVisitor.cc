@@ -56,7 +56,14 @@ ParallelLrVisitor::checkVisitorStatus() const
   if (db_sta_ == nullptr || local_sta_ == nullptr || arc_delay_calc_ == nullptr) {
     return false;
   }
-  if (swappable_cells_cache_->empty() || inst_info_map_->empty()) {
+  // Two init paths: cache-based (swappable_cells_cache_ + inst_info_map_)
+  // or parallel_lib_data_-based.  At least one must be valid.
+  bool cache_valid = (swappable_cells_cache_ != nullptr && !swappable_cells_cache_->empty()
+                      && inst_info_map_ != nullptr && !inst_info_map_->empty());
+  bool pld_valid = (parallel_lib_data_ != nullptr);
+  if (!cache_valid && !pld_valid) {
+    printf("ParallelLrVisitor::checkVisitorStatus ERROR: both cache and parallel_lib_data_ are invalid\n");
+    fflush(stdout);
     return false;
   }
   return true;
@@ -416,17 +423,16 @@ ParallelLrVisitor::visit(sta::Instance *inst)
   if (!checkVisitorStatus()) {
     throw std::runtime_error("ParallelLrVisitor::visit visitor status invalid");
   }
-  // if (!parallel_lib_data_) {
-  //   printf("ParallelLrVisitor::visit parallel_lib_data_ is null\n");
-  //   fflush(stdout);
-  //   return false;
-  // }
-  bool success = trySwap(inst);
+  bool success;
+  if (parallel_lib_data_) {
+    success = trySwapV1(inst);
+  } else {
+    success = trySwap(inst);
+  }
   std::chrono::steady_clock::time_point end_time = std::chrono::steady_clock::now();
   std::chrono::duration<double> duration = end_time - start_time;
   runtime_map_["visit"] += duration.count();
   return success;
-  // return trySwapV1(inst);
 }
 
 bool
