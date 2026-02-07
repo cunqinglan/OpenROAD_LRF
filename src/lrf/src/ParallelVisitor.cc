@@ -134,7 +134,8 @@ ParallelLrVisitor::trySwap(sta::Instance *inst)
         throw std::runtime_error("ParallelLrVisitor::visit found non-equivalent cell in equiv_cells");
       }
 
-  if (!local_sta_->legalCheckBeforeSwap(inst, equiv_cell, nullptr, nullptr, pt_graph_)) {
+  if (!local_sta_->legalCheckBeforeSwap(inst, equiv_cell, nullptr, nullptr, pt_graph_)
+        && !(equiv_cell == ori_cell)) {
     cnt++;
     continue;
   }
@@ -142,7 +143,8 @@ ParallelLrVisitor::trySwap(sta::Instance *inst)
       float leakage = (*inst_info_map_)[inst]->cell_leakages[cnt];
       float delay_lm_sum = local_sta_->
         increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, equiv_cell).delay_lm_sum;
-  if (!local_sta_->legalCheckAfterSwap(inst, equiv_cell, nullptr, nullptr, pt_graph_)) {
+  if (!local_sta_->legalCheckAfterSwap(inst, equiv_cell, nullptr, nullptr, pt_graph_) 
+        && !(equiv_cell == ori_cell)) {
     cnt++;
     continue;
   }

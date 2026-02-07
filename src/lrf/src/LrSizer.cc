@@ -56,7 +56,7 @@ LrSizer::criticalPathSizing()
   // one.
   for (sta::Vertex* end : *endpoints) {
     const sta::Slack end_slack = sta_->vertexSlack(end, max_);
-    if (end_slack < tsh) {
+    if (end_slack < -tsh) {
       violating_ends.emplace_back(end, end_slack);
     }
   }
@@ -109,6 +109,10 @@ LrSizer::sizeCriticalPathGates(sta::Path* path_end)
     if (i > 0 && network_->isDriver(path_pin) &&
         !network_->isTopLevelPort(path_pin)) {
       sta::Instance *inst = network_->instance(path_pin);
+      // We don't support reg sizing now.
+      if (network_->libertyCell(inst)->hasSequentials()) {
+        continue;
+      }
       if (singleGateSizing(inst, visitor_)) {
         gates_sized++;
       }

@@ -281,8 +281,10 @@ IncreSta::preSaveLibCellLeakage()
     throw std::runtime_error("IncreSta::preSaveLibCellLeakage called before swappable cells are presaved\n");
   ensureActivities();
   sta::Corner *corner = sta_->corners()->findCorner("default");
-  LocalCellInfo *cell_info_vec_ = new LocalCellInfo[network_->leafInstanceCount() + 1];
+  // Clear any previous allocation before creating new one.
   clearLocalCellInfoMap();
+  cell_info_vec_ = new LocalCellInfo[network_->leafInstanceCount() + 1];
+  inst_info_map_.clear();
   inst_info_map_.reserve(network_->leafInstanceCount() * 1.1);
 
   int cnt = 0;
@@ -299,9 +301,9 @@ IncreSta::preSaveLibCellLeakage()
       LocalCellInfo *cell_info = &cell_info_vec_[cnt++];
       cell_info->equiv_cells = swappable_cells_cache_[cell];
       
-      // Safety check: ensure equiv_cells is not null
+      // Safety check: ensure equiv_cells is not null.
+      // Do NOT delete cell_info here — it points into the array cell_info_vec_.
       if (!cell_info->equiv_cells) {
-        delete cell_info;
         continue; 
       }
 
@@ -497,11 +499,12 @@ IncreSta::parallelResizeCPS(rsz::Resizer *resizer, float avg_delay, float avg_po
   std::chrono::duration<double> diff_resize = end_resize - start_resize;
 
   // Use distinct variable names to avoid shadowing Slack
+  sta_->updateTiming(true);
+  sta_->findRequireds();
   double tns_after_resize = sta_->totalNegativeSlack(MinMax::max());
   double wns_after_resize = sta_->worstSlack(MinMax::max());
-  printf("After parallel resize, TNS: %f, WNS: %f\n", tns_after_resize, wns_after_resize);
+  printf("After parallel resize, TNS: %e, WNS: %e\n", tns_after_resize, wns_after_resize);
   printf("parallel resize time: %f s\n", diff_resize.count());
-  delete visitor;
 
   // Run critical path sizing
   ParallelLrVisitor *critical_path_visitor = new ParallelLrVisitor(sta_, local_sta_);
