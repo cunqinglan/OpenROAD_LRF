@@ -66,6 +66,8 @@ public:
                       float PT_tradeoff = 100.0);
   void parallelResizeV1(rsz::Resizer *resizer, float avg_delay = 1, float avg_power = 1,
                         float PT_tradeoff = 100.0);
+  void parallelResizeCPS(rsz::Resizer *resizer, float avg_delay, float avg_power,
+                      float PT_tradeoff);
   void setMaxResizeNum(size_t max_resize_num);
 
   // APIs for power optimization

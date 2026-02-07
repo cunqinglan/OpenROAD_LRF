@@ -12,15 +12,13 @@
 namespace lrf {
 using namespace sta;
 
-
-
 typedef std::map<DcalcAnalysisPt const*, LMValue> DcalcAPToLMValueMap;
 typedef std::map<DcalcAnalysisPt const*, LMValueSeq> DcalcAPToLMValueSeqMap;
 
-class LRHelper: public StaState
+class LRHelper: public dbStaState
 {
 public:
-  LRHelper(StaState *sta);
+  LRHelper(dbSta *sta);
   ~LRHelper();
 
   virtual void copyState(const StaState *sta);
@@ -30,6 +28,8 @@ public:
   virtual void updateAllEdgeLms(Sta *sta);
   void enqueueVertex(Vertex *vertex);
   void setRatcons(bool ratcons) { RATCONS_ = ratcons; }
+  virtual std::string strategyName() const { return "Base LRHelper"; }
+  virtual bool updateCriticalPathLms(sta::Path *path_end) { return false; };
 
 protected:
   void distributeLmOutToIn(Vertex *vertex,
@@ -38,8 +38,6 @@ protected:
                             size_t in_sum_index);
 
   LMValueSeq computeOutLmSum(Vertex *vertex) const;
-
-  virtual std::string strategyName() const { return "Base LRHelper"; }
   size_t computeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_seq_map);
   bool checkKKTForAllVertices();
   bool isBeforeReg(Vertex *vertex) const;
@@ -68,9 +66,10 @@ private:
 
 class RapidLrHelper : public LRHelper {
 public:
-  RapidLrHelper(StaState *sta) : LRHelper(sta) {}
+  RapidLrHelper(sta::dbSta *sta) : LRHelper(sta) {}
   ~RapidLrHelper() override = default;
   virtual std::string strategyName() const override { return "Rapid LRHelper: LM=path delay/T"; }
+  virtual bool updateCriticalPathLms(sta::Path *path_end) override;
 
 protected:
   virtual void updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, 
@@ -87,7 +86,7 @@ private:
 
 class AdaptiveLrHelper : public LRHelper {
 public:
-  AdaptiveLrHelper(StaState *sta) : LRHelper(sta) {}
+  AdaptiveLrHelper(sta::dbSta *sta) : LRHelper(sta) {}
   ~AdaptiveLrHelper() override = default;
   virtual std::string strategyName() const override;
   virtual void updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, 

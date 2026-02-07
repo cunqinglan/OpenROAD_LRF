@@ -17,6 +17,7 @@
 #include "ParallelVisitor.hh"
 #include "rsz/Resizer.hh"
 #include "ParallelLibData.hh"
+#include "LrSizer.hh"
 
 #include <unordered_map>
 #include <chrono>
@@ -459,5 +460,62 @@ IncreSta::setMaxResizeNum(size_t max_resize_num)
 {
   local_sta_->taskArranger()->setMaxResizeNum(max_resize_num);
 }
+
+void 
+IncreSta::parallelResizeCPS(rsz::Resizer *resizer, float avg_delay, float avg_power,
+                      float PT_tradeoff)
+{
+  printf("IncreSta::parallelResizeCPS start\n");
+  auto start_total = std::chrono::high_resolution_clock::now();
+
+  // We first create a serials of instance visitors
+  local_sta_->initParallel();
+  Slack wns = sta_->worstSlack(MinMax::max());
+  TaskArranger *task_arranger = local_sta_->taskArranger();
+
+  if (parallel_lib_data_ == nullptr) {
+    auto start_pld = std::chrono::high_resolution_clock::now();
+    makeParallelLibData(resizer, task_arranger);
+    auto end_pld = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> diff_pld = end_pld - start_pld;
+    printf("makeParallelLibData took %f s\n", diff_pld.count());
+  }
+
+  auto start_resize = std::chrono::high_resolution_clock::now();
+  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_);
+  visitor->init(avg_delay, avg_power, wns, PT_tradeoff, parallel_lib_data_);
+  local_sta_->runResize(resizer, visitor);
+  auto end_resize = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_resize = end_resize - start_resize;
+
+  // Use distinct variable names to avoid shadowing Slack
+  double tns_after_resize = sta_->totalNegativeSlack(MinMax::max());
+  double wns_after_resize = sta_->worstSlack(MinMax::max());
+  printf("After parallel resize, TNS: %f, WNS: %f\n", tns_after_resize, wns_after_resize);
+  printf("parallel resize time: %f s\n", diff_resize.count());
+  delete visitor;
+
+  // Run critical path sizing
+  ParallelLrVisitor *critical_path_visitor = new ParallelLrVisitor(sta_, local_sta_);
+  critical_path_visitor->init(avg_delay, avg_power, wns_after_resize, PT_tradeoff, parallel_lib_data_);
+
+  // Time the critical-path sizing phase
+  auto start_cps = std::chrono::high_resolution_clock::now();
+  LrSizer lr_sizer(sta_, lr_helper_, critical_path_visitor);
+  lr_sizer.criticalPathSizing();
+  auto end_cps = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_cps = end_cps - start_cps;
+
+  double tns_after_cps = sta_->totalNegativeSlack(MinMax::max());
+  double wns_after_cps = sta_->worstSlack(MinMax::max());
+  printf("After critical path sizing, TNS: %f, WNS: %f\n", tns_after_cps, wns_after_cps);
+  printf("critical path sizing time: %f s\n", diff_cps.count());
+  delete critical_path_visitor;
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_total = end_total - start_total;
+  printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
+}
+
 
 } // namespace lrf
