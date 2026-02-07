@@ -28,6 +28,8 @@ add_library(lrf_lib
     LocalCellInfo.cc
     ParallelLibData.cc
     TopologyChecker.cc
+    RapidLrHelper.cc
+    LrSizer.cc
 )
 
 target_sources(lrf

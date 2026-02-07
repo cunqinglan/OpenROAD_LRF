@@ -71,7 +71,7 @@ ParallelLrVisitor::swapCost(float delay_lm_sum, float power)
 }
 
 bool 
-ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
+ParallelLrVisitor::trySwap(sta::Instance *inst)
 {
   best_cell_ = nullptr;
   // 1. Get the target instance and set up a ptgraph for it.
@@ -171,7 +171,13 @@ ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
         best_cost = cost;
       }
     }
-    if (best_cell_ == ori_cell || !orig_inequiv) {
+    if (!orig_inequiv) {
+      printf("ParallelLrVisitor::visit original cell %s not in equiv_cells for instance %s\n",
+             ori_cell->name(),
+             db_sta_->network()->pathName(inst));
+      fflush(stdout);
+    }
+    if (best_cell_ == ori_cell) {
       return false;
     }
     // First compute the final timing after choosing best cell
@@ -293,7 +299,7 @@ ParallelLrVisitor::printRuntimeProfile() const
 }
 
 bool 
-ParallelLrVisitor::singleGateSizingV1(sta::Instance *inst)
+ParallelLrVisitor::trySwapV1(sta::Instance *inst)
 {
   best_cell_ = nullptr;
   // 1. Get the target instance and set up a ptgraph for it.
@@ -305,11 +311,11 @@ ParallelLrVisitor::singleGateSizingV1(sta::Instance *inst)
   sta::LibertyCell *ori_cell = db_sta_->network()->libertyCell(inst);
   if (ori_cell) {
     if (parallel_lib_data_ == nullptr || parallel_lib_data_->inst_to_vid_map_ == nullptr) {
-      throw std::runtime_error("ParallelLrVisitor::singleGateSizingV1 parallel_lib_data/inst_to_vid_map_ is null");
+      throw std::runtime_error("ParallelLrVisitor::trySwapV1 parallel_lib_data/inst_to_vid_map_ is null");
     }
     const auto vid_it = parallel_lib_data_->inst_to_vid_map_->find(inst);
     if (vid_it == parallel_lib_data_->inst_to_vid_map_->end()) {
-      printf("ParallelLrVisitor::singleGateSizingV1 inst %s not found in inst_to_vid_map_\n",
+      printf("ParallelLrVisitor::trySwapV1 inst %s not found in inst_to_vid_map_\n",
              db_sta_->network()->pathName(inst));
       fflush(stdout);
       return false;
@@ -319,7 +325,7 @@ ParallelLrVisitor::singleGateSizingV1(sta::Instance *inst)
     
     if (equiv_cells_vec == nullptr || equiv_cells_vec->empty() ||
         (equiv_cells_vec->size() == 1 && (*equiv_cells_vec)[0].size() == 1)) {
-      printf("ParallelLrVisitor::singleGateSizingV1 no equiv cells for %s, inst = %s\n",
+      printf("ParallelLrVisitor::trySwapV1 no equiv cells for %s, inst = %s\n",
              ori_cell->name(),
              db_sta_->network()->pathName(inst));
       fflush(stdout);
@@ -328,7 +334,7 @@ ParallelLrVisitor::singleGateSizingV1(sta::Instance *inst)
     std::vector<std::pair<sta::LibertyCell*, std::pair<size_t, size_t>>> 
                     legal_equiv_cells = getLegalEquivCells(equiv_cells_vec, ori_cell);
     if (legal_equiv_cells.size() < 2) {
-      printf("ParallelLrVisitor::singleGateSizingV1 for inst %s no legal equiv cells for %s\n",
+      printf("ParallelLrVisitor::trySwapV1 for inst %s no legal equiv cells for %s\n",
              db_sta_->network()->pathName(inst),
              ori_cell->name());
       fflush(stdout);
@@ -374,7 +380,7 @@ ParallelLrVisitor::singleGateSizingV1(sta::Instance *inst)
       // fflush(stdout);
     }
     if (!orig_inequiv) {
-      printf("ParallelLrVisitor::singleGateSizingV1 for inst %s original cell %s not in legal equiv cells\n",
+      printf("ParallelLrVisitor::trySwapV1 for inst %s original cell %s not in legal equiv cells\n",
              db_sta_->network()->pathName(inst),
              ori_cell->name());
       fflush(stdout);
@@ -415,12 +421,22 @@ ParallelLrVisitor::visit(sta::Instance *inst)
   //   fflush(stdout);
   //   return false;
   // }
-  bool success = singleGateSizing(inst);
+  bool success = trySwap(inst);
   std::chrono::steady_clock::time_point end_time = std::chrono::steady_clock::now();
   std::chrono::duration<double> duration = end_time - start_time;
   runtime_map_["visit"] += duration.count();
   return success;
-  // return singleGateSizingV1(inst);
+  // return trySwapV1(inst);
+}
+
+bool
+ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
+{
+  if (visit(inst)) {
+    applyChangesToDb(nullptr);
+    return true;
+  }
+  return false;
 }
 
 bool 

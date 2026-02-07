@@ -33,6 +33,7 @@ public:
   virtual ~ParallelLrVisitor();
   virtual bool visit(sta::Instance *inst);
   bool visit(sta::Instance *inst, TimingRecord &timing_record);
+  bool singleGateSizing(sta::Instance *inst);
   // Apply cell type changes to OpenROAD and OpenSTA, and 
   // update timing information from PtGraph to sta::Graph.
   virtual void applyChangesToDb(rsz::Resizer *resizer);
@@ -80,8 +81,8 @@ protected:
   // Function of paralllel gate sizing
   float swapCost(float delay_lm_sum, float power);
   
-  bool singleGateSizing(sta::Instance *inst);
-  bool singleGateSizingV1(sta::Instance *inst);
+  bool trySwap(sta::Instance *inst);
+  bool trySwapV1(sta::Instance *inst);
   std::vector<std::pair<sta::LibertyCell*, std::pair<size_t, size_t>>> getLegalEquivCells(
                                   std::vector<sta::LibertyCellSeq> *equiv_cells_vec,
                                   sta::LibertyCell *ori_cell);

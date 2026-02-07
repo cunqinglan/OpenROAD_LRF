@@ -8,33 +8,37 @@
 #include "sta/MinMax.hh"
 #include "sta/StaState.hh"
 #include "utl/Logger.h"
-#include "lrf/LrfMgr.hh"
 
-
+namespace sta {
+class Vertex;
+class Instance;
+}
 
 namespace lrf {
 
+class LRHelper;
+class ParallelLrVisitor;
 
-class LrSizer: public std::dbStaState
+class LrSizer: public sta::dbStaState
 {
 public:
-  LrSizer();
+  LrSizer(sta::dbSta* sta, LRHelper* lr_helper, 
+    ParallelLrVisitor *visitor);
   ~LrSizer();
 
-  void TopoSort();
-  void collectInstancesInWindow(Instance* inst);
-  void collectInstancesInWindow(dbInst* db_inst);
-
-  float delayLambdaSum(EdgeSet& edges);
-
+  void criticalPathSizing();
+  bool repairCriticalPath(sta::Vertex* end);
+  bool sizeCriticalPathGates(sta::Path* path);
+  bool singleGateSizing(sta::Instance* inst, ParallelLrVisitor *visitor);
 protected:
-  InstanceSeq topo_sorted_instances_;
+  sta::InstanceSeq topo_sorted_instances_;
 
 private:
-  const MinMax* min_ = MinMax::min();
-  const MinMax* max_ = MinMax::max();
-
-  LrfMgr* lrf_mgr_ = nullptr;
+  const sta::MinMax* min_ = sta::MinMax::min();
+  const sta::MinMax* max_ = sta::MinMax::max();
+  float para_tsh_discount_ = 0.1;
+  LRHelper *lr_helper_;
+  ParallelLrVisitor *visitor_;
 };
 
 } // namespace lrf
