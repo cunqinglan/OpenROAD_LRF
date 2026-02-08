@@ -152,3 +152,13 @@ proc resynth_annealing { args } {
 
   rmp::resynth_annealing_cmd $corner
 }
+
+sta::define_cmd_args "position_driven_remap" {[-corner corner]}
+
+proc position_driven_remap { args } {
+  sta::parse_key_args "position_driven_remap" args \
+    keys {-corner} \
+    flags {}
+  set corner [sta::parse_corner keys]
+  rmp::position_driven_remap_cmd $corner
+}

@@ -43,6 +43,14 @@ namespace sta {
 class dbSta;
 }  // namespace sta
 
+namespace gpl {
+class Replace;
+}
+
+namespace dpl {
+class Opendp;
+}
+
 namespace rmp {
 
 using utl::Logger;
@@ -65,7 +73,9 @@ class Restructure
               sta::dbSta* open_sta,
               odb::dbDatabase* db,
               rsz::Resizer* resizer,
-              est::EstimateParasitics* estimate_parasitics);
+              est::EstimateParasitics* estimate_parasitics,
+              gpl::Replace* replace = nullptr,
+              dpl::Opendp* opendp = nullptr);
   ~Restructure();
 
   void reset();
@@ -92,6 +102,9 @@ class Restructure
   void setMode(const char* mode_name);
   void setTieLoPort(sta::LibertyPort* loport);
   void setTieHiPort(sta::LibertyPort* hiport);
+  
+  // Position-driven remapping strategy
+  void positionDrivenRemap(sta::Corner* corner);
 
  private:
   void deleteComponents();
@@ -121,6 +134,8 @@ class Restructure
   odb::dbDatabase* db_;
   rsz::Resizer* resizer_;
   est::EstimateParasitics* estimate_parasitics_;
+  gpl::Replace* replace_ = nullptr;
+  dpl::Opendp* opendp_ = nullptr;
   odb::dbBlock* block_ = nullptr;
 
   // Annealing

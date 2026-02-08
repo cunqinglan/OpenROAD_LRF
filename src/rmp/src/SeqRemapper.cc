@@ -168,7 +168,7 @@ SeqRemapper::buildAbcLibrary()
 }
 
 cut::LogicCut
-SeqRemapper::extractBottleneck(Strategy *strategy)
+SeqRemapper::extractBottleneck(Strategy &strategy)
 {
   // Assume 
   //sta::dbNetwork* network = sta_->getDbNetwork();
@@ -178,7 +178,9 @@ SeqRemapper::extractBottleneck(Strategy *strategy)
         //utl::RES, 318, "Reference gate 'ref_gate' not found in the design.");
   //}
   //strategy->setRefGate(ref_gate);
-  return strategy->extractBottleneck(*this);
+  sta_->ensureGraph();
+  sta_->ensureLevelized();
+  return strategy.extractBottleneck(*this);
 }
 
 utl::UniquePtrWithDeleter<abc::Abc_Ntk_t>
@@ -282,7 +284,7 @@ SeqRemapper::checkTracksAndRows()
     }
   }
   if (!has_valid_site) {
-    logger_->warn(utl::RES, 335, "No valid site found for GPL, skipping incremental global placement");
+    logger_->warn(utl::RES, 339, "No valid site found for GPL, skipping incremental global placement");
     return;
   }
 }
@@ -440,6 +442,22 @@ SeqRemapper::insertMappedAbcNetwork(utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> &m
                             sta_->getDbNetwork(), name_generator_,
                             logger_);
 }
+
+void SeqRemapper::performIncrePlace(cut::LogicCut& logic_cut, gpl::Replace *gpl, dpl::Opendp* dpl)
+{
+  if (gpl == nullptr) {
+    logger_->warn(utl::RES, 336, "GPL is nullptr, cannot perform incremental global placement");
+    return;
+  }
+  
+  size_t thread_count = 4;
+  gpl::PlaceOptions options;
+  
+  // Call the existing incremental placement implementation
+  gpl->doIncrementalPlace(thread_count, options);
+  
+  logger_->info(utl::RES, 312, "Incremental global placement completed");
+}
 /*
 void 
 SeqRemapper::performIncrePlace(cut::LogicCut& logic_cut, gpl::Replace *gpl, dpl::Opendp* dpl)
@@ -459,7 +477,7 @@ void
 SeqRemapper::performIncreGpl(cut::LogicCut& logic_cut, gpl::Replace *gpl)
 {
   if (gpl == nullptr) {
-    logger_->warn(utl::RES, 336, "GPL is nullptr, cannot perform incremental global placement");
+    logger_->warn(utl::RES, 344, "GPL is nullptr, cannot perform incremental global placement");
     return;
   }
   
@@ -468,7 +486,7 @@ SeqRemapper::performIncreGpl(cut::LogicCut& logic_cut, gpl::Replace *gpl)
 
   setIncrePlaceParam(PlaceMode::ROUTE_DRIVEN, 0.5, 10);
   gpl->doNesterovPlace(thread_count);
-  logger_->info(utl::RES, 312, "Incremental global placement completed");
+  logger_->info(utl::RES, 318, "Incremental global placement completed");
 }
 
 void
