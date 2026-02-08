@@ -226,8 +226,6 @@ void OpenRoad::init(Tcl_Interp* tcl_interp,
                               estimate_parasitics_);
   finale_ = new fin::Finale(db_, logger_);
   ram_gen_ = new ram::RamGen(getDbNetwork(), db_, logger_);
-  restructure_ = new rmp::Restructure(
-      logger_, sta_, db_, resizer_, estimate_parasitics_);
   clock_gating_ = new cgt::ClockGating(logger_, sta_);
   tritonCts_ = new cts::TritonCTS(logger_,
                                   db_,
@@ -252,6 +250,8 @@ void OpenRoad::init(Tcl_Interp* tcl_interp,
   icewall_ = new pad::ICeWall(db_, logger_);
   dft_ = new dft::Dft(db_, sta_, logger_);
   example_ = new exa::Example(db_, logger_);
+  restructure_ = new rmp::Restructure(
+      logger_, sta_, db_, resizer_, estimate_parasitics_, replace_, opendp_);
 
   // Init components.
   Ord_Init(tcl_interp);

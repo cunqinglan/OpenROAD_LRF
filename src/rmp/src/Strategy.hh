@@ -112,7 +112,7 @@ public:
 
   cut::LogicCut extractBottleneck(SeqRemapper& remapper) override;
   
-  private:
+  protected:
     sta::dbSta* sta_;
     cut::AbcLibrary* abc_library_;
     size_t window_size_ = 1;

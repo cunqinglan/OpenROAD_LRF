@@ -104,9 +104,11 @@ class SeqRemapper : public sta::dbStaState
   sta::Corner* getCorner() const { return corner_; };
   rsz::Resizer* getResizer() const { return resizer_; };
   utl::Logger* getLogger() const { return logger_; };
+  gpl::Replace* getGpl() const { return gpl_; };
   dpl::Opendp* getDpl() const { return dpl_; };
   float getSlackThreshold() const { return slack_threshold_; }
   cut::AbcLibrary *getAbcLibrary() { return abc_library_; }
+  utl::UniqueName& getNameGenerator() { return name_generator_; }
 
   void checkTracksAndRows();
   void setIncrePlaceParam(PlaceMode::Mode mode, float density_penalty,
@@ -118,6 +120,7 @@ class SeqRemapper : public sta::dbStaState
   cut::LogicCut extractBottleneck(Strategy &strategy);
   // Convert subsircuit into AIG representation
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> netlistToAig(cut::LogicCut& logic_cut);
+  utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> cutToAig(cut::LogicCut& logic_cut);
   // Convert AIG to GIA format
   abc::Gia_Man_t* aigToGia(
       utl::UniquePtrWithDeleter<abc::Abc_Ntk_t>& strashed_aig);

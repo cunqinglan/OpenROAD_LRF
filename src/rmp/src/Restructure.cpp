@@ -45,6 +45,8 @@
 #include "sta/Sta.hh"
 #include "utl/Logger.h"
 #include "zero_slack_strategy.h"
+#include "position_driven.hh"
+#include "rmp/SeqRemapper.hh"
 
 using utl::RMP;
 using namespace abc;
@@ -56,13 +58,17 @@ Restructure::Restructure(utl::Logger* logger,
                          sta::dbSta* open_sta,
                          odb::dbDatabase* db,
                          rsz::Resizer* resizer,
-                         est::EstimateParasitics* estimate_parasitics)
+                         est::EstimateParasitics* estimate_parasitics,
+                         gpl::Replace* replace,
+                         dpl::Opendp* opendp)
 {
   logger_ = logger;
   db_ = db;
   open_sta_ = open_sta;
   resizer_ = resizer;
   estimate_parasitics_ = estimate_parasitics;
+  replace_ = replace;
+  opendp_ = opendp;
 
   cut::abcInit();
 }
@@ -705,4 +711,22 @@ bool Restructure::readAbcLog(std::string abc_file_name,
   }
   return status;
 }
+
+void Restructure::positionDrivenRemap(sta::Corner* corner)
+{
+  if (!replace_ || !opendp_) {
+    logger_->error(RMP, 12, 
+                   "Position-driven remap requires GPL and DPL to be initialized.");
+    return;
+  }
+  
+  // Create a SeqRemapper with all required dependencies
+  SeqRemapper remapper(open_sta_, db_, corner, resizer_, logger_, 
+                       replace_, opendp_, estimate_parasitics_);
+  
+  // Create and run the position-driven strategy
+  PositionDrivenStrategy strategy(logger_);
+  strategy.remap(remapper);
+}
 }  // namespace rmp
+

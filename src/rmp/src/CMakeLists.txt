@@ -21,6 +21,7 @@ add_library(rmp_lib
     SeqRemapper.cc
     Strategy.cc
     OptOperator.cc
+    position_driven.cc
 )
 
 # For ABC headers
