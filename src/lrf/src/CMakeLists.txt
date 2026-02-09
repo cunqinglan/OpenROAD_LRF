@@ -30,6 +30,7 @@ add_library(lrf_lib
     TopologyChecker.cc
     RapidLrHelper.cc
     LrSizer.cc
+    ViolationCheck.cc
 )
 
 target_sources(lrf
