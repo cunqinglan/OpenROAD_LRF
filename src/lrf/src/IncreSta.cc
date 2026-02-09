@@ -73,6 +73,7 @@ void
 IncreSta::clearLocalCellInfoMap()
 {
   delete[] cell_info_vec_;
+  inst_info_map_.clear();
   cell_info_vec_ = nullptr;
 }
 
@@ -280,8 +281,9 @@ IncreSta::preSaveLibCellLeakage()
     throw std::runtime_error("IncreSta::preSaveLibCellLeakage called before swappable cells are presaved\n");
   ensureActivities();
   sta::Corner *corner = sta_->corners()->findCorner("default");
-  LocalCellInfo *cell_info_vec_ = new LocalCellInfo[network_->leafInstanceCount() + 1];
+  // LocalCellInfo *cell_info_vec_ = new LocalCellInfo[network_->leafInstanceCount() + 1];
   clearLocalCellInfoMap();
+  LocalCellInfo *cell_info_vec_ = new LocalCellInfo[int(network_->leafInstanceCount() * 1.4)];
   inst_info_map_.reserve(network_->leafInstanceCount() * 1.1);
 
   int cnt = 0;
