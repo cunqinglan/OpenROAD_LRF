@@ -11,6 +11,7 @@
 #include "LocalParasitics.hh"
 #include "sta/Delay.hh"
 #include "sta/SearchPred.hh"
+#include "sta/SdcClass.hh"
 
 #include <map>
 #include <vector>
@@ -113,6 +114,31 @@ public:
                            const sta::MinMax *min_max,
                            PtGraph *pt_graph);
 
+  // Violation check functions - public interfaces
+  void checkSlew(const sta::Pin *pin,
+                 const sta::LibertyCell *lib_cell,
+                 const sta::Corner *corner,
+                 const sta::MinMax *min_max,
+                 bool check_clks,
+                 PtGraph *pt_graph,
+                 // Return values
+                 const sta::Corner *&corner1,
+                 const sta::RiseFall *&rf1,
+                 float &slew1,
+                 float &limit1,
+                 float &slack1) const;
+
+  void localCheckCapacitance(const sta::Pin *pin,
+                              const sta::LibertyCell *lib_cell,
+                              const sta::Corner *corner,
+                              const sta::MinMax *min_max,
+                              // Return values
+                              const sta::Corner *&corner1,
+                              const sta::RiseFall *&rf1,
+                              float &capacitance1,
+                              float &limit1,
+                              float &slack1) const;
+
 protected:
   const Pin *findNetParasiticDrvrPin(sta::Net *net) const;
   void collectLocalFanouts(Pin *drvr_pin, InstanceSet &local_instances);
@@ -124,10 +150,112 @@ protected:
                                       sta::VertexSet &local_vertices);
   void topoSortVertices(PtGraph *pt_graph);
 
+  // Violation check helper functions
+  void checkSlew1(const sta::Pin *pin,
+                  Vertex *vertex,
+                  const sta::LibertyCell *lib_cell,
+                  const sta::Corner *corner,
+                  const sta::MinMax *min_max,
+                  bool check_clks,
+                  PtGraph *pt_graph,
+                  // Return values
+                  const sta::Corner *&corner1,
+                  const sta::RiseFall *&rf1,
+                  float &slew1,
+                  float &limit1,
+                  float &slack1) const;
+  
+  void checkSlew2(const sta::Pin *pin,
+                  Vertex *vertex,
+                  const sta::LibertyCell *lib_cell,
+                  const sta::Corner *corner,
+                  const sta::MinMax *min_max,
+                  const ClockSet &clks,
+                  PtGraph *pt_graph,
+                  // Return values
+                  const sta::Corner *&corner1,
+                  const sta::RiseFall *&rf1,
+                  float &slew1,
+                  float &limit1,
+                  float &slack1) const;
+  
+  void checkSlew3(const sta::Pin *pin,
+                  Vertex *vertex,
+                  const sta::LibertyCell *lib_cell,
+                  const sta::Corner *corner,
+                  const sta::RiseFall *rf,
+                  const sta::MinMax *min_max,
+                  float limit,
+                  PtGraph *pt_graph,
+                  // Return values
+                  const sta::Corner *&corner1,
+                  const sta::RiseFall *&rf1,
+                  float &slew1,
+                  float &slack1,
+                  float &limit1) const;
+
+
+  void localFindSlewLimit(const sta::LibertyPort *lib_port,
+                          const sta::Corner *corner,
+                          const sta::MinMax *min_max,
+                          // Return values
+                          float &limit,
+                          bool &exists) const;
+
+  void localFindSlewLimit(const sta::Pin *pin,
+                          const sta::LibertyCell *lib_cell,
+                          const sta::Corner *corner,
+                          const sta::MinMax *min_max,
+                          const sta::RiseFall *rf,
+                          const ClockSet &clks,
+                          // Return values
+                          float &limit,
+                          bool &exists) const;
+
+  void localCheckCapacitance1(const sta::Pin *pin,
+                               const sta::LibertyCell *lib_cell,
+                               const sta::Corner *corner,
+                               const sta::MinMax *min_max,
+                               // Return values
+                               const sta::Corner *&corner1,
+                               const sta::RiseFall *&rf1,
+                               float &capacitance1,
+                               float &limit1,
+                               float &slack1) const;
+
+  void localFindCapLimit(const sta::Pin *pin,
+                         const sta::LibertyCell *lib_cell,
+                         const sta::Corner *corner,
+                         const sta::MinMax *min_max,
+                         // Return values
+                         float &limit,
+                         bool &exists) const;
+
+  void localCheckCapacitance(const sta::Pin *pin,
+                              const sta::LibertyCell *lib_cell,
+                              const sta::Corner *corner,
+                              const sta::MinMax *min_max,
+                              const sta::RiseFall *rf,
+                              float limit,
+                              // Return values
+                              const sta::Corner *&corner1,
+                              const sta::RiseFall *&rf1,
+                              float &capacitance1,
+                              float &slack1,
+                              float &limit1) const;
+
+  void connectedCap(const Pin *drvr_pin,
+                     const sta::RiseFall *rf,
+                     const sta::Corner *corner,
+                     const sta::MinMax *min_max,
+                     float &load_cap) const;
+
+  sta::ClockSet clockDomains(const sta::Vertex *vertex) const;
+
   // Delay calculation methods
   void seedRootSlews();
   void zeroSlewAndWireDelays(PtVertex &drvr_pt_vertex,
-                           const RiseFall *rf,
+                           const sta::RiseFall *rf,
                            PtGraph *pt_graph);
   void loadSlewFromGraph(PtVertex &pt_vertex, PtGraph *pt_graph);
   void findVertexDelays(VertexId pt_vertex_id, 

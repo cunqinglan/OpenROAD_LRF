@@ -1502,28 +1502,6 @@ LocalSta::findNetParasiticDrvrPin(sta::Net *net) const
   return load_pin;
 }
 
-float
-LocalSta::getNetCap(sta::Net *net, const sta::Corner *corner,
-                        const sta::MinMax *min_max, PtGraph *pt_graph)
-{
-  const sta::Pin *pin = findNetParasiticDrvrPin(net);
-  sta::Vertex *vertex, *bidir_vertex;
-  graph_->pinVertices(pin, vertex, bidir_vertex);
-  sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(min_max);
-  if (vertex == nullptr)
-    throw std::runtime_error("LocalSta::getPinLoadCap: vertex is nullptr");
-  const sta::Parasitic *parasitic;
-  float max_cap = 0.0;
-  for (const RiseFall *rf : RiseFall::range()) {
-    float load_cap = 0.0;
-    localParasiticLoad(pin, rf, dcalc_ap, nullptr, load_cap, parasitic);
-    arc_delay_calc_->finishDrvrPin();
-    if (max_cap < load_cap)
-      max_cap = load_cap;
-  }
-  return max_cap;
-}
-
 bool
 LocalSta::legalCheckBeforeSwap(sta::Instance *inst, 
                                sta::LibertyCell *to_lib_cell,
