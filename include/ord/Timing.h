@@ -85,8 +85,6 @@ class Timing
   /////////////////////////////////////////////////////////////
   // Functions for LR sizing
   /////////////////////////////////////////////////////////////
-  float getTns(bool minmax = false);
-
   float getLmDelaySum(odb::dbInst* inst, const sta::MinMax *minmax = sta::MinMax::max());
     
   bool checkErcViolations(odb::dbInst* inst, sta::Corner* corner);
@@ -94,6 +92,9 @@ class Timing
   void lmUpdate();
 
   float averageDelayOnCritPath();
+  float getWorstSlack(MinMax minmax = Max);
+  float getTns(MinMax minmax = Max);
+  float getTns(sta::Corner* corner, MinMax minmax = Max);
   /////////////////////////////////////////////////////////////
   // End functions for LR sizing
   /////////////////////////////////////////////////////////////

@@ -75,6 +75,7 @@ IncreSta::clearLocalCellInfoMap()
 {
   delete[] cell_info_vec_;
   cell_info_vec_ = nullptr;
+  inst_info_map_.clear();
 }
 
 void 
@@ -283,13 +284,9 @@ IncreSta::preSaveLibCellLeakage()
   sta::Corner *corner = sta_->corners()->findCorner("default");
   // Clear any previous allocation before creating new one.
   clearLocalCellInfoMap();
-  cell_info_vec_ = new LocalCellInfo[int(network_->leafInstanceCount() * 1.1)];
+  cell_info_vec_ = new LocalCellInfo[int(network_->leafInstanceCount() * 1.4)];
   inst_info_map_.clear();
-  inst_info_map_.reserve(int(network_->leafInstanceCount() * 1.1));
-  // clearLocalCellInfoMap();
-  // cell_info_vec_ = new LocalCellInfo[network_->leafInstanceCount() + 1];
-  // inst_info_map_.clear();
-  // inst_info_map_.reserve(network_->leafInstanceCount() * 1.1);
+  inst_info_map_.reserve(int(network_->leafInstanceCount() * 1.4));
 
   int cnt = 0;
   sta::LeafInstanceIterator* inst_iter = network_->leafInstanceIterator();

@@ -290,7 +290,7 @@ LRHelper::checkKKTForAllVertices() {
 
       LMValue out_lm_sum = out_lm_vec[dcalc_ap->index()];
       const float epsilon = 1e-4;
-      if ((std::abs(out_lm_sum - in_lm_sum) > epsilon) && !(in_edge_count == 0) &&
+      if ((std::abs(out_lm_sum - in_lm_sum)/out_lm_sum > epsilon) && !(in_edge_count == 0) &&
           !(out_lm_sum == -1.0)) {
         all_satisfied = false;
         printf("LRHelper::checkKKTForAllVertices: vertex %s KKT not satisfied for AP corner %s, delay min/max %s, slew min/max %s: out LM sum %.6f != in LM sum %.6f\n",
