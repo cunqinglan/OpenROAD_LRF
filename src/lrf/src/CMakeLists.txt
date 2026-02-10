@@ -71,6 +71,7 @@ target_link_libraries(lrf_lib
     OpenSTA
     dbSta_lib
     grt_lib
+    rsz_lib
     utl_lib
 )
 

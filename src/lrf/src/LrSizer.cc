@@ -128,7 +128,7 @@ LrSizer::singleGateSizing(sta::Instance* inst, ParallelLrVisitor *visitor)
   if (inst == nullptr) {
     return false;
   }
-  return visitor->singleGateSizing(inst);
+  // return visitor->singleGateSizing(inst);
 }
 
 } // namespace lrf
