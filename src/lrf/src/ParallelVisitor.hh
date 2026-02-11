@@ -89,6 +89,8 @@ protected:
 
   // Functions for buffer insertion
   bool bufferInsertion(sta::Instance *inst);
+  LocalSta *localSta() const { return local_sta_; }
+  sta::ArcDelayCalc *arcDelayCalc() const { return arc_delay_calc_; }
 
   sta::dbSta *db_sta_;
   sta::Instance *ref_inst_;
@@ -118,6 +120,8 @@ protected:
     {"single_gate_sizing", 0.0},
     {"buffer_insertion", 0.0}
   };
+private:
+  friend class LrRebuffer;
 };
 
 

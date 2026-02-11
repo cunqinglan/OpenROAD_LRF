@@ -1621,9 +1621,16 @@ LocalSta::virtualReplaceCell(PtGraph *pt_graph, LibertyCell *new_cell)
     printf("This cell: %s replacement needs more processing\n", new_cell->name());
     return;
   }
-  pt_graph->setRefGate(new_cell);
-  pt_graph->updateTimingArcSets();
-  recomputeLocalParasitics(pt_graph);
+  // If it's nullptr, we use original ref lib cell of pt graph
+  if (new_cell) {
+    pt_graph->setRefGate(new_cell);
+    pt_graph->updateTimingArcSets();
+    recomputeLocalParasitics(pt_graph);
+  } else {
+    if (pt_graph->refGate() == nullptr) {
+      throw std::runtime_error("LocalSta::virtualReplaceCell: pt_graph ref gate is nullptr");
+    }
+  }
 }
 
 void 
@@ -1651,6 +1658,26 @@ LocalSta::runResize(rsz::Resizer *resizer, ParallelLrVisitor *visitor)
 {
   // task_arranger_->enableTopologyCheck(true);
   task_arranger_->visitParallel(sta_, this, resizer, visitor);
+}
+
+sta::Path *
+LocalSta::ptVertexWorstSlackPath(PtVertex &pt_vertex, const sta::MinMax *min_max)
+{
+  Path *worst_slack_path = nullptr;
+  sta::Slack worst_slack = sta::MinMax::min()->initValue();
+  PtVertexPathIterator path_iter(pt_vertex, this);
+  while (path_iter.hasNext()) {
+    sta::Path *path = path_iter.next();
+    const Tag *tag = path->tag(this);
+    sta::Slack path_slack = path->slack(this);
+    if (tag->pathAnalysisPt(this)->pathMinMax() == min_max
+        && (!path->tag(this)->isGenClkSrcPath() 
+            && delayLess(path_slack, worst_slack))) {
+      worst_slack = path_slack;
+      worst_slack_path = path;
+    }
+  }
+  return worst_slack_path;
 }
 
 } // namespace lrf
