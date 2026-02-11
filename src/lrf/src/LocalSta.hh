@@ -138,6 +138,7 @@ public:
                               float &capacitance1,
                               float &limit1,
                               float &slack1) const;
+  sta::Path *ptVertexWorstSlackPath(PtVertex *pt_vertex, const sta::MinMax *min_max) const;
 
 protected:
   const Pin *findNetParasiticDrvrPin(sta::Net *net) const;
