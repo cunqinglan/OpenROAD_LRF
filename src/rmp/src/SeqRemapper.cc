@@ -458,6 +458,22 @@ void SeqRemapper::performIncrePlace(cut::LogicCut& logic_cut, gpl::Replace *gpl,
   
   logger_->info(utl::RES, 312, "Incremental global placement completed");
 }
+
+void SeqRemapper::performPlace(cut::LogicCut& logic_cut, gpl::Replace *gpl, dpl::Opendp* dpl)
+{
+  if (gpl == nullptr) {
+    logger_->warn(utl::RES, 336, "GPL is nullptr, cannot perform global placement");
+    return;
+  }
+  
+  size_t thread_count = 4;
+  gpl::PlaceOptions options;
+  
+  // Call the existing incremental placement implementation
+  gpl->doPlace(thread_count, options);
+  
+  logger_->info(utl::RES, 312, "Global placement completed");
+}
 /*
 void 
 SeqRemapper::performIncrePlace(cut::LogicCut& logic_cut, gpl::Replace *gpl, dpl::Opendp* dpl)
