@@ -46,9 +46,40 @@ namespace abc {
   //struct Map_MappingSolution_t;
   extern void * Abc_NtkMapEnumPassStore( Abc_Ntk_t * pNtk, int nMaxSolutions, int fVerbose );
   extern void Abc_NtkMapEnumFreeStore( void * pStore );
+  extern void Abc_FrameSetLibGen( void * pLib );
   
 } // namespace abc
 
+
+// Helper function to validate if a mapping solution has valid cut assignments
+// Returns true if the solution is valid (all critical nodes have cuts assigned)
+static bool IsValidMappingSolution(abc::Map_Man_t* pMan, abc::Map_MappingSolution_t* pSol) {
+  if (!pSol || !pMan) {
+    return false;
+  }
+
+  // Check each node in the mapping manager
+  for (int i = 0; i < pMan->vMapObjs->nSize; i++) {
+    abc::Map_Node_t* pNode = pMan->vMapObjs->pArray[i];
+    
+    // Skip non-AND nodes and nodes with representatives (they're part of choice nodes)
+    if (!abc::Map_NodeIsAnd(pNode) || pNode->pRepr) {
+      continue;
+    }
+    
+    int idx = i * 2;
+    abc::Map_Cut_t* pCut0 = pSol->pCutBest[idx];
+    abc::Map_Cut_t* pCut1 = pSol->pCutBest[idx + 1];
+    
+    // Check if this node is used (referenced)
+    // If it's used, at least one phase must have a cut
+    if (pNode->nRefAct[2] > 0 && pCut0 == nullptr && pCut1 == nullptr) {
+      return false;
+    }
+  }
+  
+  return true;
+}
 namespace rmp {
 
 sta::Vertex* PositionDrivenStrategy::getFarthestOutputVertex(
@@ -86,11 +117,6 @@ sta::Vertex* PositionDrivenStrategy::getFarthestOutputVertex(
   return farthest_vertex;
 }
 
-///////////
-// Maybe it's better to put the cut variable insider the remapper class,
-// instead of passing it around.
-///////////
-
 sta::Vertex* PositionDrivenStrategy::getWorstVertex(
     SeqRemapper& remapper) {
   // Return the vertex on the most critical path (within the cut outputs)
@@ -106,13 +132,14 @@ sta::Vertex* PositionDrivenStrategy::getWorstVertex(
 
   cut::LogicExtractorFactory logic_extractor(sta, remapper.getLogger());
   auto candidate_vertices = GetEndpoints(sta, remapper.getResizer(),
-                                       0.0 //slack threshold
+                                       500.0 //slack threshold
                                        );
+
   for (sta::Vertex* negative_endpoint : candidate_vertices) {
     logic_extractor.AppendEndpoint(negative_endpoint);
   }
-
-  cut::LogicCut bad_cut = logic_extractor.BuildLogicCut(*abc_library_);
+  abc_library_ = remapper.getAbcLibrary();
+  cut::LogicCut bad_cut = logic_extractor.BuildLogicCut(*abc_library_);  
 
   // 1) Find the worst (most negative slack) endpoint vertex among cut outputs.
   sta::Vertex* worst_end_vertex = nullptr;
@@ -253,7 +280,7 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
         utl::RES, 335, "Failed to build ABC network from candidate cut.");
     return;
   }
-
+  
   // Step 4: Convert the mapped network to logic (AIG) form for enumeration.
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> logic_network(
       abc::Abc_NtkToLogic(mapped_abc_network.get()),
@@ -265,12 +292,31 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
     return;
   }
 
+  logger_->info(
+      utl::RES, 339, "After step 4. ABC network converted to logic form with {} nodes.",
+      abc::Abc_NtkNodeNum(logic_network.get()));
+
   // Step 5: Enumerate all possible mapping solutions using ABC.
-  int nMaxSolutions = 100;  // Configure as needed
-  int fVerbose = remapper.getLogger()->debugCheck(utl::RES, "remap", 1);
+  int nMaxSolutions = 5;  // Configure as needed
+  int fVerbose = 1;
+
+  auto library = static_cast<abc::Mio_Library_t*>(mapped_abc_network.get()->pManFunc);
+
+  if (library == nullptr) {
+    remapper.getLogger()->error(
+        utl::RES, 341, "ABC network does not have an associated library.");
+    return;
+  }
+
+  // Install library
+  abc::Abc_FrameSetLibGen(library);
+
+  utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> strashed_network(
+      abc::Abc_NtkStrash(logic_network.get(), 0, 0, 0),
+      &abc::Abc_NtkDelete);
   
   void* pMan = abc::Abc_NtkMapEnumPassStore(
-      logic_network.get(), 
+      strashed_network.get(), 
       nMaxSolutions, 
       fVerbose);
 
@@ -279,11 +325,18 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
         utl::RES, 341, "ABC mapping enumeration returned no solutions.");
     return;
   }
+
+  logger_->info(
+      utl::RES, 340, "After step 5.");
   
   // Step 6: Process the mapping solutions.
   // Evaluate each solution and select the best one based on worst slack.
   abc::Map_Man_t* map_man = static_cast<abc::Map_Man_t*>(pMan);
-  const int num_solutions = abc::Map_ManReadNumSolutions(map_man);
+  ////////////////////
+  // Test code
+  //const int num_solutions = abc::Map_ManReadNumSolutions(map_man);
+  const int num_solutions = 5;  // Limit to top 5 solutions for efficiency
+  ///////////////////
   if (num_solutions <= 0) {
     remapper.getLogger()->warn(
         utl::RES, 341, "ABC mapping enumeration returned no solutions.");
@@ -295,6 +348,8 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
   sta::Slack best_slack = std::numeric_limits<sta::Slack>::lowest();
 
   for (int i = 0; i < num_solutions; ++i) {
+    logger_->info(
+        utl::RES, 344, "Evaluating solution {}/{}.", i + 1, num_solutions);
     abc::Map_MappingSolution_t* pSolution =
         abc::Map_MappingGetSolution(map_man, i);
     if (pSolution == nullptr) {
@@ -332,6 +387,9 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
         remapper.getNameGenerator(),
         remapper.getLogger());
   }
+
+  logger_->info(
+      utl::RES, 347, "After step 6. Best solution applied to the network.");
 
   // Step 7: Clean up the mapping manager.
   abc::Abc_NtkMapEnumFreeStore(pMan);

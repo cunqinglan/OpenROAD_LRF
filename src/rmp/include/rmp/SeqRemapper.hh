@@ -142,6 +142,7 @@ class SeqRemapper : public sta::dbStaState
         performMapping(utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> &aig_ntk);
   void insertMappedAbcNetwork(utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> &mapped_ntk, cut::LogicCut& logic_cut);
   void performIncrePlace(cut::LogicCut& logic_cut, gpl::Replace *gpl, dpl::Opendp* dpl);
+  void performPlace(cut::LogicCut& logic_cut, gpl::Replace *gpl, dpl::Opendp* dpl);
   void performIncreGpl(cut::LogicCut& logic_cut, gpl::Replace *gpl);
   void performIncreDpl(cut::LogicCut& logic_cut, dpl::Opendp* dpl);
   void performTimingRepair(cut::LogicCut& logic_cut);

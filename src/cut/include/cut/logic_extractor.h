@@ -49,6 +49,7 @@ class LogicExtractorFactory
   }
   LogicExtractorFactory& AppendEndpoint(sta::Vertex* vertex);
   LogicCut BuildLogicCut(AbcLibrary& abc_network);
+  std::vector<sta::Vertex*> GetEndpoints() { return endpoints_; }
 
 protected:
   // Process vertices from BFS STA output to find the primary inputs.

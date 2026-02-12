@@ -726,6 +726,9 @@ void LogicCut::InsertMappedAbcNetwork(abc::Abc_Ntk_t* abc_network,
 
   MapConstantCells(abc_library, abc_network, logger);
 
+  logger->info(utl::CUT, 54, "Inserting mapped ABC network with {} nodes.",
+               abc::Abc_NtkNodeNum(abc_network));
+
   sta::Instance* parent_instance
       = GetLogicalParentInstance(cut_instances_, network, logger);
   std::unordered_map<abc::Abc_Obj_t*, sta::Instance*> abc_objs_to_instances
@@ -737,7 +740,7 @@ void LogicCut::InsertMappedAbcNetwork(abc::Abc_Ntk_t* abc_network,
   // Get rid of the old cut in preparation to connect the new ones.
   DeleteExistingLogicCut(
       network, primary_inputs_, primary_outputs_, cut_instances_, logger);
-
+  logger->info(utl::CUT, 55, "Deleted existing logic cut.");
   // Connects the new instances to each other and to their primary inputs
   // and outputs.
   ConnectInstances(abc_network,
@@ -745,6 +748,7 @@ void LogicCut::InsertMappedAbcNetwork(abc::Abc_Ntk_t* abc_network,
                    abc_objs_to_instances,
                    abc_nets_to_sta_nets,
                    logger);
+  logger->info(utl::CUT, 56, "Instances inserted.");
 
   // Final clean up to make this cut valid again. Replace the old cut instances
   // with the new ones. This should result in an equally valid LogicCut since
@@ -822,10 +826,12 @@ void LogicCut::InsertAbcMapSolution(abc::Map_MappingSolution_t* pSolution,
   // Wrap the network in a unique pointer for automatic cleanup
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> abc_network_ptr(
       abc_mapped_network, &abc::Abc_NtkDelete);
+  utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> abc_netlist_ptr(
+      abc::Abc_NtkToNetlist(abc_network_ptr.get()), &abc::Abc_NtkDelete);
 
   // Insert the mapped network into the OpenROAD network
   // This will replace the current cut instances with the new mapped instances
-  InsertMappedAbcNetwork(abc_mapped_network,
+  InsertMappedAbcNetwork(abc_netlist_ptr.get(),
                         abc_library,
                         network,
                         unique_name,
