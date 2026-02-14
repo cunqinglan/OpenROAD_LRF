@@ -1,6 +1,5 @@
 #include "position_driven.hh"
 
-#include "odb/db.h"
 #include "cut/logic_cut.h"
 
 #include "sta/Corner.hh"
@@ -83,6 +82,42 @@ static bool IsValidMappingSolution(abc::Map_Man_t* pMan, abc::Map_MappingSolutio
 }
 */
 namespace rmp {
+
+
+namespace {
+// Helper function to save the network state by preserving the baseline mapping
+// Returns the baseline ABC network that can be reinserted to restore state
+void saveNetworkState(cut::LogicCut& baseline_cut,
+                      abc::Abc_Ntk_t* baseline_network,
+                      cut::AbcLibrary& abc_library,
+                      sta::dbNetwork* network,
+                      utl::UniqueName& name_gen,
+                      utl::Logger* logger) {
+  // Insert the baseline network to establish initial state
+  baseline_cut.InsertMappedAbcNetwork(
+      baseline_network,
+      abc_library,
+      network,
+      name_gen,
+      logger);
+}
+
+// Helper function to restore network to baseline state
+void restoreNetworkState(cut::LogicCut& baseline_cut,
+                         abc::Abc_Ntk_t* baseline_network,
+                         cut::AbcLibrary& abc_library,
+                         sta::dbNetwork* network,
+                         utl::UniqueName& name_gen,
+                         utl::Logger* logger) {
+  // Re-insert the baseline network to restore original state
+  baseline_cut.InsertMappedAbcNetwork(
+      baseline_network,
+      abc_library,
+      network,
+      name_gen,
+      logger);
+}
+} // anonymous namespace
 
 
 sta::Vertex* PositionDrivenStrategy::getFarthestOutputVertex(
@@ -348,21 +383,24 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
 
   abc::Map_MappingSolution_t* pSolutionBest = nullptr;
   sta::Slack best_slack = std::numeric_limits<sta::Slack>::lowest();
-  int best_solution_index = -1;
   int evaluated_count = 0;
-  // Step 6: Evaluate solutions - apply each, evaluate, track best
-  logger_->info(utl::RES, 353, "Evaluating {} solutions...", num_solutions);
-  
-  // Limit to 5 solutions to avoid OpenDB ID corruption after repeated delete/create cycles
-  int max_evaluations = std::min(num_solutions, 3);
-  if (num_solutions > max_evaluations) {
-    logger_->warn(utl::RES, 359, "Limiting evaluation to first {} of {} solutions to avoid database corruption.", 
-                  max_evaluations, num_solutions);
-  }
-  
-  sta::dbSta* sta = remapper.getSta();
 
-  for (int i = 0; i < max_evaluations; ++i) {
+  // Step 6a: Establish baseline state
+  logger_->info(utl::RES, 353, "Establishing baseline network state...");
+  saveNetworkState(candidate_cut,
+                   mapped_abc_network.get(),
+                   *remapper.getAbcLibrary(),
+                   remapper.getSta()->getDbNetwork(),
+                   remapper.getNameGenerator(),
+                   logger_);
+  
+  // Notify STA that network topology has changed
+  // This forces STA to rebuild its internal vertex/pin mappings
+  sta::dbSta* sta_init = remapper.getSta();
+  sta_init->networkChanged();
+  sta_init->ensureLevelized();  // Force synchronous graph rebuild
+
+  for (int i = 0; i < num_solutions; ++i) {
     abc::Map_MappingSolution_t* pSolution =
         abc::Map_MappingGetSolution(map_man, i);
     
@@ -375,18 +413,22 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
         utl::RES, 344, "Evaluating solution {}/{}...", 
         i + 1, num_solutions);
 
-    // Apply this solution to the network (topology changes)
+    // Apply this solution to the network
     candidate_cut.InsertAbcMapSolution(
         pSolution,
         map_man,
         logic_network.get(),
         *remapper.getAbcLibrary(),
-        sta->getDbNetwork(),
-        sta,
+        remapper.getSta()->getDbNetwork(),
         remapper.getNameGenerator(),
         logger_);
     
-    // Evaluate this solution with full STA and placement
+    // Notify STA that network topology changed after inserting solution
+    sta::dbSta* sta = remapper.getSta();
+    sta->networkChanged();
+    sta->ensureLevelized();  // Force synchronous graph rebuild before evaluation
+    
+    // Evaluate this solution with full STA
     sta::Slack slack = evaluateSolution(
         pSolution,
         map_man,
@@ -398,59 +440,79 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
     if (slack > best_slack) {
       best_slack = slack;
       pSolutionBest = pSolution;
-      best_solution_index = i;
-      logger_->info(utl::RES, 354, "Solution {} is new best (slack={:.4f}).", 
-                    i + 1, slack);
-    } else {
-      logger_->info(utl::RES, 355, "Solution {} (slack={:.4f}) not better than best ({:.4f}).", 
-                    i + 1, slack, best_slack);
     }
     
     evaluated_count++;
+    
+    // Restore baseline state for next evaluation (except on last iteration)
+    if (i < num_solutions - 1) {
+      logger_->info(utl::RES, 354, "Restoring baseline state...");
+      restoreNetworkState(candidate_cut,
+                          mapped_abc_network.get(),
+                          *remapper.getAbcLibrary(),
+                          remapper.getSta()->getDbNetwork(),
+                          remapper.getNameGenerator(),
+                          logger_);
+      
+      // CRITICAL: Rebuild timing graph after restore
+      // The restore operation deletes instances, which invalidates STA vertices
+      // Use networkChanged() to force complete rebuild of timing graph
+      sta::dbSta* sta = remapper.getSta();
+      sta->networkChanged();
+      sta->ensureLevelized();  // Force synchronous graph rebuild
+      
+      logger_->info(utl::RES, 357, "Timing graph rebuilt after restore.");
+    }
   }
   
   logger_->info(utl::RES, 351, 
                "Evaluation complete: {} solutions evaluated.",
                evaluated_count);
   
-  // Step 6b: Re-apply the best solution if it wasn't the last one evaluated
+  // Apply the best solution permanently
   if (pSolutionBest) {
     remapper.getLogger()->info(
         utl::RES, 346,
         "Best solution found with worst slack = {:.4f}", best_slack);
     
-    // If the best solution is not the last one, re-apply it
-    if (best_solution_index != num_solutions - 1) {
-      logger_->info(utl::RES, 356, "Re-applying best solution (index {})...", 
-                    best_solution_index + 1);
-      
+    // If the best solution is not the last one evaluated, we need to re-apply it
+    // Otherwise it's already applied from the last iteration
+    int best_index = -1;
+    for (int i = 0; i < num_solutions; ++i) {
+      if (abc::Map_MappingGetSolution(map_man, i) == pSolutionBest) {
+        best_index = i;
+        break;
+      }
+    }
+    
+    if (best_index != num_solutions - 1) {
+      logger_->info(utl::RES, 355, "Re-applying best solution (index {})...", best_index);
       candidate_cut.InsertAbcMapSolution(
           pSolutionBest,
-          map_man,
+          static_cast<abc::Map_Man_t*>(pMan),
           logic_network.get(),
           *remapper.getAbcLibrary(),
-          sta->getDbNetwork(),
-          sta,
+          remapper.getSta()->getDbNetwork(),
           remapper.getNameGenerator(),
-          logger_);
+          remapper.getLogger());
       
-      // Re-run evaluation to get final placement
-      evaluateSolution(
-          pSolutionBest,
-          map_man,
-          logic_network.get(),
-          candidate_cut,
-          remapper);
-      
-      logger_->info(utl::RES, 357, "Best solution re-applied and placed.");
+      // Notify STA that best solution has been applied
+      sta::dbSta* sta = remapper.getSta();
+      sta->networkChanged();
+      sta->ensureLevelized();  // Force synchronous graph rebuild
     } else {
-      logger_->info(utl::RES, 358, "Best solution already applied (was last evaluated).");
+      logger_->info(utl::RES, 356, "Best solution already applied (was last evaluated).");
     }
   } else {
     remapper.getLogger()->warn(
         utl::RES, 352,
         "No valid solution found to apply.");
   }
+
+  logger_->info(
+      utl::RES, 347, "After step 6. Best solution applied to the network.");
+
+
   // Step 7: Clean up the mapping manager.
   abc::Abc_NtkMapEnumFreeStore(pMan);
 
@@ -494,8 +556,6 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
 
   // Recompute timing after network changes and placement
   // Must call findDelays() to actually compute delays (invalidation only marks stale)
-  // Ensure timing graph is fresh after placement
-  sta->networkChanged();
   sta->findDelays();
   
   // Find the worst slack among all endpoints
@@ -503,9 +563,7 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
   
   // Get all endpoints and find the worst slack
   sta::VertexSet* endpoints = sta->search()->endpoints();
-  int endpoint_count = 0;
   if (endpoints) {
-    endpoint_count = endpoints->size();
     for (sta::Vertex* endpoint : *endpoints) {
       // vertexSlack() will call findRequired() internally to compute required times
       sta::Slack slack = sta->vertexSlack(endpoint, sta::MinMax::max());
@@ -517,9 +575,10 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
   
   // Log the evaluation result
   logger->info(utl::RES, 345,
-               "Solution evaluated: {} endpoints, Worst Slack = {:.4f}",
-               endpoint_count, worst_slack);
+               "Solution evaluated: Worst Slack = {:.4f}",
+               worst_slack);
   
   return worst_slack;
 }
-}
+
+}  // namespace rmp

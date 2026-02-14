@@ -439,7 +439,7 @@ void
 SeqRemapper::insertMappedAbcNetwork(utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> &mapped_ntk, cut::LogicCut& logic_cut)
 {
   logic_cut.InsertMappedAbcNetwork(mapped_ntk.get(), *abc_library_, 
-                            sta_->getDbNetwork(), name_generator_,
+                            sta_->getDbNetwork(), sta_, name_generator_,
                             logger_);
 }
 
