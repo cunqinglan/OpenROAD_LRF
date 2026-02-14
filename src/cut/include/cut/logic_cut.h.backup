@@ -59,8 +59,8 @@ class LogicCut
   void InsertMappedAbcNetwork(abc::Abc_Ntk_t* abc_network,
                               AbcLibrary& abc_library,
                               sta::dbNetwork* network,
-                              sta::dbSta* sta,
                               utl::UniqueName& unique_name,
+                              sta::dbSta* sta,
                               utl::Logger* logger);
   
   void InsertAbcMapSolution(abc::Map_MappingSolution_t* pSolution,
@@ -68,9 +68,9 @@ class LogicCut
                            abc::Abc_Ntk_t* pOriginalNetwork,
                            AbcLibrary& abc_library,
                            sta::dbNetwork* network,
-                           sta::dbSta* sta,
                            utl::UniqueName& unique_name,
                            utl::Logger* logger);
+                           sta::dbSta* sta,
   /*
   utl::UniquePtrWithDeleter<std::pair<abc::Abc_Ntk_t*, abc::Design_Info_t*>> 
        BuildAbcNetworkWithPositions(

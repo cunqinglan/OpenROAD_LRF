@@ -77,6 +77,6 @@ void ZeroSlackStrategy::OptimizeDesign(sta::dbSta* sta,
       = strategy.Optimize(mapped_abc_network.get(), abc_library, logger);
 
   cut.InsertMappedAbcNetwork(
-      remapped.get(), abc_library, network, name_generator, logger);
+      remapped.get(), abc_library, network, sta, name_generator, logger);
 }
 }  // namespace rmp
