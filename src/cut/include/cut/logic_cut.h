@@ -39,6 +39,7 @@ class LogicCut
     return primary_outputs_;
   }
   const sta::InstanceSet& cut_instances() const { return cut_instances_; }
+  void set_cut_instances(const sta::InstanceSet& instances) { cut_instances_ = instances; }
 
   bool IsEmpty() const
   {

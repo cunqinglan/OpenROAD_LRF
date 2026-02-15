@@ -256,7 +256,8 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
       utl::RES, 334, "No worst-slack path found.");
     return;
   }
-  sta::dbNetwork* network = remapper.getSta()->getDbNetwork();
+  sta::dbSta* sta = remapper.getSta();
+  sta::dbNetwork* network = sta->getDbNetwork();
   sta::Instance* bad_instance = network->instance(bad_vertex->pin());
   if (bad_instance == nullptr) {
     remapper.getLogger()->error(
@@ -274,7 +275,7 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> mapped_abc_network(
       candidate_cut.BuildMappedAbcNetwork(
           *remapper.getAbcLibrary(),
-          remapper.getSta()->getDbNetwork(),
+          network,
           remapper.getLogger()).release(),
       &abc::Abc_NtkDelete);
 
@@ -283,7 +284,7 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
         utl::RES, 335, "Failed to build ABC network from candidate cut.");
     return;
   }
-  
+
   // Step 4: Convert the mapped network to logic (AIG) form for enumeration.
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> logic_network(
       abc::Abc_NtkToLogic(mapped_abc_network.get()),
@@ -300,7 +301,7 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
       abc::Abc_NtkNodeNum(logic_network.get()));
 
   // Step 5: Enumerate all possible mapping solutions using ABC.
-  int nMaxSolutions = 20;  // Configure as needed
+  int nMaxSolutions = 20;
   int fVerbose = 1;
 
   auto library = static_cast<abc::Mio_Library_t*>(mapped_abc_network.get()->pManFunc);
@@ -311,16 +312,15 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
     return;
   }
 
-  // Install library
   abc::Abc_FrameSetLibGen(library);
 
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> strashed_network(
       abc::Abc_NtkStrash(logic_network.get(), 0, 0, 0),
       &abc::Abc_NtkDelete);
-  
+
   void* pMan = abc::Abc_NtkMapEnumPassStore(
-      strashed_network.get(), 
-      nMaxSolutions, 
+      strashed_network.get(),
+      nMaxSolutions,
       fVerbose);
 
   if (pMan == nullptr) {
@@ -329,64 +329,67 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
     return;
   }
 
-  logger_->info(
-      utl::RES, 340, "After step 5.");
-  
-  // Step 6: Process the mapping solutions.
-  // Evaluate each solution and select the best one based on worst slack.
+  logger_->info(utl::RES, 340, "After step 5.");
+
+  // Step 6: Evaluate each solution using dbJournal for atomic rollback.
+  // Pattern: beginEco → modify → endEco → evaluate → undoEco
+  // This avoids cumulative database corruption from sequential insert/delete.
   abc::Map_Man_t* map_man = static_cast<abc::Map_Man_t*>(pMan);
   const int num_solutions = abc::Map_ManReadNumSolutions(map_man);
-  
+
   if (num_solutions <= 0) {
     remapper.getLogger()->warn(
         utl::RES, 341, "ABC mapping enumeration returned no solutions.");
     abc::Abc_NtkMapEnumFreeStore(pMan);
     return;
   }
-  
+
   logger_->info(utl::RES, 348, "Found {} solutions to evaluate.", num_solutions);
 
+  odb::dbBlock* block = sta->db()->getChip()->getBlock();
   abc::Map_MappingSolution_t* pSolutionBest = nullptr;
   sta::Slack best_slack = std::numeric_limits<sta::Slack>::lowest();
   int best_solution_index = -1;
   int evaluated_count = 0;
-  // Step 6: Evaluate solutions - apply each, evaluate, track best
-  logger_->info(utl::RES, 353, "Evaluating {} solutions...", num_solutions);
-  
-  // Limit to 5 solutions to avoid OpenDB ID corruption after repeated delete/create cycles
-  int max_evaluations = std::min(num_solutions, 3);
-  if (num_solutions > max_evaluations) {
-    logger_->warn(utl::RES, 359, "Limiting evaluation to first {} of {} solutions to avoid database corruption.", 
-                  max_evaluations, num_solutions);
-  }
-  
-  sta::dbSta* sta = remapper.getSta();
 
-  for (int i = 0; i < max_evaluations; ++i) {
+  // Save original instance names.  undoEco recreates deleted instances via
+  // dbInst::create() which allocates NEW table slots (different IDs/addresses),
+  // so the original sta::Instance* pointers become invalid.  We look up the
+  // restored instances by name after each undoEco.
+  std::vector<std::string> original_instance_names;
+  for (const sta::Instance* inst : candidate_cut.cut_instances()) {
+    original_instance_names.push_back(network->name(inst));
+  }
+
+  for (int i = 0; i < num_solutions; ++i) {
     abc::Map_MappingSolution_t* pSolution =
         abc::Map_MappingGetSolution(map_man, i);
-    
+
     if (pSolution == nullptr) {
       logger_->warn(utl::RES, 349, "Solution {} is NULL, skipping.", i + 1);
       continue;
     }
-    
+
     logger_->info(
-        utl::RES, 344, "Evaluating solution {}/{}...", 
+        utl::RES, 344, "Evaluating solution {}/{}...",
         i + 1, num_solutions);
 
-    // Apply this solution to the network (topology changes)
+    // --- Begin ECO transaction: record ALL ODB changes ---
+    odb::dbDatabase::beginEco(block);
+
+    // Apply this solution (deletes old instances, creates new ones)
     candidate_cut.InsertAbcMapSolution(
         pSolution,
         map_man,
         logic_network.get(),
         *remapper.getAbcLibrary(),
-        sta->getDbNetwork(),
+        network,
         sta,
         remapper.getNameGenerator(),
         logger_);
-    
-    // Evaluate this solution with full STA and placement
+
+    // Evaluate with full STA and placement (still inside ECO recording
+    // so that placement changes are also journaled and undone)
     sta::Slack slack = evaluateSolution(
         pSolution,
         map_man,
@@ -394,66 +397,74 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
         candidate_cut,
         remapper);
 
-    // Track the best solution (least negative slack)
+    // --- End ECO recording, then undo everything atomically ---
+    odb::dbDatabase::endEco(block);
+    odb::dbDatabase::undoEco(block);
+
+    // Restore cut_instances_ by looking up the recreated instances by name.
+    // undoEco recreated the original instances but at new addresses.
+    sta::InstanceSet restored_instances;
+    for (const std::string& inst_name : original_instance_names) {
+      sta::Instance* found = network->findInstance(inst_name.c_str());
+      if (found) {
+        restored_instances.insert(found);
+      }
+    }
+    candidate_cut.set_cut_instances(restored_instances);
+
+    // Track the best solution
     if (slack > best_slack) {
       best_slack = slack;
       pSolutionBest = pSolution;
       best_solution_index = i;
-      logger_->info(utl::RES, 354, "Solution {} is new best (slack={:.4f}).", 
+      logger_->info(utl::RES, 354, "Solution {} is new best (slack={:.4f}).",
                     i + 1, slack);
     } else {
-      logger_->info(utl::RES, 355, "Solution {} (slack={:.4f}) not better than best ({:.4f}).", 
+      logger_->info(utl::RES, 355, "Solution {} (slack={:.4f}) not better than best ({:.4f}).",
                     i + 1, slack, best_slack);
     }
-    
+
     evaluated_count++;
   }
-  
-  logger_->info(utl::RES, 351, 
+
+  logger_->info(utl::RES, 351,
                "Evaluation complete: {} solutions evaluated.",
                evaluated_count);
-  
-  // Step 6b: Re-apply the best solution if it wasn't the last one evaluated
+
+  // Step 7: Permanently apply the best solution (no beginEco, so it sticks).
   if (pSolutionBest) {
     remapper.getLogger()->info(
         utl::RES, 346,
-        "Best solution found with worst slack = {:.4f}", best_slack);
-    
-    // If the best solution is not the last one, re-apply it
-    if (best_solution_index != num_solutions - 1) {
-      logger_->info(utl::RES, 356, "Re-applying best solution (index {})...", 
-                    best_solution_index + 1);
-      
-      candidate_cut.InsertAbcMapSolution(
-          pSolutionBest,
-          map_man,
-          logic_network.get(),
-          *remapper.getAbcLibrary(),
-          sta->getDbNetwork(),
-          sta,
-          remapper.getNameGenerator(),
-          logger_);
-      
-      // Re-run evaluation to get final placement
-      evaluateSolution(
-          pSolutionBest,
-          map_man,
-          logic_network.get(),
-          candidate_cut,
-          remapper);
-      
-      logger_->info(utl::RES, 357, "Best solution re-applied and placed.");
-    } else {
-      logger_->info(utl::RES, 358, "Best solution already applied (was last evaluated).");
-    }
+        "Best solution found (index {}) with worst slack = {:.4f}",
+        best_solution_index + 1, best_slack);
+
+    candidate_cut.InsertAbcMapSolution(
+        pSolutionBest,
+        map_man,
+        logic_network.get(),
+        *remapper.getAbcLibrary(),
+        network,
+        sta,
+        remapper.getNameGenerator(),
+        logger_);
+
+    // Final placement and timing
+    evaluateSolution(
+        pSolutionBest,
+        map_man,
+        logic_network.get(),
+        candidate_cut,
+        remapper);
+
+    logger_->info(utl::RES, 357, "Best solution permanently applied.");
   } else {
     remapper.getLogger()->warn(
         utl::RES, 352,
         "No valid solution found to apply.");
   }
-  // Step 7: Clean up the mapping manager.
-  abc::Abc_NtkMapEnumFreeStore(pMan);
 
+  // Step 8: Clean up the mapping manager.
+  abc::Abc_NtkMapEnumFreeStore(pMan);
 }
 
 sta::Slack PositionDrivenStrategy::evaluateSolution(
