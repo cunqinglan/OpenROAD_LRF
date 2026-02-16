@@ -121,6 +121,7 @@ public:
   void delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
                   DelayLmSumResult *result, 
                   bool collect_vecs = true);
+  void refgateDelayLmSum(float &delay_lambda_sum);
   sta::Level vertexLevel(sta::VertexId vertex_id) const;
   sta::Level topVertexLevel();
   void createParasiticsNetworks();
