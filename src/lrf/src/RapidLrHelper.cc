@@ -64,13 +64,13 @@ RapidLrHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta,
   LMValue *lms = edge->arcLms();
 
   if (to_rat == INF || from_aat == -INF) {
-    printf("RapidLrHelper::updateEndPointArcLms: negative aat/rat edge %s AP corner %s, delay min/max %s: aat %f, rat %f, delay %f, original LM %f\n",
-            edge->to_string(graph_).c_str(),
-            dcalc_ap->corner()->name(),
-            dcalc_ap->delayMinMax()->to_string().c_str(),
-            from_aat * 1.0e12, to_rat * 1.0e12, delay * 1.0e12,
-            lms[lm_idx]);
-    fflush(stdout);
+    // printf("RapidLrHelper::updateEndPointArcLms: negative aat/rat edge %s AP corner %s, delay min/max %s: aat %f, rat %f, delay %f, original LM %f\n",
+    //         edge->to_string(graph_).c_str(),
+    //         dcalc_ap->corner()->name(),
+    //         dcalc_ap->delayMinMax()->to_string().c_str(),
+    //         from_aat * 1.0e12, to_rat * 1.0e12, delay * 1.0e12,
+    //         lms[lm_idx]);
+    // fflush(stdout);
     lms[lm_idx] = 1e-20;
     return;
   } 

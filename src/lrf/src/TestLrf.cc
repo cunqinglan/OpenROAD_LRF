@@ -646,7 +646,7 @@ TestLrf::testParallelVisitor(const std::vector<odb::dbInst*>& db_insts, sta::dbS
   }
 
   for (size_t i = 0; i < 3; ++i) {
-    visitors.emplace_back(std::make_unique<ParallelLrVisitor>(sta, local_sta));
+    visitors.emplace_back(std::make_unique<ParallelLrVisitor>(sta, local_sta, resizer));
   }
 
   std::vector<ParallelLrVisitor*> visitor_ptrs;
@@ -886,7 +886,7 @@ TestLrf::testTimingComputeAndWriteBack(sta::dbSta* sta, rsz::Resizer *resizer, o
   local_sta->initParallel();
   float average_delay = incre_sta->averageDelayOnCritPath();
   float average_leakage = incre_sta->averageLeakage();
-  lrf::ParallelLrVisitor *visitor = new lrf::ParallelLrVisitor(sta, local_sta);
+  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta, local_sta, resizer);
   visitor->setAverageDelay(average_delay);
   visitor->setAverageLeakage(average_leakage);
 
@@ -1000,7 +1000,7 @@ TestLrf::collectTimingInfoForInstancesUsingLocalSta(sta::dbSta* sta,
   lrf::IncreSta *incre_sta = new lrf::IncreSta(sta, 1);
   lrf::LocalSta *local_sta = incre_sta->localSta();
 
-  lrf::ParallelLrVisitor *visitor = new lrf::ParallelLrVisitor(sta, local_sta);
+  lrf::ParallelLrVisitor *visitor = new lrf::ParallelLrVisitor(sta, local_sta, resizer);
   visitor->setAverageDelay(incre_sta->averageDelayOnCritPath());
   visitor->setAverageLeakage(incre_sta->averageLeakage());
   for (auto *sta_inst : sta_insts) {

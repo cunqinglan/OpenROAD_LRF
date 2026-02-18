@@ -52,6 +52,7 @@ ParallelLrVisitor::ParallelLrVisitor(sta::dbSta *db_sta, LocalSta *local_sta,
 ParallelLrVisitor::~ParallelLrVisitor()
 {
   delete arc_delay_calc_;
+  delete rebuffer_;
 }
 
 bool 
@@ -858,7 +859,7 @@ ParallelLrVisitor::tryBuffering(sta::Instance *inst)
   visited_instances_.push_back(db_sta_->network()->pathName(inst));
   pt_graph_ = local_sta_->makePtGraph(inst, false);
   if (rebuffer_ == nullptr) {
-    rebuffer_ = std::make_unique<LrRebuffer>(resizer_, this);
+    rebuffer_ = new LrRebuffer(resizer_, this);
     rebuffer_->init();
   }
   sta::dbNetwork *network = db_sta_->getDbNetwork();
