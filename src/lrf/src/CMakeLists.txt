@@ -31,6 +31,7 @@ add_library(lrf_lib
     RapidLrHelper.cc
     LrSizer.cc
     ViolationCheck.cc
+    LrRebuffer.cc
 )
 
 target_sources(lrf

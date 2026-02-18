@@ -49,6 +49,10 @@
 #include "stt/SteinerTreeBuilder.h"
 #include "utl/Logger.h"
 
+namespace lrf {
+class LrRebuffer;
+}
+
 namespace rsz {
 
 using LibertyPortTuple = std::tuple<sta::LibertyPort*, sta::LibertyPort*>;
@@ -951,6 +955,7 @@ class Resizer : public sta::dbStaState, public sta::dbNetworkObserver
   friend class ConcreteSwapArithModules;
   friend class Rebuffer;
   friend class OdbCallBack;
+  friend class lrf::LrRebuffer;
 };
 
 }  // namespace rsz

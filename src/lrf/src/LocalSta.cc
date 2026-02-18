@@ -1,5 +1,6 @@
 #include <mutex>
 #include <cstring>
+#include <string>
 
 #include "sta/Sta.hh"
 #include "sta/Corner.hh"
@@ -25,7 +26,13 @@
 #include "db_sta/dbNetwork.hh"
 #include "TaskArranger.hh"
 #include "sta/PortDirection.hh"
-
+#include "search/Tag.hh"
+#include "sta/PathAnalysisPt.hh"
+#include "sta/FuncExpr.hh"
+#include "sta/LeakagePower.hh"
+#include "sta/Liberty.hh"
+#include "sta/DelayFloat.hh"
+  
 #include <stdexcept>
 
 
@@ -298,10 +305,139 @@ LocalSta::collectLocalFanouts(Pin *drvr_pin, InstanceSet &local_instances)
   }
 }
 
+// Compute average leakage across all when-conditions.
+// This is a simple average that does NOT consider input duty cycle.
+// Same approach as Resizer::cellLeakage.
 float
 LocalSta::cellAvgLeakage(sta::LibertyCell *cell)
 {
-  
+  // 1. Try cell-level default leakage first
+  float leakage = 0.0f;
+  bool exists;
+  cell->leakagePower(leakage, exists);
+  if (exists) {
+    return leakage;
+  }
+
+  // 2. Average all conditional leakage groups
+  sta::LeakagePowerSeq *leakages = cell->leakagePowers();
+  if (!leakages || leakages->empty()) {
+    return 0.0f;
+  }
+
+  float total_leakage = 0.0f;
+  int count = 0;
+  for (sta::LeakagePower *leak : *leakages) {
+    float pwr = leak->power();
+    if (pwr > 0.0f) {
+      total_leakage += pwr;
+      count++;
+    }
+  }
+  return count > 0 ? total_leakage / count : 0.0f;
+}
+
+// Compute buffer/inverter leakage weighted by input duty cycle.
+// For a buffer with when conditions like:
+//   when: "(A * Y)"   → input=1, output=1  → probability = input_duty
+//   when: "(!A * !Y)" → input=0, output=0  → probability = 1 - input_duty
+// For an inverter:
+//   when: "(A * !Y)"  → input=1, output=0  → probability = input_duty
+//   when: "(!A * Y)"  → input=0, output=1  → probability = 1 - input_duty
+//
+// We evaluate each when-expression by assigning:
+//   P(input_port = 1) = input_duty
+//   P(output_port = 1) = output_duty  (same as input_duty for buffer,
+//                                       1-input_duty for inverter)
+float
+LocalSta::cellLeakageWithDuty(sta::LibertyCell *cell,
+                              float input_duty)
+{
+  sta::LibertyPort *in_port, *out_port;
+  cell->bufferPorts(in_port, out_port);
+
+  // Determine output duty based on cell function
+  sta::FuncExpr *func = out_port->function();
+  bool is_inverter = (func
+                      && func->op() == sta::FuncExpr::op_not
+                      && func->left()->op() == sta::FuncExpr::op_port);
+  float output_duty = is_inverter ? (1.0f - input_duty) : input_duty;
+
+  // Lambda to evaluate P(when=true) given port duties
+  std::function<float(sta::FuncExpr*)> evalProb;
+  evalProb = [&](sta::FuncExpr *expr) -> float {
+    switch (expr->op()) {
+      case sta::FuncExpr::op_port: {
+        sta::LibertyPort *port = expr->port();
+        if (port == in_port)
+          return input_duty;
+        else if (port == out_port)
+          return output_duty;
+        return 0.5f;
+      }
+      case sta::FuncExpr::op_not:
+        return 1.0f - evalProb(expr->left());
+      case sta::FuncExpr::op_and:
+        return evalProb(expr->left()) * evalProb(expr->right());
+      case sta::FuncExpr::op_or: {
+        float pa = evalProb(expr->left());
+        float pb = evalProb(expr->right());
+        return pa + pb - pa * pb;
+      }
+      case sta::FuncExpr::op_xor: {
+        float pa = evalProb(expr->left());
+        float pb = evalProb(expr->right());
+        return pa * (1.0f - pb) + (1.0f - pa) * pb;
+      }
+      case sta::FuncExpr::op_one:
+        return 1.0f;
+      case sta::FuncExpr::op_zero:
+        return 0.0f;
+    }
+    return 0.5f;
+  };
+
+  // Weighted leakage sum
+  float cond_leakage = 0.0f;
+  bool found_cond = false;
+  float uncond_leakage = 0.0f;
+  bool found_uncond = false;
+  float cond_duty_sum = 0.0f;
+
+  for (sta::LeakagePower *leak : *cell->leakagePowers()) {
+    sta::FuncExpr *when = leak->when();
+    if (when) {
+      float prob = evalProb(when);
+      cond_leakage += leak->power() * prob;
+      if (leak->power() > 0.0f)
+        cond_duty_sum += prob;
+      found_cond = true;
+    } else {
+      uncond_leakage += leak->power();
+      found_uncond = true;
+    }
+  }
+
+  float leakage = 0.0f;
+
+  // Cell-level default leakage covers the remaining probability space
+  float cell_leakage;
+  bool cell_leakage_exists;
+  cell->leakagePower(cell_leakage, cell_leakage_exists);
+  if (cell_leakage_exists) {
+    float remaining_duty = 1.0f - cond_duty_sum;
+    cell_leakage *= remaining_duty;
+  }
+
+  if (found_cond)
+    leakage = cond_leakage;
+  else if (found_uncond)
+    leakage = uncond_leakage;
+
+  if (cell_leakage_exists)
+    leakage += cell_leakage;
+
+  return leakage;
 }
 
 void
@@ -392,6 +528,7 @@ void
 LocalSta::findLocalDelays(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc)
 {
   for (VertexId vertex_id : pt_graph->sortedVertexIds()) {
+    PtVertex &pt_vertex = pt_graph->ptVertex(vertex_id);
     findVertexDelays(vertex_id,  arc_delay_calc, pt_graph);
   }
 }
@@ -619,8 +756,6 @@ LocalSta::findVertexDelays(VertexId pt_vertex_id,
                            PtGraph *pt_graph)
 {
   PtVertex &pt_vertex = pt_graph->ptVertex(pt_vertex_id);
-  if (pt_vertex.type() == PtVertexType::None)
-    return;
   Vertex *vertex = pt_vertex.vertex();
   if (pt_vertex.isRoot()) {
     seedRootSlew(pt_vertex, pt_graph, arc_delay_calc);
@@ -787,18 +922,6 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
 {
   Instance *drvr_inst = network_->instance(drvr_pt_vertex.vertex()->pin());
 
-  // std::string debug_info = "LOCALSTACHECK: Driver Instance: ";
-  // if (drvr_inst) {
-  //     debug_info += std::string(network_->name(drvr_inst));
-  //     debug_info += " LibCell: " + std::string(network_->libertyCell(drvr_inst)->name());
-  // } else {
-  //     debug_info += "Top/Unknown";
-  // }
-
-  // debug_info += ", Arc: " + arc->to_string() 
-  //           + " DcalcAP: " + std::to_string(dcalc_ap->index());
-    
-
   Vertex *drvr_vertex = drvr_pt_vertex.vertex();
   const RiseFall *from_rf = arc->fromEdge()->asRiseFall();
   const RiseFall *drvr_rf = arc->toEdge()->asRiseFall();
@@ -808,17 +931,11 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
     float load_cap;
     localParasiticLoad(drvr_pin, drvr_rf, dcalc_ap, multi_drvr_net, 
                        load_cap, parasitic);
-    
-    // if (parasitic)
-    //   debug_info += ", Load Cap: " + std::to_string(local_parasitics_->capacitance(parasitic) * 1e15) + "fF";
-    // else
-    //   debug_info += ", Load Cap: null";
-
 
     if (multi_drvr_net == nullptr) {
       PtVertex &from_pt_vertex = pt_graph->ptVertex(pt_edge.ptFromId());
-      const Slew in_slew = edgeFromLocalSlew(from_pt_vertex, from_rf, pt_edge, 
-                                        dcalc_ap, pt_graph);
+      const Slew in_slew = edgeFromLocalSlew(from_pt_vertex, from_rf, pt_edge,
+                                            dcalc_ap, pt_graph);
       ArcDcalcResult dcalc_result;
       dcalc_result = arc_delay_calc->gateDelay(
                           drvr_pin, arc, in_slew, load_cap, parasitic,
@@ -827,13 +944,6 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
       // Slew prev_drvr_slew = pt_graph->slew(drvr_pt_vertex, drvr_rf, dcalc_ap->index());
       annotateDelaysSlews(pt_edge, arc, dcalc_result,
                           load_pin_index_map, dcalc_ap, pt_graph);
-      // debug_info += ", In Slew: " + std::to_string(1e12 * in_slew)
-      //               + ", Gate Delay: " + std::to_string(1e12 * (dcalc_result.gateDelay()))
-      //               + ", Drvr Slew: " + std::to_string(1e12 * (dcalc_result.drvrSlew()))
-      //               + ", Cur Slew: " + std::to_string(1e12 * pt_graph->slew(drvr_pt_vertex, drvr_rf, dcalc_ap->index()))
-      //               + ", Prev Slew: " + std::to_string(1e12 * prev_drvr_slew)
-      //               + ", ref libcell: " + std::string(pt_graph->refGate()->name())
-      //               + "\n";
     } else {
       // ArcDcalcArg dcalc_args = makeArcDcalcArgs(drvr_pt_vertex,
                                   // multi_drvr_net, pt_edge, arc,
@@ -889,11 +999,13 @@ LocalSta::annotateLoadDelays(PtVertex &drvr_pt_vertex,
       PtVertex &load_pt_vertex = pt_graph->ptVertex(wire_pt_edge.ptToId());
       Vertex *load_vertex = load_pt_vertex.vertex();
       Pin *load_pin = load_vertex->pin();
+      
+      // Skip load pins not in the map (top-level ports, hierarchical pins)
+      // These were filtered out in makeLoadPinIndexMap to avoid segfault
       if (load_pin_index_map.find(load_pin) == load_pin_index_map.end()) {
-        printf("ERROR: LocalSta::annotateLoadDelays: load_pin not found in load_pin_index_map\n");
-        fflush(stdout);
         continue;
       }
+      
       size_t load_idx = load_pin_index_map[load_pin];
       ArcDelay wire_delay = dcalc_result.wireDelay(load_idx);
       Slew load_slew = dcalc_result.loadSlew(load_idx);
@@ -901,9 +1013,6 @@ LocalSta::annotateLoadDelays(PtVertex &drvr_pt_vertex,
     if (drvr_vertex->slewAnnotated(to_rf, slew_min_max)) {
       // Should take annotated slew from the underlying graph, 
       // as pt_graph might not hold the annotated value.
-      printf("Warning: LocalSta::annotateLoadDelays: load vertex %s slew not annotated, taking from graph\n",
-             load_vertex->to_string(graph_).c_str());
-      fflush(stdout);
       Slew drvr_slew = graph_->slew(drvr_vertex, to_rf, ap_index);
       pt_graph->setSlew(load_pt_vertex, to_rf, ap_index, drvr_slew);
       load_changed = true;
@@ -1018,6 +1127,13 @@ LocalSta::makeLoadPinIndexMap(PtVertex &drvr_pt_vertex, PtGraph *pt_graph)
       PtVertex &load_pt_vertex = pt_graph->ptVertex(pt_edge.ptToId());
       Vertex *load_vertex = load_pt_vertex.vertex();
       const Pin *load_pin = load_vertex->pin();
+      
+      // Skip top-level ports and hierarchical pins as load pins
+      // to avoid segfault in DelayCalcBase::thresholdAdjust -> libertyPort -> getMTerm
+      if (network_->isTopLevelPort(load_pin) || network_->isHierarchical(load_pin)) {
+        continue;
+      }
+      
       load_pin_index_map[load_pin] = load_idx;
       load_idx++;
     }
@@ -1074,9 +1190,26 @@ LocalSta::delayLmSum(Instance *inst, const MinMax *minmax)
   return delay_lambda_sum;
 }
 
+float
+LocalSta::refgateDelayLmSum(PtGraph *pt_graph)
+{
+  float delay_lambda_sum;
+  pt_graph->refgateDelayLmSum(delay_lambda_sum, nullptr);
+  return delay_lambda_sum;
+}
+
 float 
 LocalSta::delayLmSum(PtGraph *pt_graph, DcalcAnalysisPt *dcalc_ap)
 {
+  float delay_lm_sum;
+  pt_graph->delayLmSum(dcalc_ap, delay_lm_sum);
+  return delay_lm_sum;
+}
+
+float
+LocalSta::delayLmSum(PtGraph *pt_graph)
+{
+  sta::DcalcAnalysisPt *dcalc_ap = pt_graph->dcalcAnalysisPt();
   float delay_lm_sum;
   pt_graph->delayLmSum(dcalc_ap, delay_lm_sum);
   return delay_lm_sum;
@@ -1123,7 +1256,7 @@ LocalSta::initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_c
   // to pt graph. So here we just need to sum up the delays.
   const Corner *corner = corners_->findCorner("default");
   DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
-  return delayLmSum(pt_graph, dcalc_ap, true);
+  return delayLmSum(pt_graph, dcalc_ap, false);
 }
 
 DelayLmSumResult
@@ -1137,7 +1270,7 @@ LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph,
   findLocalRequireds(pt_graph);
   const Corner *corner = corners_->findCorner("default");
   DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
-  return delayLmSum(pt_graph, dcalc_ap, true);
+  return delayLmSum(pt_graph, dcalc_ap, false);
 }
 
 // Recompute local parasitics after cell swap
@@ -1216,6 +1349,7 @@ LocalSta::localParasiticLoad(const Pin *drvr_pin,
     load_cap = 0.0;
   }
   else {
+    // This should be revised since output cap will be changed
     netCaps(drvr_pin, rf, dcalc_ap, multi_drvr_net,
           pin_cap, wire_cap, fanout, has_net_load);
     load_cap = pin_cap + wire_cap;
@@ -1281,7 +1415,7 @@ LocalSta::printParasitics(PtGraph *pt_graph) const
             arc_delay_calc_->findParasitic(vertex->pin(), rf, dcalc_ap);
           float load_cap = local_parasitics_->capacitance(parasitic);
           if (parasitic != nullptr) {
-            printf("OpenSta::printLocalParasitics: Pin %s, RF %s, AP %u, with cap %f\n",
+            printf("LOCALSTA::printLocalParasitics: Pin %s, RF %s, AP %u, with cap %f\n",
                    network_->name(vertex->pin()),
                    rf->to_string().c_str(),
                    dcalc_ap->index(),
@@ -1617,12 +1751,12 @@ LRSInstanceVisitor
 void 
 LocalSta::virtualReplaceCell(PtGraph *pt_graph, LibertyCell *new_cell)
 {
-  if (!equivCellsArcs(pt_graph->refGate(), new_cell)) {
-    printf("This cell: %s replacement needs more processing\n", new_cell->name());
-    return;
-  }
   // If it's nullptr, we use original ref lib cell of pt graph
   if (new_cell) {
+    if (!equivCellsArcs(pt_graph->refGate(), new_cell)) {
+      printf("This cell: %s replacement needs more processing\n", new_cell->name());
+      return;
+    }
     pt_graph->setRefGate(new_cell);
     pt_graph->updateTimingArcSets();
     recomputeLocalParasitics(pt_graph);
@@ -1661,7 +1795,7 @@ LocalSta::runResize(rsz::Resizer *resizer, ParallelLrVisitor *visitor)
 }
 
 sta::Path *
-LocalSta::ptVertexWorstSlackPath(PtVertex &pt_vertex, const sta::MinMax *min_max)
+LocalSta::ptVertexWorstSlackPath(PtVertex &pt_vertex, const sta::MinMax *min_max) const
 {
   Path *worst_slack_path = nullptr;
   sta::Slack worst_slack = sta::MinMax::min()->initValue();
@@ -1672,7 +1806,7 @@ LocalSta::ptVertexWorstSlackPath(PtVertex &pt_vertex, const sta::MinMax *min_max
     sta::Slack path_slack = path->slack(this);
     if (tag->pathAnalysisPt(this)->pathMinMax() == min_max
         && (!path->tag(this)->isGenClkSrcPath() 
-            && delayLess(path_slack, worst_slack))) {
+            && delayLess(path_slack, worst_slack, this))) {
       worst_slack = path_slack;
       worst_slack_path = path;
     }

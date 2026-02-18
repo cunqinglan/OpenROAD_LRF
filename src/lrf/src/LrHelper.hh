@@ -30,6 +30,8 @@ public:
   void setRatcons(bool ratcons) { RATCONS_ = ratcons; }
   virtual std::string strategyName() const { return "Base LRHelper"; }
   virtual bool updateCriticalPathLms(sta::Path *path_end) { return false; };
+  virtual void setMode(std::string mode) {};
+  virtual std::string mode() const { return ""; }
 
 protected:
   void distributeLmOutToIn(Vertex *vertex,
@@ -66,10 +68,16 @@ private:
 
 class RapidLrHelper : public LRHelper {
 public:
-  RapidLrHelper(sta::dbSta *sta) : LRHelper(sta) {}
+  RapidLrHelper(sta::dbSta *sta);
   ~RapidLrHelper() override = default;
   virtual std::string strategyName() const override { return "Rapid LRHelper: LM=path delay/T"; }
   virtual bool updateCriticalPathLms(sta::Path *path_end) override;
+  virtual void setMode(std::string mode) override;
+  virtual std::string mode() const override { return power_mode_ ? "power" : "timing"; }
+  void setPowerMode();
+  void setTimingMode();
+  bool isPowerMode() const { return power_mode_; }
+  bool isTimingMode() const { return !power_mode_; }
 
 protected:
   virtual void updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, 
@@ -82,6 +90,7 @@ protected:
 private:
   int critical_arc_k_ = 4;
   int non_critical_arc_k_ = 1;
+  bool power_mode_ = false;
 };
 
 class AdaptiveLrHelper : public LRHelper {

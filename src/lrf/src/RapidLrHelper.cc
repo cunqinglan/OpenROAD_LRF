@@ -17,6 +17,11 @@ namespace lrf {
 // Iterations of Lagrangian Relaxation by Ankur
 ///////////////////////////////////////////////////////////////////
 
+RapidLrHelper::RapidLrHelper(sta::dbSta *sta) : LRHelper(sta) 
+{
+  setTimingMode();
+}
+
 float 
 RapidLrHelper::getMultiplier(Slack arc_slack) {
   // Here we use a simple heuristic based on criticality
@@ -202,11 +207,6 @@ RapidLrHelper::updateCriticalPathLms(sta::Path *path_end)
         fflush(stdout);
         continue;
       }
-      if (i <= start_index + 2) {
-        printf("RapidLrHelper::updateCriticalPathLms: path %d has prevEdge %s\n",
-              i, edge->to_string(graph_).c_str());
-        fflush(stdout);
-      }
       sta::TimingArc *arc = path->prevArc(sta_);
       if (!arc) {
         printf("RapidLrHelper::updateCriticalPathLms: path at index %d has no prevArc\n", i);
@@ -261,6 +261,33 @@ RapidLrHelper::updateCriticalPathLms(sta::Path *path_end)
     }
   }
   return true;
+}
+
+void
+RapidLrHelper::setMode(std::string mode) {
+  if (mode == "power") {
+    setPowerMode();
+  } else if (mode == "timing") {
+    setTimingMode();
+  } else {
+    printf("RapidLrHelper::setMode: unknown mode %s, defaulting to timing mode\n", mode.c_str());
+    fflush(stdout);
+    setTimingMode();
+  }
+}
+
+void
+RapidLrHelper::setPowerMode() {
+  critical_arc_k_ = 1;
+  non_critical_arc_k_ = 6;
+  power_mode_ = true;
+}
+
+void
+RapidLrHelper::setTimingMode() {
+  critical_arc_k_ = 4;
+  non_critical_arc_k_ = 1;
+  power_mode_ = false;
 }
 
 } // namespace lrf

@@ -141,46 +141,21 @@ IncreSta::delayLmSum(Instance *inst, const MinMax *minmax, float &delay_lambda_s
   delay_lambda_sum = local_sta_->delayLmSum(inst, minmax);
 }
 
-// void 
-// IncreSta::lmUpdate()
-// {
-//   printf("DEBUG: IncreSta::lmUpdate start\n");
-//   fflush(stdout);
-//   init();
-//   printf("DEBUG: IncreSta::lmUpdate calling updateAllEdgeLms\n");
-//   fflush(stdout);
-//   lr_helper_->updateAllEdgeLms(sta_);
-//   printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (projected_)\n");
-//   fflush(stdout);
-//   lr_helper_->KKTProjection(sta_);
-//   printf("DEBUG: IncreSta::lmUpdate end\n");
-//   fflush(stdout);
-// }
-
-// void 
-// IncreSta::lmUpdate()
-// {
-//   printf("DEBUG: IncreSta::lmUpdate start\n");
-//   fflush(stdout);
-//   init();
-//   printf("DEBUG: IncreSta::lmUpdate calling updateAllEdgeLms\n");
-//   fflush(stdout);
-//   lr_helper_->updateAllEdgeLms(sta_);
-//   printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (projected_)\n");
-//   fflush(stdout);
-//   lr_helper_->KKTProjection(sta_);
-//   printf("DEBUG: IncreSta::lmUpdate end\n");
-//   fflush(stdout);
-// }
+bool
+IncreSta::isPowerOptimizationMode() const
+{
+  return lr_helper_->mode() == "power";
+}
 
 void 
 IncreSta::lmUpdate()
 {
-  printf("DEBUG: IncreSta::lmUpdate start\n");
-  fflush(stdout);
-  init();
-  printf("DEBUG: IncreSta::lmUpdate init done\n");
-  fflush(stdout);
+  sta::Slack wns = sta_->worstSlack(sta::MinMax::max());
+  if (wns >= 0.0) {
+    lr_helper_->setMode("power");
+    printf("All timing constraints are met (WNS %e), switching to power optimization mode\n", wns);
+  }
+  
   if (projected_) {
     printf("DEBUG: IncreSta::lmUpdate calling updateAllEdgeLms\n");
     fflush(stdout);
@@ -195,7 +170,7 @@ IncreSta::lmUpdate()
     if (kkt_satisfied)
       projected_ = true;
     else {
-      printf("KKT not satisfied, should be checked\n");
+      printf("IncreSta::lmUpdate: Warning: KKT not satisfied, should be checked\n");
       fflush(stdout);
     }
   }
@@ -465,10 +440,10 @@ IncreSta::setMaxResizeNum(size_t max_resize_num)
 }
 
 void 
-IncreSta::parallelResizeCPS(rsz::Resizer *resizer, float avg_delay, float avg_power,
+IncreSta::parallelResizeAdaptive(rsz::Resizer *resizer, float avg_delay, float avg_power,
                       float PT_tradeoff)
 {
-  printf("IncreSta::parallelResizeCPS start\n");
+  printf("IncreSta::parallelResizeAdaptive start\n");
   auto start_total = std::chrono::high_resolution_clock::now();
 
   // We first create a serials of instance visitors
@@ -507,23 +482,24 @@ IncreSta::parallelResizeCPS(rsz::Resizer *resizer, float avg_delay, float avg_po
   printf("After parallel LR resize, TNS: %e, WNS: %e\n", tns_after_resize, wns_after_resize);
   printf("parallel resize time: %f s\n", diff_resize.count());
 
-  // Run critical path sizing
-  ParallelLrVisitor *critical_path_visitor = new ParallelLrVisitor(sta_, local_sta_);
-  critical_path_visitor->init(avg_delay, avg_power, wns_after_resize, 
-      PT_tradeoff, &swappable_cells_cache_, &inst_info_map_);
+  if (isPowerOptimizationMode()) {
+    ParallelLrVisitor *critical_path_visitor = new ParallelLrVisitor(sta_, local_sta_);
+    critical_path_visitor->init(avg_delay, avg_power, wns_after_resize, 
+        PT_tradeoff, &swappable_cells_cache_, &inst_info_map_);
 
-  // Time the critical-path sizing phase
-  auto start_cps = std::chrono::high_resolution_clock::now();
-  LrSizer lr_sizer(sta_, lr_helper_, critical_path_visitor);
-  lr_sizer.criticalPathSizing();
-  auto end_cps = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> diff_cps = end_cps - start_cps;
+    // Time the critical-path sizing phase
+    auto start_cps = std::chrono::high_resolution_clock::now();
+    LrSizer lr_sizer(sta_, lr_helper_, critical_path_visitor);
+    lr_sizer.criticalPathSizing();
+    auto end_cps = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> diff_cps = end_cps - start_cps;
 
-  double tns_after_cps = sta_->totalNegativeSlack(MinMax::max());
-  double wns_after_cps = sta_->worstSlack(MinMax::max());
-  printf("After critical path sizing, TNS: %e, WNS: %e\n", tns_after_cps, wns_after_cps);
-  printf("critical path sizing time: %f s\n", diff_cps.count());
-  delete critical_path_visitor;
+    double tns_after_cps = sta_->totalNegativeSlack(MinMax::max());
+    double wns_after_cps = sta_->worstSlack(MinMax::max());
+    printf("After critical path sizing, TNS: %e, WNS: %e\n", tns_after_cps, wns_after_cps);
+    printf("critical path sizing time: %f s\n", diff_cps.count());
+    delete critical_path_visitor;
+  }
 
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_total = end_total - start_total;

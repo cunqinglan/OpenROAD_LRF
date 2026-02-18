@@ -419,17 +419,28 @@ ParallelLrVisitor::trySwapV1(sta::Instance *inst)
 }
 
 bool
-ParallelLrVisitor::visit(sta::Instance *inst)
+ParallelLrVisitor::visit(sta::Instance *inst, MoveType move_type)
 {
-  std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
-  if (!checkVisitorStatus()) {
-    throw std::runtime_error("ParallelLrVisitor::visit visitor status invalid");
-  }
   bool success;
-  if (parallel_lib_data_) {
-    success = trySwapV1(inst);
-  } else {
-    success = trySwap(inst);
+  std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
+  switch (move_type) {
+    case MoveType::Resizing:{
+      if (!checkVisitorStatus()) {
+        throw std::runtime_error("ParallelLrVisitor::visit visitor status invalid");
+      }
+      if (parallel_lib_data_) {
+        success = trySwapV1(inst);
+      } else {
+        success = trySwap(inst);
+      }
+    }
+    case MoveType::BufferInsertion: {
+        // Buffer insertion not implemented yet, return false for now.
+        success = false;
+        break;
+    }
+    default:
+      throw std::runtime_error("ParallelLrVisitor::visit unknown move type");
   }
   std::chrono::steady_clock::time_point end_time = std::chrono::steady_clock::now();
   std::chrono::duration<double> duration = end_time - start_time;
@@ -440,8 +451,8 @@ ParallelLrVisitor::visit(sta::Instance *inst)
 bool
 ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
 {
-  if (visit(inst)) {
-    applyChangesToDb(nullptr);
+  if (visit(inst, MoveType::Resizing)) {
+    applyChangesToDb(nullptr, MoveType::Resizing);
     return true;
   }
   return false;
@@ -589,7 +600,33 @@ ParallelLrVisitor::printVisitedInstNames() const
 }
 
 void
-ParallelLrVisitor::applyChangesToDb(rsz::Resizer *resizer)
+ParallelLrVisitor::applyChangesToDb(rsz::Resizer *resizer, MoveType move_type)
+{
+  std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
+  switch (move_type) {
+    case MoveType::Resizing:
+      applyResizeChangesToDb(resizer);
+      break;
+    case MoveType::BufferInsertion:
+      applyBufferingChangesToDb(resizer);
+      break;
+    default:
+      throw std::runtime_error("ParallelLrVisitor::applyChangesToDb unknown move type");
+  }
+}
+
+void
+ParallelLrVisitor::applyBufferingChangesToDb(rsz::Resizer *resizer)
+{
+  std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
+  int inserted_count = exportBufferTree(best_bnet_, db_network_->dbToSta(db_net), 1, parent, "rebuffer");
+  std::chrono::steady_clock::time_point mid_time = std::chrono::steady_clock::now();
+  std::chrono::duration<double> mid_duration = mid_time - start_time;
+  runtime_map_["applyDb"] += mid_duration.count();
+}
+
+void
+ParallelLrVisitor::applyResizeChangesToDb(rsz::Resizer *resizer)
 {
   std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
   // First apply best cell type changes to OpenROAD
