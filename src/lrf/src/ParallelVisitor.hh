@@ -24,6 +24,7 @@ namespace lrf {
 class LocalSta;
 class PtGraph;
 class ParallelLibData;
+class LrRebuffer;
 
 enum class MoveType {
   Resizing,
@@ -35,12 +36,13 @@ enum class MoveType {
 class ParallelLrVisitor
 {
 public:
-  ParallelLrVisitor(sta::dbSta *db_sta, LocalSta *local_sta);
+  ParallelLrVisitor(sta::dbSta *db_sta, LocalSta *local_sta, rsz::Resizer *resizer);
   virtual ~ParallelLrVisitor();
-  virtual bool visit(sta::Instance *inst);
+  virtual bool visit(sta::Instance *inst, MoveType move_type = MoveType::Resizing);
   bool visit(sta::Instance *inst, TimingRecord &timing_record);
   bool singleGateSizing(sta::Instance *inst);
-  bool bufferInsertion(sta::Instance *inst);
+  // Functions for buffer insertion
+  bool tryBuffering(sta::Instance *inst);
   // Apply cell type changes to OpenROAD and OpenSTA, and 
   // update timing information from PtGraph to sta::Graph.
   virtual void applyChangesToDb(rsz::Resizer *resizer, MoveType move_type = MoveType::Resizing);
@@ -96,21 +98,18 @@ protected:
   std::vector<std::pair<sta::LibertyCell*, std::pair<size_t, size_t>>> getLegalEquivCells(
                                   std::vector<sta::LibertyCellSeq> *equiv_cells_vec,
                                   sta::LibertyCell *ori_cell);
-
-  // Functions for buffer insertion
-  bool bufferInsertion(sta::Instance *inst);
   LocalSta *localSta() const { return local_sta_; }
   sta::ArcDelayCalc *arcDelayCalc() const { return arc_delay_calc_; }
 
   sta::dbSta *db_sta_;
   sta::Instance *ref_inst_;
   LocalSta *local_sta_;
+  rsz::Resizer *resizer_;
   PtGraph *pt_graph_;
   sta::ArcDelayCalc *arc_delay_calc_;
   sta::Slack slack_before_swap_;
   std::vector<std::string> visited_instances_;
   sta::LibertyCell *best_cell_ = nullptr;
-  std::shared_ptr<rsz::BufferedNet> best_bnet_ = nullptr;
   float average_delay_ = 1.0;
   float average_leakage_ = 1.0;
   float slack_margin_= 0.0;
@@ -119,6 +118,7 @@ protected:
   std::unordered_map<sta::Instance*, LocalCellInfo*> *inst_info_map_;
   ParallelLibData *parallel_lib_data_ = nullptr;
   float clock_period_ = 0.0;
+  std::unique_ptr<LrRebuffer> rebuffer_ = nullptr;
 
   std::map<std::string, double> runtime_map_ = {
     {"visit", 0.0},
@@ -129,7 +129,8 @@ protected:
     {"writeTimingToDb", 0.0},
     {"applyDb", 0.0},
     {"single_gate_sizing", 0.0},
-    {"buffer_insertion", 0.0}
+    {"buffer_insertion", 0.0},
+    {"buffer_count", 0.0},
   };
 private:
   friend class LrRebuffer;

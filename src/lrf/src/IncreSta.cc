@@ -383,7 +383,7 @@ IncreSta::parallelResize(rsz::Resizer *resizer, float avg_delay, float avg_power
   // float average_delay = averageDelayOnCritPath();
   // float average_power = averageLeakage();
   printf("Average delay: %f, average power: %f\n", avg_delay * 1e12, avg_power * 1e9);
-  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_);
+  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &swappable_cells_cache_, &inst_info_map_);
 
   auto start_resize = std::chrono::high_resolution_clock::now();
@@ -419,7 +419,7 @@ IncreSta::parallelResizeV1(rsz::Resizer *resizer, float avg_delay, float avg_pow
   // float average_delay = averageDelayOnCritPath();
   // float average_power = averageLeakage();
   printf("Average delay: %f, average power: %f\n", avg_delay * 1e12, avg_power * 1e9);
-  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_);
+  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff, parallel_lib_data_);
 
   auto start_resize = std::chrono::high_resolution_clock::now();
@@ -467,7 +467,7 @@ IncreSta::parallelResizeAdaptive(rsz::Resizer *resizer, float avg_delay, float a
   }
 
   auto start_resize = std::chrono::high_resolution_clock::now();
-  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_);
+  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff, 
       &swappable_cells_cache_, &inst_info_map_);
   local_sta_->runResize(resizer, visitor);
@@ -483,7 +483,7 @@ IncreSta::parallelResizeAdaptive(rsz::Resizer *resizer, float avg_delay, float a
   printf("parallel resize time: %f s\n", diff_resize.count());
 
   if (isPowerOptimizationMode()) {
-    ParallelLrVisitor *critical_path_visitor = new ParallelLrVisitor(sta_, local_sta_);
+    ParallelLrVisitor *critical_path_visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
     critical_path_visitor->init(avg_delay, avg_power, wns_after_resize, 
         PT_tradeoff, &swappable_cells_cache_, &inst_info_map_);
 

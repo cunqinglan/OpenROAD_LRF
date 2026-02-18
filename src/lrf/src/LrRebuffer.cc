@@ -114,18 +114,27 @@ LrRebuffer::annotateLoadLMs(PtVertex &drvr_pt_vertex, const BnetPtr& tree)
       tree);
 }
 
-int
+int 
+LrRebuffer::applyBufferingToDb()
+{
+  odb::dbNet* const db_net = db_network_->flatNet(drvr_pin_);
+  return exportBufferTree(best_bnet_, db_network_->dbToSta(db_net), 1, nullptr, "rebuffer");
+}
+
+void
 LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
 {
+  best_bnet_ = nullptr;
   if (network_->isTopLevelPort(drvr_pin)) {
     printf("LrRebuffer::rebufferPin: Warning: rebuffering does not support top port as the driver pin: %s\n",
            network_->name(drvr_pin));
-    return 0;
+    return;
   }
 
   PtGraph *pt_graph = visitor_->ptGraph();
   sta::LibertyCell *cur_lib_cell = pt_graph->refGate();
   drvr_port_ = cur_lib_cell->findLibertyPort(network_->portName(drvr_pin));
+  drvr_pin_ = drvr_pin;
   sta::Net *net = network_->net(drvr_pin);
   odb::dbNet* const db_net = db_network_->flatNet(drvr_pin);
   if (net && drvr_port_ &&
@@ -138,7 +147,7 @@ LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
     if (!bnet) {
       printf("LrRebuffer::rebufferPin: Warning: unable to create buffered net for pin %s\n",
              network_->name(drvr_pin));
-      return 0;
+      return;
     }
 
     // Compute RAT and AAT of the local graph
@@ -157,23 +166,11 @@ LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
     }
 
     if (!bnet) {
-      return 0;
+      return;
     }
 
-    sta::Instance* parent
-        = db_network_->getOwningInstanceParent(const_cast<sta::Pin*>(drvr_pin));
-    int inserted_count;
-    inserted_count = exportBufferTree(
-        bnet, db_network_->dbToSta(db_net), 1, parent, "rebuffer");
-
-    if (inserted_count > 0) {
-      resizer_->level_drvr_vertices_valid_ = false;
-    }
-    
-    return inserted_count;
+    best_bnet_ = bnet;
   }
-
-  return 0;
 }
 
 void

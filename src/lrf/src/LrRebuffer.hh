@@ -26,7 +26,8 @@ class LrRebuffer : public rsz::Rebuffer
 public:
   LrRebuffer(rsz::Resizer* resizer, ParallelLrVisitor* parallel_visitor);
   void init();
-  int rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex);  // Return the inserted buffer count.
+  // Compute the best buffering option and save it at best_bnet_.
+  void rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex);
   // void annoataLoadSlacks();
   rsz::BufferedNetPtr bufferForTiming(PtVertex &pt_drvr_vertex, const rsz::BufferedNetPtr& tree, bool allow_topology_rewrite);
   void annotateLoadLMs(PtVertex &drvr_pt_vertex, const rsz::BufferedNetPtr& tree);
@@ -37,6 +38,9 @@ public:
                        odb::Point wire_end,
                        int wire_layer,
                        int level = -1);
+  int applyBufferingToDb();
+  const sta::Pin *drvrPin() const { return drvr_pin_; }
+  const rsz::BufferedNetPtr& bestBnet() const { return best_bnet_; }
 
 protected:
   void localAnnotateLoadSlacks(const rsz::BufferedNetPtr& tree, PtVertex &drvr_pt_vertex);
@@ -58,10 +62,11 @@ protected:
                                              const rsz::BufferedNetPtr& left,
                                              const rsz::BufferedNetPtr& right,
                                              float best_cap);
-
 private:
   LocalSta *local_sta_;
   ParallelLrVisitor* visitor_;
+  const sta::Pin *drvr_pin_ = nullptr;
+  rsz::BufferedNetPtr best_bnet_ = nullptr;
 };
 
 
