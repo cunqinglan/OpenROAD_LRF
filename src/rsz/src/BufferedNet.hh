@@ -256,6 +256,18 @@ class BufferedNet
   bool fitsEnvelope(Metrics target);
   const sta::Corner* corner() { return corner_; }
 
+  // Functions for LrRebuffer
+  float bufferCost() const { return buffer_cost_; }
+  void setBufferCost(float cost) { buffer_cost_ = cost; }
+  std::vector<float>& lms() { return lms_; }
+  void setLms(const std::vector<float>& lms) { lms_ = lms; }
+  void setLms(std::vector<float>&& lms) noexcept { lms_ = std::move(lms); }
+  void setLms(float *lms, int count) {
+    lms_.clear();
+    lms_.assign(lms, lms + count);
+  }
+
+
  private:
   BufferedNetType type_;
   odb::Point location_;
@@ -295,6 +307,12 @@ class BufferedNet
   FixedDelay arrival_delay_ = FixedDelay::ZERO;
 
   const sta::Corner* corner_ = nullptr;
+
+  // LMs vector to pass from load to driver.
+  std::vector<float> lms_;
+
+  // LM delay sum from here to load, used for LrRebuffer.
+  float buffer_cost_ = 0;
 };
 
 // Template magic to make it easier to write algorithms descending

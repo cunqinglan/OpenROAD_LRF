@@ -436,18 +436,6 @@ std::vector<odb::dbMaster*> Timing::equivCells(odb::dbMaster* master)
 //////////////////////////////////////////
 // Functions for LR sizing
 //////////////////////////////////////////
-float 
-Timing::getTns(bool minmax) {
-  // minmax: true for min, false for max
-  sta::dbSta* sta = getSta();
-  if (minmax) {
-    float tns = sta->totalNegativeSlack(sta::MinMax::min());
-    return tns;
-  }
-  float tns = sta->totalNegativeSlack(sta::MinMax::max());
-  return tns;
-}
-
 float
 Timing::getLmDelaySum(odb::dbInst* inst, const sta::MinMax *minmax) {
   sta::dbSta* sta = getSta();
@@ -524,6 +512,15 @@ Timing::averageDelayOnCritPath() {
 ////////////////////////////////////////////
 // Functions of testing IncreSta
 ////////////////////////////////////////////
+void 
+Timing::testBufferInsertion(char *inst_name) {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testBufferInsertion(inst_name, sta, resizer, design_->getBlock());
+}
+
 void 
 Timing::testLocalDelayCompute(char *inst_name) {
   design_->updateParasiticsNoDeleteNetwork();
@@ -654,6 +651,29 @@ Timing::testReportVertices() {
       }
     }
   }
+}
+
+
+float Timing::getWorstSlack(MinMax minmax)
+{
+  sta::dbSta* sta = getSta();
+  sta::Vertex* vertex;
+  sta::Slack worstSlack;
+  sta->worstSlack(getMinMax(minmax), worstSlack, vertex);
+  return worstSlack;
+}
+
+float Timing::getTns(sta::Corner* corner, MinMax minmax)
+{
+  sta::dbSta* sta = getSta();
+  float tns = sta->totalNegativeSlack(corner, getMinMax(minmax));
+  return tns;
+}
+
+float Timing::getTns(MinMax minmax)
+{
+  sta::dbSta* sta = getSta();
+  return sta->totalNegativeSlack(getMinMax(minmax));
 }
 
 }  // namespace ord

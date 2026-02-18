@@ -28,6 +28,10 @@ add_library(lrf_lib
     LocalCellInfo.cc
     ParallelLibData.cc
     TopologyChecker.cc
+    RapidLrHelper.cc
+    LrSizer.cc
+    ViolationCheck.cc
+    LrRebuffer.cc
 )
 
 target_sources(lrf
@@ -68,6 +72,7 @@ target_link_libraries(lrf_lib
     OpenSTA
     dbSta_lib
     grt_lib
+    rsz_lib
     utl_lib
 )
 

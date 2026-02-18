@@ -532,7 +532,7 @@ PtGraph::arcLm(const PtEdge &pt_edge,
                      sta::DcalcAPIndex ap_index) const
 {
   if (pt_edge.edge()) {
-    size_t lm_index = lmIndex(timing_arc, ap_count_, ap_index);
+    size_t lm_index = lmIndex(timing_arc, ap_index, ap_count_);
     sta::LMValue *lms = pt_edge.edge()->arcLms();
     if (lms == nullptr) {
       throw std::runtime_error("PtGraph::arcLm: edge has no lm values");
@@ -737,7 +737,7 @@ PtGraph::delayLmSum(const sta::MinMax *minmax, float &delay_lambda_sum, bool avo
       if (delay_min_max != minmax)
         continue;
 for (sta::TimingArc *timing_arc : pt_edge.edge()->timingArcSet()->arcs()) {
-  size_t lm_index = lmIndex(timing_arc, ap_count_, ap_index);
+  size_t lm_index = lmIndex(timing_arc, ap_index, ap_count_);
   const ArcDelay &arc_delay = arcDelay(pt_edge, timing_arc, ap_index);
   Edge *edge = pt_edge.edge();
   if (avoid_check && (edge->role()->isTimingCheck()))
@@ -767,7 +767,7 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
     if (pt_edge.edge() == nullptr)
       continue;
   for (sta::TimingArc *timing_arc : pt_edge.edge()->timingArcSet()->arcs()) {
-      size_t lm_index = lmIndex(timing_arc, ap_count_, ap_index);
+      size_t lm_index = lmIndex(timing_arc, ap_index, ap_count_);
       const ArcDelay &arc_delay = arcDelay(pt_edge, timing_arc, ap_index);
       Edge *edge = pt_edge.edge();
       if (avoid_check && (edge->role()->isTimingCheck()))
@@ -803,7 +803,7 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
     if (pt_edge.edge() == nullptr)
       continue;
     for (sta::TimingArc *timing_arc : pt_edge.edge()->timingArcSet()->arcs()) {
-      size_t lm_index = lmIndex(timing_arc, ap_count_, ap_index);
+      size_t lm_index = lmIndex(timing_arc, ap_index, ap_count_);
       const ArcDelay &arc_delay = arcDelay(pt_edge, timing_arc, ap_index);
       Edge *edge = pt_edge.edge();
       sta::LMValue *lms = edge->arcLms();
@@ -818,6 +818,25 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
       if (collect_vecs) {
         result->vec_lms.push_back(arc_lm);
         result->vec_delays.push_back(arc_delay);
+      }
+    }
+  }
+}
+
+void
+PtGraph::refgateDelayLmSum(float &delay_lambda_sum, sta::DcalcAnalysisPt *dcalc_ap)
+{
+  if (dcalc_ap == nullptr) dcalc_ap = dcalc_ap_;
+  delay_lambda_sum = 0.0f;
+  sta::DcalcAPIndex ref_ap_index = dcalc_ap->index();
+  for (PtEdge &pt_edge : pt_edges_) {
+    if (pt_edge.edge() == nullptr)
+      continue;
+    if (pt_edge.type() == PtEdgeType::RefInstEdge) {
+      for (sta::TimingArc *timing_arc : pt_edge.edge()->timingArcSet()->arcs()) {
+        const ArcDelay &arc_delay = arcDelay(pt_edge, timing_arc, ref_ap_index);
+        sta::LMValue arc_lm = arcLm(pt_edge, timing_arc, ref_ap_index);
+        delay_lambda_sum += arc_delay * arc_lm;
       }
     }
   }

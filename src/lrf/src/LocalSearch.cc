@@ -473,10 +473,6 @@ LocalArrivalVisitor::localVisitFromToPath(
                     const MinMax *min_max,
                     const PathAnalysisPt *path_ap)
 {
-  // Debug arrival calculation for g37293/Y
-  const char *to_pin_name = network_->name(to_pt_vertex.pin());
-  bool is_debug_pin = (strcmp(to_pin_name, "g37293/Y") == 0);
-  
   Path *match;
   size_t path_index;
   tag_bldr_->tagMatchPath(to_tag, match, path_index);

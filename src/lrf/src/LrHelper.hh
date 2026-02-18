@@ -12,15 +12,13 @@
 namespace lrf {
 using namespace sta;
 
-
-
 typedef std::map<DcalcAnalysisPt const*, LMValue> DcalcAPToLMValueMap;
 typedef std::map<DcalcAnalysisPt const*, LMValueSeq> DcalcAPToLMValueSeqMap;
 
-class LRHelper: public StaState
+class LRHelper: public dbStaState
 {
 public:
-  LRHelper(StaState *sta);
+  LRHelper(dbSta *sta);
   ~LRHelper();
 
   virtual void copyState(const StaState *sta);
@@ -30,6 +28,10 @@ public:
   virtual void updateAllEdgeLms(Sta *sta);
   void enqueueVertex(Vertex *vertex);
   void setRatcons(bool ratcons) { RATCONS_ = ratcons; }
+  virtual std::string strategyName() const { return "Base LRHelper"; }
+  virtual bool updateCriticalPathLms(sta::Path *path_end) { return false; };
+  virtual void setMode(std::string mode) {};
+  virtual std::string mode() const { return ""; }
 
 protected:
   void distributeLmOutToIn(Vertex *vertex,
@@ -38,8 +40,6 @@ protected:
                             size_t in_sum_index);
 
   LMValueSeq computeOutLmSum(Vertex *vertex) const;
-
-  virtual std::string strategyName() const { return "Base LRHelper"; }
   size_t computeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_seq_map);
   bool checkKKTForAllVertices();
   bool isBeforeReg(Vertex *vertex) const;
@@ -68,9 +68,16 @@ private:
 
 class RapidLrHelper : public LRHelper {
 public:
-  RapidLrHelper(StaState *sta) : LRHelper(sta) {}
+  RapidLrHelper(sta::dbSta *sta);
   ~RapidLrHelper() override = default;
   virtual std::string strategyName() const override { return "Rapid LRHelper: LM=path delay/T"; }
+  virtual bool updateCriticalPathLms(sta::Path *path_end) override;
+  virtual void setMode(std::string mode) override;
+  virtual std::string mode() const override { return power_mode_ ? "power" : "timing"; }
+  void setPowerMode();
+  void setTimingMode();
+  bool isPowerMode() const { return power_mode_; }
+  bool isTimingMode() const { return !power_mode_; }
 
 protected:
   virtual void updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, 
@@ -83,11 +90,12 @@ protected:
 private:
   int critical_arc_k_ = 4;
   int non_critical_arc_k_ = 1;
+  bool power_mode_ = false;
 };
 
 class AdaptiveLrHelper : public LRHelper {
 public:
-  AdaptiveLrHelper(StaState *sta) : LRHelper(sta) {}
+  AdaptiveLrHelper(sta::dbSta *sta) : LRHelper(sta) {}
   ~AdaptiveLrHelper() override = default;
   virtual std::string strategyName() const override;
   virtual void updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, 

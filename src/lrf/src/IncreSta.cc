@@ -17,6 +17,7 @@
 #include "ParallelVisitor.hh"
 #include "rsz/Resizer.hh"
 #include "ParallelLibData.hh"
+#include "LrSizer.hh"
 
 #include <unordered_map>
 #include <chrono>
@@ -75,6 +76,7 @@ IncreSta::clearLocalCellInfoMap()
   delete[] cell_info_vec_;
   inst_info_map_.clear();
   cell_info_vec_ = nullptr;
+  inst_info_map_.clear();
 }
 
 void 
@@ -140,46 +142,21 @@ IncreSta::delayLmSum(Instance *inst, const MinMax *minmax, float &delay_lambda_s
   delay_lambda_sum = local_sta_->delayLmSum(inst, minmax);
 }
 
-// void 
-// IncreSta::lmUpdate()
-// {
-//   printf("DEBUG: IncreSta::lmUpdate start\n");
-//   fflush(stdout);
-//   init();
-//   printf("DEBUG: IncreSta::lmUpdate calling updateAllEdgeLms\n");
-//   fflush(stdout);
-//   lr_helper_->updateAllEdgeLms(sta_);
-//   printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (projected_)\n");
-//   fflush(stdout);
-//   lr_helper_->KKTProjection(sta_);
-//   printf("DEBUG: IncreSta::lmUpdate end\n");
-//   fflush(stdout);
-// }
-
-// void 
-// IncreSta::lmUpdate()
-// {
-//   printf("DEBUG: IncreSta::lmUpdate start\n");
-//   fflush(stdout);
-//   init();
-//   printf("DEBUG: IncreSta::lmUpdate calling updateAllEdgeLms\n");
-//   fflush(stdout);
-//   lr_helper_->updateAllEdgeLms(sta_);
-//   printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (projected_)\n");
-//   fflush(stdout);
-//   lr_helper_->KKTProjection(sta_);
-//   printf("DEBUG: IncreSta::lmUpdate end\n");
-//   fflush(stdout);
-// }
+bool
+IncreSta::isPowerOptimizationMode() const
+{
+  return lr_helper_->mode() == "power";
+}
 
 void 
 IncreSta::lmUpdate()
 {
-  printf("DEBUG: IncreSta::lmUpdate start\n");
-  fflush(stdout);
-  init();
-  printf("DEBUG: IncreSta::lmUpdate init done\n");
-  fflush(stdout);
+  sta::Slack wns = sta_->worstSlack(sta::MinMax::max());
+  if (wns >= 0.0) {
+    lr_helper_->setMode("power");
+    printf("All timing constraints are met (WNS %e), switching to power optimization mode\n", wns);
+  }
+  
   if (projected_) {
     printf("DEBUG: IncreSta::lmUpdate calling updateAllEdgeLms\n");
     fflush(stdout);
@@ -194,7 +171,7 @@ IncreSta::lmUpdate()
     if (kkt_satisfied)
       projected_ = true;
     else {
-      printf("KKT not satisfied, should be checked\n");
+      printf("IncreSta::lmUpdate: Warning: KKT not satisfied, should be checked\n");
       fflush(stdout);
     }
   }
@@ -281,10 +258,11 @@ IncreSta::preSaveLibCellLeakage()
     throw std::runtime_error("IncreSta::preSaveLibCellLeakage called before swappable cells are presaved\n");
   ensureActivities();
   sta::Corner *corner = sta_->corners()->findCorner("default");
-  // LocalCellInfo *cell_info_vec_ = new LocalCellInfo[network_->leafInstanceCount() + 1];
+  // Clear any previous allocation before creating new one.
   clearLocalCellInfoMap();
-  LocalCellInfo *cell_info_vec_ = new LocalCellInfo[int(network_->leafInstanceCount() * 1.4)];
-  inst_info_map_.reserve(network_->leafInstanceCount() * 1.1);
+  cell_info_vec_ = new LocalCellInfo[int(network_->leafInstanceCount() * 1.4)];
+  inst_info_map_.clear();
+  inst_info_map_.reserve(int(network_->leafInstanceCount() * 1.4));
 
   int cnt = 0;
   sta::LeafInstanceIterator* inst_iter = network_->leafInstanceIterator();
@@ -300,9 +278,9 @@ IncreSta::preSaveLibCellLeakage()
       LocalCellInfo *cell_info = &cell_info_vec_[cnt++];
       cell_info->equiv_cells = swappable_cells_cache_[cell];
       
-      // Safety check: ensure equiv_cells is not null
+      // Safety check: ensure equiv_cells is not null.
+      // Do NOT delete cell_info here — it points into the array cell_info_vec_.
       if (!cell_info->equiv_cells) {
-        delete cell_info;
         continue; 
       }
 
@@ -406,7 +384,7 @@ IncreSta::parallelResize(rsz::Resizer *resizer, float avg_delay, float avg_power
   // float average_delay = averageDelayOnCritPath();
   // float average_power = averageLeakage();
   printf("Average delay: %f, average power: %f\n", avg_delay * 1e12, avg_power * 1e9);
-  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_);
+  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &swappable_cells_cache_, &inst_info_map_);
 
   auto start_resize = std::chrono::high_resolution_clock::now();
@@ -442,7 +420,7 @@ IncreSta::parallelResizeV1(rsz::Resizer *resizer, float avg_delay, float avg_pow
   // float average_delay = averageDelayOnCritPath();
   // float average_power = averageLeakage();
   printf("Average delay: %f, average power: %f\n", avg_delay * 1e12, avg_power * 1e9);
-  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_);
+  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff, parallel_lib_data_);
 
   auto start_resize = std::chrono::high_resolution_clock::now();
@@ -461,5 +439,73 @@ IncreSta::setMaxResizeNum(size_t max_resize_num)
 {
   local_sta_->taskArranger()->setMaxResizeNum(max_resize_num);
 }
+
+void 
+IncreSta::parallelResizeAdaptive(rsz::Resizer *resizer, float avg_delay, float avg_power,
+                      float PT_tradeoff)
+{
+  printf("IncreSta::parallelResizeAdaptive start\n");
+  auto start_total = std::chrono::high_resolution_clock::now();
+
+  // We first create a serials of instance visitors
+  local_sta_->initParallel();
+  Slack wns = sta_->worstSlack(MinMax::max());
+  TaskArranger *task_arranger = local_sta_->taskArranger();
+
+  if (!swap_cell_presaved_) {
+    auto start_cache = std::chrono::high_resolution_clock::now();
+    makeSwappableCellsCache(resizer);
+    auto end_cache = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> diff_cache = end_cache - start_cache;
+    printf("makeSwappableCellsCache took %f s\n", diff_cache.count());
+  }
+  if (!swap_cell_leakage_presaved_) {
+    auto start_presave = std::chrono::high_resolution_clock::now();
+    preSaveLibCellLeakage();
+    auto end_presave = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> diff_presave = end_presave - start_presave;
+    printf("preSaveLibCellLeakage took %f s\n", diff_presave.count());
+  }
+
+  auto start_resize = std::chrono::high_resolution_clock::now();
+  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
+  visitor->init(avg_delay, avg_power, wns, PT_tradeoff, 
+      &swappable_cells_cache_, &inst_info_map_);
+  local_sta_->runResize(resizer, visitor);
+  auto end_resize = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_resize = end_resize - start_resize;
+
+  // Use distinct variable names to avoid shadowing Slack
+  sta_->updateTiming(true);
+  sta_->findRequireds();
+  double tns_after_resize = sta_->totalNegativeSlack(MinMax::max());
+  double wns_after_resize = sta_->worstSlack(MinMax::max());
+  printf("After parallel LR resize, TNS: %e, WNS: %e\n", tns_after_resize, wns_after_resize);
+  printf("parallel resize time: %f s\n", diff_resize.count());
+
+  if (isPowerOptimizationMode()) {
+    ParallelLrVisitor *critical_path_visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
+    critical_path_visitor->init(avg_delay, avg_power, wns_after_resize, 
+        PT_tradeoff, &swappable_cells_cache_, &inst_info_map_);
+
+    // Time the critical-path sizing phase
+    auto start_cps = std::chrono::high_resolution_clock::now();
+    LrSizer lr_sizer(sta_, lr_helper_, critical_path_visitor);
+    lr_sizer.criticalPathSizing();
+    auto end_cps = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> diff_cps = end_cps - start_cps;
+
+    double tns_after_cps = sta_->totalNegativeSlack(MinMax::max());
+    double wns_after_cps = sta_->worstSlack(MinMax::max());
+    printf("After critical path sizing, TNS: %e, WNS: %e\n", tns_after_cps, wns_after_cps);
+    printf("critical path sizing time: %f s\n", diff_cps.count());
+    delete critical_path_visitor;
+  }
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_total = end_total - start_total;
+  printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
+}
+
 
 } // namespace lrf

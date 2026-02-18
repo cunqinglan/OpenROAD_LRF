@@ -4,6 +4,7 @@
 #include "sta/Liberty.hh"
 #include "LocalSta.hh"
 #include "LrHelper.hh"
+#include "LrRebuffer.hh"
 #include "lrf/IncreSta.hh"
 #include "lrf/TestLrf.hh"
 #include "odb/db.h"
@@ -97,7 +98,6 @@ TestLrf::testLocalDelayCompute(char *inst_name, sta::dbSta* sta,
   sta::Instance *sta_inst = db_network->dbToSta(db_inst);
 
   printLocalDelaysAndCap(inst_name, sta, local_sta, db_inst, sta_inst, db_network);
-
 }
 
 void
@@ -273,12 +273,9 @@ TestLrf::testDifferenceBetweenLocalAndOpen(char *inst_name, sta::dbSta* sta,
   printf("Swapping to equiv cell: %s from %s\n", swap_to_cell->name(), orig_cell->name());
   // Vitually replace cell in LocalSta and compute delays and arrivals
   PtGraph *pt_graph_local = local_sta->makePtGraph(sta_inst, true);
-  local_sta->virtualReplaceCell(pt_graph_local, swap_to_cell);
   sta::ArcDelayCalc *arc_delay_calc = sta->arcDelayCalc()->copy();
-  local_sta->findLocalDelays(pt_graph_local, arc_delay_calc);
   local_sta->setDebugLabel("LocalSTA");
-  local_sta->findLocalArrivals(pt_graph_local);
-  local_sta->findLocalRequireds(pt_graph_local);
+  local_sta->increAndGetLocalTimingCost(pt_graph_local, arc_delay_calc, swap_to_cell);
 
   // Now swap in OpenSTA and compute PtGraph
   odb::dbMaster *to_master = db_network->staToDb(swap_to_cell);
@@ -295,21 +292,21 @@ TestLrf::testDifferenceBetweenLocalAndOpen(char *inst_name, sta::dbSta* sta,
   
   comparePtGraphs(pt_graph_local, pt_graph_open, sta);
 
-  local_sta->virtualReplaceCell(pt_graph_local, swap_to_cell1);
-  local_sta->findLocalDelays(pt_graph_local, arc_delay_calc);
-  local_sta->findLocalArrivals(pt_graph_local);
-  local_sta->findLocalRequireds(pt_graph_local);
+  // local_sta->virtualReplaceCell(pt_graph_local, swap_to_cell1);
+  // local_sta->findLocalDelays(pt_graph_local, arc_delay_calc);
+  // local_sta->findLocalArrivals(pt_graph_local);
+  // local_sta->findLocalRequireds(pt_graph_local);
 
-  printf("Swapping to equiv cell: %s from %s\n", swap_to_cell1->name(), orig_cell->name());
-  odb::dbMaster *to_master1 = db_network->staToDb(swap_to_cell1);
-  db_inst->swapMaster(to_master1);
-  sta->updateTiming(true);
-  sta->findRequireds();
-  PtGraph *pt_graph_orig = local_sta->makePtGraph(sta_inst, true);
+  // printf("Swapping to equiv cell: %s from %s\n", swap_to_cell1->name(), orig_cell->name());
+  // odb::dbMaster *to_master1 = db_network->staToDb(swap_to_cell1);
+  // db_inst->swapMaster(to_master1);
+  // sta->updateTiming(true);
+  // sta->findRequireds();
+  // PtGraph *pt_graph_orig = local_sta->makePtGraph(sta_inst, true);
 
-  comparePtGraphs(pt_graph_orig, pt_graph_local, sta);
+  // comparePtGraphs(pt_graph_orig, pt_graph_local, sta);
 
-  pt_graph_orig->printGraph("dotfile", true);
+  pt_graph_local->printGraph("dotfile", true);
 }
 
 bool
@@ -649,7 +646,7 @@ TestLrf::testParallelVisitor(const std::vector<odb::dbInst*>& db_insts, sta::dbS
   }
 
   for (size_t i = 0; i < 3; ++i) {
-    visitors.emplace_back(std::make_unique<ParallelLrVisitor>(sta, local_sta));
+    visitors.emplace_back(std::make_unique<ParallelLrVisitor>(sta, local_sta, resizer));
   }
 
   std::vector<ParallelLrVisitor*> visitor_ptrs;
@@ -714,7 +711,6 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
   printf("----- Testing Parallel LR Resizing -----\n");
   sta::Corner *corner = sta->corners()->findCorner("default");
   est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
-  sta->searchPreamble();
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   lrf::LocalSta *local_sta = incre_sta->localSta();
@@ -751,19 +747,19 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
     printf("----- LR Resizing Iteration %zu -----\n", i+1);
     // incre_sta->parallelResizeV1(resizer, avg_delay, avg_leakage, PT_tradeoff);
     auto start = std::chrono::high_resolution_clock::now();
-    incre_sta->parallelResize(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    incre_sta->parallelResizeAdaptive(resizer, avg_delay, avg_leakage, PT_tradeoff);
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
     printf("Parallel resize took %f seconds\n", elapsed.count());
-    incre_sta->lmUpdate();
-    std::chrono::duration<double> elapsed_lm = std::chrono::high_resolution_clock::now() - end;
-    printf("LM update took %f seconds\n", elapsed_lm.count());
-
-    // Update parasitics after resizing
+    // Measure parasitics update time (perform update and time it)
+    auto par_start = std::chrono::high_resolution_clock::now();
     est_parasitics->updateWireParasiticsNoDeleteNetwork();
-    std::chrono::duration<double> elapsed_parasitics = std::chrono::high_resolution_clock::now() - end - elapsed_lm;
+    auto par_end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed_parasitics = par_end - par_start;
     printf("Parasitics update took %f seconds\n", elapsed_parasitics.count());
-    // After resizing, evaluate timing and power
+
+    // Measure evaluation time (timing update + slack/leakage computation)
+    auto eval_start = std::chrono::high_resolution_clock::now();
     sta->delaysInvalid();
     sta->updateTiming(true);
     tns = sta->totalNegativeSlack(sta::MinMax::max());
@@ -776,21 +772,38 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
       sta::PowerResult power_result = sta->power(sta_inst, corner);
       leakage += power_result.leakage();
     }
-    auto end_eval = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsed_eval = end_eval - end - elapsed_lm - elapsed_parasitics;
+    auto eval_end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed_eval = eval_end - eval_start;
     printf("Evaluation took %f seconds\n", elapsed_eval.count());
     printf("Worst Negative Slack: %f\n", wns * 1e12);
     printf("Total Negative Slack: %f\n", tns * 1e12);
     printf("Total Leakage Power: %f\n", leakage * 1e10);
     fflush(stdout);
-    if ( wns > best_wns ) {
+
+    // Measure LM update time
+    auto lm_start = std::chrono::high_resolution_clock::now();
+    incre_sta->lmUpdate();
+    auto lm_end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed_lm = lm_end - lm_start;
+    printf("LM update took %f seconds\n", elapsed_lm.count());
+
+    if ( wns > best_wns && wns < 0 ) {
       best_wns = wns;
       best_tns = tns;
+      best_leakage = leakage;
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::beginEco(block);
       printf("Improvement in WNS, accepting new design.\n");
       no_improve_count_ = 0;
     } 
+    else if (wns > 0.0 && leakage < best_leakage) {
+      best_wns = wns;
+      best_tns = tns;
+      best_leakage = leakage;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      printf("WNS is positive and improvement in leakage, accepting new design.\n");
+    }
     else if (no_improve_count_ < num_no_improve_tolerance) {
       no_improve_count_++;
       printf("No improvement in WNS, but within tolerance, accepting new design.\n");
@@ -801,7 +814,7 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
       break;
     }
     else {
-      printf("No improvement in WNS for 3 iterations, reverting to previous design.\n");
+      printf("Reverting to previous design.\n");
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
       odb::dbDatabase::beginEco(block);
@@ -873,7 +886,7 @@ TestLrf::testTimingComputeAndWriteBack(sta::dbSta* sta, rsz::Resizer *resizer, o
   local_sta->initParallel();
   float average_delay = incre_sta->averageDelayOnCritPath();
   float average_leakage = incre_sta->averageLeakage();
-  lrf::ParallelLrVisitor *visitor = new lrf::ParallelLrVisitor(sta, local_sta);
+  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta, local_sta, resizer);
   visitor->setAverageDelay(average_delay);
   visitor->setAverageLeakage(average_leakage);
 
@@ -987,7 +1000,7 @@ TestLrf::collectTimingInfoForInstancesUsingLocalSta(sta::dbSta* sta,
   lrf::IncreSta *incre_sta = new lrf::IncreSta(sta, 1);
   lrf::LocalSta *local_sta = incre_sta->localSta();
 
-  lrf::ParallelLrVisitor *visitor = new lrf::ParallelLrVisitor(sta, local_sta);
+  lrf::ParallelLrVisitor *visitor = new lrf::ParallelLrVisitor(sta, local_sta, resizer);
   visitor->setAverageDelay(incre_sta->averageDelayOnCritPath());
   visitor->setAverageLeakage(incre_sta->averageLeakage());
   for (auto *sta_inst : sta_insts) {
@@ -1085,6 +1098,239 @@ recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &gr
     // Store using the unique name
     graph_timing.edge_timing_map[unique_edge_name] = edge_timing_info;
   }
+}
+
+void
+TestLrf::testBufferInsertion(char *inst_name, sta::dbSta* sta, 
+                             rsz::Resizer *resizer, odb::dbBlock *block)
+{
+  printf("----- Testing Buffer Insertion (starting from instance %s) -----\n", inst_name);
+  fflush(stdout);
+  
+  // Validate input parameters
+  if (!sta) {
+    printf("Error: sta is nullptr\n");
+    return;
+  }
+  if (!resizer) {
+    printf("Error: resizer is nullptr\n");
+    return;
+  }
+  if (!block) {
+    printf("Error: block is nullptr\n");
+    return;
+  }
+  
+  printf("Input validation passed\n");
+  fflush(stdout);
+  
+  // Initialize IncreSta and LocalSta
+  IncreSta *incre_sta = new IncreSta(sta);
+  LocalSta *local_sta = incre_sta->localSta();
+  sta::dbNetwork *db_network = sta->getDbNetwork();
+  sta->findRequireds();
+  for (int i = 0; i < 5; ++i) {
+    incre_sta->lmUpdate();
+  }
+  
+  if (!db_network) {
+    printf("Error: db_network is nullptr\n");
+    delete incre_sta;
+    return;
+  }
+  
+  printf("IncreSta and LocalSta initialized\n");
+  fflush(stdout);
+  
+  // Initialize resizer
+  printf("Initializing resizer...\n");
+  fflush(stdout);
+  
+  resizer->resizePreamble();
+  resizer->makeEquivCells();
+  
+  // Get initial WNS and TNS
+  sta::Slack initial_wns = sta->worstSlack(sta::MinMax::max());
+  sta::Slack initial_tns = sta->totalNegativeSlack(sta::MinMax::max());
+  printf("Initial WNS: %.3f ps\n", initial_wns * 1e12);
+  printf("Initial TNS: %.3f ps\n", initial_tns * 1e12);
+  fflush(stdout);
+  
+  // Get all instances in the block
+  odb::dbSet<odb::dbInst> all_insts = block->getInsts();
+  printf("Total instances in block: %zu\n", all_insts.size());
+  fflush(stdout);
+  
+  // Find starting instance
+  odb::dbInst *start_inst = block->findInst(inst_name);
+  bool start_processing = (start_inst == nullptr); // If not found, start from beginning
+  
+  if (!start_processing) {
+    printf("Will start processing from instance: %s\n", inst_name);
+  } else {
+    printf("Instance %s not found, will process all instances from beginning\n", inst_name);
+  }
+  fflush(stdout);
+  
+  // Iterate through all instances
+  int instances_processed = 0;
+  int total_buffers_inserted = 0;
+  
+  for (odb::dbInst *db_inst : all_insts) {
+    // Skip until we reach the starting instance
+    if (!start_processing) {
+      if (db_inst == start_inst) {
+        start_processing = true;
+      } else {
+        continue;
+      }
+    }
+    
+    sta::Instance *sta_inst = db_network->dbToSta(db_inst);
+    if (!sta_inst) {
+      continue;
+    }
+    
+    instances_processed++;
+    printf("\n===== Processing instance %d: %s =====\n", instances_processed, db_network->name(sta_inst));
+    fflush(stdout);
+    
+    // Get output pins (driver pins) of the instance
+    sta::InstancePinIterator *pin_iter = db_network->pinIterator(sta_inst);
+    std::vector<const sta::Pin*> driver_pins;
+    
+    while (pin_iter->hasNext()) {
+      sta::Pin *pin = pin_iter->next();
+      if (db_network->isDriver(pin)) {
+        driver_pins.push_back(pin);
+      }
+    }
+    delete pin_iter;
+    
+    if (driver_pins.empty()) {
+      printf("  No driver pins found, skipping...\n");
+      fflush(stdout);
+      continue;
+    }
+    
+    printf("  Found %zu driver pins\n", driver_pins.size());
+    fflush(stdout);
+    
+    // Build PtGraph for the instance
+    PtGraph *pt_graph = local_sta->makePtGraph(sta_inst, true);
+    if (!pt_graph) {
+      printf("  Failed to create PtGraph, skipping...\n");
+      fflush(stdout);
+      continue;
+    }
+    
+    printf("  PtGraph created with %zu vertices and %zu edges\n", 
+           pt_graph->ptVertices().size(), 
+           pt_graph->ptEdges().size());
+    fflush(stdout);
+    
+    // Create visitor and LrRebuffer for this instance
+    ParallelLrVisitor *visitor = new ParallelLrVisitor(sta, local_sta, resizer);
+    visitor->setPtGraph(pt_graph);
+    
+    LrRebuffer *lr_rebuffer = new LrRebuffer(resizer, visitor);
+    lr_rebuffer->init();
+    
+    printf("  LrRebuffer initialized\n");
+    fflush(stdout);
+    
+    // Process each driver pin
+    int inst_buffers_inserted = 0;
+    for (const sta::Pin *drvr_pin : driver_pins) {
+      // Find the corresponding PtVertex for this driver pin
+      sta::Vertex *drvr_vertex = db_network->graph()->pinDrvrVertex(drvr_pin);
+      if (!drvr_vertex) {
+        continue;
+      }
+      
+      PtVertex *drvr_pt_vertex = pt_graph->ptVertex(drvr_vertex);
+      if (!drvr_pt_vertex) {
+        continue;
+      }
+      
+      // Call rebufferPin
+      lr_rebuffer->rebufferPin(drvr_pin, *drvr_pt_vertex);
+      int inserted_count = lr_rebuffer->applyBufferingToDb();
+      inst_buffers_inserted += inserted_count;
+      
+      if (inserted_count > 0) {
+        printf("    Pin %s: inserted %d buffers\n", db_network->pathName(drvr_pin), inserted_count);
+        fflush(stdout);
+      }
+    }
+    
+    printf("  Instance total: %d buffers inserted\n", inst_buffers_inserted);
+    fflush(stdout);
+    
+    // Cleanup for this instance
+    delete lr_rebuffer;
+    delete visitor;
+    
+    total_buffers_inserted += inst_buffers_inserted;
+    
+    // If we inserted buffers, update timing and check WNS/TNS
+    if (inst_buffers_inserted > 0) {
+      printf("  Updating timing after buffer insertion...\n");
+      fflush(stdout);
+      
+      sta->updateTiming(true);
+      
+      sta::Slack current_wns = sta->worstSlack(sta::MinMax::max());
+      sta::Slack current_tns = sta->totalNegativeSlack(sta::MinMax::max());
+      
+      printf("  Current WNS: %.3f ps (initial: %.3f ps, delta: %.3f ps)\n", 
+             current_wns * 1e12, initial_wns * 1e12, (current_wns - initial_wns) * 1e12);
+      printf("  Current TNS: %.3f ps (initial: %.3f ps, delta: %.3f ps)\n", 
+             current_tns * 1e12, initial_tns * 1e12, (current_tns - initial_tns) * 1e12);
+      fflush(stdout);
+      
+      // Check if WNS or TNS changed
+      double wns_delta = std::abs((current_wns - initial_wns) * 1e12);
+      double tns_delta = std::abs((current_tns - initial_tns) * 1e12);
+      
+      if (wns_delta > 1e-6 || tns_delta > 1e-6) {
+        printf("\n===== SUCCESS: WNS or TNS changed! =====\n");
+        printf("Instance: %s\n", db_network->name(sta_inst));
+        printf("Buffers inserted: %d\n", inst_buffers_inserted);
+        printf("WNS delta: %.3f ps\n", wns_delta);
+        printf("TNS delta: %.3f ps\n", tns_delta);
+        printf("Instances processed: %d\n", instances_processed);
+        printf("========================================\n");
+        fflush(stdout);
+        break;
+      } else {
+        printf("  WNS and TNS did not change significantly, continuing...\n");
+        fflush(stdout);
+      }
+    }
+  }
+  
+  // Final summary
+  sta::Slack final_wns = sta->worstSlack(sta::MinMax::max());
+  sta::Slack final_tns = sta->totalNegativeSlack(sta::MinMax::max());
+  
+  printf("\n----- Buffer Insertion Summary -----\n");
+  printf("Instances processed: %d\n", instances_processed);
+  printf("Total buffers inserted: %d\n", total_buffers_inserted);
+  printf("Initial WNS: %.3f ps\n", initial_wns * 1e12);
+  printf("Final WNS:   %.3f ps (delta: %.3f ps)\n", final_wns * 1e12, (final_wns - initial_wns) * 1e12);
+  printf("Initial TNS: %.3f ps\n", initial_tns * 1e12);
+  printf("Final TNS:   %.3f ps (delta: %.3f ps)\n", final_tns * 1e12, (final_tns - initial_tns) * 1e12);
+  printf("------------------------------------\n");
+  fflush(stdout);
+  
+  if (total_buffers_inserted == 0) {
+    printf("No buffers were inserted\n");
+    fflush(stdout);
+  }
+  
+  // Cleanup
+  delete incre_sta;
 }
 
 

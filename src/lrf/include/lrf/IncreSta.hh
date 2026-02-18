@@ -40,7 +40,6 @@ public:
 
   LocalSta *localSta() { return local_sta_; };
   LRHelper *lrHelper() { return lr_helper_; };
-  
 
   InstanceSeq &getSortedInstances();
   void resetSortedInstances() { sorted_instances_.clear(); }
@@ -66,6 +65,8 @@ public:
                       float PT_tradeoff = 100.0);
   void parallelResizeV1(rsz::Resizer *resizer, float avg_delay = 1, float avg_power = 1,
                         float PT_tradeoff = 100.0);
+  void parallelResizeAdaptive(rsz::Resizer *resizer, float avg_delay, float avg_power,
+                      float PT_tradeoff);
   void setMaxResizeNum(size_t max_resize_num);
 
   // APIs for power optimization
@@ -78,6 +79,9 @@ public:
 
   // APIs for LM update
   void makeLRHelper(std::string method = "LRHelper");
+
+  // APIs for Adaptive optimization
+  bool isPowerOptimizationMode() const;
 
 protected:
   void makeLocalSta();

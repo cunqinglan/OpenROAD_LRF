@@ -16,6 +16,7 @@ namespace sta {
 
 namespace rsz {
   class Resizer;
+  class BufferedNet;
 }
 
 namespace lrf {
@@ -23,19 +24,30 @@ namespace lrf {
 class LocalSta;
 class PtGraph;
 class ParallelLibData;
+class LrRebuffer;
+
+enum class MoveType {
+  Resizing,
+  BufferInsertion
+};
 
 // We don't want to copy this visitor, each swap examination should
 // have its own instance.
 class ParallelLrVisitor
 {
 public:
-  ParallelLrVisitor(sta::dbSta *db_sta, LocalSta *local_sta);
+  ParallelLrVisitor(sta::dbSta *db_sta, LocalSta *local_sta, rsz::Resizer *resizer);
   virtual ~ParallelLrVisitor();
-  virtual bool visit(sta::Instance *inst);
+  virtual bool visit(sta::Instance *inst, MoveType move_type = MoveType::Resizing);
   bool visit(sta::Instance *inst, TimingRecord &timing_record);
+  bool singleGateSizing(sta::Instance *inst);
+  // Functions for buffer insertion
+  bool tryBuffering(sta::Instance *inst);
   // Apply cell type changes to OpenROAD and OpenSTA, and 
   // update timing information from PtGraph to sta::Graph.
-  virtual void applyChangesToDb(rsz::Resizer *resizer);
+  virtual void applyChangesToDb(rsz::Resizer *resizer, MoveType move_type = MoveType::Resizing);
+  void applyResizeChangesToDb(rsz::Resizer *resizer);
+  void applyBufferingChangesToDb(rsz::Resizer *resizer);
   virtual void updateTimingFromPtGraph();
   void updateVertexInfo(sta::VertexId vertex_id);
   void updateEdgeInfo(sta::EdgeId edge_id);
@@ -45,6 +57,7 @@ public:
   void operator()(sta::Instance *inst) { visit(inst); }
   void printVisitedInstNames() const;
   PtGraph *ptGraph() const { return pt_graph_; }
+  void setPtGraph(PtGraph *pt_graph) { pt_graph_ = pt_graph; }
   sta::Instance *refInst() const { return ref_inst_; }
   sta::LibertyCell *bestCell() const { return best_cell_; }
   void init(float averge_delay, float average_power, float wns, 
@@ -80,18 +93,18 @@ protected:
   // Function of paralllel gate sizing
   float swapCost(float delay_lm_sum, float power);
   
-  bool singleGateSizing(sta::Instance *inst);
-  bool singleGateSizingV1(sta::Instance *inst);
+  bool trySwap(sta::Instance *inst);
+  bool trySwapV1(sta::Instance *inst);
   std::vector<std::pair<sta::LibertyCell*, std::pair<size_t, size_t>>> getLegalEquivCells(
                                   std::vector<sta::LibertyCellSeq> *equiv_cells_vec,
                                   sta::LibertyCell *ori_cell);
-
-  // Functions for buffer insertion
-  bool bufferInsertion(sta::Instance *inst);
+  LocalSta *localSta() const { return local_sta_; }
+  sta::ArcDelayCalc *arcDelayCalc() const { return arc_delay_calc_; }
 
   sta::dbSta *db_sta_;
   sta::Instance *ref_inst_;
   LocalSta *local_sta_;
+  rsz::Resizer *resizer_;
   PtGraph *pt_graph_;
   sta::ArcDelayCalc *arc_delay_calc_;
   sta::Slack slack_before_swap_;
@@ -105,6 +118,7 @@ protected:
   std::unordered_map<sta::Instance*, LocalCellInfo*> *inst_info_map_;
   ParallelLibData *parallel_lib_data_ = nullptr;
   float clock_period_ = 0.0;
+  LrRebuffer *rebuffer_ = nullptr;
 
   std::map<std::string, double> runtime_map_ = {
     {"visit", 0.0},
@@ -115,8 +129,11 @@ protected:
     {"writeTimingToDb", 0.0},
     {"applyDb", 0.0},
     {"single_gate_sizing", 0.0},
-    {"buffer_insertion", 0.0}
+    {"buffer_insertion", 0.0},
+    {"buffer_count", 0.0},
   };
+private:
+  friend class LrRebuffer;
 };
 
 

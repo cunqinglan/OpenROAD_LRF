@@ -16,6 +16,8 @@
 #include "sta/EquivCells.hh"
 #include "lrf/TestLrf.hh"
 #include "ParallelLibData.hh"
+#include "LrRebuffer.hh"
+#include "db_sta/dbNetwork.hh"
 
 #include <vector>
 #include <mutex>
@@ -34,10 +36,12 @@ extern std::mutex g_odb_sta_access_mutex;
 
 typedef float LocalCost;
 
-ParallelLrVisitor::ParallelLrVisitor(sta::dbSta *db_sta, LocalSta *local_sta) :
+ParallelLrVisitor::ParallelLrVisitor(sta::dbSta *db_sta, LocalSta *local_sta,
+                                         rsz::Resizer *resizer) :
   db_sta_(db_sta),
   ref_inst_(nullptr),
   local_sta_(local_sta),
+  resizer_(resizer),
   arc_delay_calc_(local_sta_->arcDelayCalc()->copy())
 {
   // Since this visitor is created in serial, 
@@ -48,6 +52,7 @@ ParallelLrVisitor::ParallelLrVisitor(sta::dbSta *db_sta, LocalSta *local_sta) :
 ParallelLrVisitor::~ParallelLrVisitor()
 {
   delete arc_delay_calc_;
+  delete rebuffer_;
 }
 
 bool 
@@ -56,7 +61,14 @@ ParallelLrVisitor::checkVisitorStatus() const
   if (db_sta_ == nullptr || local_sta_ == nullptr || arc_delay_calc_ == nullptr) {
     return false;
   }
-  if (swappable_cells_cache_->empty() || inst_info_map_->empty()) {
+  // Two init paths: cache-based (swappable_cells_cache_ + inst_info_map_)
+  // or parallel_lib_data_-based.  At least one must be valid.
+  bool cache_valid = (swappable_cells_cache_ != nullptr && !swappable_cells_cache_->empty()
+                      && inst_info_map_ != nullptr && !inst_info_map_->empty());
+  bool pld_valid = (parallel_lib_data_ != nullptr);
+  if (!cache_valid && !pld_valid) {
+    printf("ParallelLrVisitor::checkVisitorStatus ERROR: both cache and parallel_lib_data_ are invalid\n");
+    fflush(stdout);
     return false;
   }
   return true;
@@ -71,7 +83,7 @@ ParallelLrVisitor::swapCost(float delay_lm_sum, float power)
 }
 
 bool 
-ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
+ParallelLrVisitor::trySwap(sta::Instance *inst)
 {
   best_cell_ = nullptr;
   // 1. Get the target instance and set up a ptgraph for it.
@@ -127,7 +139,8 @@ ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
         throw std::runtime_error("ParallelLrVisitor::visit found non-equivalent cell in equiv_cells");
       }
 
-  if (!local_sta_->legalCheckBeforeSwap(inst, equiv_cell, nullptr, nullptr, pt_graph_)) {
+  if (!local_sta_->legalCheckBeforeSwap(inst, equiv_cell, nullptr, nullptr, pt_graph_)
+        && !(equiv_cell == ori_cell)) {
     cnt++;
     continue;
   }
@@ -135,7 +148,8 @@ ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
       float leakage = (*inst_info_map_)[inst]->cell_leakages[cnt];
       float delay_lm_sum = local_sta_->
         increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, equiv_cell).delay_lm_sum;
-  if (!local_sta_->legalCheckAfterSwap(inst, equiv_cell, nullptr, nullptr, pt_graph_)) {
+  if (!local_sta_->legalCheckAfterSwap(inst, equiv_cell, nullptr, nullptr, pt_graph_) 
+        && !(equiv_cell == ori_cell)) {
     cnt++;
     continue;
   }
@@ -171,7 +185,13 @@ ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
         best_cost = cost;
       }
     }
-    if (best_cell_ == ori_cell || !orig_inequiv) {
+    if (!orig_inequiv) {
+      printf("ParallelLrVisitor::visit original cell %s not in equiv_cells for instance %s\n",
+             ori_cell->name(),
+             db_sta_->network()->pathName(inst));
+      fflush(stdout);
+    }
+    if (best_cell_ == ori_cell) {
       return false;
     }
     // First compute the final timing after choosing best cell
@@ -293,7 +313,7 @@ ParallelLrVisitor::printRuntimeProfile() const
 }
 
 bool 
-ParallelLrVisitor::singleGateSizingV1(sta::Instance *inst)
+ParallelLrVisitor::trySwapV1(sta::Instance *inst)
 {
   best_cell_ = nullptr;
   // 1. Get the target instance and set up a ptgraph for it.
@@ -305,11 +325,11 @@ ParallelLrVisitor::singleGateSizingV1(sta::Instance *inst)
   sta::LibertyCell *ori_cell = db_sta_->network()->libertyCell(inst);
   if (ori_cell) {
     if (parallel_lib_data_ == nullptr || parallel_lib_data_->inst_to_vid_map_ == nullptr) {
-      throw std::runtime_error("ParallelLrVisitor::singleGateSizingV1 parallel_lib_data/inst_to_vid_map_ is null");
+      throw std::runtime_error("ParallelLrVisitor::trySwapV1 parallel_lib_data/inst_to_vid_map_ is null");
     }
     const auto vid_it = parallel_lib_data_->inst_to_vid_map_->find(inst);
     if (vid_it == parallel_lib_data_->inst_to_vid_map_->end()) {
-      printf("ParallelLrVisitor::singleGateSizingV1 inst %s not found in inst_to_vid_map_\n",
+      printf("ParallelLrVisitor::trySwapV1 inst %s not found in inst_to_vid_map_\n",
              db_sta_->network()->pathName(inst));
       fflush(stdout);
       return false;
@@ -319,7 +339,7 @@ ParallelLrVisitor::singleGateSizingV1(sta::Instance *inst)
     
     if (equiv_cells_vec == nullptr || equiv_cells_vec->empty() ||
         (equiv_cells_vec->size() == 1 && (*equiv_cells_vec)[0].size() == 1)) {
-      printf("ParallelLrVisitor::singleGateSizingV1 no equiv cells for %s, inst = %s\n",
+      printf("ParallelLrVisitor::trySwapV1 no equiv cells for %s, inst = %s\n",
              ori_cell->name(),
              db_sta_->network()->pathName(inst));
       fflush(stdout);
@@ -328,7 +348,7 @@ ParallelLrVisitor::singleGateSizingV1(sta::Instance *inst)
     std::vector<std::pair<sta::LibertyCell*, std::pair<size_t, size_t>>> 
                     legal_equiv_cells = getLegalEquivCells(equiv_cells_vec, ori_cell);
     if (legal_equiv_cells.size() < 2) {
-      printf("ParallelLrVisitor::singleGateSizingV1 for inst %s no legal equiv cells for %s\n",
+      printf("ParallelLrVisitor::trySwapV1 for inst %s no legal equiv cells for %s\n",
              db_sta_->network()->pathName(inst),
              ori_cell->name());
       fflush(stdout);
@@ -374,7 +394,7 @@ ParallelLrVisitor::singleGateSizingV1(sta::Instance *inst)
       // fflush(stdout);
     }
     if (!orig_inequiv) {
-      printf("ParallelLrVisitor::singleGateSizingV1 for inst %s original cell %s not in legal equiv cells\n",
+      printf("ParallelLrVisitor::trySwapV1 for inst %s original cell %s not in legal equiv cells\n",
              db_sta_->network()->pathName(inst),
              ori_cell->name());
       fflush(stdout);
@@ -404,23 +424,44 @@ ParallelLrVisitor::singleGateSizingV1(sta::Instance *inst)
 }
 
 bool
-ParallelLrVisitor::visit(sta::Instance *inst)
+ParallelLrVisitor::visit(sta::Instance *inst, MoveType move_type)
 {
+  bool success;
   std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
-  if (!checkVisitorStatus()) {
-    throw std::runtime_error("ParallelLrVisitor::visit visitor status invalid");
+  switch (move_type) {
+    case MoveType::Resizing:{
+      if (!checkVisitorStatus()) {
+        throw std::runtime_error("ParallelLrVisitor::visit visitor status invalid");
+      }
+      if (parallel_lib_data_) {
+        success = trySwapV1(inst);
+      } else {
+        success = trySwap(inst);
+      }
+      break;
+    }
+    case MoveType::BufferInsertion: {
+        // Buffer insertion not implemented yet, return false for now.
+        success = tryBuffering(inst);
+        break;
+    }
+    default:
+      throw std::runtime_error("ParallelLrVisitor::visit unknown move type");
   }
-  // if (!parallel_lib_data_) {
-  //   printf("ParallelLrVisitor::visit parallel_lib_data_ is null\n");
-  //   fflush(stdout);
-  //   return false;
-  // }
-  bool success = singleGateSizing(inst);
   std::chrono::steady_clock::time_point end_time = std::chrono::steady_clock::now();
   std::chrono::duration<double> duration = end_time - start_time;
   runtime_map_["visit"] += duration.count();
   return success;
-  // return singleGateSizingV1(inst);
+}
+
+bool
+ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
+{
+  if (visit(inst, MoveType::Resizing)) {
+    applyChangesToDb(nullptr, MoveType::Resizing);
+    return true;
+  }
+  return false;
 }
 
 bool 
@@ -544,7 +585,7 @@ ParallelLrVisitor::visit(sta::Instance *inst,
 ParallelLrVisitor *
 ParallelLrVisitor::copy() const
 {
-  ParallelLrVisitor *new_visitor = new ParallelLrVisitor(db_sta_, local_sta_);
+  ParallelLrVisitor *new_visitor = new ParallelLrVisitor(db_sta_, local_sta_, resizer_);
   new_visitor->setAverageDelay(average_delay_);
   new_visitor->setAverageLeakage(average_leakage_);
   new_visitor->setSwappableCellsCache(swappable_cells_cache_);
@@ -565,7 +606,37 @@ ParallelLrVisitor::printVisitedInstNames() const
 }
 
 void
-ParallelLrVisitor::applyChangesToDb(rsz::Resizer *resizer)
+ParallelLrVisitor::applyChangesToDb(rsz::Resizer *resizer, MoveType move_type)
+{
+  std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
+  switch (move_type) {
+    case MoveType::Resizing:
+      applyResizeChangesToDb(resizer);
+      break;
+    case MoveType::BufferInsertion:
+      applyBufferingChangesToDb(resizer);
+      break;
+    default:
+      throw std::runtime_error("ParallelLrVisitor::applyChangesToDb unknown move type");
+  }
+}
+
+void
+ParallelLrVisitor::applyBufferingChangesToDb(rsz::Resizer *resizer)
+{
+  std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
+  if (resizer == nullptr) {
+    throw std::runtime_error("ParallelLrVisitor::applyBufferingChangesToDb resizer is null");
+  }
+  int inserted_count = rebuffer_->applyBufferingToDb();
+  std::chrono::steady_clock::time_point mid_time = std::chrono::steady_clock::now();
+  std::chrono::duration<double> mid_duration = mid_time - start_time;
+  runtime_map_["applyDb"] += mid_duration.count();
+  runtime_map_["buffer_count"] += inserted_count;
+}
+
+void
+ParallelLrVisitor::applyResizeChangesToDb(rsz::Resizer *resizer)
 {
   std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
   // First apply best cell type changes to OpenROAD
@@ -779,14 +850,40 @@ ParallelLrVisitor::init(float averge_delay, float average_power, float wns,
 }
 
 bool
-ParallelLrVisitor::bufferInsertion(sta::Instance *inst)
+ParallelLrVisitor::tryBuffering(sta::Instance *inst)
 {
   // 1. Vitually insert buffers at the output net of the instance
   // 2. Compute the local timing cost after buffer insertion
   // 3. If cost improved, keep the buffer insertion
   // 4. Submmit the buffer insertion
+  visited_instances_.push_back(db_sta_->network()->pathName(inst));
+  pt_graph_ = local_sta_->makePtGraph(inst, false);
+  if (rebuffer_ == nullptr) {
+    rebuffer_ = new LrRebuffer(resizer_, this);
+    rebuffer_->init();
+  }
+  sta::dbNetwork *network = db_sta_->getDbNetwork();
+  int drvr_count = 0;
+  for (PtVertex &pt_vertex : pt_graph_->ptVertices()) {
+    if (pt_vertex.vertex() && pt_vertex.type() == PtVertexType::RefOutput) {
+      sta::Pin *pin = pt_vertex.vertex()->pin();
+      rebuffer_->rebufferPin(pin, pt_vertex);
+      drvr_count++;
+    }
+  }
+  // If multi-driver instance is found, we should first invest what would 
+  // happen.
+  if (drvr_count > 1) {
+    printf("Warning: ParallelLrVisitor::tryBuffering instance %s has more than 1 driver pins, buffering may not be correct\n",
+           db_sta_->network()->pathName(inst));
+    fflush(stdout);
+    return false;
+  }
+  if (rebuffer_->bestBnet() == nullptr) {
+    return false;
+  }
   
-  return false;
+  return true;
 }
 
 } // namespace lrf
