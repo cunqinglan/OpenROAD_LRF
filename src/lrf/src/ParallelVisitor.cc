@@ -16,6 +16,8 @@
 #include "sta/EquivCells.hh"
 #include "lrf/TestLrf.hh"
 #include "ParallelLibData.hh"
+#include "LrRebuffer.hh"
+#include "db_sta/dbNetwork.hh"
 
 #include <vector>
 #include <mutex>
@@ -34,10 +36,12 @@ extern std::mutex g_odb_sta_access_mutex;
 
 typedef float LocalCost;
 
-ParallelLrVisitor::ParallelLrVisitor(sta::dbSta *db_sta, LocalSta *local_sta) :
+ParallelLrVisitor::ParallelLrVisitor(sta::dbSta *db_sta, LocalSta *local_sta,
+                                         rsz::Resizer *resizer) :
   db_sta_(db_sta),
   ref_inst_(nullptr),
   local_sta_(local_sta),
+  resizer_(resizer),
   arc_delay_calc_(local_sta_->arcDelayCalc()->copy())
 {
   // Since this visitor is created in serial, 
@@ -433,10 +437,11 @@ ParallelLrVisitor::visit(sta::Instance *inst, MoveType move_type)
       } else {
         success = trySwap(inst);
       }
+      break;
     }
     case MoveType::BufferInsertion: {
         // Buffer insertion not implemented yet, return false for now.
-        success = false;
+        success = tryBuffering(inst);
         break;
     }
     default:
@@ -579,7 +584,7 @@ ParallelLrVisitor::visit(sta::Instance *inst,
 ParallelLrVisitor *
 ParallelLrVisitor::copy() const
 {
-  ParallelLrVisitor *new_visitor = new ParallelLrVisitor(db_sta_, local_sta_);
+  ParallelLrVisitor *new_visitor = new ParallelLrVisitor(db_sta_, local_sta_, resizer_);
   new_visitor->setAverageDelay(average_delay_);
   new_visitor->setAverageLeakage(average_leakage_);
   new_visitor->setSwappableCellsCache(swappable_cells_cache_);
@@ -619,10 +624,14 @@ void
 ParallelLrVisitor::applyBufferingChangesToDb(rsz::Resizer *resizer)
 {
   std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
-  int inserted_count = exportBufferTree(best_bnet_, db_network_->dbToSta(db_net), 1, parent, "rebuffer");
+  if (resizer == nullptr) {
+    throw std::runtime_error("ParallelLrVisitor::applyBufferingChangesToDb resizer is null");
+  }
+  int inserted_count = rebuffer_->applyBufferingToDb();
   std::chrono::steady_clock::time_point mid_time = std::chrono::steady_clock::now();
   std::chrono::duration<double> mid_duration = mid_time - start_time;
   runtime_map_["applyDb"] += mid_duration.count();
+  runtime_map_["buffer_count"] += inserted_count;
 }
 
 void
@@ -840,14 +849,40 @@ ParallelLrVisitor::init(float averge_delay, float average_power, float wns,
 }
 
 bool
-ParallelLrVisitor::bufferInsertion(sta::Instance *inst)
+ParallelLrVisitor::tryBuffering(sta::Instance *inst)
 {
   // 1. Vitually insert buffers at the output net of the instance
   // 2. Compute the local timing cost after buffer insertion
   // 3. If cost improved, keep the buffer insertion
   // 4. Submmit the buffer insertion
+  visited_instances_.push_back(db_sta_->network()->pathName(inst));
+  pt_graph_ = local_sta_->makePtGraph(inst, false);
+  if (rebuffer_ == nullptr) {
+    rebuffer_ = std::make_unique<LrRebuffer>(resizer_, this);
+    rebuffer_->init();
+  }
+  sta::dbNetwork *network = db_sta_->getDbNetwork();
+  int drvr_count = 0;
+  for (PtVertex &pt_vertex : pt_graph_->ptVertices()) {
+    if (pt_vertex.vertex() && pt_vertex.type() == PtVertexType::RefOutput) {
+      sta::Pin *pin = pt_vertex.vertex()->pin();
+      rebuffer_->rebufferPin(pin, pt_vertex);
+      drvr_count++;
+    }
+  }
+  // If multi-driver instance is found, we should first invest what would 
+  // happen.
+  if (drvr_count > 1) {
+    printf("Warning: ParallelLrVisitor::tryBuffering instance %s has more than 1 driver pins, buffering may not be correct\n",
+           db_sta_->network()->pathName(inst));
+    fflush(stdout);
+    return false;
+  }
+  if (rebuffer_->bestBnet() == nullptr) {
+    return false;
+  }
   
-  return false;
+  return true;
 }
 
 } // namespace lrf

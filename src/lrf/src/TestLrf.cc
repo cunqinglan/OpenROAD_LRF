@@ -1230,7 +1230,7 @@ TestLrf::testBufferInsertion(char *inst_name, sta::dbSta* sta,
     fflush(stdout);
     
     // Create visitor and LrRebuffer for this instance
-    ParallelLrVisitor *visitor = new ParallelLrVisitor(sta, local_sta);
+    ParallelLrVisitor *visitor = new ParallelLrVisitor(sta, local_sta, resizer);
     visitor->setPtGraph(pt_graph);
     
     LrRebuffer *lr_rebuffer = new LrRebuffer(resizer, visitor);
@@ -1254,7 +1254,8 @@ TestLrf::testBufferInsertion(char *inst_name, sta::dbSta* sta,
       }
       
       // Call rebufferPin
-      int inserted_count = lr_rebuffer->rebufferPin(drvr_pin, *drvr_pt_vertex);
+      lr_rebuffer->rebufferPin(drvr_pin, *drvr_pt_vertex);
+      int inserted_count = lr_rebuffer->applyBufferingToDb();
       inst_buffers_inserted += inserted_count;
       
       if (inserted_count > 0) {

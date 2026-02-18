@@ -1107,6 +1107,14 @@ LocalSta::makeLoadPinIndexMap(Vertex *drvr_vertex)
     if (wire_edge->isWire()) {
       Vertex *load_vertex = wire_edge->to(graph_);
       const Pin *load_pin = load_vertex->pin();
+
+      // Skip top-level ports and hierarchical pins as load pins
+      // to avoid segfault in DelayCalcBase::thresholdAdjust -> libertyPort -> getMTerm
+      if (network_->isTopLevelPort(load_pin) 
+          || !network_->isLeaf(load_pin)) {
+        continue;
+      }
+
       load_pin_index_map[load_pin] = load_idx;
       load_idx++;
     }
@@ -1128,9 +1136,10 @@ LocalSta::makeLoadPinIndexMap(PtVertex &drvr_pt_vertex, PtGraph *pt_graph)
       Vertex *load_vertex = load_pt_vertex.vertex();
       const Pin *load_pin = load_vertex->pin();
       
-      // Skip top-level ports and hierarchical pins as load pins
+      // Skip top-level ports and non-leaf (hierarchical) pins as load pins
       // to avoid segfault in DelayCalcBase::thresholdAdjust -> libertyPort -> getMTerm
-      if (network_->isTopLevelPort(load_pin) || network_->isHierarchical(load_pin)) {
+      if (network_->isTopLevelPort(load_pin) 
+          || !network_->isLeaf(load_pin)) {
         continue;
       }
       
