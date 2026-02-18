@@ -118,7 +118,7 @@ protected:
   std::unordered_map<sta::Instance*, LocalCellInfo*> *inst_info_map_;
   ParallelLibData *parallel_lib_data_ = nullptr;
   float clock_period_ = 0.0;
-  std::unique_ptr<LrRebuffer> rebuffer_ = nullptr;
+  LrRebuffer *rebuffer_ = nullptr;
 
   std::map<std::string, double> runtime_map_ = {
     {"visit", 0.0},

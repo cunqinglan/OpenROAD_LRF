@@ -874,6 +874,15 @@ LocalSta::findDriverEdgeDelays(PtVertex &drvr_pt_vertex,
                                std::array<bool, RiseFall::index_count> &delay_exists,
                                PtGraph *pt_graph)
 { 
+  // Diagnostic: check driver pin validity
+  Vertex *drvr_vertex = drvr_pt_vertex.vertex();
+  const Pin *drvr_pin = drvr_vertex ? drvr_vertex->pin() : nullptr;
+  if (drvr_pin == nullptr) {
+    printf("[LRF DIAG findDriverEdgeDelays] NULL driver pin!\n");
+    fflush(stdout);
+    return;
+  }
+  
   // If both vertices belong to ref instance, use ref cell's timing
   TimingArcSet *ref_arc_set = pt_edge.timingArcSet();
   if (ref_arc_set == nullptr){
@@ -1000,8 +1009,8 @@ LocalSta::annotateLoadDelays(PtVertex &drvr_pt_vertex,
       Vertex *load_vertex = load_pt_vertex.vertex();
       Pin *load_pin = load_vertex->pin();
       
-      // Skip load pins not in the map (top-level ports, hierarchical pins)
-      // These were filtered out in makeLoadPinIndexMap to avoid segfault
+      // Skip load pins not in the map (hierarchical pins)
+      // These were filtered out in makeLoadPinIndexMap
       if (load_pin_index_map.find(load_pin) == load_pin_index_map.end()) {
         continue;
       }
@@ -1108,10 +1117,9 @@ LocalSta::makeLoadPinIndexMap(Vertex *drvr_vertex)
       Vertex *load_vertex = wire_edge->to(graph_);
       const Pin *load_pin = load_vertex->pin();
 
-      // Skip top-level ports and hierarchical pins as load pins
-      // to avoid segfault in DelayCalcBase::thresholdAdjust -> libertyPort -> getMTerm
-      if (network_->isTopLevelPort(load_pin) 
-          || !network_->isLeaf(load_pin)) {
+      // Only skip hierarchical (dbModITerm) pins.
+      // Top-level ports (dbBTerm) are safe for delay calculation.
+      if (network_->isHierarchical(load_pin)) {
         continue;
       }
 
@@ -1127,6 +1135,7 @@ LocalSta::makeLoadPinIndexMap(PtVertex &drvr_pt_vertex, PtGraph *pt_graph)
 {
   LoadPinIndexMap load_pin_index_map(network_);
   size_t load_idx = 0;
+  const Pin *drvr_pin = drvr_pt_vertex.vertex()->pin();
   PtVertexOutEdgeIterator edge_iter(drvr_pt_vertex.objectIdx(), pt_graph);
   while (edge_iter.hasNext()) {
     PtEdge &pt_edge = edge_iter.next();
@@ -1136,10 +1145,15 @@ LocalSta::makeLoadPinIndexMap(PtVertex &drvr_pt_vertex, PtGraph *pt_graph)
       Vertex *load_vertex = load_pt_vertex.vertex();
       const Pin *load_pin = load_vertex->pin();
       
-      // Skip top-level ports and non-leaf (hierarchical) pins as load pins
-      // to avoid segfault in DelayCalcBase::thresholdAdjust -> libertyPort -> getMTerm
-      if (network_->isTopLevelPort(load_pin) 
-          || !network_->isLeaf(load_pin)) {
+      if (load_pin == nullptr) {
+        continue;
+      }
+      
+      // Only skip hierarchical (dbModITerm) pins - tag=2 in tagged pointer.
+      // Top-level ports (dbBTerm, tag=1) are safe: thresholdLibrary()
+      // handles them via isTopLevelPort() -> defaultLibertyLibrary().
+      // Regular ITerm pins (tag=0) are always safe.
+      if (network_->isHierarchical(load_pin)) {
         continue;
       }
       
