@@ -117,6 +117,7 @@ class Timing
                              const char *lr_helper_method = "LRHelper");
   void testTimingComputeAndWriteBack(const std::vector<odb::dbInst*> &insts);
   void testReportVertices();
+  void testBufferInsertion(char *inst_name);
   /////////////////////////////////////////////////////////////
   // End functions for testing LR sizing
   /////////////////////////////////////////////////////////////

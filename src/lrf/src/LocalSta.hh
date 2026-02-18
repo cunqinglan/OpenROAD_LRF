@@ -71,7 +71,10 @@ public:
   void setDebugLabel(const std::string &label) { debug_label_ = label; }
 
   // Power APIs
+  // Average leakage across all when-conditions (no duty weighting)
   float cellAvgLeakage(sta::LibertyCell *cell);
+  // Leakage weighted by driver pin duty cycle (P(input=1))
+  float cellLeakageWithDuty(sta::LibertyCell *cell, float input_duty);
 
   // Functions for Searching arrivals and required times
   void findLocalArrivals(PtGraph *pt_graph);
@@ -138,7 +141,7 @@ public:
                               float &capacitance1,
                               float &limit1,
                               float &slack1) const;
-  sta::Path *ptVertexWorstSlackPath(PtVertex *pt_vertex, const sta::MinMax *min_max) const;
+  sta::Path *ptVertexWorstSlackPath(PtVertex &pt_vertex, const sta::MinMax *min_max) const;
 
 protected:
   const Pin *findNetParasiticDrvrPin(sta::Net *net) const;
@@ -363,6 +366,9 @@ protected:
   DelayLmSumResult delayLmSum(PtGraph *pt_graph,
                      DcalcAnalysisPt *dcalc_ap, 
                      bool collect_vecs);
+  float delayLmSum(PtGraph *pt_graph);
+  float delayLmSum(sta::Instance *inst, PtGraph *pt_graph);
+  float refgateDelayLmSum(PtGraph *pt_graph);
   void graphPop();
   void setSta(dbSta *sta) { sta_ = sta; }
   DelayLmSumResult initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
@@ -434,6 +440,7 @@ protected:
 private:
   friend class IncreSta;
   friend class TestLrf;
+  friend class LrRebuffer;
   friend class ParallelLrVisitor;
 };
 

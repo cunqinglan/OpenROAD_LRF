@@ -2,64 +2,53 @@
 
 
 
-#include "LrRebuffer.cc"
+#include "LrRebuffer.hh"
 #include "rsz/Resizer.hh"
 #include "LocalSta.hh"
+#include "ParallelVisitor.hh"
+#include "sta/Fuzzy.hh"
 
 
 namespace lrf {
+  
+using rsz::BufferedNetType;
+using rsz::BufferedNetSeq;
+using rsz::BufferedNetPtr;
+using rsz::BufferedNet;
+using rsz::FixedDelay;
+using BnetType = BufferedNetType;
+using BnetSeq = BufferedNetSeq;
+using BnetPtr = BufferedNetPtr;
+using BnetMetrics = BufferedNet::Metrics;
 
-LrRebuffer::LrRebuffer(rsz::Resizer *resizer, ParallelLrVisitor* visitor, sta::Corner *corner) :
+LrRebuffer::LrRebuffer(rsz::Resizer *resizer, ParallelLrVisitor* visitor) :
     Rebuffer(resizer),
     local_sta_(visitor->localSta()),
     visitor_(visitor)
 {
   arc_delay_calc_ = visitor->arcDelayCalc();
-  // This has to be set since we require corner while
-  // evaluating delay lm sum
-  initOnCorner(corner);
 }
 
-void Rebuffer::init()
+void 
+LrRebuffer::init()
 {
-  logger_ = resizer_->logger_;
-  dbStaState::init(resizer_->sta_);
-  db_network_ = resizer_->db_network_;
-  estimate_parasitics_ = resizer_->estimate_parasitics_;
-  resizer_max_wire_length_
-      = resizer_->metersToDbu(resizer_->findMaxWireLength());
-  sta_->checkCapacitanceLimitPreamble();
-  sta_->checkSlewLimitPreamble();
-  sta_->checkFanoutLimitPreamble();
-
-  resizer_->findFastBuffers();
-  buffer_sizes_.clear();
-
-  for (auto cell : resizer_->buffer_fast_sizes_) {
-    sta::LibertyPort *in, *out;
-    cell->bufferPorts(in, out);
-    buffer_sizes_.push_back(BufferSize{
-        cell,
-        FixedDelay(out->intrinsicDelay(sta_), resizer_),
-        /*margined_max_cap=*/0.0f,
-        out->driveResistance(),
-    });
-  }
-
-  std::ranges::sort(buffer_sizes_, [=](BufferSize a, BufferSize b) {
-    return bufferCin(a.cell) < bufferCin(b.cell);
-  });
-
-  buffer_sizes_index_.clear();
-  for (auto& size : buffer_sizes_) {
-    buffer_sizes_index_[size.cell] = &size;
-  }
+  rsz::Rebuffer::init();  // This initializes corners_ via dbStaState::init()
   arc_delay_calc_ = visitor_->arcDelayCalc();
+  
+  // Now corners_ is available, we can find the corner
+  sta::Corner *corner = corners_->findCorner("default");
+  if (corner) {
+    initOnCorner(corner);
+  } else {
+    printf("LrRebuffer::init: Warning: 'default' corner not found\n");
+  }
 }
 
 void
-LrRebuffer::annotateLoadLMs(PtVertex &drvr_pt_vertex, PtGraph *pt_graph, sta::Vertex *root_vertex, const rsz::BnetPtr& tree)
+LrRebuffer::annotateLoadLMs(PtVertex &drvr_pt_vertex, const BnetPtr& tree)
 {
+  PtGraph *pt_graph = visitor_->ptGraph();
+  sta::Vertex *root_vertex = drvr_pt_vertex.vertex();
   // Map from load pin to its LM vector
   std::map<const sta::Pin*, std::vector<float>> load_pin_lm_map;
   
@@ -93,15 +82,15 @@ LrRebuffer::annotateLoadLMs(PtVertex &drvr_pt_vertex, PtGraph *pt_graph, sta::Ve
 
   // Second pass: traverse the buffered net tree and annotate LMs to load nodes
   visitTree(
-      [&](auto& recurse, int level, const rsz::BnetPtr& node) -> int {
+      [&](auto& recurse, int level, const BnetPtr& node) -> int {
         switch (node->type()) {
-          case rsz::BnetType::via:
-          case rsz::BnetType::wire:
-          case rsz::BnetType::buffer:
+          case BnetType::via:
+          case BnetType::wire:
+          case BnetType::buffer:
             return recurse(node->ref());
-          case rsz::BnetType::junction:
+          case BnetType::junction:
             return recurse(node->ref()) + recurse(node->ref2());
-          case rsz::BnetType::load: {
+          case BnetType::load: {
             // Annotate the LMs of the load directly to the BufferedNet node
             const sta::Pin* load_pin = node->loadPin();
             auto it = load_pin_lm_map.find(load_pin);
@@ -126,15 +115,15 @@ LrRebuffer::annotateLoadLMs(PtVertex &drvr_pt_vertex, PtGraph *pt_graph, sta::Ve
 }
 
 int
-LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex *drvr_pt_vertex,
-   PtGraph *pt_graph)
+LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
 {
   if (network_->isTopLevelPort(drvr_pin)) {
     printf("LrRebuffer::rebufferPin: Warning: rebuffering does not support top port as the driver pin: %s\n",
-           network_->name(drvr_pin).c_str());
+           network_->name(drvr_pin));
     return 0;
   }
 
+  PtGraph *pt_graph = visitor_->ptGraph();
   sta::LibertyCell *cur_lib_cell = pt_graph->refGate();
   drvr_port_ = cur_lib_cell->findLibertyPort(network_->portName(drvr_pin));
   sta::Net *net = network_->net(drvr_pin);
@@ -148,42 +137,26 @@ LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex *drvr_pt_vertex,
 
     if (!bnet) {
       printf("LrRebuffer::rebufferPin: Warning: unable to create buffered net for pin %s\n",
-             network_->name(drvr_pin).c_str());
+             network_->name(drvr_pin));
       return 0;
     }
 
     // Compute RAT and AAT of the local graph
     local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
-    localAnnotateLoadSlacks(bnet, drvr_pt_vertex, pt_graph);
+    localAnnotateLoadSlacks(bnet, drvr_pt_vertex);
+    annotateLoadLMs(drvr_pt_vertex, bnet);
 
     const bool allow_topology_rewrite = true;
     for (int i = 0; i < 3; i++) {
-      bnet = bufferForTiming(bnet, allow_topology_rewrite);
+      bnet = bufferForTiming(drvr_pt_vertex, bnet, allow_topology_rewrite);
       if (!bnet) {
         printf("LrRebuffer::rebufferPin: Warning: bufferForTiming failed for pin %s at iteration %d\n",
-               network_->name(drvr_pin).c_str(), i);
-        return 0;
+               network_->name(drvr_pin), i);
+        break;
       }
     }
 
     if (!bnet) {
-      return 0;
-    }
-
-    // Evaluate the buffer solution.
-    sta::Delay drvr_gate_delay;
-    std::tie(drvr_gate_delay, std::ignore, std::ignore) = drvrPinTiming(bnet);
-    sta::Delay relaxation = (std::max(drvr_gate_delay, 0.0f)
-                             + criticalPathDelay(logger_, bnet).toSeconds())
-                            * relaxation_factor_;
-    float leakage = bNetPower(bnet);
-    for (int i = 0; i < 5 && bnet; i++) {
-      bnet = recoverArea(bnet, target, ((float) (1 + i)) / 5);
-    }
-
-    if (!bnet) {
-      printf("LrRebuffer::rebufferPin: Warning: recoverArea failed for pin %s\n",
-              network_->name(drvr_pin).c_str());
       return 0;
     }
 
@@ -204,11 +177,12 @@ LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex *drvr_pt_vertex,
 }
 
 void
-LrRebuffer::localAnnotateLoadSlacks(const rsz::BnetPtr& tree, PtVertex *drvr_pt_vertex, PtGraph *pt_graph)
+LrRebuffer::localAnnotateLoadSlacks(const BnetPtr& tree, PtVertex &drvr_pt_vertex)
 {
   for (auto rf_index : sta::RiseFall::rangeIndex()) {
     arrival_paths_[rf_index] = nullptr;
   }
+  PtGraph *pt_graph = visitor_->ptGraph();
 
   visitTree(
       [&](auto& recurse, int level, const BnetPtr& node) -> int {
@@ -222,16 +196,16 @@ LrRebuffer::localAnnotateLoadSlacks(const rsz::BnetPtr& tree, PtVertex *drvr_pt_
           case BnetType::load: {
             const sta::Pin* load_pin = node->loadPin();
             sta::Vertex* vertex = graph_->pinLoadVertex(load_pin);
-            PtVertex *pt_vertex = pt_graph->pinVertex(vertex);
+            PtVertex *pt_vertex = pt_graph->ptVertex(vertex);
             sta::Path* req_path
-                = local_sta_->ptVertexWorstSlackPath(pt_vertex, sta::MinMax::max());
+                = local_sta_->ptVertexWorstSlackPath(*pt_vertex, sta::MinMax::max());
             sta::Path* arrival_path = req_path;
 
-            while (req_path && arrival_path->vertex(sta_) != drvr_pt_vertex->vertex()) {
+            while (req_path && arrival_path->vertex(sta_) != drvr_pt_vertex.vertex()) {
               arrival_path = arrival_path->prevPath();
               if (!arrival_path) {
                 printf("LrRebuffer::annotateLoadSlacks: no arrival path from root to load %s\n",
-                       network_->pathName(load_pin).c_str());
+                       network_->pathName(load_pin));
                 break;
               }
             }
@@ -258,15 +232,75 @@ LrRebuffer::localAnnotateLoadSlacks(const rsz::BnetPtr& tree, PtVertex *drvr_pt_
             return 1;
           }
           default:
-            logger_->critical(RSZ, 1001, "unhandled BufferedNet type");
+            printf("LrRebuffer::annotateLoadSlacks: Warning: unhandled BufferedNet type %d\n",
+                   static_cast<int>(node->type()));
+            return 0;
         }
       },
       tree);
 }
 
+static std::optional<int> findWireLayer(BnetPtr node)
+{
+  while (node->type() != BnetType::wire && node->type() != BnetType::load
+         && node->type() != BnetType::junction) {
+    node = node->ref();
+  }
+  if (node->type() == BnetType::wire) {
+    return {node->layer()};
+  }
+  return {};
+}
+
+static BnetPtr stripWireOnBnet(BnetPtr ptr)
+{
+  while (ptr->type() == BnetType::wire || ptr->type() == BnetType::via) {
+    ptr = ptr->ref();
+  }
+  return ptr;
+}
+
+static BnetPtr stripWiresAndBuffersOnBnet(BnetPtr ptr)
+{
+  while (ptr->type() == BnetType::wire || ptr->type() == BnetType::buffer
+         || ptr->type() == BnetType::via) {
+    ptr = ptr->ref();
+  }
+  return ptr;
+}
+
+static const sta::RiseFallBoth* combinedTransition(const sta::RiseFallBoth* a,
+                                                   const sta::RiseFallBoth* b)
+{
+  if (a == b) {
+    return a;
+  }
+  if (a == nullptr) {
+    return b;
+  }
+  if (b == nullptr) {
+    return a;
+  }
+  return sta::RiseFallBoth::riseFall();
+}
+
+static BufferedNetPtr createBnetJunction(rsz::Resizer* resizer,
+                                         const BufferedNetPtr& p,
+                                         const BufferedNetPtr& q,
+                                         odb::Point location)
+{
+  BufferedNetPtr junc = std::make_shared<BufferedNet>(
+      BufferedNetType::junction, location, p, q, resizer);
+  junc->setSlackTransition(
+      combinedTransition(p->slackTransition(), q->slackTransition()));
+  junc->setSlack(std::min(p->slack(), q->slack()));
+  return junc;
+}
+
 // Find buffering choices with best delay LM sum and leakage
-rsz::BnetPtr
-LrRebuffer::bufferForTiming(const rsz::BnetPtr &tree, 
+BnetPtr
+LrRebuffer::bufferForTiming(PtVertex &pt_drvr_vertex, 
+                            const BnetPtr &tree, 
                             bool allow_topology_rewrite)
 {
   sta::LibertyPort *strong_driver;
@@ -275,17 +309,17 @@ LrRebuffer::bufferForTiming(const rsz::BnetPtr &tree,
     buffer_sizes_.back().cell->bufferPorts(dummy, strong_driver);
   }
 
-  rsz::BnetSeq top_opts = visitTree(
-      [&](auto& recurse, int level, const rsz::BnetPtr& node) -> rsz::BnetSeq {
+  BnetSeq top_opts = visitTree(
+    [&](auto& recurse, int level, const BnetPtr& node) -> BnetSeq {
         switch (node->type()) {
-          case rsz::BnetType::via:
-          case rsz::BnetType::buffer:
-          case rsz::BnetType::wire: {
+          case BnetType::via:
+          case BnetType::buffer:
+          case BnetType::wire: {
             int layer = -1;
             if (auto wire_layer = findWireLayer(node)) {
               layer = wire_layer.value();
             }
-            rsz::BnetSeq opts = recurse(stripWiresAndBuffersOnBnet(node->ref()));
+            BnetSeq opts = recurse(stripWiresAndBuffersOnBnet(node->ref()));
             odb::Point location
                 = stripWiresAndBuffersOnBnet(node->ref())->location();
 
@@ -297,8 +331,8 @@ LrRebuffer::bufferForTiming(const rsz::BnetPtr &tree,
               insertBufferOptions(
                   opts, level, std::min(full_wl, wire_length_step_));
             } else {
-              rsz::BnetSeq opts1 = opts;
-              for (rsz::BnetPtr& opt : opts1) {
+              BnetSeq opts1 = opts;
+              for (BnetPtr& opt : opts1) {
                 opt = addWire(opt, node->location(), layer, level);
               }
               insertBufferOptions(opts1, level, 0);
@@ -307,7 +341,7 @@ LrRebuffer::bufferForTiming(const rsz::BnetPtr &tree,
                 // insertion of buffers at the farther end
                 opts1 = opts;
                 insertBufferOptions(opts1, level, full_wl);
-                for (rsz::BnetPtr& opt : opts1) {
+                for (BnetPtr& opt : opts1) {
                   opt = addWire(opt, node->location(), layer, level);
                 }
                 insertBufferOptions(opts1, level, 0);
@@ -317,27 +351,16 @@ LrRebuffer::bufferForTiming(const rsz::BnetPtr &tree,
                 // of the algorithm (wire_length_step_ should have been chosen
                 // to always allow a minimal size buffer to drive itself without
                 // ERC)
-                logger_->critical(RSZ,
-                                  2008,
-                                  "buffering pin {}: wire step options empty",
-                                  network_->name(pin_));
+                printf("LrRebuffer::bufferForTiming: Warning: Buffer pin %s: wire step options empty\n",
+                       network_->name(pin_));
               }
               return opts1;
             }
-            
-            // Long wire handling with stepping
-            utl::DebugScopedTimer timer(long_wire_stepping_runtime_);
+          
             int round = 0;
             while (location != node->location()) {
-              debugPrint(logger_,
-                         RSZ,
-                         "rebuffer",
-                         4,
-                         "{:{}s}round {} no of options {}",
-                         "",
-                         level,
-                         round,
-                         opts.size());
+              printf("LrRebuffer::bufferForTiming: round %d, location (%d, %d), target (%d, %d), options %zu\n",
+                     round, location.x(), location.y(), node->location().x(), node->location().y(), opts.size());
 
               const int step = wire_length_step_;
 
@@ -360,27 +383,25 @@ LrRebuffer::bufferForTiming(const rsz::BnetPtr &tree,
               const int remaining_wl
                   = odb::Point::manhattanDistance(node->location(), location);
 
-              for (rsz::BnetPtr& opt : opts) {
+              for (BnetPtr& opt : opts) {
                 opt = addWire(opt, location, layer, level);
               }
               insertBufferOptions(opts, level, std::min(remaining_wl, step));
 
               if (opts.empty()) {
-                logger_->critical(RSZ,
-                                  2007,
-                                  "buffering pin {}: wire step options empty",
-                                  network_->name(pin_));
+                printf("LrRebuffer::bufferForTiming: Warning: Buffer pin %s: wire step options empty at round %d\n",
+                       network_->name(pin_), round);
               }
               round++;
             }
             return opts;
           }
 
-          case rsz::BnetType::junction: {
-            const rsz::BnetSeq& opts_left = recurse(node->ref());
-            const rsz::BnetSeq& opts_right = recurse(node->ref2());
+          case BnetType::junction: {
+            const BnetSeq& opts_left = recurse(node->ref());
+            const BnetSeq& opts_right = recurse(node->ref2());
 
-            rsz::BnetSeq opts;
+            BnetSeq opts;
             opts.reserve(std::max(opts_left.size(), opts_right.size()));
             float best_cap = INF;
 
@@ -388,34 +409,41 @@ LrRebuffer::bufferForTiming(const rsz::BnetPtr &tree,
             auto ri = opts_right.rbegin(), rend = opts_right.rend();
 
             while (li != lend && ri != rend) {
-              // Use delay LM sum instead of slack for comparison
-              // Smaller delay LM sum is better
-              while (li + 1 != lend && (*(li + 1))->delayLmSum() <= (*ri)->delayLmSum()) {
+              // Use buffer cost instead of slack for comparison
+              // Smaller buffer cost is better
+              while (li + 1 != lend && (*(li + 1))->bufferCost() <= (*ri)->bufferCost()) {
                 li++;
               }
-              while (ri + 1 != rend && (*(ri + 1))->delayLmSum() <= (*li)->delayLmSum()) {
+              while (ri + 1 != rend && (*(ri + 1))->bufferCost() <= (*li)->bufferCost()) {
                 ri++;
               }
 
               bool rewrote = false;
-              rsz::BnetPtr junc;
+              BnetPtr junc;
 
               if (allow_topology_rewrite) {
                 junc = attemptTopologyRewrite(node, *li, *ri, best_cap);
                 if (junc) {
                   rewrote = true;
-                  // Update LM sum for rewritten junction
-                  float junc_lmsum = (*li)->delayLmSum() + (*ri)->delayLmSum();
-                  junc->setDelayLmSum(junc_lmsum);
+                  // The rewritten junction's sub-nodes already have correct
+                  // bufferCost set by attemptTopologyRewrite. Compute
+                  // junction cost from its actual children (buffer + direct).
+                  float junc_cost = junc->ref()->bufferCost()
+                                  + junc->ref2()->bufferCost();
+                  junc->setBufferCost(junc_cost);
+                  // Merge LMs from the rewritten children
+                  auto merged_lms = mergeLmVectors(junc->ref()->lms(),
+                                                   junc->ref2()->lms());
+                  junc->setLms(std::move(merged_lms));
                 }
               }
 
               if (!rewrote) {
                 junc = createBnetJunction(resizer_, *li, *ri, node->location());
                 
-                // Calculate junction's delay LM sum = sum of both branches
-                float junc_lmsum = (*li)->delayLmSum() + (*ri)->delayLmSum();
-                junc->setDelayLmSum(junc_lmsum);
+                // Calculate junction's buffer cost = sum of both branches
+                float junc_cost = (*li)->bufferCost() + (*ri)->bufferCost();
+                junc->setBufferCost(junc_cost);
                 
                 // Merge LMs from both branches
                 const auto& left_lms = (*li)->lms();
@@ -425,22 +453,22 @@ LrRebuffer::bufferForTiming(const rsz::BnetPtr &tree,
               }
 
               if (junc->fanout() <= fanout_limit_) {
-                printf("junction fanout %zu within limit %zu\n", junc->fanout(), fanout_limit_);
+                printf("junction fanout %zu within limit %f\n", junc->fanout(), fanout_limit_);
                 best_cap = junc->cap();
                 opts.push_back(std::move(junc));
               }
 
               while (true) {
-                // Increment either li or ri, whichever leads to smaller delay LM sum increase
-                // Smaller delay LM sum is better, so we want the next one with smaller LM sum
-                float next_li_lmsum = (li + 1 != lend)
-                                           ? (*(li + 1))->delayLmSum()
+                // Increment either li or ri, whichever leads to smaller buffer cost increase
+                // Smaller buffer cost is better, so we want the next one with smaller cost
+                float next_li_cost = (li + 1 != lend)
+                                           ? (*(li + 1))->bufferCost()
                                            : INF;
-                float next_ri_lmsum = (ri + 1 != rend)
-                                           ? (*(ri + 1))->delayLmSum()
+                float next_ri_cost = (ri + 1 != rend)
+                                           ? (*(ri + 1))->bufferCost()
                                            : INF;
 
-                if (next_li_lmsum < next_ri_lmsum) {
+                if (next_li_cost < next_ri_cost) {
                   li++;
                 } else {
                   ri++;
@@ -456,52 +484,74 @@ LrRebuffer::bufferForTiming(const rsz::BnetPtr &tree,
             return opts;
           }
 
-          case rsz::BnetType::load: {
-            // Load node: initialize delay LM sum to 0 (starting point)
-            node->setDelayLmSum(0.0f);
+          case BnetType::load: {
+            // Load node: initialize buffer cost to 0 (starting point)
+            node->setBufferCost(0.0f);
             return {node};
           }
           
           default:
-            logger_->error(RSZ, 1004, "unhandled BufferedNet type");
+            printf("LrRebuffer::bufferForTiming: Error: unhandled BufferedNet type\n");
             return {};
         }
       },
       tree);
 
   if (top_opts.empty()) {
-    logger_->critical(RSZ, 2009, "buffering pin {}: no options produced", 
-                      network_->name(pin_));
+    printf("LrRebuffer::bufferForTiming: Warning: no buffering options generated for pin %s\n",
+           network_->name(pin_));
   }
 
-  // Select best option based on delay LM sum
-  float best_lmsum = INF;
-  rsz::BnetPtr best_option = nullptr;
+  // Select best option based on buffer cost
+  float best_cost = INF;
+  BnetPtr best_option = nullptr;
   int best_index = 0;
   int i = 1;
   
-  debugPrint(logger_, RSZ, "rebuffer", 2, "LM-sum-optimized options");
-  for (const rsz::BnetPtr& p : top_opts) {
-    float lmsum = p->delayLmSum();
+  for (const BnetPtr& p : top_opts) {
+    LMValue cost = evaluateOption(pt_drvr_vertex, p);
     
-    printf("option %d: LM sum = %.3e, slack = %.3e, cap = %.3f, fanout = %zu\n",
-           i, lmsum, p->slack().toSeconds(), p->cap(), p->fanout());
+    printf("option %d: cost = %.3e, slack = %.3e, cap = %.3f, fanout = %zu\n",
+           i, cost, p->slack().toSeconds(), p->cap(), p->fanout());
 
-    if (lmsum < best_lmsum) {
-      best_lmsum = lmsum;
+    if (cost < best_cost) {
+      best_cost = cost;
       best_option = p;
       best_index = i;
     }
     i++;
   }
 
-  printf("best option: %d lmsum=%.3e\n", best_index, best_lmsum);
+  printf("best option: %d cost=%.3e\n", best_index, best_cost);
 
   return best_option;
 }
 
+LMValue
+LrRebuffer::evaluateOption(PtVertex &pt_vertex, const BnetPtr& option)
+{
+  float driver_leakage = local_sta_->cellAvgLeakage(drvr_port_->libertyCell());
+  sta::Slew max_slew;
+  float cell_delay_lm_sum = cellDelayLmSum(pt_vertex, option, max_slew);
+  float total_cost = option->bufferCost() + cell_delay_lm_sum + driver_leakage;
+  if (hasViolation(option, max_slew)) {
+    return INF;  // Assign infinite cost to options with violations
+  }
+  return total_cost;
+}
+
+bool
+LrRebuffer::hasViolation(const BnetPtr& option, sta::Slew slew)
+{
+  if (!loadSlewSatisfactory(drvr_port_, option)) return true;
+  if (slew > drvr_pin_max_slew_ && option->cap() > drvr_load_high_water_mark_) {
+    return true;
+  }
+  return false;
+}
+
 void 
-LrRebuffer::insertBufferOptions(rsz::BnetSeq& opts,
+LrRebuffer::insertBufferOptions(BnetSeq& opts,
                                 int level,
                                 int next_segment_wl)
 {
@@ -509,13 +559,13 @@ LrRebuffer::insertBufferOptions(rsz::BnetSeq& opts,
     return;
   }
 
-  rsz::BufferSize& strong_driver = buffer_sizes_.back();
+  BufferSize& strong_driver = buffer_sizes_.back();
 
   float best_area = INF;
-  float best_lmsum = INF;  // Use delay LM sum instead of slack
+  float best_cost = INF;  // Use buffer cost instead of slack
 
   // both `opts` and `buffer_sizes_` are ordered by ascending input capacitance
-  rsz::BnetSeq new_opts;
+  BnetSeq new_opts;
   new_opts.reserve(opts.size() * 2);
   auto opts_iter = opts.begin();
 
@@ -523,13 +573,13 @@ LrRebuffer::insertBufferOptions(rsz::BnetSeq& opts,
     // pass through non-redundant options with cap below `threshold_cap`
     for (; opts_iter != opts.end() && (*opts_iter)->cap() <= threshold_cap;
          opts_iter++) {
-      rsz::BnetPtr& opt = *opts_iter;
+  BnetPtr& opt = *opts_iter;
 
-      // Use the already computed delay LM sum from recursive call
-      float opt_lmsum = opt->delayLmSum();
+      // Use the already computed buffer cost from recursive call
+      float opt_cost = opt->bufferCost();
 
-      // Keep option if it has better (smaller) delay LM sum
-      bool keep = (opt_lmsum < best_lmsum);
+      // Keep option if it has better (smaller) buffer cost
+      bool keep = (opt_cost < best_cost);
 
       if (!bufferSizeCanDriveLoad(strong_driver, opt, next_segment_wl)) {
         keep = false;
@@ -537,21 +587,21 @@ LrRebuffer::insertBufferOptions(rsz::BnetSeq& opts,
 
       if (keep) {
         new_opts.push_back(opt);
-        best_lmsum = opt_lmsum;
+        best_cost = opt_cost;
         best_area = opt->area();
       }
     }
   };
 
-  for (rsz::BufferSize buffer_size : buffer_sizes_) {
+  for (BufferSize buffer_size : buffer_sizes_) {
     sta::LibertyCell* buffer_cell = buffer_size.cell;
     sta::LibertyPort *in, *out;
     buffer_cell->bufferPorts(in, out);
     pass_through(in->capacitance());
 
-    rsz::BnetPtr load_opt;
+  BnetPtr load_opt;
     FixedDelay load_opt_buffer_delay = FixedDelay::ZERO;
-    float load_opt_total_lmsum = INF;
+    float load_opt_total_cost = INF;
     
     auto it = (new_opts.empty() && opts_iter == opts.end()
                && opts_iter > opts.begin())
@@ -559,35 +609,52 @@ LrRebuffer::insertBufferOptions(rsz::BnetSeq& opts,
                   : opts_iter;
     
     for (; it != opts.end(); it++) {
-      rsz::BnetPtr& opt = *it;
+      BnetPtr& opt = *it;
 
-      // Get the already computed delay LM sum from the load option
-      float opt_lmsum = opt->delayLmSum();
+      // Get the already computed buffer cost from the load option
+      float opt_cost = opt->bufferCost();
 
-      // Calculate buffer delay
-      const FixedDelay buffer_delay
-          = bufferDelay(buffer_cell,
-                        opt->slackTransition(),
-                        opt->cap() + out->capacitance());
+      // Step 1: Fast filtering using intrinsic_delay (cheap approximation)
+      // Calculate buffer leakage once (shared for both filtering and final cost)
+      float buffer_leakage = local_sta_->cellAvgLeakage(buffer_cell);
       
-      // Calculate the delta (added) delay LM sum from this buffer
-      float buffer_delta_lmsum = computeBufferAddedLmSum(buffer_cell, opt, buffer_delay);
-      
-      // Total LM sum = load's LM sum + buffer's delta
-      float total_lmsum = opt_lmsum + buffer_delta_lmsum;
+      // Use intrinsic_delay for quick filtering
+      float intrinsic_delay_seconds = buffer_size.intrinsic_delay.toSeconds();
+      float estimated_delta_cost = computeBufferAddedCost(intrinsic_delay_seconds, 
+                                                           buffer_leakage, 
+                                                           opt);
+      float estimated_total_cost = opt_cost + estimated_delta_cost;
 
-      // Keep if total LM sum is better (smaller) and can drive the load
-      if (total_lmsum < best_lmsum && bufferSizeCanDriveLoad(buffer_size, opt)) {
-        load_opt = opt;
-        load_opt_buffer_delay = buffer_delay;
-        load_opt_total_lmsum = total_lmsum;
-        best_lmsum = total_lmsum;
-        best_area = opt->area() + buffer_cell->area();
+      // Only compute precise delay if this passes initial filter
+      if (estimated_total_cost < best_cost && bufferSizeCanDriveLoad(buffer_size, opt)) {
+        // Step 2: Precise delay calculation (expensive, only for candidates)
+        sta::LibertyPort *in, *out;
+        buffer_cell->bufferPorts(in, out);
+        const float load_cap = opt->cap() + out->capacitance();
+        
+        const FixedDelay buffer_delay
+            = bufferDelay(buffer_cell, opt->slackTransition(), load_cap);
+        const float buffer_delay_seconds = buffer_delay.toSeconds();
+        
+        // Recalculate cost with precise delay
+        float precise_delta_cost = computeBufferAddedCost(buffer_delay_seconds, 
+                                                           buffer_leakage, 
+                                                           opt);
+        float precise_total_cost = opt_cost + precise_delta_cost;
+
+        // Final check with precise cost
+        if (precise_total_cost < best_cost) {
+          load_opt = opt;
+          load_opt_buffer_delay = buffer_delay;
+          load_opt_total_cost = precise_total_cost;
+          best_cost = precise_total_cost;
+          best_area = opt->area() + buffer_cell->area();
+        }
       }
     }
 
     if (load_opt) {
-      rsz::BnetPtr z = make_shared<rsz::BufferedNet>(rsz::BnetType::buffer,
+      BnetPtr z = std::make_shared<rsz::BufferedNet>(BnetType::buffer,
                                                      load_opt->location(),
                                                      buffer_cell,
                                                      load_opt,
@@ -598,11 +665,11 @@ LrRebuffer::insertBufferOptions(rsz::BnetSeq& opts,
       z->setSlackTransition(load_opt->slackTransition());
       z->setDelay(load_opt_buffer_delay);
       
-      // Set the total delay LM sum for this buffer option
-      z->setDelayLmSum(load_opt_total_lmsum);
+      // Set the total buffer cost for this buffer option
+      z->setBufferCost(load_opt_total_cost);
       
       // Propagate LMs through buffer
-      propagateLmsThroughBuffer(z, buffer_cell, load_opt);
+      propagateLmsThroughBuffer(z, load_opt);
 
       new_opts.push_back(std::move(z));
     }
@@ -612,41 +679,86 @@ LrRebuffer::insertBufferOptions(rsz::BnetSeq& opts,
   new_opts.swap(opts);
 }
 
-// Compute the delta (added) delay LM sum when inserting a buffer
 float
-LrRebuffer::computeBufferAddedLmSum(sta::LibertyCell* buffer_cell,
-                                    const rsz::BnetPtr& load_opt,
-                                    const FixedDelay& buffer_delay)
+LrRebuffer::cellDelayLmSum(PtVertex &pt_drvr_vertex,
+                           const BnetPtr& load_opt,
+                           float &max_slew)
 {
-  // The buffer adds: buffer_delay × LM_output
-  // The output LM depends on the load's LM
-  
+  max_slew = -INF;
+  PtGraph *pt_graph = visitor_->ptGraph();
+  float delay_lm_sum = 0.0f;
+  sta::DcalcAnalysisPt *dcalc_pt = pt_graph->dcalcAnalysisPt();
+  sta::DcalcAPIndex ap_index = dcalc_pt->index();
+  float output_cap = load_opt->cap();
+  PtVertexInEdgeIterator in_edge_iter(pt_drvr_vertex.objectIdx(), pt_graph);
+  while (in_edge_iter.hasNext()) {
+    PtEdge &pt_edge = in_edge_iter.next();
+    sta::Edge *edge = pt_edge.edge();
+    auto *lms = edge->arcLms();
+    if (lms == nullptr) {
+      printf("LrRebuffer::cellDelayLmSum: Warning: edge from vertex %s has no LM values\n",
+             pt_drvr_vertex.vertex()->to_string(graph_).c_str());
+      continue;
+    }
+    PtVertex &pt_from_vertex = pt_graph->ptVertex(pt_edge.ptFromId());
+    for (sta::TimingArc *arc : edge->timingArcSet()->arcs()) {
+      const sta::RiseFall *rf = arc->fromEdge()->asRiseFall();
+      sta::Slew in_slew = pt_graph->slew(pt_from_vertex, rf, ap_index);
+      sta::LoadPinIndexMap load_pin_index_map(network_);
+      auto dcalc_result = arc_delay_calc_->gateDelay(nullptr,
+                                                    arc,
+                                                    in_slew,
+                                                    output_cap,
+                                                    nullptr,
+                                                    load_pin_index_map,
+                                                    dcalc_pt);
+      sta::Delay arc_delay = dcalc_result.gateDelay();
+      int lm_index = lmIndex(arc, ap_index, graph_->apCount());
+      LMValue lm = lms[lm_index];
+      delay_lm_sum += arc_delay * lm;
+      if (dcalc_result.drvrSlew() > max_slew) {
+        max_slew = dcalc_result.drvrSlew();
+      }
+    }
+  }
+  return delay_lm_sum;
+}
+
+// Compute the delta (added) cost when inserting a buffer
+// Cost = delay_LM_sum + leakage
+float
+LrRebuffer::computeBufferAddedCost(float buffer_delay_seconds,
+                                    float buffer_leakage,
+                                    const BnetPtr& load_opt)
+{
+  sta::DcalcAPIndex ap_index = visitor_->ptGraph()->dcalcAnalysisPt()->index();
+  // Part 1: Calculate buffer delay × LM contribution
+  float buffer_delta_delay_lm = 0.0f;
   const auto& load_lms = load_opt->lms();
-  if (load_lms.empty()) {
-    return 0.0f;
+  
+  if (!load_lms.empty()) {
+    // Buffer delay × output LM (assume output LM ≈ load LM)
+    for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+      int lm_index = rf->index() * graph_->apCount() + ap_index;
+      buffer_delta_delay_lm += buffer_delay_seconds * load_lms[lm_index];
+    }
   }
+  // Part 2: Combine delay_LM_sum and leakage as total cost
+  // Simple sum: cost = delay_LM_sum + leakage
+  float total_cost = buffer_delta_delay_lm + buffer_leakage;
   
-  // For now, assume buffer output LM ≈ load LM (simplified)
-  // In a more sophisticated version, you'd back-propagate through the buffer's timing arcs
-  float buffer_delta_lmsum = 0.0f;
-  float delay_seconds = buffer_delay.toSeconds();
-  
-  for (size_t i = 0; i < load_lms.size(); i++) {
-    buffer_delta_lmsum += delay_seconds * load_lms[i];
-  }
-  
-  return buffer_delta_lmsum;
+  return total_cost;
 }
 
 // Add wire segment and update delay LM sum
-rsz::BnetPtr
-LrRebuffer::addWire(const rsz::BnetPtr& p,
+BnetPtr
+LrRebuffer::addWire(const BnetPtr& p,
                     odb::Point wire_end,
                     int wire_layer,
                     int level)
 {
   // Create wire node
-  rsz::BnetPtr z = make_shared<rsz::BufferedNet>(rsz::BnetType::wire,
+  BnetPtr z = std::make_shared<rsz::BufferedNet>(BnetType::wire,
                                                  wire_end,
                                                  wire_layer,
                                                  p,
@@ -674,32 +786,18 @@ LrRebuffer::addWire(const rsz::BnetPtr& p,
   // Wire passes through LMs from the load side
   z->setLms(p->lms());
 
-  // Calculate wire's contribution to delay LM sum
+  // Calculate wire's contribution to buffer cost (delay × LM)
   const auto& lms = p->lms();
-  float wire_delta_lmsum = 0.0f;
-  
-  if (!lms.empty()) {
-    float delay_seconds = wire_delay.toSeconds();
-    for (size_t i = 0; i < lms.size(); i++) {
-      wire_delta_lmsum += delay_seconds * lms[i];
-    }
-  }
+  float wire_delta_cost = computeBufferAddedCost(wire_delay.toSeconds(), 0.0f, p);  // Leakage is 0 for wire.
 
-  // Update total delay LM sum: previous sum + wire's delta
-  float total_lmsum = p->delayLmSum() + wire_delta_lmsum;
-  z->setDelayLmSum(total_lmsum);
+  // Update total buffer cost: previous cost + wire's delta
+  float total_cost = p->bufferCost() + wire_delta_cost;
+  z->setBufferCost(total_cost);
 
   if (level != -1) {
-    debugPrint(logger_,
-               RSZ,
-               "rebuffer",
-               3,
-               "{:{}s}wire wl {} lmsum={:.3e} {}",
-               "",
-               level,
-               z->length(),
-               total_lmsum,
-               z->to_string(resizer_));
+    printf("  %*sAdded wire: length=%d um, %s s, delta_cost=%.3e, total_cost=%.3e\n",
+           level * 2, "", z->length(), z->to_string(resizer_).c_str(),
+           wire_delta_cost, total_cost);
   }
 
   return z;
@@ -707,9 +805,8 @@ LrRebuffer::addWire(const rsz::BnetPtr& p,
 
 // Propagate LMs through a buffer node
 void
-LrRebuffer::propagateLmsThroughBuffer(rsz::BnetPtr& buffer_node,
-                                      sta::LibertyCell* buffer_cell,
-                                      const rsz::BnetPtr& load_opt)
+LrRebuffer::propagateLmsThroughBuffer(BnetPtr& buffer_node,
+                                      const BnetPtr& load_opt)
 {
   // For now, simply copy the load's LM to the buffer output
   // In a more sophisticated version, you'd compute the buffer's input LM
@@ -727,6 +824,11 @@ LrRebuffer::mergeLmVectors(const std::vector<float>& lm1,
                            const std::vector<float>& lm2)
 {
   size_t size = std::max(lm1.size(), lm2.size());
+  if (lm1.size() != lm2.size()) {
+    printf("LrRebuffer::mergeLmVectors: Warning: LM vector size mismatch (%zu vs %zu), merging with zero-padding\n",
+           lm1.size(), lm2.size());
+    fflush(stdout);
+  }
   std::vector<float> merged(size, 0.0f);
   
   for (size_t i = 0; i < lm1.size(); i++) {
@@ -737,6 +839,144 @@ LrRebuffer::mergeLmVectors(const std::vector<float>& lm1,
   }
   
   return merged;
+}
+
+// LrRebuffer version of attemptTopologyRewrite:
+// Uses bufferCost (lower = better) instead of slack (higher = better)
+// to decide which branch is "costly" (the one to shortcut) vs "cheap".
+//
+// Original topology:
+//     +-----[buffer*]- a
+//     |
+// ----+
+//     |   +-[buffer*]- b
+//     |   |
+//     +---+
+//         |
+//         +---------- (costly branch)
+//
+// Rewritten topology:
+//     +-------------- (costly branch, gets direct path)
+//     |
+// ----+
+//     |           +-- b
+//     |           |
+//     +-[buffer]--+
+//                 |
+//                 +-- a
+//
+BnetPtr
+LrRebuffer::attemptTopologyRewrite(const BnetPtr& node,
+                                   const BnetPtr& left,
+                                   const BnetPtr& right,
+                                   float best_cap)
+{
+  // The branch with HIGHER bufferCost is the "costly" one
+  // (analogous to the "critical" branch in the slack-based version).
+  // We want to give it a direct path (fewer buffers in the way).
+  BnetPtr costly1, aux1;
+  if (left->bufferCost() > right->bufferCost()) {
+    costly1 = stripWireOnBnet(left);
+    aux1 = stripWireOnBnet(right);
+  } else {
+    costly1 = stripWireOnBnet(right);
+    aux1 = stripWireOnBnet(left);
+  }
+
+  if (costly1->type() != BnetType::junction) {
+    return {};
+  }
+
+  // costly1 is a junction with two sub-branches
+  BnetPtr costly2 = costly1->ref(), aux2 = costly1->ref2();
+  // Pick the sub-branch with higher cost as the one to promote
+  if (costly2->bufferCost() < aux2->bufferCost()) {
+    std::swap(costly2, aux2);
+  }
+  aux2 = stripWireOnBnet(aux2);
+
+  // Only rewrite if at least one of the auxiliary branches has a buffer
+  if (aux1->type() != BnetType::buffer && aux2->type() != BnetType::buffer) {
+    return {};
+  }
+
+  // Strip wires and buffers to get to the raw loads/junctions
+  aux1 = stripWiresAndBuffersOnBnet(aux1);
+  aux2 = stripWiresAndBuffersOnBnet(aux2);
+  costly2 = stripWiresAndBuffersOnBnet(costly2);
+
+  // Build the new topology:
+  //   aux1 and aux2 are merged into a junction, buffered, then joined with costly2
+  const BnetPtr in1 = addWire(aux1, node->location(), -1);
+  const BnetPtr in2 = addWire(aux2, node->location(), -1);
+  const BnetPtr junc1
+      = addWire(createBnetJunction(resizer_, in1, in2, node->location()),
+                node->location(),
+                -1);
+  const BnetPtr in3 = addWire(costly2, node->location(), -1);
+
+  // The cost of the merged auxiliary junction (before buffer)
+  float junc1_cost = junc1->bufferCost();
+
+  // Find a buffer size such that the total cost after buffering
+  // the auxiliary junction is still better than not rewriting.
+  // buffer_sizes_ is sorted by ascending input capacitance (smallest first).
+  float original_cost = left->bufferCost() + right->bufferCost();
+
+  for (BufferSize size : buffer_sizes_) {
+    sta::LibertyPort *in, *out;
+    size.cell->bufferPorts(in, out);
+
+    // Cap check: rewritten topology must not exceed original cap or best_cap
+    if (fuzzyGreaterEqual(in->capacitance() + in3->cap(), best_cap)
+        || fuzzyGreaterEqual(in->capacitance() + in3->cap(),
+                             left->cap() + right->cap())) {
+      break;
+    }
+
+    // ERC check
+    if (!bufferSizeCanDriveLoad(size, junc1)) {
+      continue;
+    }
+
+    const FixedDelay buffer_delay
+        = bufferDelay(size.cell,
+                      junc1->slackTransition(),
+                      junc1->cap() + out->capacitance());
+
+    // Compute the buffer's added cost (delay×LM + leakage)
+    float buffer_leakage = local_sta_->cellAvgLeakage(size.cell);
+    float buffer_delta_cost = computeBufferAddedCost(
+        buffer_delay.toSeconds(), buffer_leakage, junc1);
+
+    // Total cost of the rewritten topology
+    float rewrite_cost = junc1_cost + buffer_delta_cost + in3->bufferCost();
+
+    // Only commit to the rewrite if it produces lower total cost
+    if (rewrite_cost < original_cost) {
+      BnetPtr buffer = std::make_shared<rsz::BufferedNet>(
+          BnetType::buffer,
+          node->location(),
+          size.cell,
+          junc1,
+          corner_,
+          resizer_,
+          estimate_parasitics_);
+      buffer->setSlack(junc1->slack() - buffer_delay);
+      buffer->setSlackTransition(junc1->slackTransition());
+      buffer->setDelay(buffer_delay);
+      buffer->setBufferCost(junc1_cost + buffer_delta_cost);
+
+      // Propagate LMs through the buffer
+      propagateLmsThroughBuffer(buffer, junc1);
+
+      BnetPtr result = createBnetJunction(resizer_, buffer, in3, node->location());
+      // The caller will set the final bufferCost and LMs on the returned junction
+      return result;
+    }
+  }
+
+  return {};
 }
 
 

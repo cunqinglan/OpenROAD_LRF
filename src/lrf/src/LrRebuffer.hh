@@ -1,42 +1,63 @@
 
-
-
-#include "Rebuffer.hh"
+#include "lrf/LrfClass.hh"
+#include "../../rsz/src/Rebuffer.hh"
 // #include "LocalSta.hh"
 
+namespace rsz {
+class Resizer;
+class BufferedNet;
+using BufferedNetPtr = std::shared_ptr<BufferedNet>;
+using BufferedNetSeq = std::vector<BufferedNetPtr>;
+}
+
+namespace utl {
+
+}
 
 
 namespace lrf {
+
+class ParallelLrVisitor;
+class PtGraph;
+class LocalSta;
 
 class LrRebuffer : public rsz::Rebuffer
 {
 public:
   LrRebuffer(rsz::Resizer* resizer, ParallelLrVisitor* parallel_visitor);
   void init();
-  int rebufferPin(const sta::Pin *drvr_pin, PtVertex *drvr_pt_vertex, PtGraph *pt_graph);  // Return the inserted buffer count.
+  int rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex);  // Return the inserted buffer count.
   // void annoataLoadSlacks();
-  rsz::BnetPtr bufferForTiming(const rsz::BnetPtr& tree, bool allow_topology_rewrite);
-  void annotateLoadLMs(PtVertex &drvr_pt_vertex, PtGraph *pt_graph, sta::Vertex *root_vertex, const rsz::BnetPtr& tree);
-  void insertBufferOptions(rsz::BnetSeq& opts,
+  rsz::BufferedNetPtr bufferForTiming(PtVertex &pt_drvr_vertex, const rsz::BufferedNetPtr& tree, bool allow_topology_rewrite);
+  void annotateLoadLMs(PtVertex &drvr_pt_vertex, const rsz::BufferedNetPtr& tree);
+  void insertBufferOptions(rsz::BufferedNetSeq& opts,
                            int level,
                            int next_segment_wl = 0);
-  rsz::BnetPtr addWire(const rsz::BnetPtr& p,
+  rsz::BufferedNetPtr addWire(const rsz::BufferedNetPtr& p,
                        odb::Point wire_end,
                        int wire_layer,
                        int level = -1);
 
 protected:
-  void localAnnotateLoadSlacks(const rsz::BnetPtr& tree, PtVertex *drvr_pt_vertex, PtGraph *pt_graph);
+  void localAnnotateLoadSlacks(const rsz::BufferedNetPtr& tree, PtVertex &drvr_pt_vertex);
   
-  // LM sum computation functions
-  float computeBufferAddedLmSum(sta::LibertyCell* buffer_cell, 
-                                const rsz::BnetPtr& load_opt,
-                                const FixedDelay& buffer_delay);
-  void propagateLmsThroughBuffer(rsz::BnetPtr& buffer_node,
-                                 sta::LibertyCell* buffer_cell,
-                                 const rsz::BnetPtr& load_opt);
+  // Cost computation: delay_LM_sum + leakage
+  float computeBufferAddedCost(float buffer_delay_seconds,
+                                float buffer_leakage,
+                                const rsz::BufferedNetPtr& load_opt);
+  void propagateLmsThroughBuffer(rsz::BufferedNetPtr& buffer_node,
+                                 const rsz::BufferedNetPtr& load_opt);
   std::vector<float> mergeLmVectors(const std::vector<float>& lm1, 
                                     const std::vector<float>& lm2);
+  LMValue evaluateOption(PtVertex &pt_vertex, const rsz::BufferedNetPtr& option);
+  float cellDelayLmSum(PtVertex &pt_drvr_vertex,
+                       const rsz::BufferedNetPtr& load_opt,
+                       sta::Slew &max_slew);
+  bool hasViolation(const rsz::BufferedNetPtr& option, sta::Slew max_slew);
+  rsz::BufferedNetPtr attemptTopologyRewrite(const rsz::BufferedNetPtr& node,
+                                             const rsz::BufferedNetPtr& left,
+                                             const rsz::BufferedNetPtr& right,
+                                             float best_cap);
 
 private:
   LocalSta *local_sta_;

@@ -182,27 +182,29 @@ float
 LocalReduceToPi::localPinCapacitance(ParasiticNode *node)
 {
   const Pin *pin = parasitics_->pin(node);
-  
   float pin_cap = 0.0;
+
   if (pin) {
     Port *port = network_->port(pin);
     LibertyPort *lib_port = network_->libertyPort(port);
     // const char *pin_name = network_->portName(pin);
     const PtVertex &pt_vertex = pt_graph_->pinToPtVertex(pin);
-    if (pt_vertex.type() == PtVertexType::RefInput) {
+    if (pt_vertex.type() == PtVertexType::RefInput
+        || pt_vertex.type() == PtVertexType::RefOutput) {
+      // printf("pin %s is ref %s pin\n", network_->pathName(pin), pt_vertex.type() == PtVertexType::RefInput ? "input" : "output");
       if (lib_port) {
-    if (!includes_pin_caps_) {
-      pin_cap = pt_graph_->getRefPinCapacitance(pt_vertex, rf_, corner_, min_max_);
-      pin_caps_one_value_ &= lib_port->capacitanceIsOneValue();
-    }
+        if (!includes_pin_caps_) {
+          pin_cap = pt_graph_->getRefPinCapacitance(pt_vertex, rf_, corner_, min_max_);
+          pin_caps_one_value_ &= lib_port->capacitanceIsOneValue();
+        }
       } else if (network_->isTopLevelPort(pin))
         pin_cap = sdc_->portExtCap(port, rf_, corner_, min_max_);
     }
     else  {
       if (lib_port) {
         if (!includes_pin_caps_) {
-    pin_cap = sdc_->pinCapacitance(pin, rf_, corner_, min_max_);
-    pin_caps_one_value_ &= lib_port->capacitanceIsOneValue();
+          pin_cap = sdc_->pinCapacitance(pin, rf_, corner_, min_max_);
+          pin_caps_one_value_ &= lib_port->capacitanceIsOneValue();
         }
       }
       else if (network_->isTopLevelPort(pin))

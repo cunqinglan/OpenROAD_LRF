@@ -16,6 +16,7 @@ namespace sta {
 
 namespace rsz {
   class Resizer;
+  class BufferedNet;
 }
 
 namespace lrf {
@@ -23,6 +24,11 @@ namespace lrf {
 class LocalSta;
 class PtGraph;
 class ParallelLibData;
+
+enum class MoveType {
+  Resizing,
+  BufferInsertion
+};
 
 // We don't want to copy this visitor, each swap examination should
 // have its own instance.
@@ -34,9 +40,12 @@ public:
   virtual bool visit(sta::Instance *inst);
   bool visit(sta::Instance *inst, TimingRecord &timing_record);
   bool singleGateSizing(sta::Instance *inst);
+  bool bufferInsertion(sta::Instance *inst);
   // Apply cell type changes to OpenROAD and OpenSTA, and 
   // update timing information from PtGraph to sta::Graph.
-  virtual void applyChangesToDb(rsz::Resizer *resizer);
+  virtual void applyChangesToDb(rsz::Resizer *resizer, MoveType move_type = MoveType::Resizing);
+  void applyResizeChangesToDb(rsz::Resizer *resizer);
+  void applyBufferingChangesToDb(rsz::Resizer *resizer);
   virtual void updateTimingFromPtGraph();
   void updateVertexInfo(sta::VertexId vertex_id);
   void updateEdgeInfo(sta::EdgeId edge_id);
@@ -46,6 +55,7 @@ public:
   void operator()(sta::Instance *inst) { visit(inst); }
   void printVisitedInstNames() const;
   PtGraph *ptGraph() const { return pt_graph_; }
+  void setPtGraph(PtGraph *pt_graph) { pt_graph_ = pt_graph; }
   sta::Instance *refInst() const { return ref_inst_; }
   sta::LibertyCell *bestCell() const { return best_cell_; }
   void init(float averge_delay, float average_power, float wns, 
@@ -100,6 +110,7 @@ protected:
   sta::Slack slack_before_swap_;
   std::vector<std::string> visited_instances_;
   sta::LibertyCell *best_cell_ = nullptr;
+  std::shared_ptr<rsz::BufferedNet> best_bnet_ = nullptr;
   float average_delay_ = 1.0;
   float average_leakage_ = 1.0;
   float slack_margin_= 0.0;

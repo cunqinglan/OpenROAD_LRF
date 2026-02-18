@@ -47,18 +47,32 @@ LrSizer::criticalPathSizing()
   if (clock_period == 0.0) {
     throw std::runtime_error("LrSizer::criticalPathSizing: found zero clock period");
   }
-  float tsh_TNS = para_tsh_discount_ * clock_period;
-  float tsh = tsh_TNS / violating_ends.size();
-  // logger_->setDebugLevel(RSZ, "repair_setup", 2);
-  // Should check here whether we can figure out the clock domain for each
-  // vertex. This may be the place where we can do some round robin fun to
-  // individually control each clock domain instead of just fixating on fixing
-  // one.
+  // Step 1: Collect all violating endpoints (negative slack).
   for (sta::Vertex* end : *endpoints) {
     const sta::Slack end_slack = sta_->vertexSlack(end, max_);
-    if (end_slack < -tsh) {
+    if (end_slack < 0.0) {
       violating_ends.emplace_back(end, end_slack);
     }
+  }
+  if (violating_ends.empty()) {
+    printf("No violating endpoints found (all slacks >= 0). WNS met.\n");
+    return;
+  }
+  // Step 2: Compute per-endpoint threshold.
+  // tsh_TNS = para_tsh_discount_ * T is the total TNS budget.
+  // Distribute it across violating endpoints to get per-endpoint threshold.
+  float tsh_TNS = para_tsh_discount_ * clock_period;
+  float tsh = tsh_TNS / violating_ends.size();
+  printf("criticalPathSizing: %zu violating endpoints, clock_period=%.4e, "
+         "tsh_TNS=%.4e, per-endpoint tsh=%.4e\n",
+         violating_ends.size(), clock_period, tsh_TNS, tsh);
+  // Filter to only keep endpoints worse than the per-endpoint threshold.
+  std::erase_if(violating_ends, [tsh](const auto& p) {
+    return p.second >= -tsh;
+  });
+  if (violating_ends.empty()) {
+    printf("No violating endpoints with slack < %.4e after per-endpoint filtering.\n", -tsh);
+    return;
   }
   std::ranges::stable_sort(violating_ends,
                            [](const auto& end_slack1, const auto& end_slack2) {
@@ -68,10 +82,10 @@ LrSizer::criticalPathSizing()
   
   for (const auto& [end, slack] : violating_ends) {
     if (repairCriticalPath(end)) {
-      printf("Resized gates on critical path to endpoint %s with slack %f.\n",
+      printf("Resized gates on critical path to endpoint %s with slack %e.\n",
              end->to_string(graph_).c_str(), slack);
     } else {
-      printf("Failed to resize gates on critical path to endpoint %s with slack %f.\n",
+      printf("Failed to resize gates on critical path to endpoint %s with slack %e.\n",
              end->to_string(graph_).c_str(), slack);
     }
   }
@@ -118,6 +132,7 @@ LrSizer::sizeCriticalPathGates(sta::Path* path_end)
       }
     }
   }
+  printf("Sized %zu gates on critical path.\n", gates_sized);
 
   return gates_sized > 0;
 }
@@ -128,7 +143,7 @@ LrSizer::singleGateSizing(sta::Instance* inst, ParallelLrVisitor *visitor)
   if (inst == nullptr) {
     return false;
   }
-  // return visitor->singleGateSizing(inst);
+  return visitor->singleGateSizing(inst);
 }
 
 } // namespace lrf

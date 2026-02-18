@@ -899,8 +899,6 @@ TaskArranger::runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex)
     
     // Use the global mutex to protect DB/STA modification
     // ensuring exclusive access against other readers and writers.
-    std::lock_guard<std::mutex> lock_odb(g_odb_sta_access_mutex);
-    
     visitor->applyChangesToDb(resizer_);
     
     // Topology validation: mark after modification
