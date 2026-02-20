@@ -1,5 +1,9 @@
 #include "position_driven.hh"
 
+#include <unistd.h>      // fork, pipe, _exit, read, write, close
+#include <sys/wait.h>     // waitpid
+#include <omp.h>          // omp_set_num_threads
+
 #include "odb/db.h"
 #include "cut/logic_cut.h"
 
@@ -331,9 +335,10 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
 
   logger_->info(utl::RES, 340, "After step 5.");
 
-  // Step 6: Evaluate each solution using dbJournal for atomic rollback.
-  // Pattern: beginEco → modify → endEco → evaluate → undoEco
-  // This avoids cumulative database corruption from sequential insert/delete.
+  // Step 6: Evaluate each solution using fork() for isolation.
+  // Each child inherits the full database via COW, freely modifies it
+  // (insert solution, run GPL, run STA), writes the slack result back
+  // via a pipe, and _exit()s.  The parent's state is never touched.
   abc::Map_Man_t* map_man = static_cast<abc::Map_Man_t*>(pMan);
   const int num_solutions = abc::Map_ManReadNumSolutions(map_man);
 
@@ -346,20 +351,10 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
 
   logger_->info(utl::RES, 348, "Found {} solutions to evaluate.", num_solutions);
 
-  odb::dbBlock* block = sta->db()->getChip()->getBlock();
   abc::Map_MappingSolution_t* pSolutionBest = nullptr;
   sta::Slack best_slack = std::numeric_limits<sta::Slack>::lowest();
   int best_solution_index = -1;
   int evaluated_count = 0;
-
-  // Save original instance names.  undoEco recreates deleted instances via
-  // dbInst::create() which allocates NEW table slots (different IDs/addresses),
-  // so the original sta::Instance* pointers become invalid.  We look up the
-  // restored instances by name after each undoEco.
-  std::vector<std::string> original_instance_names;
-  for (const sta::Instance* inst : candidate_cut.cut_instances()) {
-    original_instance_names.push_back(network->name(inst));
-  }
 
   for (int i = 0; i < num_solutions; ++i) {
     abc::Map_MappingSolution_t* pSolution =
@@ -374,43 +369,71 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
         utl::RES, 344, "Evaluating solution {}/{}...",
         i + 1, num_solutions);
 
-    // --- Begin ECO transaction: record ALL ODB changes ---
-    odb::dbDatabase::beginEco(block);
-
-    // Apply this solution (deletes old instances, creates new ones)
-    candidate_cut.InsertAbcMapSolution(
-        pSolution,
-        map_man,
-        logic_network.get(),
-        *remapper.getAbcLibrary(),
-        network,
-        sta,
-        remapper.getNameGenerator(),
-        logger_);
-
-    // Evaluate with full STA and placement (still inside ECO recording
-    // so that placement changes are also journaled and undone)
-    sta::Slack slack = evaluateSolution(
-        pSolution,
-        map_man,
-        logic_network.get(),
-        candidate_cut,
-        remapper);
-
-    // --- End ECO recording, then undo everything atomically ---
-    odb::dbDatabase::endEco(block);
-    odb::dbDatabase::undoEco(block);
-
-    // Restore cut_instances_ by looking up the recreated instances by name.
-    // undoEco recreated the original instances but at new addresses.
-    sta::InstanceSet restored_instances;
-    for (const std::string& inst_name : original_instance_names) {
-      sta::Instance* found = network->findInstance(inst_name.c_str());
-      if (found) {
-        restored_instances.insert(found);
-      }
+    // Create a pipe for the child to send back the slack value.
+    int pipefd[2];
+    if (pipe(pipefd) == -1) {
+      logger_->warn(utl::RES, 349, "Solution {} pipe() failed, skipping.", i + 1);
+      continue;
     }
-    candidate_cut.set_cut_instances(restored_instances);
+
+    pid_t pid = fork();
+    if (pid == -1) {
+      // fork failed
+      close(pipefd[0]);
+      close(pipefd[1]);
+      logger_->warn(utl::RES, 349, "Solution {} fork() failed, skipping.", i + 1);
+      continue;
+    }
+
+    if (pid == 0) {
+      // === CHILD PROCESS ===
+      close(pipefd[0]);  // close read end
+
+      // Force single-threaded to avoid fork+threads issues.
+      // After fork(), only the calling thread survives — OpenMP and STA
+      // thread pools hold stale state from the parent's dead threads.
+      omp_set_num_threads(1);
+      sta->setThreadCount(1);
+
+      // Freely modify the database — parent is unaffected (COW).
+      candidate_cut.InsertAbcMapSolution(
+          pSolution,
+          map_man,
+          logic_network.get(),
+          *remapper.getAbcLibrary(),
+          network,
+          sta,
+          remapper.getNameGenerator(),
+          logger_);
+
+      sta::Slack slack = evaluateSolution(
+          pSolution,
+          map_man,
+          logic_network.get(),
+          candidate_cut,
+          remapper);
+
+      // Send result back to parent.
+      write(pipefd[1], &slack, sizeof(slack));
+      close(pipefd[1]);
+      _exit(0);  // die without cleanup — no destructors, no atexit
+    }
+
+    // === PARENT PROCESS ===
+    close(pipefd[1]);  // close write end
+
+    sta::Slack slack;
+    ssize_t n = read(pipefd[0], &slack, sizeof(slack));
+    close(pipefd[0]);
+
+    int status;
+    waitpid(pid, &status, 0);
+
+    if (n != static_cast<ssize_t>(sizeof(slack))
+        || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+      logger_->warn(utl::RES, 349, "Solution {} child failed.", i + 1);
+      continue;
+    }
 
     // Track the best solution
     if (slack > best_slack) {
@@ -431,7 +454,7 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
                "Evaluation complete: {} solutions evaluated.",
                evaluated_count);
 
-  // Step 7: Permanently apply the best solution (no beginEco, so it sticks).
+  // Step 7: Permanently apply the best solution in the parent process.
   if (pSolutionBest) {
     remapper.getLogger()->info(
         utl::RES, 346,
@@ -448,7 +471,7 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
         remapper.getNameGenerator(),
         logger_);
 
-    // Final placement and timing
+    // Final placement and timing with GPL in the parent.
     evaluateSolution(
         pSolutionBest,
         map_man,
@@ -482,30 +505,19 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
 
   if (!pMan || !pOriginalNetwork) {
     remapper.getLogger()->error(
-        utl::RES, 343, 
+        utl::RES, 343,
         "Map manager or original network not available.");
     return std::numeric_limits<sta::Slack>::lowest();
   }
 
   sta::dbSta* sta = remapper.getSta();
   utl::Logger* logger = remapper.getLogger();
-  
-  // Network has already been modified by InsertAbcMapSolution in the caller
-  // Now perform placement and timing analysis
-  // Step 2: Perform incremental placement for the newly inserted instances
-  // The inserted instances from the ABC network are unplaced
-  // Use the existing performIncrePlace method from SeqRemapper
-  remapper.performIncrePlace(candidate_cut, remapper.getGpl(), remapper.getDpl());
-  
-  // Step 3: Perform static timing analysis and get worst slack
-  
-  //////////////////////////////////////////////////////////////////
-  // TODO: Currently using full STA. Attempt to use incremental STA instead?
-  //////////////////////////////////////////////////////////////////
 
-  // Recompute timing after network changes and placement
-  // Must call findDelays() to actually compute delays (invalidation only marks stale)
-  // Ensure timing graph is fresh after placement
+  // Always run GPL placement — each call is either in an isolated child
+  // (fork-based evaluation) or in the parent for the final permanent apply.
+  remapper.performIncrePlace(candidate_cut, remapper.getGpl(), remapper.getDpl());
+
+  // Recompute timing from the current network state.
   sta->networkChanged();
   sta->findDelays();
   
