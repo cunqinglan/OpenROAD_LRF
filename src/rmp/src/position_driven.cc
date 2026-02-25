@@ -341,7 +341,6 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
   // via a pipe, and _exit()s.  The parent's state is never touched.
   abc::Map_Man_t* map_man = static_cast<abc::Map_Man_t*>(pMan);
   const int num_solutions = abc::Map_ManReadNumSolutions(map_man);
-
   if (num_solutions <= 0) {
     remapper.getLogger()->warn(
         utl::RES, 341, "ABC mapping enumeration returned no solutions.");
