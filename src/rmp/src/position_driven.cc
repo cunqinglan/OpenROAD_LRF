@@ -1,6 +1,10 @@
 #include "position_driven.hh"
 
-#include <unistd.h>      // fork, pipe, _exit, read, write, close
+#include <cstdint>        // uint32_t
+#include <cstdio>         // freopen
+#include <string>
+#include <vector>
+#include <unistd.h>       // fork, pipe, _exit, read, write, close
 #include <sys/wait.h>     // waitpid
 #include <omp.h>          // omp_set_num_threads
 
@@ -355,6 +359,15 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
   int best_solution_index = -1;
   int evaluated_count = 0;
 
+  // --- Phase 1: Fork all children in parallel ---
+  struct ChildInfo {
+    pid_t pid;
+    int pipe_fd;        // read end
+    int solution_index;
+    abc::Map_MappingSolution_t* pSolution;
+  };
+  std::vector<ChildInfo> children;
+
   for (int i = 0; i < num_solutions; ++i) {
     abc::Map_MappingSolution_t* pSolution =
         abc::Map_MappingGetSolution(map_man, i);
@@ -364,11 +377,6 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
       continue;
     }
 
-    logger_->info(
-        utl::RES, 344, "Evaluating solution {}/{}...",
-        i + 1, num_solutions);
-
-    // Create a pipe for the child to send back the slack value.
     int pipefd[2];
     if (pipe(pipefd) == -1) {
       logger_->warn(utl::RES, 349, "Solution {} pipe() failed, skipping.", i + 1);
@@ -377,7 +385,6 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
 
     pid_t pid = fork();
     if (pid == -1) {
-      // fork failed
       close(pipefd[0]);
       close(pipefd[1]);
       logger_->warn(utl::RES, 349, "Solution {} fork() failed, skipping.", i + 1);
@@ -389,12 +396,16 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
       close(pipefd[0]);  // close read end
 
       // Force single-threaded to avoid fork+threads issues.
-      // After fork(), only the calling thread survives — OpenMP and STA
-      // thread pools hold stale state from the parent's dead threads.
       omp_set_num_threads(1);
       sta->setThreadCount(1);
 
-      // Freely modify the database — parent is unaffected (COW).
+      // Suppress raw stdout/stderr (GPL/ABC may printf).
+      freopen("/dev/null", "w", stdout);
+      freopen("/dev/null", "w", stderr);
+
+      // Capture all Logger output to a string.
+      logger_->redirectStringBegin();
+
       candidate_cut.InsertAbcMapSolution(
           pSolution,
           map_man,
@@ -412,38 +423,101 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
           candidate_cut,
           remapper);
 
-      // Send result back to parent.
+      std::string log_output = logger_->redirectStringEnd();
+
+      // Write to pipe: slack, then log length, then log content.
+      uint32_t log_len = static_cast<uint32_t>(log_output.size());
       write(pipefd[1], &slack, sizeof(slack));
+      write(pipefd[1], &log_len, sizeof(log_len));
+      if (log_len > 0)
+        write(pipefd[1], log_output.data(), log_len);
       close(pipefd[1]);
-      _exit(0);  // die without cleanup — no destructors, no atexit
+      _exit(0);
     }
 
     // === PARENT PROCESS ===
     close(pipefd[1]);  // close write end
+    children.push_back({pid, pipefd[0], i, pSolution});
+  }
+
+  // --- Phase 2: Collect results from all children ---
+  struct ChildResult {
+    sta::Slack slack;
+    std::string log;
+    bool success;
+  };
+  std::vector<ChildResult> results(children.size(), {0.0, "", false});
+
+  for (size_t j = 0; j < children.size(); ++j) {
+    auto& child = children[j];
+    auto& result = results[j];
 
     sta::Slack slack;
-    ssize_t n = read(pipefd[0], &slack, sizeof(slack));
-    close(pipefd[0]);
+    uint32_t log_len;
+    ssize_t n;
 
-    int status;
-    waitpid(pid, &status, 0);
-
-    if (n != static_cast<ssize_t>(sizeof(slack))
-        || !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-      logger_->warn(utl::RES, 349, "Solution {} child failed.", i + 1);
+    n = read(child.pipe_fd, &slack, sizeof(slack));
+    if (n != static_cast<ssize_t>(sizeof(slack))) {
+      close(child.pipe_fd);
       continue;
     }
 
-    // Track the best solution
-    if (slack > best_slack) {
-      best_slack = slack;
-      pSolutionBest = pSolution;
-      best_solution_index = i;
+    n = read(child.pipe_fd, &log_len, sizeof(log_len));
+    if (n != static_cast<ssize_t>(sizeof(log_len))) {
+      close(child.pipe_fd);
+      continue;
+    }
+
+    std::string log(log_len, '\0');
+    size_t total_read = 0;
+    while (total_read < log_len) {
+      n = read(child.pipe_fd, log.data() + total_read, log_len - total_read);
+      if (n <= 0) break;
+      total_read += n;
+    }
+    close(child.pipe_fd);
+
+    if (total_read == log_len) {
+      result.slack = slack;
+      result.log = std::move(log);
+      result.success = true;
+    }
+  }
+
+  // Reap all children.
+  for (size_t j = 0; j < children.size(); ++j) {
+    int status;
+    waitpid(children[j].pid, &status, 0);
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+      results[j].success = false;
+    }
+  }
+
+  // --- Phase 3: Print results as coherent blocks, find best ---
+  for (size_t j = 0; j < children.size(); ++j) {
+    int idx = children[j].solution_index;
+    auto& result = results[j];
+
+    logger_->info(utl::RES, 344, "--- Solution {}/{} ---", idx + 1, num_solutions);
+
+    if (!result.success) {
+      logger_->warn(utl::RES, 349, "Solution {} child failed.", idx + 1);
+      continue;
+    }
+
+    // Print captured log as one coherent block.
+    if (!result.log.empty())
+      logger_->reportLiteral(result.log);
+
+    if (result.slack > best_slack) {
+      best_slack = result.slack;
+      pSolutionBest = children[j].pSolution;
+      best_solution_index = idx;
       logger_->info(utl::RES, 354, "Solution {} is new best (slack={:.4f}).",
-                    i + 1, slack);
+                    idx + 1, result.slack);
     } else {
       logger_->info(utl::RES, 355, "Solution {} (slack={:.4f}) not better than best ({:.4f}).",
-                    i + 1, slack, best_slack);
+                    idx + 1, result.slack, best_slack);
     }
 
     evaluated_count++;
