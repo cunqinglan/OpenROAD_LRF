@@ -269,7 +269,7 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
   sta::Instance* bad_instance = network->instance(bad_vertex->pin());
   if (bad_instance == nullptr) {
     remapper.getLogger()->error(
-        utl::RES, 336, "Worst vertex {} is not driven by an instance.",
+        utl::RES, 350, "Worst vertex {} is not driven by an instance.",
         bad_vertex->name(network));
     return;
   }
@@ -305,7 +305,7 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
   }
 
   logger_->info(
-      utl::RES, 339, "After step 4. ABC network converted to logic form with {} nodes.",
+      utl::RES, 351, "After step 4. ABC network converted to logic form with {} nodes.",
       abc::Abc_NtkNodeNum(logic_network.get()));
 
   // Step 5: Enumerate all possible mapping solutions using ABC.
@@ -333,11 +333,11 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
 
   if (pMan == nullptr) {
     remapper.getLogger()->warn(
-        utl::RES, 341, "ABC mapping enumeration returned no solutions.");
+        utl::RES, 353, "ABC mapping enumeration returned no solutions.");
     return;
   }
 
-  logger_->info(utl::RES, 340, "After step 5.");
+  logger_->info(utl::RES, 352, "After step 5.");
 
   // Step 6: Evaluate each solution using fork() for isolation.
   // Each child inherits the full database via COW, freely modifies it
@@ -347,12 +347,12 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
   const int num_solutions = abc::Map_ManReadNumSolutions(map_man);
   if (num_solutions <= 0) {
     remapper.getLogger()->warn(
-        utl::RES, 341, "ABC mapping enumeration returned no solutions.");
+        utl::RES, 354, "ABC mapping enumeration returned no solutions.");
     abc::Abc_NtkMapEnumFreeStore(pMan);
     return;
   }
 
-  logger_->info(utl::RES, 348, "Found {} solutions to evaluate.", num_solutions);
+  logger_->info(utl::RES, 359, "Found {} solutions to evaluate.", num_solutions);
 
   abc::Map_MappingSolution_t* pSolutionBest = nullptr;
   sta::Slack best_slack = std::numeric_limits<sta::Slack>::lowest();
@@ -379,7 +379,7 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
 
     int pipefd[2];
     if (pipe(pipefd) == -1) {
-      logger_->warn(utl::RES, 349, "Solution {} pipe() failed, skipping.", i + 1);
+      logger_->warn(utl::RES, 356, "Solution {} pipe() failed, skipping.", i + 1);
       continue;
     }
 
@@ -387,7 +387,7 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
     if (pid == -1) {
       close(pipefd[0]);
       close(pipefd[1]);
-      logger_->warn(utl::RES, 349, "Solution {} fork() failed, skipping.", i + 1);
+      logger_->warn(utl::RES, 357, "Solution {} fork() failed, skipping.", i + 1);
       continue;
     }
 
@@ -498,10 +498,10 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
     int idx = children[j].solution_index;
     auto& result = results[j];
 
-    logger_->info(utl::RES, 344, "--- Solution {}/{} ---", idx + 1, num_solutions);
+    logger_->info(utl::RES, 355, "--- Solution {}/{} ---", idx + 1, num_solutions);
 
     if (!result.success) {
-      logger_->warn(utl::RES, 349, "Solution {} child failed.", idx + 1);
+      logger_->warn(utl::RES, 358, "Solution {} child failed.", idx + 1);
       continue;
     }
 
@@ -513,17 +513,17 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
       best_slack = result.slack;
       pSolutionBest = children[j].pSolution;
       best_solution_index = idx;
-      logger_->info(utl::RES, 354, "Solution {} is new best (slack={:.4f}).",
+      logger_->info(utl::RES, 362, "Solution {} is new best (slack={:.4f}).",
                     idx + 1, result.slack);
     } else {
-      logger_->info(utl::RES, 355, "Solution {} (slack={:.4f}) not better than best ({:.4f}).",
+      logger_->info(utl::RES, 363, "Solution {} (slack={:.4f}) not better than best ({:.4f}).",
                     idx + 1, result.slack, best_slack);
     }
 
     evaluated_count++;
   }
 
-  logger_->info(utl::RES, 351,
+  logger_->info(utl::RES, 360,
                "Evaluation complete: {} solutions evaluated.",
                evaluated_count);
 
@@ -552,10 +552,10 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
         candidate_cut,
         remapper);
 
-    logger_->info(utl::RES, 357, "Best solution permanently applied.");
+    logger_->info(utl::RES, 364, "Best solution permanently applied.");
   } else {
     remapper.getLogger()->warn(
-        utl::RES, 352,
+        utl::RES, 361,
         "No valid solution found to apply.");
   }
 
