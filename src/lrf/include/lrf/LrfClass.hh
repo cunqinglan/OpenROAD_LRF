@@ -9,6 +9,8 @@
 
 #include <vector>
 #include <map>
+#include <unordered_map>
+#include <tuple>
 
 #include "sta/Graph.hh"
 #include "sta/TimingArc.hh"
@@ -17,6 +19,7 @@
 namespace sta {
   class StaState;
   class Sta;
+  class LibertyCell;
 } // namespace sta
 
 namespace lrf {
@@ -48,6 +51,8 @@ class DelayLmSumResult;
 typedef std::vector<PtEdge> PtEdgeSeq;
 typedef std::vector<PtVertex> PtVertexSeq;
 typedef std::map<const sta::Vertex*, sta::VertexId> VertexPtToIdMap;
+typedef std::vector<std::vector<sta::LibertyCell*>> LibertyCellArray;
+typedef std::unordered_map<sta::LibertyCell, std::pair<int, int>> PosMap;
 
 
 enum class PtVertexType : uint8_t {

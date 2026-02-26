@@ -76,6 +76,7 @@ public:
   void preSaveLibCellLeakage();
   void makeParallelLibData(rsz::Resizer *resizer, TaskArranger *task_arranger);
   ParallelLibData *parallelLibData() { return parallel_lib_data_; }
+  void makeEquivCellArray(LibertyCellArray &array, PosMap &pos_map);
 
   // APIs for LM update
   void makeLRHelper(std::string method = "LRHelper");
