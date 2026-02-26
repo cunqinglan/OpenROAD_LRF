@@ -589,6 +589,7 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
   // Always run GPL placement — each call is either in an isolated child
   // (fork-based evaluation) or in the parent for the final permanent apply.
   remapper.performIncrePlace(candidate_cut, remapper.getGpl(), remapper.getDpl());
+  //remapper.performIncreDpl(candidate_cut);
 
   // Recompute timing from the current network state.
   sta->networkChanged();
