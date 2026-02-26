@@ -22,6 +22,7 @@
 #include "sta/Path.hh"
 #include "search/TagGroup.hh"
 #include "odb/db.h"
+#include "PortDirection.hh"
   
 #include <cmath>
 #include <unordered_map>
@@ -1331,6 +1332,66 @@ TestLrf::testBufferInsertion(char *inst_name, sta::dbSta* sta,
   
   // Cleanup
   delete incre_sta;
+}
+
+void
+TestLrf::printAllCellsInfo(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block)
+{
+  // Build/ensure equivalence information so we enumerate meaningful cells.
+  // Ensure equivalence info is available
+  resizer->makeEquivCells();
+  const sta::LibertyCellSeq &unique_equiv_cells = sta->equivCellsRecorder()->uniqueEquivCells();
+
+  printf("----- All Liberty Cells Info (by unique equiv cell groups) -----\n");
+  fflush(stdout);
+
+  // For each unique representative, treat its equiv_cells as one type/group
+  for (const sta::LibertyCell *rep_cell : unique_equiv_cells) {
+    if (!rep_cell) continue;
+    sta::LibertyCellSeq *equiv_cells = sta->equivCells(const_cast<sta::LibertyCell*>(rep_cell));
+    if (!equiv_cells) continue;
+
+    printf("Type Representative: %s, group_size=%zu\n", rep_cell->name(), equiv_cells->size());
+    for (sta::LibertyCell *cell : *equiv_cells) {
+      if (!cell) continue;
+
+      float area = cell->area();
+
+      // Sum input capacitance across input ports
+      float input_cap_sum = 0.0f;
+      sta::LibertyCellPortIterator port_iter(cell);
+      while (port_iter.hasNext()) {
+        sta::LibertyPort *port = port_iter.next();
+        if (!port) continue;
+        sta::PortDirection *dir = port->direction();
+        if (!dir) continue;
+        if (dir->isAnyInput()) {
+          input_cap_sum += port->capacitance();
+        }
+      }
+
+      // Compute representative intrinsic delay: take max intrinsicDelay over input ports
+      double worst_intrinsic = 0.0;
+      sta::LibertyCellPortIterator port_iter2(cell);
+      while (port_iter2.hasNext()) {
+        sta::LibertyPort *port = port_iter2.next();
+        if (!port) continue;
+        sta::PortDirection *dir = port->direction();
+        if (!dir) continue;
+        if (dir->isAnyInput()) {
+          sta::ArcDelay d = port->intrinsicDelay(sta);
+          if (d > worst_intrinsic) worst_intrinsic = d;
+        }
+      }
+
+      printf("  %s : area=%g, input_cap_sum=%g F, intrinsic_delay(default)=%g ps\n",
+             cell->name(), area, input_cap_sum, worst_intrinsic * 1e12);
+    }
+    fflush(stdout);
+  }
+
+  printf("----- End All Liberty Cells Info -----\n");
+  fflush(stdout);
 }
 
 

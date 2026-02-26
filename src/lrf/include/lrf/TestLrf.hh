@@ -73,6 +73,9 @@ public:
 
   void testTimingComputeAndWriteBack(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block, const std::vector<odb::dbInst*> &insts);
 
+  // Print all liberty cells information grouped by unique equiv cell groups.
+  void printAllCellsInfo(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
+
 protected:
   void printSlewComparison(char *inst_name, sta::dbSta* sta, 
                        LocalSta *local_sta, odb::dbInst *db_inst, 
