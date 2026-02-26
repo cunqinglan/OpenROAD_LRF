@@ -23,8 +23,94 @@
 #include <chrono>
 
 namespace lrf {
-// All logic is handled via dbStaState base; nothing additional yet.
 
+namespace {
+// Heuristic parser for ASAP7-style names, eg
+//   O2A1O1Ixp33_ASAP7_75t_R
+//   O2A1O1Ixp33_ASAP7_75t_L
+//   O2A1O1Ixp5_ASAP7_75t_SRAM
+// We treat everything before the first "_ASAP7_" as the structural prefix.
+struct CellNameParts
+{
+  std::string prefix;  // structure (horizontal axis)
+  std::string vt;      // R/L/SL/SRAM/... (vertical axis)
+};
+
+CellNameParts parseCellName(const char* name)
+{
+  CellNameParts parts;
+  if (name == nullptr) {
+    return parts;
+  }
+  const std::string s{name};
+
+  // prefix: up to _ASAP7_ if present, else up to last '_' (best-effort)
+  const std::string anchor = "_ASAP7_";
+  const size_t anchor_pos = s.find(anchor);
+  if (anchor_pos != std::string::npos) {
+    parts.prefix = s.substr(0, anchor_pos);
+  } else {
+    const size_t last_us = s.rfind('_');
+    parts.prefix = (last_us == std::string::npos) ? s : s.substr(0, last_us);
+  }
+
+  // vt: token after last '_'
+  const size_t last_us = s.rfind('_');
+  if (last_us != std::string::npos && last_us + 1 < s.size()) {
+    parts.vt = s.substr(last_us + 1);
+  } else {
+    parts.vt = "";
+  }
+  return parts;
+}
+
+// A coarse VT ordering (top->bottom). If unknown, keep after known values.
+// NOTE: You said index increasing corresponds to VT rising / input cap decreasing.
+// We'll compute per-prefix order late using measured input cap, but this provides
+// a stable tie-breaker.
+int vtRank(const std::string& vt)
+{
+  if (vt == "SRAM") {
+    return 0;
+  }
+  if (vt == "R") {
+    return 1;
+  }
+  if (vt == "L") {
+    return 2;
+  }
+  if (vt == "SL") {
+    return 3;
+  }
+  // unknown
+  return 100;
+}
+
+double avgInputCap(const sta::LibertyCell* corner_cell)
+{
+  if (corner_cell == nullptr) {
+    return 0.0;
+  }
+  double sum = 0.0;
+  int cnt = 0;
+  sta::LibertyCellPortIterator port_iter(corner_cell);
+  while (port_iter.hasNext()) {
+    sta::LibertyPort* port = port_iter.next();
+    if (!port)
+      continue;
+    if (port->isPwrGnd() || port->isClock())
+      continue;
+    if (port->direction() == sta::PortDirection::input()) {
+      sum += port->capacitance();
+      cnt++;
+    }
+  }
+  return (cnt > 0) ? (sum / cnt) : 0.0;
+}
+
+}  // namespace
+
+// All logic is handled via dbStaState base; nothing additional yet.
 IncreSta::IncreSta(dbSta *db_sta)
     : local_sta_(nullptr),
       lr_helper_(nullptr)
@@ -332,7 +418,166 @@ IncreSta::ensureActivities()
     throw std::runtime_error("IncreSta::ensureActivities no valid instance found to trigger activity calculation\n");
 }
 
+void
+IncreSta::makeEquivCellArray(LibertyCellArray &array, PosMap &pos_map)
+{
+  sta::dbSta* sta = sta_;
+  sta::dbNetwork* network = sta->getDbNetwork();
 
+  sta::Corner* corner = sta->cmdCorner();
+  const sta::DcalcAnalysisPt* dcalc_ap
+      = corner ? corner->findDcalcAnalysisPt(sta::MinMax::max()) : nullptr;
+  const int lib_ap = dcalc_ap ? dcalc_ap->libertyIndex() : 0;
+
+  // Iterate all liberty cells and get their equiv group.
+  std::set<sta::LibertyCellSeq*> seen_groups;
+  sta::LibertyLibraryIterator* lib_iter = network->libertyLibraryIterator();
+  while (lib_iter->hasNext()) {
+    sta::LibertyLibrary* lib = lib_iter->next();
+    sta::LibertyCellIterator cell_iter(lib);
+    while (cell_iter.hasNext()) {
+      sta::LibertyCell* any_cell = cell_iter.next();
+      if (!any_cell) {
+        continue;
+      }
+      sta::LibertyCellSeq* group = sta->equivCells(any_cell);
+      if (!group || group->empty() || seen_groups.find(group) != seen_groups.end()) {
+        continue;
+      }
+      seen_groups.insert(group);
+
+      // Build columns by prefix.
+      // column_key = prefix; rows determined by VT order (or cap order).
+      std::map<std::string, std::vector<sta::LibertyCell*>> cols;
+
+      // Track per-cell metrics to drive sorting.
+      std::map<sta::LibertyCell*, double> cell_incap;
+      std::map<sta::LibertyCell*, CellNameParts> cell_parts;
+
+      for (sta::LibertyCell* c : *group) {
+        if (!c)
+          continue;
+        const sta::LibertyCell* corner_cell = c->cornerCell(lib_ap);
+        const double incap = avgInputCap(corner_cell);
+        cell_incap[c] = incap;
+        cell_parts[c] = parseCellName(c->name());
+        cols[cell_parts[c].prefix].push_back(c);
+      }
+
+      // Horizontal axis: sort structural prefixes by smallest input cap inside
+      // that prefix ("input cap smaller on the left").
+      std::vector<std::string> prefixes;
+      prefixes.reserve(cols.size());
+      for (const auto& [prefix, _] : cols) {
+        prefixes.push_back(prefix);
+      }
+      std::sort(prefixes.begin(), prefixes.end(), [&](const std::string& a, const std::string& b) {
+        auto best_cap = [&](const std::string& p) {
+          double best = std::numeric_limits<double>::infinity();
+          for (sta::LibertyCell* c : cols[p]) {
+            best = std::min(best, cell_incap[c]);
+          }
+          return best;
+        };
+        const double ca = best_cap(a);
+        const double cb = best_cap(b);
+        if (ca != cb)
+          return ca < cb;
+        return a < b;
+      });
+
+      // For each prefix (column), vertical axis: sort by (vtRank, input cap desc)
+      // to encourage higher vt (smaller cap) at larger row index.
+      // If the naming doesn't capture VT well, the cap tie-breaker still gives a
+      // sensible ordering.
+      for (auto& [prefix, vec] : cols) {
+        std::sort(vec.begin(), vec.end(), [&](sta::LibertyCell* x, sta::LibertyCell* y) {
+          const auto& px = cell_parts[x];
+          const auto& py = cell_parts[y];
+          const int rx = vtRank(px.vt);
+          const int ry = vtRank(py.vt);
+          // smaller cap should be lower (larger index), so sort cap descending.
+          const double cx = cell_incap[x];
+          const double cy = cell_incap[y];
+          if (rx < ry && cx > cy) {
+            printf("  [Warning: unexpected ranking] %s vs %s: cap wins (%.2e vs %.2e)", 
+              x->name(), y->name(), cx, cy);
+          } else if (rx > ry && cx < cy) {
+            printf("  [Warning: unexpected ranking] %s vs %s: cap wins (%.2e vs %.2e)", 
+              x->name(), y->name(), cx, cy);
+          }
+          if (rx != ry)
+            return rx < ry;
+          if (cx != cy)
+            return cx > cy;
+          return std::string(x->name()) < std::string(y->name());
+        });
+      }
+
+      // Build a rectangular matrix [rows][cols]. Missing entries are nullptr.
+      size_t max_rows = 0;
+      for (const auto& p : prefixes) {
+        max_rows = std::max(max_rows, cols[p].size());
+      }
+      std::vector<std::vector<sta::LibertyCell*>> matrix(
+          max_rows, std::vector<sta::LibertyCell*>(prefixes.size(), nullptr));
+
+      // Fill matrix and build per-cell position.
+      std::unordered_map<sta::LibertyCell*, std::pair<int, int>> pos_map;
+      for (size_t col = 0; col < prefixes.size(); col++) {
+        const auto& prefix = prefixes[col];
+        const auto& vec = cols[prefix];
+        for (size_t row = 0; row < vec.size(); row++) {
+          matrix[row][col] = vec[row];
+          pos_map[vec[row]] = {static_cast<int>(row), static_cast<int>(col)};
+        }
+      }
+
+      // Append this group's matrix into the global output as block rows.
+      // This keeps a single return value without inventing a complex nested dict.
+      // If you need per-group separation, we can add group boundaries later.
+      const int row_offset = static_cast<int>(array.size());
+      array.insert(array.end(), matrix.begin(), matrix.end());
+      for (const auto& [cell, rc] : pos_map) {
+        // Keep first occurrence if duplicates (shouldn't happen if equiv groups disjoint).
+        if (pos_map.find(cell) == pos_map.end()) {
+          pos_map[cell]
+              = {rc.first + row_offset, rc.second};
+        }
+      }
+
+      // Log one group matrix.
+      printf("EquivCellArrayGroup: %s (%zu cells, %zu cols, %zu rows)\n",
+        group->front() ? group->front()->name() : "<null>",
+        group->size(),
+        prefixes.size(),
+        max_rows);
+      // Print header row (prefixes)
+      std::string header = "  col:";
+      for (size_t c = 0; c < prefixes.size(); c++) {
+        header += (c == 0 ? " " : " | ");
+        header += prefixes[c];
+      }
+      printf("%s\n", header.c_str());
+      for (size_t r = 0; r < max_rows; r++) {
+        std::string line = fmt::format("  row{:>2d}:", static_cast<int>(r));
+        for (size_t c = 0; c < prefixes.size(); c++) {
+          line += (c == 0 ? " " : " | ");
+          if (matrix[r][c]) {
+            const double cap = cell_incap[matrix[r][c]];
+            line += fmt::format("{}({:.3g})", matrix[r][c]->name(), cap);
+          } else {
+            line += "<null>";
+          }
+        }
+        printf("%s\n", line.c_str());
+      }
+      printf("  (pos mapping size = %zu)\n", pos_map.size());
+      printf("  --\n");
+    }
+  }
+  delete lib_iter;
+}
 
 void 
 IncreSta::makeSwappableCellsCache(rsz::Resizer *resizer)
