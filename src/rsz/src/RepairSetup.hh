@@ -110,6 +110,8 @@ class RepairSetup : public sta::dbStaState
                    bool skip_crit_vt_swap);
   // For testing.
   void repairSetup(const Pin* end_pin);
+  // Size-up-only variant, used by rmp module.
+  void repairSetup(const Pin* end_pin, bool size_up_only);
   // For testing.
   void reportSwappablePins();
   // Rebuffer one net (for testing).

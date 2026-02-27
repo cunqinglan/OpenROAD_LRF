@@ -4435,6 +4435,12 @@ void Resizer::repairSetup(const Pin* end_pin)
   repair_setup_->repairSetup(end_pin);
 }
 
+void Resizer::repairSetup(const Pin* end_pin, bool size_up_only)
+{
+  resizePreamble();
+  repair_setup_->repairSetup(end_pin, size_up_only);
+}
+
 void Resizer::rebufferNet(const Pin* drvr_pin)
 {
   resizePreamble();
