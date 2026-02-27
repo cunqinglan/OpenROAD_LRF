@@ -33,6 +33,7 @@
 #include "map/mapper/mapper.h"
 #include "Strategy.hh"
 #include "rmp/SeqRemapper.hh"
+#include "rsz/Resizer.hh"
 #include "utils.h"
 
 using sta::Edge;
@@ -595,28 +596,47 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
   sta->networkChanged();
   sta->findDelays();
   
-  // Find the worst slack among all endpoints
+  // Find worst slack and worst endpoint vertex
   sta::Slack worst_slack = std::numeric_limits<sta::Slack>::infinity();
-  
-  // Get all endpoints and find the worst slack
+  sta::Vertex* worst_vertex = nullptr;
+
   sta::VertexSet* endpoints = sta->search()->endpoints();
   int endpoint_count = 0;
   if (endpoints) {
     endpoint_count = endpoints->size();
     for (sta::Vertex* endpoint : *endpoints) {
-      // vertexSlack() will call findRequired() internally to compute required times
+      sta::Slack slack = sta->vertexSlack(endpoint, sta::MinMax::max());
+      if (slack < worst_slack) {
+        worst_slack = slack;
+        worst_vertex = endpoint;
+      }
+    }
+  }
+
+  // Attempt size-up on cut instances if there are setup violations
+  if (worst_vertex && fuzzyLess(worst_slack, 0.0f)) {
+    rsz::Resizer* resizer = remapper.getResizer();
+    const sta::InstanceSet& cut_insts = candidate_cut.cut_instances();
+    resizer->setSizeUpInstanceFilter(&cut_insts);
+    resizer->repairSetup(worst_vertex->pin(), /*size_up_only=*/true);
+    resizer->setSizeUpInstanceFilter(nullptr);
+    // Recompute timing after size-up
+    sta->networkChanged();
+    sta->findDelays();
+    worst_slack = std::numeric_limits<sta::Slack>::infinity();
+    for (sta::Vertex* endpoint : *endpoints) {
       sta::Slack slack = sta->vertexSlack(endpoint, sta::MinMax::max());
       if (slack < worst_slack) {
         worst_slack = slack;
       }
     }
   }
-  
+
   // Log the evaluation result
   logger->info(utl::RES, 345,
                "Solution evaluated: {} endpoints, Worst Slack = {:.4f}",
                endpoint_count, worst_slack);
-  
+
   return worst_slack;
 }
 }
