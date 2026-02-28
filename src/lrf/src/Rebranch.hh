@@ -40,6 +40,20 @@ bool rebranchTopologyInPlace(
 	const std::unordered_map<const sta::Pin*, double>& sink_criticality,
 	double max_rebranch_ratio = 0.2);
 
+// APIs for rebranching and sink criticality computation
+// Compute sink criticality as sum of all negative slacks
+// If corner is nullptr, use default corner; otherwise use specified corner
+std::unordered_map<const sta::Pin*, double> computeSinkCriticality(
+	const sta::Pin* drvr_pin,
+	sta::Corner* corner = nullptr,
+	sta::dbSta* sta);
+
+// Print formatted sink criticality information
+void printSinkCriticality(
+	const sta::Pin* drvr_pin,
+	const std::unordered_map<const sta::Pin*, double>& sink_criticality,
+	sta::dbSta* sta);
+
 
 // Convenience API: create a Steiner tree for drvr_pin and return the re-branched
 // result.

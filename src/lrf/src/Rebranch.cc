@@ -9,6 +9,7 @@
 #include "db_sta/dbNetwork.hh"
 #include "sta/Network.hh"
 #include "sta/NetworkClass.hh"
+#include "sta/Corner.hh"
 #include "stt/SteinerTreeBuilder.h"
 #include "utl/Logger.h"
 
@@ -409,6 +410,140 @@ rebranchTopologyInPlace(est::SteinerTree* tree,
 }
 
 }  // namespace
+
+
+std::unordered_map<const sta::Pin*, double>
+computeSinkCriticality(const sta::Pin* drvr_pin,
+                       sta::Corner* corner,
+                       sta::dbSta* sta)
+{
+  std::unordered_map<const sta::Pin*, double> sink_criticality;
+  
+  if (drvr_pin == nullptr) {
+    printf("ERROR: computeSinkCriticality called with null driver pin\n");
+    return sink_criticality;
+  }
+
+  sta::Network* network = sta->network();
+  sta::Term* term = network->term(drvr_pin);
+  if (term == nullptr) {
+    printf("ERROR: Cannot find term for driver pin %s\n", 
+           network->pathName(drvr_pin));
+    return sink_criticality;
+  }
+  
+  sta::Net* net = network->net(term);
+  if (net == nullptr) {
+    printf("ERROR: Cannot find net for driver pin %s\n", 
+           network->pathName(drvr_pin));
+    return sink_criticality;
+  }
+
+  // Determine which corner(s) to use
+  if (corner == nullptr) {
+    corner = sta->corners()->findCorner("default");
+  }
+
+  if (corner == nullptr) {
+    printf("ERROR: No valid corner found for criticality computation\n");
+    return sink_criticality;
+  }
+
+  // Iterate through all connected pins
+  sta::NetConnectedPinIterator* pin_iter = network->connectedPinIterator(net);
+  while (pin_iter->hasNext()) {
+    const sta::Pin* pin = pin_iter->next();
+    
+    // Skip driver pins
+    if (network->isDriver(pin)) {
+      continue;
+    }
+    
+    // Compute criticality as sum of all negative slacks for paths in the specified corner
+    double total_negative_slack = 0.0;
+    sta::Vertex* vertex = sta->graph()->pinLoadVertex(pin);
+    
+    if (vertex) {
+      // Enumerate all paths ending at this vertex
+      sta::VertexPathIterator path_iter(vertex, sta);
+      while (path_iter.hasNext()) {
+        sta::Path* path = path_iter.next();
+        
+        // Check if this path belongs to the target corner
+        if (path->pathAnalysisPt(sta)->corner() == corner) {
+          // Get slack for this specific path
+          sta::Slack slack = sta->slack(path);
+          
+          // Only accumulate negative slack (timing violations)
+          if (slack < 0.0) {
+            total_negative_slack += (-slack);  // Convert to positive value for accumulation
+          }
+        }
+      }
+    }
+    
+    sink_criticality[pin] = total_negative_slack;
+  }
+  delete pin_iter;
+  
+  return sink_criticality;
+}
+
+void
+printSinkCriticality(const sta::Pin* drvr_pin,
+                     const std::unordered_map<const sta::Pin*, double>& sink_criticality,
+                     sta::dbSta* sta)
+{
+  if (drvr_pin == nullptr) {
+    printf("ERROR: printSinkCriticality called with null driver pin\n");
+    return;
+  }
+
+  sta::Network* network = sta->network();
+  sta::Term* term = network->term(drvr_pin);
+  sta::Net* net = (term != nullptr) ? network->net(term) : nullptr;
+  
+  printf("\n=== Sink Criticality for net: %s (driver: %s) ===\n",
+         net ? network->pathName(net) : "unknown",
+         network->pathName(drvr_pin));
+  printf("Total sink count: %zu\n", sink_criticality.size());
+  
+  if (sink_criticality.empty()) {
+    printf("No sinks found or all sinks have non-negative slack.\n");
+    printf("===================================================\n\n");
+    return;
+  }
+  
+  // Find max criticality for normalization
+  double max_crit = 0.0;
+  for (const auto& entry : sink_criticality) {
+    max_crit = std::max(max_crit, entry.second);
+  }
+  
+  // Sort by criticality (descending)
+  std::vector<std::pair<const sta::Pin*, double>> sorted_sinks(
+      sink_criticality.begin(), sink_criticality.end());
+  std::sort(sorted_sinks.begin(), sorted_sinks.end(),
+            [](const auto& a, const auto& b) { return a.second > b.second; });
+  
+  printf("%-60s %15s %15s\n", "Pin Name", "Criticality", "Normalized");
+  printf("%-60s %15s %15s\n", "--------", "-----------", "----------");
+  
+  for (const auto& entry : sorted_sinks) {
+    const sta::Pin* pin = entry.first;
+    double crit = entry.second;
+    double normalized = (max_crit > 0.0) ? (crit / max_crit) : 0.0;
+    
+    printf("%-60s %15.6f %14.1f%%\n",
+           network->pathName(pin),
+           crit,
+           normalized * 100.0);
+  }
+  
+  printf("\nMax criticality: %.6f\n", max_crit);
+  printf("===================================================\n\n");
+  fflush(stdout);
+}
 
 est::SteinerTree*
 makeRebranchedSteinerTree(const sta::Pin* drvr_pin,
