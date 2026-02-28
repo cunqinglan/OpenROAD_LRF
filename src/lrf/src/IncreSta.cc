@@ -21,6 +21,8 @@
 
 #include <unordered_map>
 #include <chrono>
+#include <algorithm>
+#include <vector>
 
 namespace lrf {
 
