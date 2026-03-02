@@ -69,6 +69,8 @@ puts "=====timing report after remap and placement======"
 
 report_checks -path_delay max
 
+repair_design -cap_margin 1 -slew_margin 1
+
 repair_timing -setup
 
 global_placement -routability_driven -init_density_penalty 0.05 -initial_place_max_iter 10
