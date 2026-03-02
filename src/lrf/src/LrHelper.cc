@@ -2,6 +2,7 @@
 // Simplified helper implementation for initial lrf build.
 #include "lrf/LrfClass.hh"
 #include "LrHelper.hh"
+#include "LmHistory.hh"
 #include "sta/DcalcAnalysisPt.hh"
 #include "sta/TimingArc.hh"
 #include "sta/Graph.hh"
@@ -90,7 +91,8 @@ SortVertexVisitor::copy() const
 LRHelper::LRHelper(dbSta* sta) :
   search_pred_(new SearchPredNonLatch2(sta)),
   iter_(new BfsFwdIterator(BfsIndex::topo, search_pred_, sta)),
-  levelized_valid_(false)
+  levelized_valid_(false),
+  lm_history_(sta->graph())
 {
   dbStaState::init(sta);
 }
@@ -595,6 +597,32 @@ void
 LRHelper::enqueueVertex(Vertex *vertex) {
   sorted_lm_vertices_.push_back(vertex);
   iter_->enqueueAdjacentVertices(vertex);
+}
+
+//////////////////////////////////////////////////////////////////////
+// LM History forwarding methods
+
+int
+LRHelper::recordLM() {
+  // Ensure the history uses the current graph pointer
+  lm_history_.setGraph(graph_);
+  return lm_history_.recordLM();
+}
+
+int
+LRHelper::restoreLM(int frame_id) {
+  lm_history_.setGraph(graph_);
+  return lm_history_.restoreLM(frame_id);
+}
+
+int
+LRHelper::lmFrameCount() const {
+  return lm_history_.frameCount();
+}
+
+void
+LRHelper::clearLmHistory() {
+  lm_history_.clear();
 }
 
 std::string

@@ -12,6 +12,7 @@ swig_lib(NAME      lrf
 
 add_library(lrf_lib
     LrHelper.cc
+    LmHistory.cc
     LrfMgr.cc
     LrSizer.cc
     PtGraph.cc
