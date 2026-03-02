@@ -294,6 +294,18 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
     return;
   }
 
+  // Must set the global ABC library BEFORE Abc_NtkToLogic, because
+  // Abc_NtkAlloc(ABC_FUNC_MAP) initializes pManFunc = Abc_FrameReadLibGen().
+  // If the global is not set first, the new network gets a NULL/stale pManFunc
+  // which later causes the assertion in Abc_NtkMapToSopUsingLibrary to fail.
+  auto library = static_cast<abc::Mio_Library_t*>(mapped_abc_network.get()->pManFunc);
+  if (library == nullptr) {
+    remapper.getLogger()->error(
+        utl::RES, 341, "ABC network does not have an associated library.");
+    return;
+  }
+  abc::Abc_FrameSetLibGen(library);
+
   // Step 4: Convert the mapped network to logic (AIG) form for enumeration.
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> logic_network(
       abc::Abc_NtkToLogic(mapped_abc_network.get()),
@@ -312,16 +324,6 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
   // Step 5: Enumerate all possible mapping solutions using ABC.
   int nMaxSolutions = 20;
   int fVerbose = 1;
-
-  auto library = static_cast<abc::Mio_Library_t*>(mapped_abc_network.get()->pManFunc);
-
-  if (library == nullptr) {
-    remapper.getLogger()->error(
-        utl::RES, 341, "ABC network does not have an associated library.");
-    return;
-  }
-
-  abc::Abc_FrameSetLibGen(library);
 
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> strashed_network(
       abc::Abc_NtkStrash(logic_network.get(), 0, 0, 0),
