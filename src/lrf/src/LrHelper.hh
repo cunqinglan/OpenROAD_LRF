@@ -7,6 +7,7 @@
 #include "lrf/LrfClass.hh"
 #include "sta/SearchPred.hh"
 #include "db_sta/dbSta.hh"
+#include "LmHistory.hh"
 
 
 namespace lrf {
@@ -32,6 +33,17 @@ public:
   virtual bool updateCriticalPathLms(sta::Path *path_end) { return false; };
   virtual void setMode(std::string mode) {};
   virtual std::string mode() const { return ""; }
+
+  // --- LM History: snapshot & rollback ---
+  // Record current LM values of all edges. Returns frame id.
+  int recordLM();
+  // Restore LM values from a previously recorded frame.
+  // Returns the number of edges successfully restored.
+  int restoreLM(int frame_id);
+  // Number of recorded LM frames.
+  int lmFrameCount() const;
+  // Clear all recorded LM frames.
+  void clearLmHistory();
 
 protected:
   void distributeLmOutToIn(Vertex *vertex,
@@ -60,6 +72,7 @@ protected:
   VertexSeq sorted_lm_vertices_;
   bool levelized_valid_;
   bool RATCONS_ = false;
+  LmHistory lm_history_;
 
 private:
   friend class Graph;
