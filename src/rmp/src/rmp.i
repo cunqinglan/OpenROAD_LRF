@@ -112,8 +112,16 @@ int blif_read(cut::Blif* blif_, const char* file_name){
   return blif_->readBlif(file_name, getOpenRoad()->getDb()->getChip()->getBlock());
 }
 
-void position_driven_remap_cmd(Corner* corner) {
-  getRestructure()->positionDrivenRemap(corner);
+void position_driven_remap_cmd(Corner* corner,
+                               float percentage,
+                               float max_percentage,
+                               float slack_threshold,
+                               int has_threshold) {
+  getRestructure()->positionDrivenRemap(
+      corner,
+      percentage,
+      max_percentage,
+      has_threshold ? slack_threshold : std::numeric_limits<float>::max());
 }
 
 %}

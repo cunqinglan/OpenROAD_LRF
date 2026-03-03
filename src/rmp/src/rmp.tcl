@@ -153,12 +153,37 @@ proc resynth_annealing { args } {
   rmp::resynth_annealing_cmd $corner
 }
 
-sta::define_cmd_args "position_driven_remap" {[-corner corner]}
+sta::define_cmd_args "position_driven_remap" {
+  [-corner corner]
+  [-percentage percentage]
+  [-max_percentage max_percentage]
+  [-slack_threshold slack_threshold]
+}
 
 proc position_driven_remap { args } {
   sta::parse_key_args "position_driven_remap" args \
-    keys {-corner} \
+    keys {-corner -percentage -max_percentage -slack_threshold} \
     flags {}
   set corner [sta::parse_corner keys]
-  rmp::position_driven_remap_cmd $corner
+
+  # Defaults: -1.0 signals "not set" for percentage/max_percentage;
+  # has_threshold=0 signals that -slack_threshold was not provided.
+  set percentage     -1.0
+  set max_percentage -1.0
+  set slack_threshold 0.0
+  set has_threshold   0
+
+  if { [info exists keys(-percentage)] } {
+    set percentage $keys(-percentage)
+  }
+  if { [info exists keys(-max_percentage)] } {
+    set max_percentage $keys(-max_percentage)
+  }
+  if { [info exists keys(-slack_threshold)] } {
+    set slack_threshold $keys(-slack_threshold)
+    set has_threshold 1
+  }
+
+  rmp::position_driven_remap_cmd $corner $percentage $max_percentage \
+      $slack_threshold $has_threshold
 }

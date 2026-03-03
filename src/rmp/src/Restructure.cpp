@@ -712,22 +712,25 @@ bool Restructure::readAbcLog(std::string abc_file_name,
   return status;
 }
 
-void Restructure::positionDrivenRemap(sta::Corner* corner)
+void Restructure::positionDrivenRemap(sta::Corner* corner,
+                                      float percentage,
+                                      float max_percentage,
+                                      float slack_threshold)
 {
   if (!replace_ || !opendp_) {
-    logger_->error(RMP, 12, 
+    logger_->error(RMP, 12,
                    "Position-driven remap requires GPL and DPL to be initialized.");
     return;
   }
-  
+
   // Create a SeqRemapper with all required dependencies
-  SeqRemapper remapper(open_sta_, db_, corner, resizer_, logger_, 
+  SeqRemapper remapper(open_sta_, db_, corner, resizer_, logger_,
                        replace_, opendp_, estimate_parasitics_);
   remapper.buildAbcLibrary();
-  
+
   // Create and run the position-driven strategy
   PositionDrivenStrategy strategy(logger_);
-  strategy.remap(remapper);
+  strategy.remap(remapper, percentage, max_percentage, slack_threshold);
 }
 }  // namespace rmp
 
