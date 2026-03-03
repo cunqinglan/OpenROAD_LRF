@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <fstream>
+#include <limits>
 #include <functional>
 #include <optional>
 #include <random>
@@ -103,8 +104,15 @@ class Restructure
   void setTieLoPort(sta::LibertyPort* loport);
   void setTieHiPort(sta::LibertyPort* hiport);
   
-  // Position-driven remapping strategy
-  void positionDrivenRemap(sta::Corner* corner);
+  // Position-driven remapping strategy.
+  // Endpoint selection (pass -1.0 / FLT_MAX to leave unset):
+  //   percentage      >= 0 : fix top N% of all endpoints (min 1), overrides others
+  //   max_percentage  >= 0 : cap count at N% of all endpoints (used with slack_threshold)
+  //   slack_threshold      : select endpoints with slack < threshold (used with max_percentage)
+  void positionDrivenRemap(sta::Corner* corner,
+                           float percentage = -1.0f,
+                           float max_percentage = -1.0f,
+                           float slack_threshold = std::numeric_limits<float>::max());
 
  private:
   void deleteComponents();

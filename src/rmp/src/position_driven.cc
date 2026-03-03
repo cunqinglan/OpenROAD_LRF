@@ -1,7 +1,10 @@
 #include "position_driven.hh"
 
+#include <algorithm>      // std::sort
+#include <cmath>          // std::ceil, std::floor
 #include <cstdint>        // uint32_t
 #include <cstdio>         // freopen
+#include <limits>         // std::numeric_limits
 #include <string>
 #include <vector>
 #include <unistd.h>       // fork, pipe, _exit, read, write, close
@@ -129,8 +132,86 @@ sta::Vertex* PositionDrivenStrategy::getFarthestOutputVertex(
   return farthest_vertex;
 }
 
+// Collect valid (non-don't-touch, input-direction) endpoints, sort worst-first,
+// then select a subset based on the three optional parameters:
+//   percentage >= 0  : take top N% (min 1)
+//   max_percentage >= 0 && slack_threshold < FLT_MAX/2 : filter by threshold, cap at N%
+//   otherwise        : return just the single worst endpoint
+static std::vector<sta::Vertex*> selectCandidateEndpoints(
+    sta::dbSta* sta,
+    rsz::Resizer* resizer,
+    float percentage,
+    float max_percentage,
+    float slack_threshold)
+{
+  sta::dbNetwork* network = sta->getDbNetwork();
+  std::vector<sta::Vertex*> all_endpoints;
+  for (sta::Vertex* vertex : *sta->endpoints()) {
+    sta::Pin* pin = vertex->pin();
+    const sta::PortDirection* direction = network->direction(pin);
+    if (!direction->isInput()) {
+      continue;
+    }
+    if (resizer != nullptr) {
+      if (resizer->dontTouch(pin) || resizer->dontTouch(network->net(pin))
+          || resizer->dontTouch(network->instance(pin))) {
+        continue;
+      }
+    }
+    all_endpoints.push_back(vertex);
+  }
+
+  if (all_endpoints.empty()) {
+    return {};
+  }
+
+  // Sort ascending by slack (most negative = worst first).
+  std::sort(all_endpoints.begin(), all_endpoints.end(),
+    [&sta](sta::Vertex* a, sta::Vertex* b) {
+      return sta->vertexSlack(a, sta::MinMax::max())
+           < sta->vertexSlack(b, sta::MinMax::max());
+    });
+
+  // Threshold above which slack_threshold is considered "not set".
+  const float kNoThreshold = std::numeric_limits<float>::max() / 2.0f;
+
+  if (percentage >= 0.0f) {
+    // Percentage mode: fix top N% of all endpoints, at least 1.
+    size_t n = static_cast<size_t>(
+        std::ceil(static_cast<float>(all_endpoints.size()) * percentage / 100.0f));
+    n = std::max(n, size_t(1));
+    n = std::min(n, all_endpoints.size());
+    return {all_endpoints.begin(), all_endpoints.begin() + static_cast<ptrdiff_t>(n)};
+  }
+
+  if (max_percentage >= 0.0f && slack_threshold < kNoThreshold) {
+    // max_percentage + slack_threshold mode: keep endpoints below threshold,
+    // capped at max_percentage of the total endpoint count.
+    size_t max_n = static_cast<size_t>(
+        std::floor(static_cast<float>(all_endpoints.size()) * max_percentage / 100.0f));
+    std::vector<sta::Vertex*> result;
+    for (sta::Vertex* v : all_endpoints) {
+      if (result.size() >= max_n) {
+        break;
+      }
+      if (sta->vertexSlack(v, sta::MinMax::max()) < slack_threshold) {
+        result.push_back(v);
+      } else {
+        break;  // sorted: no further endpoint will be below threshold
+      }
+    }
+    return result;
+  }
+
+  // Default: fix only the single worst endpoint.
+  return {all_endpoints[0]};
+}
+
 sta::Vertex* PositionDrivenStrategy::getWorstVertex(
-    SeqRemapper& remapper) {
+    SeqRemapper& remapper,
+    float percentage,
+    float max_percentage,
+    float slack_threshold) {
   // Return the vertex on the most critical path (within the cut outputs)
   // that has the largest load-dependent delay (arc delay - intrinsic delay).
   sta::dbSta* sta = remapper.getSta();
@@ -143,9 +224,8 @@ sta::Vertex* PositionDrivenStrategy::getWorstVertex(
   sta->search()->endpointsInvalid();
 
   cut::LogicExtractorFactory logic_extractor(sta, remapper.getLogger());
-  auto candidate_vertices = GetEndpoints(sta, remapper.getResizer(),
-                                       500.0 //slack threshold
-                                       );
+  auto candidate_vertices = selectCandidateEndpoints(
+      sta, remapper.getResizer(), percentage, max_percentage, slack_threshold);
 
   for (sta::Vertex* negative_endpoint : candidate_vertices) {
     logic_extractor.AppendEndpoint(negative_endpoint);
@@ -257,9 +337,12 @@ sta::Vertex* PositionDrivenStrategy::getWorstVertex(
   return worst_vertex;
 }
 
-void PositionDrivenStrategy::remap(SeqRemapper& remapper) {
+void PositionDrivenStrategy::remap(SeqRemapper& remapper,
+                                    float percentage,
+                                    float max_percentage,
+                                    float slack_threshold) {
   // Step 1: Get the worst vertex on the most critical path.
-  sta::Vertex* bad_vertex = getWorstVertex(remapper);
+  sta::Vertex* bad_vertex = getWorstVertex(remapper, percentage, max_percentage, slack_threshold);
   if (bad_vertex == nullptr) {
     remapper.getLogger()->warn(
       utl::RES, 334, "No worst-slack path found.");
@@ -641,4 +724,4 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
 
   return worst_slack;
 }
-}
+} // namespace rmp
