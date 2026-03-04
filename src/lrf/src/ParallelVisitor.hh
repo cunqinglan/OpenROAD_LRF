@@ -77,6 +77,10 @@ public:
   bool equivVtCells(sta::LibertyCell *cell1, sta::LibertyCell *cell2);
   void setClockPeriod(float clock_period) { clock_period_ = clock_period; }
   void setParallelLibData(ParallelLibData *parallel_lib_data) { parallel_lib_data_ = parallel_lib_data; }
+  void setEquivCellArray(LibertyCellArray *array, PosMap *pos_map) {
+    equiv_cell_array_ = array;
+    equiv_cell_pos_map_ = pos_map;
+  }
 
   // Functions for runtime profiling
   void printRuntimeProfile() const;
@@ -92,6 +96,8 @@ protected:
   bool trySwap(sta::Instance *inst);
   // Alternate implementation of trySwap (version 1) using a different strategy; returns true on success.
   bool trySwapV1(sta::Instance *inst);
+  // Neighborhood search in equiv cell array for resizing; returns true on success.
+  bool trySwapByArray(sta::Instance *inst);
   // Insert buffering for the given instance to improve timing; returns true on success.
   bool tryBuffering(sta::Instance *inst);
   std::vector<std::pair<sta::LibertyCell*, std::pair<size_t, size_t>>> getLegalEquivCells(
@@ -116,6 +122,8 @@ protected:
   std::unordered_map<sta::LibertyCell*, sta::LibertyCellSeq*> *swappable_cells_cache_ = nullptr;
   std::unordered_map<sta::Instance*, LocalCellInfo*> *inst_info_map_;
   ParallelLibData *parallel_lib_data_ = nullptr;
+  LibertyCellArray *equiv_cell_array_ = nullptr;
+  PosMap *equiv_cell_pos_map_ = nullptr;
   float clock_period_ = 0.0;
   LrRebuffer *rebuffer_ = nullptr;
   MoveType move_type_ = MoveType::Resizing;

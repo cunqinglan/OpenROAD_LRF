@@ -422,8 +422,13 @@ IncreSta::ensureActivities()
 }
 
 void
-IncreSta::makeEquivCellArray(LibertyCellArray &array, PosMap &pos_map)
+IncreSta::makeEquivCellArray()
 {
+  if (equiv_cell_array_built_)
+    return;
+  equiv_cell_array_.clear();
+  equiv_cell_pos_map_.clear();
+
   sta::dbSta* sta = sta_;
   sta::dbNetwork* network = sta->getDbNetwork();
 
@@ -503,10 +508,10 @@ IncreSta::makeEquivCellArray(LibertyCellArray &array, PosMap &pos_map)
           const double cx = cell_incap[x];
           const double cy = cell_incap[y];
           if (rx < ry && cx > cy) {
-            printf("  [Warning: unexpected ranking] %s vs %s: cap wins (%.2e vs %.2e)", 
+            printf("  [Warning: unexpected ranking] %s vs %s: cap wins (%.2e vs %.2e)",
               x->name(), y->name(), cx, cy);
           } else if (rx > ry && cx < cy) {
-            printf("  [Warning: unexpected ranking] %s vs %s: cap wins (%.2e vs %.2e)", 
+            printf("  [Warning: unexpected ranking] %s vs %s: cap wins (%.2e vs %.2e)",
               x->name(), y->name(), cx, cy);
           }
           if (rx != ry)
@@ -525,29 +530,20 @@ IncreSta::makeEquivCellArray(LibertyCellArray &array, PosMap &pos_map)
       std::vector<std::vector<sta::LibertyCell*>> matrix(
           max_rows, std::vector<sta::LibertyCell*>(prefixes.size(), nullptr));
 
-      // Fill matrix and build per-cell position.
-      std::unordered_map<sta::LibertyCell*, std::pair<int, int>> pos_map;
+      // Fill matrix and build per-cell position with global row offset.
+      const int row_offset = static_cast<int>(equiv_cell_array_.size());
       for (size_t col = 0; col < prefixes.size(); col++) {
         const auto& prefix = prefixes[col];
         const auto& vec = cols[prefix];
         for (size_t row = 0; row < vec.size(); row++) {
           matrix[row][col] = vec[row];
-          pos_map[vec[row]] = {static_cast<int>(row), static_cast<int>(col)};
+          equiv_cell_pos_map_[vec[row]] = {static_cast<int>(row) + row_offset,
+                                           static_cast<int>(col)};
         }
       }
 
-      // Append this group's matrix into the global output as block rows.
-      // This keeps a single return value without inventing a complex nested dict.
-      // If you need per-group separation, we can add group boundaries later.
-      const int row_offset = static_cast<int>(array.size());
-      array.insert(array.end(), matrix.begin(), matrix.end());
-      for (const auto& [cell, rc] : pos_map) {
-        // Keep first occurrence if duplicates (shouldn't happen if equiv groups disjoint).
-        if (pos_map.find(cell) == pos_map.end()) {
-          pos_map[cell]
-              = {rc.first + row_offset, rc.second};
-        }
-      }
+      // Append this group's matrix into the global array.
+      equiv_cell_array_.insert(equiv_cell_array_.end(), matrix.begin(), matrix.end());
 
       // Log one group matrix.
       printf("EquivCellArrayGroup: %s (%zu cells, %zu cols, %zu rows)\n",
@@ -575,11 +571,14 @@ IncreSta::makeEquivCellArray(LibertyCellArray &array, PosMap &pos_map)
         }
         printf("%s\n", line.c_str());
       }
-      printf("  (pos mapping size = %zu)\n", pos_map.size());
       printf("  --\n");
     }
   }
   delete lib_iter;
+  equiv_cell_array_built_ = true;
+  printf("makeEquivCellArray: %zu rows, %zu cells in pos_map\n",
+         equiv_cell_array_.size(), equiv_cell_pos_map_.size());
+  fflush(stdout);
 }
 
 void 
@@ -754,6 +753,47 @@ IncreSta::parallelResizeAdaptive(rsz::Resizer *resizer, float avg_delay, float a
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_total = end_total - start_total;
   printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
+}
+
+void
+IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float avg_power,
+                      float PT_tradeoff)
+{
+  printf("IncreSta::parallelResizeByArray start\n");
+  auto start_total = std::chrono::high_resolution_clock::now();
+
+  local_sta_->initParallel();
+  Slack wns = sta_->worstSlack(MinMax::max());
+
+  if (!swap_cell_presaved_) {
+    makeSwappableCellsCache(resizer);
+  }
+  if (!swap_cell_leakage_presaved_) {
+    preSaveLibCellLeakage();
+  }
+  makeEquivCellArray();
+
+  auto start_resize = std::chrono::high_resolution_clock::now();
+  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
+  visitor->init(avg_delay, avg_power, wns, PT_tradeoff,
+      &swappable_cells_cache_, &inst_info_map_);
+  visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+  visitor->setMoveType(MoveType::Resizing);
+  local_sta_->runResize(resizer, visitor);
+  auto end_resize = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_resize = end_resize - start_resize;
+
+  sta_->updateTiming(true);
+  sta_->findRequireds();
+  double tns_after = sta_->totalNegativeSlack(MinMax::max());
+  double wns_after = sta_->worstSlack(MinMax::max());
+  printf("After parallelResizeByArray, TNS: %e, WNS: %e\n", tns_after, wns_after);
+  printf("parallel resize by array time: %f s\n", diff_resize.count());
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_total = end_total - start_total;
+  printf("IncreSta::parallelResizeByArray total time %f s\n", diff_total.count());
+  delete visitor;
 }
 
 void

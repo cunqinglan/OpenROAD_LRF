@@ -52,7 +52,7 @@ typedef std::vector<PtEdge> PtEdgeSeq;
 typedef std::vector<PtVertex> PtVertexSeq;
 typedef std::map<const sta::Vertex*, sta::VertexId> VertexPtToIdMap;
 typedef std::vector<std::vector<sta::LibertyCell*>> LibertyCellArray;
-typedef std::unordered_map<sta::LibertyCell, std::pair<int, int>> PosMap;
+typedef std::unordered_map<sta::LibertyCell*, std::pair<int, int>> PosMap;
 
 enum class MoveType {
   Resizing,

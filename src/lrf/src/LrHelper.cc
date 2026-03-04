@@ -292,9 +292,10 @@ LRHelper::checkKKTForAllVertices() {
 
       LMValue out_lm_sum = out_lm_vec[dcalc_ap->index()];
       const float epsilon = 1e-4;
-      if (!(out_lm_sum == 0.0 && in_lm_sum == 0.0) 
-            && (std::abs(out_lm_sum - in_lm_sum)/out_lm_sum > epsilon) 
-            && !(in_edge_count == 0) 
+      if (!(out_lm_sum == 0.0 && in_lm_sum == 0.0)
+            && !(out_lm_sum == 0.0)   // All output edges disabled for this AP
+            && (std::abs(out_lm_sum - in_lm_sum)/out_lm_sum > epsilon)
+            && !(in_edge_count == 0)
             && !(out_lm_sum == -1.0)) {
         all_satisfied = false;
         printf("LRHelper::checkKKTForAllVertices: vertex %s KKT not satisfied for AP corner %s, delay min/max %s, slew min/max %s: out LM sum %e != in LM sum %e\n",
@@ -332,7 +333,11 @@ LRHelper::distributeLmOutToIn(Vertex *vertex,
       LMValue out_lm_sum = out_lm_sums[ap_index];
       LMValue in_lm_sum = in_lm_seq_map[dcalc_ap][in_sum_index];
       if (out_lm_sum == 0.0) {
-        // No output LM to distribute
+        // All output edges disabled for this AP; propagate to input edges.
+        for (TimingArc *arc : in_edge->timingArcSet()->arcs()) {
+          size_t lm_idx = arc->index() * graph_->apCount() + ap_index;
+          lms[lm_idx] = 0.0;
+        }
         continue;
       }
       if (in_lm_sum == 0.0) {
@@ -482,16 +487,13 @@ LRHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta, DcalcAnalys
   Required to_rat = sta->vertexRequired(to_vertex, to_rf, delay_minmax);
   LMValue *lms = edge->arcLms();
 
-  if (from_aat < 0.0 && to_rat < 0.0) {
-    printf("LRHelper::updateEndPointArcLms: ERROR: edge %s AP corner %s, delay min/max %s: aat %f, rat %f, delay %f\n",
-            edge->to_string(graph_).c_str(),
-            dcalc_ap->corner()->name(),
-            dcalc_ap->delayMinMax()->to_string().c_str(),
-            from_aat * 1.0e12, to_rat * 1.0e12, delay * 1.0e12);
-    fflush(stdout);
-    lms[lm_idx] = 1e-17;
+  // Disabled edge: unconstrained timing values.
+  if ((from_aat < 0.0 && to_rat < 0.0)
+      || from_aat == INF || to_rat == INF
+      || from_aat == -INF || to_rat == -INF) {
+    lms[lm_idx] = 0.0;
     return;
-  } 
+  }
   from_aat = std::max(from_aat, 1e-17f);
   to_rat = std::max(to_rat, 1e-17f);
 
@@ -557,16 +559,15 @@ LRHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, DcalcAnalysisPt con
   LMValue *lms = edge->arcLms();
   LMValue origin = lms[lm_idx];
 
-  if (from_aat <= 0.0 && to_aat <= 0.0) {
-    // printf("LRHelper::updateArcLms: ERROR: edge %s AP corner %s, delay min/max %s: from_aat %f, to_aat %f\n",
-    //         edge->to_string(graph_).c_str(),
-    //         dcalc_ap->corner()->name(),
-    //         dcalc_ap->delayMinMax()->to_string().c_str(),
-    //         from_aat * 1.0e12, to_aat * 1.0e12);
-    // fflush(stdout);
-    lms[lm_idx] = 1e-20;
+  // Disabled edge: unconstrained timing values.
+  // max: both arrivals negative/uninitialized
+  // min: arrival == +INF (MinMax::min initValue) when unconstrained
+  if ((from_aat <= 0.0 && to_aat <= 0.0)
+      || from_aat == INF || to_aat == INF
+      || from_aat == -INF || to_aat == -INF) {
+    lms[lm_idx] = 0.0;
     return;
-  } 
+  }
   from_aat = std::max(from_aat, 0.0f);
   to_aat = std::max(to_aat, 0.0f);
   
