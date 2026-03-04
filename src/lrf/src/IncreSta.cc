@@ -10,6 +10,7 @@
 #include "power/Power.hh"
 #include "sta/DcalcAnalysisPt.hh"
 #include "sta/PathAnalysisPt.hh"
+#include "sta/PortDirection.hh"
 #include "sta/TimingRole.hh"
 #include "lrf/LrfClass.hh"
 #include "parasitics/ConcreteParasitics.hh"
@@ -717,6 +718,7 @@ IncreSta::parallelResizeAdaptive(rsz::Resizer *resizer, float avg_delay, float a
   ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff, 
       &swappable_cells_cache_, &inst_info_map_);
+  visitor->setMoveType(MoveType::Resizing);
   local_sta_->runResize(resizer, visitor);
   auto end_resize = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_resize = end_resize - start_resize;
@@ -733,6 +735,7 @@ IncreSta::parallelResizeAdaptive(rsz::Resizer *resizer, float avg_delay, float a
     ParallelLrVisitor *critical_path_visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
     critical_path_visitor->init(avg_delay, avg_power, wns_after_resize, 
         PT_tradeoff, &swappable_cells_cache_, &inst_info_map_);
+    critical_path_visitor->setMoveType(MoveType::Resizing);
 
     // Time the critical-path sizing phase
     auto start_cps = std::chrono::high_resolution_clock::now();
@@ -753,5 +756,36 @@ IncreSta::parallelResizeAdaptive(rsz::Resizer *resizer, float avg_delay, float a
   printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
 }
 
+void
+IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff)
+{
+  printf("IncreSta::parallelBuffering start\n");
+  auto start_total = std::chrono::high_resolution_clock::now();
+
+  // We first create a serials of instance visitors
+  local_sta_->initParallel();
+  Slack wns = sta_->worstSlack(MinMax::max());
+  TaskArranger *task_arranger = local_sta_->taskArranger();
+
+  auto start_resize = std::chrono::high_resolution_clock::now();
+  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
+  visitor->init(0, 0, wns, PT_tradeoff, nullptr, nullptr);
+  visitor->setMoveType(MoveType::BufferInsertion);
+  task_arranger->visitParallel(sta_, local_sta_, resizer, visitor);
+  auto end_resize = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_resize = end_resize - start_resize;
+
+  // Use distinct variable names to avoid shadowing Slack
+  sta_->updateTiming(true);
+  sta_->findRequireds();
+  double tns_after_resize = sta_->totalNegativeSlack(MinMax::max());
+  double wns_after_resize = sta_->worstSlack(MinMax::max());
+  printf("After parallel LR Buffering, TNS: %e, WNS: %e\n", tns_after_resize, wns_after_resize);
+  printf("parallel resize time: %f s\n", diff_resize.count());
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_total = end_total - start_total;
+  printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
+}
 
 } // namespace lrf

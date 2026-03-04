@@ -271,6 +271,7 @@ TestLrf::testDifferenceBetweenLocalAndOpen(char *inst_name, sta::dbSta* sta,
   sta::LibertyCellSeq *equiv_cells = sta->equivCells(orig_cell);
   sta::LibertyCell *swap_to_cell = (*equiv_cells)[0];
   sta::LibertyCell *swap_to_cell1 = (*equiv_cells)[1];
+  (void)swap_to_cell1;
   printf("Swapping to equiv cell: %s from %s\n", swap_to_cell->name(), orig_cell->name());
   // Vitually replace cell in LocalSta and compute delays and arrivals
   PtGraph *pt_graph_local = local_sta->makePtGraph(sta_inst, true);
@@ -834,6 +835,153 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
   }
 }
 
+void
+TestLrf::testParallelLrResizingBuffering(sta::dbSta* sta, 
+                            rsz::Resizer *resizer, 
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons,
+                            float PT_tradeoff,
+                            std::string lr_helper_method)
+{
+  // Test parallel LR resizing
+  printf("----- Testing Parallel LR Resizing -----\n");
+  sta::Corner *corner = sta->corners()->findCorner("default");
+  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+  sta->findRequireds();
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+
+  // Set configuration for LRHelper
+  incre_sta->makeLRHelper(lr_helper_method);
+  lrf::LRHelper *lr_helper = incre_sta->lrHelper();
+  lr_helper->setRatcons(ratcons);
+
+  int thread_count = local_sta->threadCount();
+  incre_sta->setMaxResizeNum(max_resize_num); // Limit max resize number per iteration
+  printf("Thread count has set to %d\n", thread_count);
+  // Conduct iterative resizing
+  incre_sta->lmUpdate();
+
+  odb::dbDatabase::beginEco(block);
+  float best_leakage = 0;
+  size_t no_improve_count_ = 0; // Count of no improvement iterations of each ECO record.
+  size_t eco_iter = 0; // Termination flag, when eco cannot improve PPA
+  sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
+  sta::Slack best_tns = sta->totalNegativeSlack(sta::MinMax::max());
+  sta::Slack tns;
+  sta::Slack wns;
+  printf("Initial Worst Negative Slack: %f\n", best_wns * 1e12);
+  printf("Initial Total Negative Slack: %f\n", best_tns * 1e12);
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+  printf("Initial Average Delay on Critical Path: %f\n", avg_delay * 1e12);
+  printf("Initial Average Leakage: %f\n", avg_leakage * 1e10);
+  // Initialize conflict graph in task arranger
+  local_sta->initParallel();
+  for (size_t i = 0; i < iterations; ++i) {
+    sta->findRequireds();
+    printf("----- LR Resizing Iteration %zu -----\n", i+1);
+    // incre_sta->parallelResizeV1(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    auto start = std::chrono::high_resolution_clock::now();
+    incre_sta->parallelResizeAdaptive(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end - start;
+    printf("Parallel resize took %f seconds\n", elapsed.count());
+    // Measure parasitics update time (perform update and time it)
+    auto par_start = std::chrono::high_resolution_clock::now();
+    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    auto par_end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed_parasitics = par_end - par_start;
+    printf("Parasitics update took %f seconds\n", elapsed_parasitics.count());
+
+    // Measure evaluation time (timing update + slack/leakage computation)
+    auto eval_start = std::chrono::high_resolution_clock::now();
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+    tns = sta->totalNegativeSlack(sta::MinMax::max());
+    wns = sta->worstSlack(sta::MinMax::max());
+    float leakage = 0;
+    odb::dbSet<odb::dbInst> insts = block->getInsts();
+    for (odb::dbInst *inst : insts) {
+      sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(inst);
+      if (!sta_inst) continue;
+      sta::PowerResult power_result = sta->power(sta_inst, corner);
+      leakage += power_result.leakage();
+    }
+    auto eval_end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed_eval = eval_end - eval_start;
+    printf("Evaluation took %f seconds\n", elapsed_eval.count());
+    printf("Worst Negative Slack: %f\n", wns * 1e12);
+    printf("Total Negative Slack: %f\n", tns * 1e12);
+    printf("Total Leakage Power: %f\n", leakage * 1e10);
+    fflush(stdout);
+
+    // Measure LM update time
+    auto lm_start = std::chrono::high_resolution_clock::now();
+    incre_sta->lmUpdate();
+    auto lm_end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed_lm = lm_end - lm_start;
+    printf("LM update took %f seconds\n", elapsed_lm.count());
+
+    if ( wns > best_wns && wns < 0 ) {
+      best_wns = wns;
+      best_tns = tns;
+      best_leakage = leakage;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      printf("Improvement in WNS, accepting new design.\n");
+      no_improve_count_ = 0;
+    } 
+    else if (wns > 0.0 && leakage < best_leakage) {
+      best_wns = wns;
+      best_tns = tns;
+      best_leakage = leakage;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      printf("WNS is positive and improvement in leakage, accepting new design.\n");
+    }
+    else if (no_improve_count_ < num_no_improve_tolerance) {
+      no_improve_count_++;
+      printf("No improvement in WNS, but within tolerance, accepting new design.\n");
+      continue;
+    } 
+    else if (eco_iter > 2) {
+      printf("No improvement in WNS for %zu ECO iterations, terminating resizing.\n", eco_iter);
+      break;
+    }
+    else {
+      printf("Reverting to previous design.\n");
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
+      odb::dbDatabase::beginEco(block);
+      eco_iter++;
+    }
+  }
+  tns = sta->totalNegativeSlack(sta::MinMax::max());
+  wns = sta->worstSlack(sta::MinMax::max());
+  if (wns > best_wns) {
+    odb::dbDatabase::endEco(block);
+    printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
+  } else {
+    odb::dbDatabase::endEco(block);
+    odb::dbDatabase::undoEco(block);
+    printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  }
+  if (wns < 0) {
+    sta->findRequireds();
+    // incre_sta->parallelResizeV1(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    auto start = std::chrono::high_resolution_clock::now();
+    incre_sta->parallelBuffering(resizer, PT_tradeoff);
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end - start;
+    printf("Parallel buffering took %f seconds\n", elapsed.count());
+  }
+}
+
 void 
 TestLrf::testReportVertices(sta::dbSta* sta, 
                             rsz::Resizer *resizer, 
@@ -1159,7 +1307,7 @@ TestLrf::testBufferInsertion(char *inst_name, sta::dbSta* sta,
   
   // Get all instances in the block
   odb::dbSet<odb::dbInst> all_insts = block->getInsts();
-  printf("Total instances in block: %zu\n", all_insts.size());
+  printf("Total instances in block: %u\n", all_insts.size());
   fflush(stdout);
   
   // Find starting instance

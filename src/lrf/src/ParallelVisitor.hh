@@ -26,11 +26,6 @@ class PtGraph;
 class ParallelLibData;
 class LrRebuffer;
 
-enum class MoveType {
-  Resizing,
-  BufferInsertion
-};
-
 // We don't want to copy this visitor, each swap examination should
 // have its own instance.
 class ParallelLrVisitor
@@ -38,14 +33,14 @@ class ParallelLrVisitor
 public:
   ParallelLrVisitor(sta::dbSta *db_sta, LocalSta *local_sta, rsz::Resizer *resizer);
   virtual ~ParallelLrVisitor();
-  virtual bool visit(sta::Instance *inst, MoveType move_type = MoveType::Resizing);
+  virtual bool visit(sta::Instance *inst);
   bool visit(sta::Instance *inst, TimingRecord &timing_record);
   bool singleGateSizing(sta::Instance *inst);
-  // Functions for buffer insertion
-  bool tryBuffering(sta::Instance *inst);
+  void setMoveType(MoveType move_type) { move_type_ = move_type; }
+  
   // Apply cell type changes to OpenROAD and OpenSTA, and 
   // update timing information from PtGraph to sta::Graph.
-  virtual void applyChangesToDb(rsz::Resizer *resizer, MoveType move_type = MoveType::Resizing);
+  virtual void applyChangesToDb(rsz::Resizer *resizer);
   void applyResizeChangesToDb(rsz::Resizer *resizer);
   void applyBufferingChangesToDb(rsz::Resizer *resizer);
   virtual void updateTimingFromPtGraph();
@@ -93,8 +88,12 @@ protected:
   // Function of paralllel gate sizing
   float swapCost(float delay_lm_sum, float power);
   
+  // Replace the given instance with equivalent cells to evaluate and improve timing/power; returns true on success.
   bool trySwap(sta::Instance *inst);
+  // Alternate implementation of trySwap (version 1) using a different strategy; returns true on success.
   bool trySwapV1(sta::Instance *inst);
+  // Insert buffering for the given instance to improve timing; returns true on success.
+  bool tryBuffering(sta::Instance *inst);
   std::vector<std::pair<sta::LibertyCell*, std::pair<size_t, size_t>>> getLegalEquivCells(
                                   std::vector<sta::LibertyCellSeq> *equiv_cells_vec,
                                   sta::LibertyCell *ori_cell);
@@ -119,6 +118,7 @@ protected:
   ParallelLibData *parallel_lib_data_ = nullptr;
   float clock_period_ = 0.0;
   LrRebuffer *rebuffer_ = nullptr;
+  MoveType move_type_ = MoveType::Resizing;
 
   std::map<std::string, double> runtime_map_ = {
     {"visit", 0.0},

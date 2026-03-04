@@ -1,7 +1,6 @@
 #pragma once
 
 #include "est/SteinerTree.h"
-
 #include <unordered_map>
 
 namespace sta {
@@ -45,7 +44,7 @@ bool rebranchTopologyInPlace(
 // If corner is nullptr, use default corner; otherwise use specified corner
 std::unordered_map<const sta::Pin*, double> computeSinkCriticality(
 	const sta::Pin* drvr_pin,
-	sta::Corner* corner = nullptr,
+	sta::Corner* corner,
 	sta::dbSta* sta);
 
 // Print formatted sink criticality information

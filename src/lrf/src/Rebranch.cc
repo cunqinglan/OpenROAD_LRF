@@ -10,6 +10,8 @@
 #include "sta/Network.hh"
 #include "sta/NetworkClass.hh"
 #include "sta/Corner.hh"
+#include "sta/Graph.hh"
+#include "sta/PathAnalysisPt.hh"
 #include "stt/SteinerTreeBuilder.h"
 #include "utl/Logger.h"
 
@@ -472,7 +474,7 @@ computeSinkCriticality(const sta::Pin* drvr_pin,
         // Check if this path belongs to the target corner
         if (path->pathAnalysisPt(sta)->corner() == corner) {
           // Get slack for this specific path
-          sta::Slack slack = sta->slack(path);
+          sta::Slack slack = path->slack(sta);
           
           // Only accumulate negative slack (timing violations)
           if (slack < 0.0) {

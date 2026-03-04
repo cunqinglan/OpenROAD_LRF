@@ -424,11 +424,11 @@ ParallelLrVisitor::trySwapV1(sta::Instance *inst)
 }
 
 bool
-ParallelLrVisitor::visit(sta::Instance *inst, MoveType move_type)
+ParallelLrVisitor::visit(sta::Instance *inst)
 {
   bool success;
   std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
-  switch (move_type) {
+  switch (move_type_) {
     case MoveType::Resizing:{
       if (!checkVisitorStatus()) {
         throw std::runtime_error("ParallelLrVisitor::visit visitor status invalid");
@@ -457,8 +457,8 @@ ParallelLrVisitor::visit(sta::Instance *inst, MoveType move_type)
 bool
 ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
 {
-  if (visit(inst, MoveType::Resizing)) {
-    applyChangesToDb(nullptr, MoveType::Resizing);
+  if (visit(inst)) {
+    applyChangesToDb(nullptr);
     return true;
   }
   return false;
@@ -594,6 +594,7 @@ ParallelLrVisitor::copy() const
   new_visitor->setPTTradeoff(PT_tradeoff_);
   new_visitor->setParallelLibData(parallel_lib_data_);
   new_visitor->setClockPeriod(clock_period_);
+  new_visitor->setMoveType(move_type_);
   return new_visitor;
 }
 
@@ -606,10 +607,10 @@ ParallelLrVisitor::printVisitedInstNames() const
 }
 
 void
-ParallelLrVisitor::applyChangesToDb(rsz::Resizer *resizer, MoveType move_type)
+ParallelLrVisitor::applyChangesToDb(rsz::Resizer *resizer)
 {
   std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
-  switch (move_type) {
+  switch (move_type_) {
     case MoveType::Resizing:
       applyResizeChangesToDb(resizer);
       break;
