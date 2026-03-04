@@ -206,7 +206,7 @@ ParallelLrVisitor::trySwap(sta::Instance *inst)
 }
 
 bool
-ParallelLrVisitor::trySwapByArray(sta::Instance *inst)
+ParallelLrVisitor::trySwapByArray(sta::Instance *inst, int col_padding, int row_padding)
 {
   best_cell_ = nullptr;
   visited_instances_.push_back(db_sta_->network()->pathName(inst));
@@ -219,22 +219,26 @@ ParallelLrVisitor::trySwapByArray(sta::Instance *inst)
   if (pos_it == equiv_cell_pos_map_->end())
     return false;
 
-  const int cur_row = pos_it->second.first;
-  const int cur_col = pos_it->second.second;
-  const int num_rows = static_cast<int>(equiv_cell_array_->size());
-  const int num_cols = (num_rows > 0)
-                       ? static_cast<int>((*equiv_cell_array_)[0].size())
-                       : 0;
+  const CellArrayPos &pos = pos_it->second;
+  const int cur_row = pos.row;
+  const int cur_col = pos.col;
+  const int group_start = pos.group_start;
+  const int group_end = pos.group_end;
 
-  // Collect neighbor candidates: 3x3 neighborhood (row±1 = VT, col±1 = size)
+  // Collect neighbor candidates within (row±row_padding, col±col_padding) neighborhood.
+  // Row search is constrained to within the same equiv group.
+  // All rows within a group share the same column count.
+  const int num_cols = static_cast<int>((*equiv_cell_array_)[cur_row].size());
   std::vector<sta::LibertyCell*> candidates;
-  for (int dr = -1; dr <= 1; dr++) {
-    for (int dc = -1; dc <= 1; dc++) {
-      int r = cur_row + dr;
+  for (int dr = -row_padding; dr <= row_padding; dr++) {
+    int r = cur_row + dr;
+    if (r < group_start || r >= group_end)
+      continue;
+    for (int dc = -col_padding; dc <= col_padding; dc++) {
       int c = cur_col + dc;
-      if (r >= 0 && r < num_rows && c >= 0 && c < num_cols) {
+      if (c >= 0 && c < num_cols) {
         sta::LibertyCell *cell = (*equiv_cell_array_)[r][c];
-        if (cell && sta::equivCellsArcs(ori_cell, cell))
+        if (cell)
           candidates.push_back(cell);
       }
     }

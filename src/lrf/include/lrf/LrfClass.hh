@@ -52,7 +52,14 @@ typedef std::vector<PtEdge> PtEdgeSeq;
 typedef std::vector<PtVertex> PtVertexSeq;
 typedef std::map<const sta::Vertex*, sta::VertexId> VertexPtToIdMap;
 typedef std::vector<std::vector<sta::LibertyCell*>> LibertyCellArray;
-typedef std::unordered_map<sta::LibertyCell*, std::pair<int, int>> PosMap;
+
+struct CellArrayPos {
+  int row;
+  int col;
+  int group_start;  // first global row of this equiv group (inclusive)
+  int group_end;    // last global row of this equiv group (exclusive)
+};
+typedef std::unordered_map<sta::LibertyCell*, CellArrayPos> PosMap;
 
 enum class MoveType {
   Resizing,

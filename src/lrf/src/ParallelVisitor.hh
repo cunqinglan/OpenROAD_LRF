@@ -97,7 +97,7 @@ protected:
   // Alternate implementation of trySwap (version 1) using a different strategy; returns true on success.
   bool trySwapV1(sta::Instance *inst);
   // Neighborhood search in equiv cell array for resizing; returns true on success.
-  bool trySwapByArray(sta::Instance *inst);
+  bool trySwapByArray(sta::Instance *inst, int col_padding = 3, int row_padding = 1);
   // Insert buffering for the given instance to improve timing; returns true on success.
   bool tryBuffering(sta::Instance *inst);
   std::vector<std::pair<sta::LibertyCell*, std::pair<size_t, size_t>>> getLegalEquivCells(
@@ -120,7 +120,7 @@ protected:
   float slack_margin_= 0.0;
   float PT_tradeoff_ = 100.0;
   std::unordered_map<sta::LibertyCell*, sta::LibertyCellSeq*> *swappable_cells_cache_ = nullptr;
-  std::unordered_map<sta::Instance*, LocalCellInfo*> *inst_info_map_;
+  std::unordered_map<sta::Instance*, LocalCellInfo*> *inst_info_map_ = nullptr;
   ParallelLibData *parallel_lib_data_ = nullptr;
   LibertyCellArray *equiv_cell_array_ = nullptr;
   PosMap *equiv_cell_pos_map_ = nullptr;

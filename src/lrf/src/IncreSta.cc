@@ -532,13 +532,16 @@ IncreSta::makeEquivCellArray()
 
       // Fill matrix and build per-cell position with global row offset.
       const int row_offset = static_cast<int>(equiv_cell_array_.size());
+      const int group_end = row_offset + static_cast<int>(max_rows);
       for (size_t col = 0; col < prefixes.size(); col++) {
         const auto& prefix = prefixes[col];
         const auto& vec = cols[prefix];
         for (size_t row = 0; row < vec.size(); row++) {
           matrix[row][col] = vec[row];
           equiv_cell_pos_map_[vec[row]] = {static_cast<int>(row) + row_offset,
-                                           static_cast<int>(col)};
+                                           static_cast<int>(col),
+                                           row_offset,
+                                           group_end};
         }
       }
 
@@ -759,7 +762,6 @@ void
 IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float avg_power,
                       float PT_tradeoff)
 {
-  printf("IncreSta::parallelResizeByArray start\n");
   auto start_total = std::chrono::high_resolution_clock::now();
 
   local_sta_->initParallel();
@@ -779,21 +781,21 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
       &swappable_cells_cache_, &inst_info_map_);
   visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
   visitor->setMoveType(MoveType::Resizing);
+  // visitor ownership is transferred to TaskArranger::visitParallel.
   local_sta_->runResize(resizer, visitor);
   auto end_resize = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_resize = end_resize - start_resize;
 
   sta_->updateTiming(true);
   sta_->findRequireds();
-  double tns_after = sta_->totalNegativeSlack(MinMax::max());
-  double wns_after = sta_->worstSlack(MinMax::max());
-  printf("After parallelResizeByArray, TNS: %e, WNS: %e\n", tns_after, wns_after);
-  printf("parallel resize by array time: %f s\n", diff_resize.count());
+  double tns_after_resize = sta_->totalNegativeSlack(MinMax::max());
+  double wns_after_resize = sta_->worstSlack(MinMax::max());
+  printf("After parallel LR resize, TNS: %e, WNS: %e\n", tns_after_resize, wns_after_resize);
+  printf("parallel resize time: %f s\n", diff_resize.count());
 
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_total = end_total - start_total;
-  printf("IncreSta::parallelResizeByArray total time %f s\n", diff_total.count());
-  delete visitor;
+  printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
 }
 
 void
