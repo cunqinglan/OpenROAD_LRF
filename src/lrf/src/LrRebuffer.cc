@@ -792,9 +792,9 @@ LrRebuffer::addWire(const BnetPtr& p,
   z->setBufferCost(total_cost);
 
   if (level != -1) {
-    printf("  %*sAdded wire: length=%d um, %s s, delta_cost=%.3e, total_cost=%.3e\n",
-           level * 2, "", z->length(), z->to_string(resizer_).c_str(),
-           wire_delta_cost, total_cost);
+    // printf("  %*sAdded wire: length=%d um, %s s, delta_cost=%.3e, total_cost=%.3e\n",
+    //        level * 2, "", z->length(), z->to_string(resizer_).c_str(),
+    //        wire_delta_cost, total_cost);
   }
 
   return z;

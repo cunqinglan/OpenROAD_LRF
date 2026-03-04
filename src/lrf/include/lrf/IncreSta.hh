@@ -69,6 +69,8 @@ public:
                       float PT_tradeoff);
   void setMaxResizeNum(size_t max_resize_num);
 
+  void parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff);
+
   // APIs for power optimization
   void ensureActivities();  // Access power of one of the instances will trigger global activity calculation
   void makeSwappableCellsCache(rsz::Resizer *resizer);

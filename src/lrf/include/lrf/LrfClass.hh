@@ -54,6 +54,11 @@ typedef std::map<const sta::Vertex*, sta::VertexId> VertexPtToIdMap;
 typedef std::vector<std::vector<sta::LibertyCell*>> LibertyCellArray;
 typedef std::unordered_map<sta::LibertyCell, std::pair<int, int>> PosMap;
 
+enum class MoveType {
+  Resizing,
+  BufferInsertion,
+  None
+};
 
 enum class PtVertexType : uint8_t {
   RefDriver, // vertices that drive the reference instance, should update parasitics of the these vertices

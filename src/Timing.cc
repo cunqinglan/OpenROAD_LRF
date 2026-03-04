@@ -608,7 +608,26 @@ thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
   PT_tradeoff, lr_helper_method);
 }
 
-void 
+void
+Timing::testParallelResizingBuffering(size_t max_resize_num, size_t iterations,
+  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
+  const char *lr_helper_method) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testParallelResizingBuffering with %zu threads\n", thread_num);
+  printf("First compute all parasitic networks...\n");
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  printf("Starting testParallelResizingBuffering\n");
+  fflush(stdout);
+  test_lrf.testParallelLrResizingBuffering(sta, resizer, design_->getBlock(),
+    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
+    PT_tradeoff, lr_helper_method);
+}
+
+void
 Timing::testTimingComputeAndWriteBack(const std::vector<odb::dbInst*> &insts)
 {
   design_->updateParasiticsNoDeleteNetwork();
