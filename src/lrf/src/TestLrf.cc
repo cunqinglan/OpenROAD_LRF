@@ -1043,7 +1043,11 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
       leakage += power_result.leakage();
     }
 
-    printf("WNS: %f, TNS: %f, Leakage: %f\n", wns * 1e12, tns * 1e12, leakage * 1e10);
+    printf("Evaluation took %f seconds\n",
+           std::chrono::duration<double>(end - start).count());
+    printf("Worst Negative Slack: %f\n", wns * 1e12);
+    printf("Total Negative Slack: %f\n", tns * 1e12);
+    printf("Total Leakage Power: %f\n", leakage * 1e10);
     fflush(stdout);
     incre_sta->lmUpdate();
 
