@@ -67,6 +67,8 @@ public:
                         float PT_tradeoff = 100.0);
   void parallelResizeAdaptive(rsz::Resizer *resizer, float avg_delay, float avg_power,
                       float PT_tradeoff);
+  void parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float avg_power,
+                      float PT_tradeoff);
   void setMaxResizeNum(size_t max_resize_num);
 
   void parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff);
@@ -78,7 +80,9 @@ public:
   void preSaveLibCellLeakage();
   void makeParallelLibData(rsz::Resizer *resizer, TaskArranger *task_arranger);
   ParallelLibData *parallelLibData() { return parallel_lib_data_; }
-  void makeEquivCellArray(LibertyCellArray &array, PosMap &pos_map);
+  void makeEquivCellArray();
+  LibertyCellArray* equivCellArray() { return &equiv_cell_array_; }
+  PosMap* equivCellPosMap() { return &equiv_cell_pos_map_; }
 
   // APIs for LM update
   void makeLRHelper(std::string method = "LRHelper");
@@ -102,6 +106,9 @@ protected:
   bool swap_cell_presaved_ = false;
   bool swap_cell_leakage_presaved_ = false;
   ParallelLibData *parallel_lib_data_ = nullptr;
+  LibertyCellArray equiv_cell_array_;
+  PosMap equiv_cell_pos_map_;
+  bool equiv_cell_array_built_ = false;
 };
 
 } // namespace lrf
