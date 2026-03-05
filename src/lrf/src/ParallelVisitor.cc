@@ -328,6 +328,145 @@ ParallelLrVisitor::trySwapByArray(sta::Instance *inst, int col_padding, int row_
   return true;
 }
 
+float
+ParallelLrVisitor::trySwapPrecheck(sta::Instance *inst, int col_padding, int row_padding)
+{
+  sta::LibertyCell *ori_cell = db_sta_->network()->libertyCell(inst);
+  if (!ori_cell)
+    return 0.0f;
+
+  // Locate current cell in the equiv cell array
+  if (!equiv_cell_array_ || !equiv_cell_pos_map_)
+    return 0.0f;
+  auto pos_it = equiv_cell_pos_map_->find(ori_cell);
+  if (pos_it == equiv_cell_pos_map_->end())
+    return 0.0f;
+
+  const CellArrayPos &pos = pos_it->second;
+  const int cur_row = pos.row;
+  const int cur_col = pos.col;
+  const int group_start = pos.group_start;
+  const int group_end = pos.group_end;
+
+  // Collect neighbor candidates within (row±row_padding, col±col_padding)
+  const int num_cols = static_cast<int>((*equiv_cell_array_)[cur_row].size());
+  std::vector<sta::LibertyCell*> candidates;
+  for (int dr = -row_padding; dr <= row_padding; dr++) {
+    int r = cur_row + dr;
+    if (r < group_start || r >= group_end)
+      continue;
+    for (int dc = -col_padding; dc <= col_padding; dc++) {
+      int c = cur_col + dc;
+      if (c >= 0 && c < num_cols) {
+        sta::LibertyCell *cell = (*equiv_cell_array_)[r][c];
+        if (cell)
+          candidates.push_back(cell);
+      }
+    }
+  }
+  if (candidates.size() < 2)
+    return 0.0f;
+
+  // Build PtGraph
+  PtGraph *pt_graph = local_sta_->makePtGraph(inst, false);
+
+  // Get leakage from inst_info_map if available
+  LocalCellInfo *cell_info = nullptr;
+  sta::LibertyCellSeq *full_equiv_cells = nullptr;
+  if (inst_info_map_) {
+    auto info_it = inst_info_map_->find(inst);
+    if (info_it != inst_info_map_->end()) {
+      cell_info = info_it->second;
+      full_equiv_cells = cell_info->equiv_cells;
+    }
+  }
+
+  // Evaluate all candidates (including ori_cell)
+  float ori_cost = std::numeric_limits<float>::max();
+  float ori_slack = 0.0f;
+  float best_cost = std::numeric_limits<float>::max();
+
+  for (size_t i = 0; i < candidates.size(); i++) {
+    sta::LibertyCell *cand = candidates[i];
+
+    if (!local_sta_->legalCheckBeforeSwap(inst, cand, nullptr, nullptr, pt_graph)
+        && cand != ori_cell)
+      continue;
+
+    // Look up pre-computed leakage
+    float leakage = 0.0f;
+    if (cell_info && full_equiv_cells) {
+      for (size_t j = 0; j < full_equiv_cells->size(); j++) {
+        if ((*full_equiv_cells)[j] == cand) {
+          leakage = cell_info->cell_leakages[j];
+          break;
+        }
+      }
+    }
+
+    float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
+        pt_graph, arc_delay_calc_, cand).delay_lm_sum;
+
+    if (!local_sta_->legalCheckAfterSwap(inst, cand, nullptr, nullptr, pt_graph)
+        && cand != ori_cell)
+      continue;
+
+    float cost = swapCost(delay_lm_sum, leakage);
+    sta::Slack slack = local_sta_->localSlackAroundRef(pt_graph);
+
+    if (cand == ori_cell) {
+      ori_cost = cost;
+      ori_slack = slack;
+    }
+  }
+
+  // Second pass: find best cost with slack protection
+  // Re-evaluate since we now know ori_slack
+  // (Reuse the same evaluation pattern but only track best)
+  if (ori_cost == std::numeric_limits<float>::max()) {
+    // ori_cell was not in candidates or failed legal check
+    // pt_graph is owned by local_sta_->local_graphs_, do NOT delete here
+    return 0.0f;
+  }
+
+  // Reset PtGraph to original cell state before re-evaluating
+  best_cost = ori_cost;
+  for (size_t i = 0; i < candidates.size(); i++) {
+    sta::LibertyCell *cand = candidates[i];
+    if (cand == ori_cell)
+      continue;
+
+    if (!local_sta_->legalCheckBeforeSwap(inst, cand, nullptr, nullptr, pt_graph))
+      continue;
+
+    float leakage = 0.0f;
+    if (cell_info && full_equiv_cells) {
+      for (size_t j = 0; j < full_equiv_cells->size(); j++) {
+        if ((*full_equiv_cells)[j] == cand) {
+          leakage = cell_info->cell_leakages[j];
+          break;
+        }
+      }
+    }
+
+    float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
+        pt_graph, arc_delay_calc_, cand).delay_lm_sum;
+
+    if (!local_sta_->legalCheckAfterSwap(inst, cand, nullptr, nullptr, pt_graph))
+      continue;
+
+    float cost = swapCost(delay_lm_sum, leakage);
+    sta::Slack slack = local_sta_->localSlackAroundRef(pt_graph);
+
+    // Slack protection: same as trySwapByArray line 316
+    if (cost < best_cost && slack >= ori_slack * slack_margin_)
+      best_cost = cost;
+  }
+
+  // pt_graph is owned by local_sta_->local_graphs_, do NOT delete here
+  return ori_cost - best_cost;  // positive = beneficial
+}
+
 bool
 ParallelLrVisitor::equivVtCells(sta::LibertyCell *cell1, sta::LibertyCell *cell2)
 {

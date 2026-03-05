@@ -423,7 +423,7 @@ IncreSta::ensureActivities()
 }
 
 void
-IncreSta::makeEquivCellArray()
+IncreSta::makeEquivCellArray(bool verbose)
 {
   if (equiv_cell_array_built_)
     return;
@@ -508,12 +508,14 @@ IncreSta::makeEquivCellArray()
           // smaller cap should be lower (larger index), so sort cap descending.
           const double cx = cell_incap[x];
           const double cy = cell_incap[y];
-          if (rx < ry && cx > cy) {
-            printf("  [Warning: unexpected ranking] %s vs %s: cap wins (%.2e vs %.2e)",
-              x->name(), y->name(), cx, cy);
-          } else if (rx > ry && cx < cy) {
-            printf("  [Warning: unexpected ranking] %s vs %s: cap wins (%.2e vs %.2e)",
-              x->name(), y->name(), cx, cy);
+          if (verbose) {
+            if (rx < ry && cx > cy) {
+              printf("  [Warning: unexpected ranking] %s vs %s: cap wins (%.2e vs %.2e)",
+                x->name(), y->name(), cx, cy);
+            } else if (rx > ry && cx < cy) {
+              printf("  [Warning: unexpected ranking] %s vs %s: cap wins (%.2e vs %.2e)",
+                x->name(), y->name(), cx, cy);
+            }
           }
           if (rx != ry)
             return rx < ry;
@@ -550,39 +552,43 @@ IncreSta::makeEquivCellArray()
       equiv_cell_array_.insert(equiv_cell_array_.end(), matrix.begin(), matrix.end());
 
       // Log one group matrix.
-      printf("EquivCellArrayGroup: %s (%zu cells, %zu cols, %zu rows)\n",
-        group->front() ? group->front()->name() : "<null>",
-        group->size(),
-        prefixes.size(),
-        max_rows);
-      // Print header row (prefixes)
-      std::string header = "  col:";
-      for (size_t c = 0; c < prefixes.size(); c++) {
-        header += (c == 0 ? " " : " | ");
-        header += prefixes[c];
-      }
-      printf("%s\n", header.c_str());
-      for (size_t r = 0; r < max_rows; r++) {
-        std::string line = fmt::format("  row{:>2d}:", static_cast<int>(r));
+      if (verbose) {
+        printf("EquivCellArrayGroup: %s (%zu cells, %zu cols, %zu rows)\n",
+          group->front() ? group->front()->name() : "<null>",
+          group->size(),
+          prefixes.size(),
+          max_rows);
+        // Print header row (prefixes)
+        std::string header = "  col:";
         for (size_t c = 0; c < prefixes.size(); c++) {
-          line += (c == 0 ? " " : " | ");
-          if (matrix[r][c]) {
-            const double cap = cell_incap[matrix[r][c]];
-            line += fmt::format("{}({:.3g})", matrix[r][c]->name(), cap);
-          } else {
-            line += "<null>";
-          }
+          header += (c == 0 ? " " : " | ");
+          header += prefixes[c];
         }
-        printf("%s\n", line.c_str());
+        printf("%s\n", header.c_str());
+        for (size_t r = 0; r < max_rows; r++) {
+          std::string line = fmt::format("  row{:>2d}:", static_cast<int>(r));
+          for (size_t c = 0; c < prefixes.size(); c++) {
+            line += (c == 0 ? " " : " | ");
+            if (matrix[r][c]) {
+              const double cap = cell_incap[matrix[r][c]];
+              line += fmt::format("{}({:.3g})", matrix[r][c]->name(), cap);
+            } else {
+              line += "<null>";
+            }
+          }
+          printf("%s\n", line.c_str());
+        }
+        printf("  --\n");
       }
-      printf("  --\n");
     }
   }
   delete lib_iter;
   equiv_cell_array_built_ = true;
-  printf("makeEquivCellArray: %zu rows, %zu cells in pos_map\n",
-         equiv_cell_array_.size(), equiv_cell_pos_map_.size());
-  fflush(stdout);
+  if (verbose) {
+    printf("makeEquivCellArray: %zu rows, %zu cells in pos_map\n",
+           equiv_cell_array_.size(), equiv_cell_pos_map_.size());
+    fflush(stdout);
+  }
 }
 
 void 
@@ -817,6 +823,71 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_total = end_total - start_total;
   printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
+}
+
+std::vector<ResizeBenefit>
+IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
+                               float avg_power, float PT_tradeoff,
+                               float top_ratio)
+{
+  printf("IncreSta::precedingResizeCheck start\n");
+  auto start_total = std::chrono::high_resolution_clock::now();
+
+  // Ensure prerequisites
+  local_sta_->initParallel();
+  if (!swap_cell_presaved_)
+    makeSwappableCellsCache(resizer);
+  if (!swap_cell_leakage_presaved_)
+    preSaveLibCellLeakage();
+  if (!equiv_cell_array_built_)
+    makeEquivCellArray();
+
+  Slack wns = sta_->worstSlack(MinMax::max());
+  TaskArranger *task_arranger = local_sta_->taskArranger();
+
+  // Create visitor template
+  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
+  visitor->init(avg_delay, avg_power, wns, PT_tradeoff,
+                &swappable_cells_cache_, &inst_info_map_);
+  visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+  visitor->setMoveType(MoveType::Resizing);
+
+  // Run parallel precheck (no conflict graph)
+  std::vector<ResizeBenefit> results;
+  task_arranger->visitParallelPrecheck(sta_, local_sta_, resizer, visitor, results);
+
+  // Sort by cost_change descending
+  std::sort(results.begin(), results.end(),
+            [](const ResizeBenefit &a, const ResizeBenefit &b) {
+              return a.cost_change > b.cost_change;
+            });
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_total = end_total - start_total;
+
+  // Print summary
+  size_t positive_count = 0;
+  for (const auto &r : results) {
+    if (r.cost_change > 0.0f)
+      positive_count++;
+  }
+  printf("Precheck: %zu/%zu instances have positive benefit\n",
+         positive_count, results.size());
+
+  // Print top results
+  size_t top_n = std::min(static_cast<size_t>(results.size() * top_ratio),
+                          results.size());
+  top_n = std::min(top_n, static_cast<size_t>(20));  // cap at 20 for printing
+  printf("Top %zu instances by resize benefit:\n", top_n);
+  for (size_t i = 0; i < top_n; i++) {
+    printf("  [%zu] %s  cost_change=%.6f\n", i,
+           network_->pathName(results[i].inst),
+           results[i].cost_change);
+  }
+  printf("precedingResizeCheck total time: %f s\n", diff_total.count());
+  fflush(stdout);
+
+  return results;
 }
 
 void

@@ -14,6 +14,7 @@
 #include "sta/NetworkClass.hh"
 #include "GraphBase.hh"
 #include "sta/SearchPred.hh"
+#include "lrf/LrfClass.hh"
 
 namespace rsz {
   class Resizer;
@@ -129,6 +130,12 @@ public:
   void reduceEdgeFromRoots();
   void visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer,
                     ParallelLrVisitor *visitor);
+  // Precheck: dispatch all combinational vertices in parallel (no dependency graph).
+  // Collects resize benefit for each instance into results.
+  void visitParallelPrecheck(sta::dbSta *sta, LocalSta *local_sta,
+                             rsz::Resizer *resizer,
+                             ParallelLrVisitor *visitor,
+                             std::vector<ResizeBenefit> &results);
   std::set<VertexId> decreOutRefCount(InstVertex *inst_vertex);
   std::set<VertexId> decreOutRefCount(InstVertex &inst_vertex);
   size_t decreRefCount(VertexId vid);

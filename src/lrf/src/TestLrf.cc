@@ -25,6 +25,7 @@
 #include "PortDirection.hh"
   
 #include <cmath>
+#include <limits>
 #include <unordered_map>
 #include <vector>
 #include <chrono>
@@ -729,7 +730,7 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
   incre_sta->lmUpdate();
 
   odb::dbDatabase::beginEco(block);
-  float best_leakage = 0;
+  float best_leakage = std::numeric_limits<float>::max();
   size_t no_improve_count_ = 0; // Count of no improvement iterations of each ECO record.
   size_t eco_iter = 0; // Termination flag, when eco cannot improve PPA
   sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
@@ -789,7 +790,7 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
     std::chrono::duration<double> elapsed_lm = lm_end - lm_start;
     printf("LM update took %f seconds\n", elapsed_lm.count());
 
-    if ( wns > best_wns && wns < 0 ) {
+    if (wns > best_wns && wns < 0) {
       best_wns = wns;
       best_tns = tns;
       best_leakage = leakage;
@@ -797,20 +798,21 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
       odb::dbDatabase::beginEco(block);
       printf("Improvement in WNS, accepting new design.\n");
       no_improve_count_ = 0;
-    } 
-    else if (wns > 0.0 && leakage < best_leakage) {
+    }
+    else if (wns >= 0.0 && (wns > best_wns || leakage < best_leakage)) {
       best_wns = wns;
       best_tns = tns;
       best_leakage = leakage;
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::beginEco(block);
-      printf("WNS is positive and improvement in leakage, accepting new design.\n");
+      printf("WNS is positive and improvement in WNS or leakage, accepting new design.\n");
+      no_improve_count_ = 0;
     }
     else if (no_improve_count_ < num_no_improve_tolerance) {
       no_improve_count_++;
       printf("No improvement in WNS, but within tolerance, accepting new design.\n");
       continue;
-    } 
+    }
     else if (eco_iter > 2) {
       printf("No improvement in WNS for %zu ECO iterations, terminating resizing.\n", eco_iter);
       break;
@@ -867,7 +869,7 @@ TestLrf::testParallelLrResizingBuffering(sta::dbSta* sta,
   incre_sta->lmUpdate();
 
   odb::dbDatabase::beginEco(block);
-  float best_leakage = 0;
+  float best_leakage = std::numeric_limits<float>::max();
   size_t no_improve_count_ = 0; // Count of no improvement iterations of each ECO record.
   size_t eco_iter = 0; // Termination flag, when eco cannot improve PPA
   sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
@@ -927,7 +929,7 @@ TestLrf::testParallelLrResizingBuffering(sta::dbSta* sta,
     std::chrono::duration<double> elapsed_lm = lm_end - lm_start;
     printf("LM update took %f seconds\n", elapsed_lm.count());
 
-    if ( wns > best_wns && wns < 0 ) {
+    if (wns > best_wns && wns < 0) {
       best_wns = wns;
       best_tns = tns;
       best_leakage = leakage;
@@ -935,20 +937,21 @@ TestLrf::testParallelLrResizingBuffering(sta::dbSta* sta,
       odb::dbDatabase::beginEco(block);
       printf("Improvement in WNS, accepting new design.\n");
       no_improve_count_ = 0;
-    } 
-    else if (wns > 0.0 && leakage < best_leakage) {
+    }
+    else if (wns >= 0.0 && (wns > best_wns || leakage < best_leakage)) {
       best_wns = wns;
       best_tns = tns;
       best_leakage = leakage;
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::beginEco(block);
-      printf("WNS is positive and improvement in leakage, accepting new design.\n");
+      printf("WNS is positive and improvement in WNS or leakage, accepting new design.\n");
+      no_improve_count_ = 0;
     }
     else if (no_improve_count_ < num_no_improve_tolerance) {
       no_improve_count_++;
       printf("No improvement in WNS, but within tolerance, accepting new design.\n");
       continue;
-    } 
+    }
     else if (eco_iter > 2) {
       printf("No improvement in WNS for %zu ECO iterations, terminating resizing.\n", eco_iter);
       break;
@@ -1032,7 +1035,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   incre_sta->lmUpdate();
 
   odb::dbDatabase::beginEco(block);
-  float best_leakage = 0;
+  float best_leakage = std::numeric_limits<float>::max();
   size_t no_improve_count_ = 0;
   size_t eco_iter = 0;
   sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
@@ -1082,13 +1085,14 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
       odb::dbDatabase::beginEco(block);
       printf("Improvement in WNS, accepting.\n");
       no_improve_count_ = 0;
-    } else if (wns > 0.0 && leakage < best_leakage) {
+    } else if (wns >= 0.0 && (wns > best_wns || leakage < best_leakage)) {
       best_wns = wns;
       best_tns = tns;
       best_leakage = leakage;
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::beginEco(block);
-      printf("WNS positive, leakage improved, accepting.\n");
+      printf("WNS positive, WNS or leakage improved, accepting.\n");
+      no_improve_count_ = 0;
     } else if (no_improve_count_ < num_no_improve_tolerance) {
       no_improve_count_++;
       continue;
@@ -1143,7 +1147,7 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
   incre_sta->lmUpdate();
 
   odb::dbDatabase::beginEco(block);
-  float best_leakage = 0;
+  float best_leakage = std::numeric_limits<float>::max();
   size_t no_improve_count_ = 0;
   size_t eco_iter = 0;
   sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
@@ -1191,13 +1195,14 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
       odb::dbDatabase::beginEco(block);
       printf("Improvement in WNS, accepting.\n");
       no_improve_count_ = 0;
-    } else if (wns > 0.0 && leakage < best_leakage) {
+    } else if (wns >= 0.0 && (wns > best_wns || leakage < best_leakage)) {
       best_wns = wns;
       best_tns = tns;
       best_leakage = leakage;
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::beginEco(block);
-      printf("WNS positive, leakage improved, accepting.\n");
+      printf("WNS positive, WNS or leakage improved, accepting.\n");
+      no_improve_count_ = 0;
     } else if (no_improve_count_ < num_no_improve_tolerance) {
       no_improve_count_++;
       continue;
@@ -1250,6 +1255,35 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
     printf("Total Leakage Power: %f\n", leakage * 1e10);
     fflush(stdout);
   }
+  delete incre_sta;
+}
+
+void
+TestLrf::testPrecedingResizeCheck(sta::dbSta* sta,
+                                  rsz::Resizer *resizer,
+                                  odb::dbBlock *block,
+                                  size_t thread_num,
+                                  float PT_tradeoff,
+                                  float top_ratio)
+{
+  printf("----- Testing Preceding Resize Check -----\n");
+  sta->findRequireds();
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+  printf("Average Delay on Critical Path: %f ps\n", avg_delay * 1e12);
+  printf("Average Leakage: %f\n", avg_leakage * 1e10);
+
+  auto results = incre_sta->precedingResizeCheck(resizer, avg_delay, avg_leakage,
+                                                 PT_tradeoff, top_ratio);
+
+  sta::Slack wns = sta->worstSlack(sta::MinMax::max());
+  sta::Slack tns = sta->totalNegativeSlack(sta::MinMax::max());
+  printf("WNS: %f ps, TNS: %f ps\n", wns * 1e12, tns * 1e12);
+  printf("precedingResizeCheck returned %zu instances with positive benefit\n",
+         results.size());
+  fflush(stdout);
   delete incre_sta;
 }
 

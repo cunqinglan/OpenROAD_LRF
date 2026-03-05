@@ -140,7 +140,12 @@ public:
 class ParallelLocalCellInfo {
 public:
   std::vector<sta::LibertyCellSeq> *equiv_cells = nullptr;
-  std::vector<std::vector<float>> cell_leakages; 
+  std::vector<std::vector<float>> cell_leakages;
+};
+
+struct ResizeBenefit {
+  sta::Instance* inst;
+  float cost_change;    // original_cost - best_cost (positive = beneficial)
 };
 
 } // namespace lrf

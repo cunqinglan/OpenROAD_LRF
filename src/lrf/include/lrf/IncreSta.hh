@@ -73,6 +73,13 @@ public:
 
   void parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff);
 
+  // Preceding resize check: evaluate resize benefit for all instances
+  // in parallel (no conflict graph). Returns sorted vector of
+  // ResizeBenefit (descending by cost_change).
+  std::vector<ResizeBenefit> precedingResizeCheck(
+      rsz::Resizer *resizer, float avg_delay, float avg_power,
+      float PT_tradeoff, float top_ratio = 0.3);
+
   // APIs for power optimization
   void ensureActivities();  // Access power of one of the instances will trigger global activity calculation
   void makeSwappableCellsCache(rsz::Resizer *resizer);
@@ -80,7 +87,7 @@ public:
   void preSaveLibCellLeakage();
   void makeParallelLibData(rsz::Resizer *resizer, TaskArranger *task_arranger);
   ParallelLibData *parallelLibData() { return parallel_lib_data_; }
-  void makeEquivCellArray();
+  void makeEquivCellArray(bool verbose = false);
   LibertyCellArray* equivCellArray() { return &equiv_cell_array_; }
   PosMap* equivCellPosMap() { return &equiv_cell_pos_map_; }
 
