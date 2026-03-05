@@ -554,8 +554,8 @@ LrRebuffer::bufferForTiming(PtVertex &pt_drvr_vertex,
   for (const BnetPtr& p : top_opts) {
     LMValue cost = evaluateOption(pt_drvr_vertex, p);
     
-    printf("option %d: cost = %.3e, slack = %.3e, cap = %.3e, fanout = %0.f\n",
-           i, cost, p->slack().toSeconds(), p->cap(), p->fanout());
+    // printf("option %d: cost = %.3e, slack = %.3e, cap = %.3e, fanout = %0.f\n",
+    //        i, cost, p->slack().toSeconds(), p->cap(), p->fanout());
 
     if (cost < best_cost) {
       best_cost = cost;
@@ -565,7 +565,12 @@ LrRebuffer::bufferForTiming(PtVertex &pt_drvr_vertex,
     i++;
   }
 
-  printf("best option: %d cost=%.3e\n", best_index, best_cost);
+  if (best_option) {
+    printf("best option: %d cost=%.3e, slack=%.3e, cap=%.3e, fanout=%.0f\n",
+           best_index, best_cost, best_option->slack().toSeconds(),
+           best_option->cap(), best_option->fanout());
+    fflush(stdout);
+  }
 
   return best_option;
 }
