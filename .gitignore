@@ -32,6 +32,7 @@ build_new
 sota_lrf
 test/results
 .claude
+CLAUDE.md
 
 docs/main
 README2.md

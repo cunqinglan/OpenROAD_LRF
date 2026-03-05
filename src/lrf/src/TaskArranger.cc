@@ -855,7 +855,65 @@ TaskArranger::visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *
   incremental_ = true;
 }
 
-void 
+void
+TaskArranger::visitParallelPrecheck(sta::dbSta *sta, LocalSta *local_sta,
+                                    rsz::Resizer *resizer,
+                                    ParallelLrVisitor *visitor,
+                                    std::vector<ResizeBenefit> &results)
+{
+  resizer_ = resizer;
+
+  // Clean up old visitors if any
+  for (auto v : visitors_) delete v;
+  visitors_.clear();
+
+  // Collect ALL combinational vertices (no dependency filtering)
+  std::vector<InstVertex*> com_vertices;
+  com_vertices.reserve(num_com_);
+  for (size_t i = 0; i < num_com_; i++) {
+    if (vertices_[i].type() == VertexType::COMBINATIONAL)
+      com_vertices.push_back(&vertices_[i]);
+  }
+
+  printf("Precheck: %zu combinational instances, %u threads\n",
+         com_vertices.size(), thread_count_);
+  fflush(stdout);
+
+  // Pre-allocate results
+  results.resize(com_vertices.size());
+
+  // Create visitor copies for each thread
+  visitors_.reserve(thread_count_);
+  visitors_.push_back(visitor);
+  for (size_t i = 1; i < thread_count_; i++) {
+    visitors_.emplace_back(visitor->copy());
+  }
+
+  // Dispatch all combinational vertices directly (no conflict graph)
+  for (size_t i = 0; i < com_vertices.size(); i++) {
+    InstVertex *iv = com_vertices[i];
+    if (!dispatch_queue_) {
+      // Single-threaded fallback
+      float cost_change = visitors_[0]->trySwapPrecheck(iv->inst());
+      results[i] = {iv->inst(), cost_change};
+    } else {
+      dispatch_queue_->dispatch([this, iv, &results, i](int thread_id) {
+        float cost_change = visitors_[thread_id]->trySwapPrecheck(iv->inst());
+        results[i] = {iv->inst(), cost_change};
+      });
+    }
+  }
+  finishTasks();
+
+  // Cleanup visitors
+  for (auto v : visitors_) {
+    v->printRuntimeProfile();
+    delete v;
+  }
+  visitors_.clear();
+}
+
+void
 TaskArranger::createTask(InstVertex* inst_vertex)
 {
   // Record the instance name being visited

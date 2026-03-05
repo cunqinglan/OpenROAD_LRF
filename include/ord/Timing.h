@@ -136,6 +136,8 @@ class Timing
                                               bool ratcons = false,
                                               float PT_tradeoff = 100.0,
                                               const char *lr_helper_method = "RapidLRHelper");
+  void testPrecedingResizeCheck(float PT_tradeoff = 100.0,
+                                float top_ratio = 0.3);
   /////////////////////////////////////////////////////////////
   // End functions for testing LR sizing
   /////////////////////////////////////////////////////////////

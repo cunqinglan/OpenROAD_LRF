@@ -660,6 +660,20 @@ Timing::testParallelResizeByArrayWithBuffering(size_t max_resize_num, size_t ite
 }
 
 void
+Timing::testPrecedingResizeCheck(float PT_tradeoff, float top_ratio)
+{
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testPrecedingResizeCheck with %zu threads\n", thread_num);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testPrecedingResizeCheck(sta, resizer, design_->getBlock(),
+    thread_num, PT_tradeoff, top_ratio);
+}
+
+void
 Timing::testTimingComputeAndWriteBack(const std::vector<odb::dbInst*> &insts)
 {
   design_->updateParasiticsNoDeleteNetwork();

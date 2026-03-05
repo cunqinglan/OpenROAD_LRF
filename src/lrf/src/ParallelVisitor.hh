@@ -85,13 +85,16 @@ public:
   // Functions for runtime profiling
   void printRuntimeProfile() const;
 
-protected:  
+  // Lightweight precheck: evaluate small neighborhood, return cost change without applying.
+  float trySwapPrecheck(sta::Instance *inst, int col_padding = 1, int row_padding = 1);
+
+protected:
   // Function for testing purpose
   void recordGraphTimingFromPtGraphPara(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing, bool verbose = false);
 
   // Function of paralllel gate sizing
   float swapCost(float delay_lm_sum, float power);
-  
+
   // Replace the given instance with equivalent cells to evaluate and improve timing/power; returns true on success.
   bool trySwap(sta::Instance *inst);
   // Alternate implementation of trySwap (version 1) using a different strategy; returns true on success.
