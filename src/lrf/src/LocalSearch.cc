@@ -727,6 +727,17 @@ bool LocalRequiredVisitor::localVisitFromToPath(
 {
   // Don't propagate required times through latch D->Q edges.
   if (pt_edge.role() != TimingRole::latchDtoQ()) {
+    // Guard: to_pt_vertex may not have been assigned a tag group during
+    // arrival analysis (e.g. null vertex skipped in findLocalArrivals).
+    if (to_pt_vertex.tagGroupIndex() == sta::tag_group_index_max) {
+      printf("WARNING: localVisitFromToPath skipping to_vertex %s with no tag group "
+             "(from_vertex: %s, edge role: %s)\n",
+             network_->name(to_pt_vertex.pin()),
+             network_->name(from_pt_vertex.pin()),
+             pt_edge.role()->to_string().c_str());
+      fflush(stdout);
+      return true;
+    }
     size_t path_index = ptPathIndex(from_pt_vertex, from_path);
     const MinMax *req_min = min_max->opposite();
     TagGroup *to_tag_group = search_->tagGroup(to_pt_vertex.tagGroupIndex());

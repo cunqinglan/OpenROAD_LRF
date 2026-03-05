@@ -98,6 +98,18 @@ public:
   // Print all liberty cells information grouped by unique equiv cell groups.
   void printAllCellsInfo(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
 
+  // integrate resizing by array and parallel buffering
+  void testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons = false,
+                            float PT_tradeoff = 100.0,
+                            std::string lr_helper_method = "RapidLRHelper");
+
 protected:
   void printSlewComparison(char *inst_name, sta::dbSta* sta, 
                        LocalSta *local_sta, odb::dbInst *db_inst, 
