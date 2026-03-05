@@ -16,6 +16,7 @@
 #include "parasitics/ConcreteParasitics.hh"
 #include "TaskArranger.hh"
 #include "ParallelVisitor.hh"
+#include "LrRebuffer.hh"
 #include "rsz/Resizer.hh"
 #include "ParallelLibData.hh"
 #include "LrSizer.hh"
@@ -793,6 +794,26 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
   printf("After parallel LR resize, TNS: %e, WNS: %e\n", tns_after_resize, wns_after_resize);
   printf("parallel resize time: %f s\n", diff_resize.count());
 
+  if (isPowerOptimizationMode()) {
+    ParallelLrVisitor *critical_path_visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
+    critical_path_visitor->init(avg_delay, avg_power, wns_after_resize, 
+        PT_tradeoff, &swappable_cells_cache_, &inst_info_map_);
+    critical_path_visitor->setMoveType(MoveType::Resizing);
+
+    // Time the critical-path sizing phase
+    auto start_cps = std::chrono::high_resolution_clock::now();
+    LrSizer lr_sizer(sta_, lr_helper_, critical_path_visitor);
+    lr_sizer.criticalPathSizing();
+    auto end_cps = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> diff_cps = end_cps - start_cps;
+
+    double tns_after_cps = sta_->totalNegativeSlack(MinMax::max());
+    double wns_after_cps = sta_->worstSlack(MinMax::max());
+    printf("After critical path sizing, TNS: %e, WNS: %e\n", tns_after_cps, wns_after_cps);
+    printf("critical path sizing time: %f s\n", diff_cps.count());
+    delete critical_path_visitor;
+  }
+
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_total = end_total - start_total;
   printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
@@ -809,10 +830,15 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff)
   Slack wns = sta_->worstSlack(MinMax::max());
   TaskArranger *task_arranger = local_sta_->taskArranger();
 
+  // Initialize global STA/Resizer state once in serial before going parallel.
+  // This prevents concurrent calls to checkXxxLimitPreamble/findFastBuffers
+  // from multiple threads inside LrRebuffer::init().
+  LrRebuffer::initGlobalPreamble(sta_, resizer);
+
   auto start_resize = std::chrono::high_resolution_clock::now();
   ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
   visitor->init(0, 0, wns, PT_tradeoff, nullptr, nullptr);
-  visitor->setMoveType(MoveType::BufferInsertion);
+  visitor->setMoveType(MoveType::BufferInsertion);  // creates LrRebuffer via initLocal()
   task_arranger->visitParallel(sta_, local_sta_, resizer, visitor);
   auto end_resize = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_resize = end_resize - start_resize;
@@ -822,7 +848,7 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff)
   sta_->findRequireds();
   double tns_after_resize = sta_->totalNegativeSlack(MinMax::max());
   double wns_after_resize = sta_->worstSlack(MinMax::max());
-  printf("After parallel LR Buffering, TNS: %e, WNS: %e\n", tns_after_resize, wns_after_resize);
+  printf("After parallel LR Buffering, TNS: %.6f, WNS: %.6f\n", tns_after_resize * 1e12, wns_after_resize * 1e12);
   printf("parallel resize time: %f s\n", diff_resize.count());
 
   auto end_total = std::chrono::high_resolution_clock::now();

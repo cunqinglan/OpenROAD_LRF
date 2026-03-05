@@ -36,7 +36,7 @@ public:
   virtual bool visit(sta::Instance *inst);
   bool visit(sta::Instance *inst, TimingRecord &timing_record);
   bool singleGateSizing(sta::Instance *inst);
-  void setMoveType(MoveType move_type) { move_type_ = move_type; }
+  void setMoveType(MoveType move_type);
   
   // Apply cell type changes to OpenROAD and OpenSTA, and 
   // update timing information from PtGraph to sta::Graph.

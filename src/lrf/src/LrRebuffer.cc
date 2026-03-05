@@ -9,8 +9,19 @@
 #include "sta/Fuzzy.hh"
 
 
+namespace {
+
+static float bufferCin(const sta::LibertyCell *cell)
+{
+  sta::LibertyPort *a, *y;
+  cell->bufferPorts(a, y);
+  return a->capacitance();
+}
+
+} // namespace
+
 namespace lrf {
-  
+
 using rsz::BufferedNetType;
 using rsz::BufferedNetSeq;
 using rsz::BufferedNetPtr;
@@ -29,13 +40,48 @@ LrRebuffer::LrRebuffer(rsz::Resizer *resizer, ParallelLrVisitor* visitor) :
   arc_delay_calc_ = visitor->arcDelayCalc();
 }
 
-void 
+void
+LrRebuffer::initGlobalPreamble(sta::dbSta *sta, rsz::Resizer *resizer)
+{
+  sta->checkCapacitanceLimitPreamble();
+  sta->checkSlewLimitPreamble();
+  sta->checkFanoutLimitPreamble();
+  resizer->findFastBuffers();
+}
+
+void
 LrRebuffer::init()
 {
-  rsz::Rebuffer::init();  // This initializes corners_ via dbStaState::init()
+  // Per-instance init; global preamble must have been called once in serial
+  // via LrRebuffer::initGlobalPreamble() before this runs.
+  logger_ = resizer_->logger_;
+  dbStaState::init(resizer_->sta_);
+  db_network_ = resizer_->db_network_;
+  estimate_parasitics_ = resizer_->estimate_parasitics_;
+  resizer_max_wire_length_
+      = resizer_->metersToDbu(resizer_->findMaxWireLength());
+
+  buffer_sizes_.clear();
+  for (auto cell : resizer_->buffer_fast_sizes_) {
+    sta::LibertyPort *in, *out;
+    cell->bufferPorts(in, out);
+    buffer_sizes_.push_back(BufferSize{
+        cell,
+        FixedDelay(out->intrinsicDelay(sta_), resizer_),
+        /*margined_max_cap=*/0.0f,
+        out->driveResistance(),
+    });
+  }
+  std::ranges::sort(buffer_sizes_, [=](BufferSize a, BufferSize b) {
+    return bufferCin(a.cell) < bufferCin(b.cell);
+  });
+  buffer_sizes_index_.clear();
+  for (auto& size : buffer_sizes_) {
+    buffer_sizes_index_[size.cell] = &size;
+  }
+
   arc_delay_calc_ = visitor_->arcDelayCalc();
-  
-  // Now corners_ is available, we can find the corner
+
   sta::Corner *corner = corners_->findCorner("default");
   if (corner) {
     initOnCorner(corner);
@@ -508,7 +554,7 @@ LrRebuffer::bufferForTiming(PtVertex &pt_drvr_vertex,
   for (const BnetPtr& p : top_opts) {
     LMValue cost = evaluateOption(pt_drvr_vertex, p);
     
-    printf("option %d: cost = %.3e, slack = %.3e, cap = %.3f, fanout = %zu\n",
+    printf("option %d: cost = %.3e, slack = %.3e, cap = %.3e, fanout = %0.f\n",
            i, cost, p->slack().toSeconds(), p->cap(), p->fanout());
 
     if (cost < best_cost) {

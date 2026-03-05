@@ -720,8 +720,19 @@ ParallelLrVisitor::copy() const
   new_visitor->setParallelLibData(parallel_lib_data_);
   new_visitor->setEquivCellArray(equiv_cell_array_, equiv_cell_pos_map_);
   new_visitor->setClockPeriod(clock_period_);
-  new_visitor->setMoveType(move_type_);
+  new_visitor->setMoveType(move_type_);  // also creates LrRebuffer if needed
   return new_visitor;
+}
+
+void
+ParallelLrVisitor::setMoveType(MoveType move_type)
+{
+  move_type_ = move_type;
+  if (move_type_ == MoveType::BufferInsertion) {
+    delete rebuffer_;
+    rebuffer_ = new LrRebuffer(resizer_, this);
+    rebuffer_->init();
+  }
 }
 
 void
@@ -986,8 +997,9 @@ ParallelLrVisitor::tryBuffering(sta::Instance *inst)
   visited_instances_.push_back(db_sta_->network()->pathName(inst));
   pt_graph_ = local_sta_->makePtGraph(inst, false);
   if (rebuffer_ == nullptr) {
-    rebuffer_ = new LrRebuffer(resizer_, this);
-    rebuffer_->init();
+    throw std::runtime_error(
+        "ParallelLrVisitor::tryBuffering: rebuffer_ is null; "
+        "setMoveType(BufferInsertion) must be called before visiting");
   }
   sta::dbNetwork *network = db_sta_->getDbNetwork();
   int drvr_count = 0;

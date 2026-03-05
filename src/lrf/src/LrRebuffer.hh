@@ -25,6 +25,8 @@ class LrRebuffer : public rsz::Rebuffer
 {
 public:
   LrRebuffer(rsz::Resizer* resizer, ParallelLrVisitor* parallel_visitor);
+  // Call once in serial before creating any LrRebuffer instances in parallel.
+  static void initGlobalPreamble(sta::dbSta* sta, rsz::Resizer* resizer);
   void init();
   // Compute the best buffering option and save it at best_bnet_.
   void rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex);
