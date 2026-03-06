@@ -360,7 +360,11 @@ protected:
                           bool merge,
                           const DcalcAnalysisPt *dcalc_ap,
                           PtGraph *pt_graph);
-  
+  float computeVirtualLoadCap(PtVertex &drvr_pt_vertex,
+                              const RiseFall *drvr_rf,
+                              const DcalcAnalysisPt *dcalc_ap,
+                              PtGraph *pt_graph);
+
   float delayLmSum(Instance *inst, const MinMax *minmax);
   float delayLmSum(PtGraph *pt_graph, DcalcAnalysisPt *dcalc_ap);
   DelayLmSumResult delayLmSum(PtGraph *pt_graph,

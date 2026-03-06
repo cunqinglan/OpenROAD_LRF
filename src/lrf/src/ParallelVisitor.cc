@@ -1147,16 +1147,17 @@ ParallelLrVisitor::tryBuffering(sta::Instance *inst)
       sta::Pin *pin = pt_vertex.vertex()->pin();
       rebuffer_->rebufferPin(pin, pt_vertex);
       drvr_count++;
+      // If multi-driver instance is found, we should first invest what would 
+      // happen.
+      if (drvr_count > 1) {
+        printf("Warning: ParallelLrVisitor::tryBuffering instance %s has more than 1 driver pins, buffering may not be correct\n",
+              db_sta_->network()->pathName(inst));
+        fflush(stdout);
+        return false;
+      }
     }
   }
-  // If multi-driver instance is found, we should first invest what would 
-  // happen.
-  if (drvr_count > 1) {
-    printf("Warning: ParallelLrVisitor::tryBuffering instance %s has more than 1 driver pins, buffering may not be correct\n",
-           db_sta_->network()->pathName(inst));
-    fflush(stdout);
-    return false;
-  }
+  
   if (rebuffer_->bestBnet() == nullptr) {
     return false;
   }

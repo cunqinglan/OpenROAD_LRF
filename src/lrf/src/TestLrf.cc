@@ -1487,7 +1487,7 @@ recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &gr
   fflush(stdout);
   // First copy slews and paths from pt_graph's vertex to graph_timing
   for (PtVertex &pt_vertex : pt_graph->ptVertices()) {
-    if (pt_vertex.vertex() == nullptr) 
+    if (pt_vertex.type() == PtVertexType::Sentinel)
       continue;
     // if (!pt_vertex.vertex() || (pt_vertex.type() != PtVertexType::RefInput
     //  && pt_vertex.type() != PtVertexType::RefOutput)) 

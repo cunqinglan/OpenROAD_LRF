@@ -183,8 +183,9 @@ public:
 
 protected:
   void localSetVertexArrivals(PtVertex &vertex, TagGroupBldr *tag_bldr);
+  void findVirtualVertexArrival(PtVertex &pt_vertex);
   void init0();
-  
+
   bool always_to_endpoints_;
   bool always_save_prev_paths_;
   TagGroupBldr *tag_bldr_;
