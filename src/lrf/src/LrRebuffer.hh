@@ -21,6 +21,12 @@ class ParallelLrVisitor;
 class PtGraph;
 class LocalSta;
 
+struct VirtualBufferInfo {
+  std::vector<sta::VertexId> vertex_ids;
+  std::vector<sta::EdgeId> edge_ids;
+  std::vector<sta::EdgeId> orig_wire_edge_ids;
+};
+
 class LrRebuffer : public rsz::Rebuffer
 {
 public:
@@ -55,11 +61,16 @@ protected:
                                  const rsz::BufferedNetPtr& load_opt);
   std::vector<float> mergeLmVectors(const std::vector<float>& lm1, 
                                     const std::vector<float>& lm2);
-  LMValue evaluateOption(PtVertex &pt_vertex, const rsz::BufferedNetPtr& option);
+  LMValue evaluateOption(PtVertex &pt_vertex, const rsz::BufferedNetPtr& option,
+                       float original_slack);
   float cellDelayLmSum(PtVertex &pt_drvr_vertex,
                        const rsz::BufferedNetPtr& load_opt,
                        sta::Slew &max_slew);
   bool hasViolation(const rsz::BufferedNetPtr& option, sta::Slew max_slew);
+  VirtualBufferInfo buildVirtualBuffer(PtVertex &drvr_pt_vertex,
+                                       const rsz::BufferedNetPtr& option);
+  void removeVirtualBuffer(VirtualBufferInfo &info);
+  float computeVirtualSlack(const VirtualBufferInfo &info);
   rsz::BufferedNetPtr attemptTopologyRewrite(const rsz::BufferedNetPtr& node,
                                              const rsz::BufferedNetPtr& left,
                                              const rsz::BufferedNetPtr& right,
