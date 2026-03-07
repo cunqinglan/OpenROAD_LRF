@@ -377,15 +377,11 @@ PtGraph::initVirtualPaths(PtVertex &virtual_vertex, PtVertex &source_vertex)
     return;
   }
   virtual_vertex.setTagGroupIndex(src_tg_idx);
-  sta::TagGroup *tag_group = sta_->search()->tagGroup(src_tg_idx);
-  if (tag_group == nullptr) {
-    virtual_vertex.setPaths(nullptr);
-    virtual_vertex.setTagGroupIndex(sta::tag_group_index_max);
-    return;
-  }
-  size_t path_count = tag_group->pathCount();
-  sta::Path *paths = new sta::Path[path_count];
-  virtual_vertex.setPaths(paths);
+  // Do NOT pre-allocate paths here. localSetVertexArrivals will allocate via
+  // makePaths + copyPaths when it sees paths_ == nullptr, ensuring full Path
+  // initialization (including Tag*). Pre-allocating uninitialized Path objects
+  // and then using ptCopyPaths leaves Tag* garbage, causing crashes in tagIndex().
+  virtual_vertex.setPaths(nullptr);
 }
 
 void
@@ -531,6 +527,35 @@ PtGraph::updateTimingArcSets()
       }
       sta::TimingArcSet *new_arc_set = 
                 ref_lib_cell_->findTimingArcSet(ref_arc_set);
+      if (new_arc_set == nullptr) {
+        // Fallback: find an unconditional arc set for the same
+        // from/to port pair.  This handles cases where the lib
+        // vendor used different conditional-arc granularity
+        // between drive strengths (e.g. ASAP7).
+        sta::LibertyPort *old_from = ref_arc_set->from();
+        sta::LibertyPort *old_to   = ref_arc_set->to();
+        if (old_from && old_to) {
+          sta::LibertyPort *new_from =
+              ref_lib_cell_->findLibertyPort(old_from->name());
+          sta::LibertyPort *new_to =
+              ref_lib_cell_->findLibertyPort(old_to->name());
+          if (new_from && new_to) {
+            const sta::TimingArcSetSeq &candidates =
+                ref_lib_cell_->timingArcSets(new_from, new_to);
+            // Prefer the unconditional arc set (cond == nullptr).
+            for (sta::TimingArcSet *candidate : candidates) {
+              if (candidate->cond() == nullptr) {
+                new_arc_set = candidate;
+                break;
+              }
+            }
+            // If no unconditional arc set, use the first available.
+            if (new_arc_set == nullptr && !candidates.empty()) {
+              new_arc_set = candidates[0];
+            }
+          }
+        }
+      }
       if (new_arc_set == nullptr) {
         printf("PtGraph::updateTimingArcSets: no matching timing arc set in ref_lib_cell_ %s for PtEdge %u of edge %s\n",
                ref_lib_cell_->name(),
