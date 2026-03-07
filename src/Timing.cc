@@ -660,6 +660,22 @@ Timing::testParallelResizeByArrayWithBuffering(size_t max_resize_num, size_t ite
 }
 
 void
+Timing::testParallelResizeByArrayWithPrecheck(size_t max_resize_num,
+  size_t iterations, size_t num_no_improve_tolerance, bool ratcons,
+  float PT_tradeoff, const char *lr_helper_method, float top_ratio) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testParallelResizeByArrayWithPrecheck with %zu threads\n", thread_num);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testParallelLrResizeByArrayWithPrecheck(sta, resizer, design_->getBlock(),
+    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
+    PT_tradeoff, lr_helper_method, top_ratio);
+}
+
+void
 Timing::testPrecedingResizeCheck(float PT_tradeoff, float top_ratio)
 {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();

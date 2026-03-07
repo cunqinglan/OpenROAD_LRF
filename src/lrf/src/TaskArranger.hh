@@ -85,7 +85,8 @@ struct InstVertex {
   EdgeId out_edges_ = edge_id_null;
   ObjectIdx object_idx_ = object_idx_null;
   VertexType type_ = VertexType::NONE;
-  std::vector<sta::PwrActivity> activities_; 
+  bool selected_ = true;  // default true: all instances participate in resize
+  std::vector<sta::PwrActivity> activities_;
 };
 
 struct InstEdge {
@@ -177,6 +178,10 @@ public:
   const std::vector<const InstVertex*>& getVisitedInstVertices() const { return visited_inst_vertices_; }
   void clearVisitedInstVertices() { visited_inst_vertices_.clear(); }
   void printVisitedInstNames() const;
+
+  // Mark top instances as selected based on precheck results.
+  // All vertices are first reset to unselected, then only those in benefits are marked.
+  void markSelectedInstances(const std::vector<ResizeBenefit> &benefits);
 
   void setMaxResizeNum(size_t max_resize_num) { max_resize_num_ = max_resize_num; }
   size_t vertexCount() const { return vertices_.size(); }

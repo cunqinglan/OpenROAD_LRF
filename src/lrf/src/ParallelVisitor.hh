@@ -142,6 +142,7 @@ protected:
     {"single_gate_sizing", 0.0},
     {"buffer_insertion", 0.0},
     {"buffer_count", 0.0},
+    {"precheck", 0.0}
   };
 private:
   friend class LrRebuffer;

@@ -80,6 +80,11 @@ public:
       rsz::Resizer *resizer, float avg_delay, float avg_power,
       float PT_tradeoff, float top_ratio = 0.3);
 
+  // Resize by array with preceding precheck: only selected top instances are resized.
+  void parallelResizeByArrayWithPrecheck(rsz::Resizer *resizer, float avg_delay,
+                                         float avg_power, float PT_tradeoff,
+                                         float top_ratio = 0.3);
+
   // APIs for power optimization
   void ensureActivities();  // Access power of one of the instances will trigger global activity calculation
   void makeSwappableCellsCache(rsz::Resizer *resizer);
