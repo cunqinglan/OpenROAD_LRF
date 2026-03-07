@@ -331,6 +331,8 @@ ParallelLrVisitor::trySwapByArray(sta::Instance *inst, int col_padding, int row_
 float
 ParallelLrVisitor::trySwapPrecheck(sta::Instance *inst, int col_padding, int row_padding)
 {
+  auto t_start = std::chrono::high_resolution_clock::now();
+
   sta::LibertyCell *ori_cell = db_sta_->network()->libertyCell(inst);
   if (!ori_cell)
     return 0.0f;
@@ -368,7 +370,11 @@ ParallelLrVisitor::trySwapPrecheck(sta::Instance *inst, int col_padding, int row
     return 0.0f;
 
   // Build PtGraph
+  auto t_pt_start = std::chrono::high_resolution_clock::now();
   PtGraph *pt_graph = local_sta_->makePtGraph(inst, false);
+  auto t_pt_end = std::chrono::high_resolution_clock::now();
+  runtime_map_["pt_graph_construction"] +=
+      std::chrono::duration<double>(t_pt_end - t_pt_start).count();
 
   // Get leakage from inst_info_map if available
   LocalCellInfo *cell_info = nullptr;
@@ -382,6 +388,7 @@ ParallelLrVisitor::trySwapPrecheck(sta::Instance *inst, int col_padding, int row
   }
 
   // Evaluate all candidates (including ori_cell)
+  auto t_eval_start = std::chrono::high_resolution_clock::now();
   float ori_cost = std::numeric_limits<float>::max();
   float ori_slack = 0.0f;
   float best_cost = std::numeric_limits<float>::max();
@@ -421,15 +428,11 @@ ParallelLrVisitor::trySwapPrecheck(sta::Instance *inst, int col_padding, int row
   }
 
   // Second pass: find best cost with slack protection
-  // Re-evaluate since we now know ori_slack
-  // (Reuse the same evaluation pattern but only track best)
   if (ori_cost == std::numeric_limits<float>::max()) {
-    // ori_cell was not in candidates or failed legal check
     // pt_graph is owned by local_sta_->local_graphs_, do NOT delete here
     return 0.0f;
   }
 
-  // Reset PtGraph to original cell state before re-evaluating
   best_cost = ori_cost;
   for (size_t i = 0; i < candidates.size(); i++) {
     sta::LibertyCell *cand = candidates[i];
@@ -462,6 +465,15 @@ ParallelLrVisitor::trySwapPrecheck(sta::Instance *inst, int col_padding, int row
     if (cost < best_cost && slack >= ori_slack * slack_margin_)
       best_cost = cost;
   }
+
+  auto t_eval_end = std::chrono::high_resolution_clock::now();
+  runtime_map_["equiv_cell_check"] +=
+      std::chrono::duration<double>(t_eval_end - t_eval_start).count();
+  runtime_map_["equiv_cell_count"] += candidates.size();
+
+  auto t_end = std::chrono::high_resolution_clock::now();
+  runtime_map_["precheck"] +=
+      std::chrono::duration<double>(t_end - t_start).count();
 
   // pt_graph is owned by local_sta_->local_graphs_, do NOT delete here
   return ori_cost - best_cost;  // positive = beneficial

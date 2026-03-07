@@ -110,6 +110,19 @@ public:
                             float PT_tradeoff = 100.0,
                             std::string lr_helper_method = "RapidLRHelper");
 
+  // Resize by array with preceding precheck filtering
+  void testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons = false,
+                            float PT_tradeoff = 100.0,
+                            std::string lr_helper_method = "RapidLRHelper",
+                            float top_ratio = 0.3);
+
   // Preceding resize precheck: evaluate resize benefit for all instances
   // in parallel without a conflict graph, sort by benefit, and print results.
   void testPrecedingResizeCheck(sta::dbSta* sta,
