@@ -867,20 +867,16 @@ TaskArranger::visitParallelPrecheck(sta::dbSta *sta, LocalSta *local_sta,
   for (auto v : visitors_) delete v;
   visitors_.clear();
 
-  // Collect ALL combinational vertices (no dependency filtering)
-  std::vector<InstVertex*> com_vertices;
-  com_vertices.reserve(num_com_);
-  for (size_t i = 0; i < num_com_; i++) {
-    if (vertices_[i].type() == VertexType::COMBINATIONAL)
-      com_vertices.push_back(&vertices_[i]);
-  }
-
-  printf("Precheck: %zu combinational instances, %u threads\n",
-         com_vertices.size(), thread_count_);
+  printf("Precheck: %zu combinational instances out of %zu total, %u threads\n",
+         num_com_, vertices_.size(), thread_count_);
   fflush(stdout);
 
-  // Pre-allocate results
-  results.resize(com_vertices.size());
+  // Pre-allocate results with 1:1 mapping to vertices_.
+  // Non-combinational slots are left with cost_change=0.
+  const size_t total = vertices_.size();
+  results.resize(total);
+  for (size_t i = 0; i < total; i++)
+    results[i] = {vertices_[i].inst_, -std::numeric_limits<float>::infinity(), i};
 
   // Create visitor copies for each thread
   visitors_.reserve(thread_count_);
@@ -889,17 +885,18 @@ TaskArranger::visitParallelPrecheck(sta::dbSta *sta, LocalSta *local_sta,
     visitors_.emplace_back(visitor->copy());
   }
 
-  // Dispatch all combinational vertices directly (no conflict graph)
-  for (size_t i = 0; i < com_vertices.size(); i++) {
-    InstVertex *iv = com_vertices[i];
+  // Dispatch only combinational vertices (no conflict graph)
+  for (size_t i = 0; i < total; i++) {
+    if (vertices_[i].type() != VertexType::COMBINATIONAL)
+      continue;
+    InstVertex *iv = &vertices_[i];
     if (!dispatch_queue_) {
-      // Single-threaded fallback
       float cost_change = visitors_[0]->trySwapPrecheck(iv->inst());
-      results[i] = {iv->inst(), cost_change};
+      results[i] = {iv->inst(), cost_change, i};
     } else {
       dispatch_queue_->dispatch([this, iv, &results, i](int thread_id) {
         float cost_change = visitors_[thread_id]->trySwapPrecheck(iv->inst());
-        results[i] = {iv->inst(), cost_change};
+        results[i] = {iv->inst(), cost_change, i};
       });
     }
   }
@@ -911,6 +908,17 @@ TaskArranger::visitParallelPrecheck(sta::dbSta *sta, LocalSta *local_sta,
     delete v;
   }
   visitors_.clear();
+}
+
+void
+TaskArranger::markSelectedInstances(const std::vector<ResizeBenefit> &benefits)
+{
+  // Reset all vertices to unselected
+  for (auto &v : vertices_)
+    v.selected_ = false;
+  // Mark only the top instances from precheck as selected
+  for (const auto &b : benefits)
+    vertices_[b.vertex_idx].selected_ = true;
 }
 
 void
@@ -940,30 +948,34 @@ TaskArranger::createTask(InstVertex* inst_vertex)
   });
 }
 
-void 
+void
 TaskArranger::runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex)
 {
-  // Topology validation: check if this vertex is ready to visit
-  if (enable_topology_check_ && topology_checker_) {
-    topology_checker_->onVisit(inst_vertex, std::this_thread::get_id());
-  }
-  
-  if (visitor->visit(inst_vertex->inst())) 
-  {
-    // Topology validation: mark before modification
+  // Only visit selected instances; unselected ones just cascade dependencies
+  if (inst_vertex->selected_) {
+    // Topology validation: check if this vertex is ready to visit
     if (enable_topology_check_ && topology_checker_) {
-      topology_checker_->onBeforeModify(inst_vertex, std::this_thread::get_id());
+      topology_checker_->onVisit(inst_vertex, std::this_thread::get_id());
     }
-    
-    // Use the global mutex to protect DB/STA modification
-    // ensuring exclusive access against other readers and writers.
-    visitor->applyChangesToDb(resizer_);
-    
-    // Topology validation: mark after modification
-    if (enable_topology_check_ && topology_checker_) {
-      topology_checker_->onAfterModify(inst_vertex, std::this_thread::get_id());
+
+    if (visitor->visit(inst_vertex->inst()))
+    {
+      // Topology validation: mark before modification
+      if (enable_topology_check_ && topology_checker_) {
+        topology_checker_->onBeforeModify(inst_vertex, std::this_thread::get_id());
+      }
+
+      // Use the global mutex to protect DB/STA modification
+      // ensuring exclusive access against other readers and writers.
+      visitor->applyChangesToDb(resizer_);
+
+      // Topology validation: mark after modification
+      if (enable_topology_check_ && topology_checker_) {
+        topology_checker_->onAfterModify(inst_vertex, std::this_thread::get_id());
+      }
     }
   }
+  // Always cascade dependencies regardless of selected_
   std::set<VertexId> zero_ref_vertices = decreOutRefCount(inst_vertex);
   for (VertexId zero_ref_id : zero_ref_vertices) {
     InstVertex* zero_ref_vertex = vertex(zero_ref_id);

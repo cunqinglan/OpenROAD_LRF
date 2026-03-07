@@ -146,6 +146,7 @@ public:
 struct ResizeBenefit {
   sta::Instance* inst;
   float cost_change;    // original_cost - best_cost (positive = beneficial)
+  size_t vertex_idx;    // index into TaskArranger::vertices_ for direct access
 };
 
 } // namespace lrf
