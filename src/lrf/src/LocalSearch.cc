@@ -274,7 +274,7 @@ LocalPathVisitor::localVisitEdge(PtVertex &from_pt_vertex,
       TagIndex tag_idx = from_path->tagIndex(this);
       if (tag_idx == sta::tag_group_index_max || tag_idx >= search_->tagCount()) {
         printf("Warning: LocalPathVisitor::localVisitEdge: Skipping invalid path on vertex %s that may have been corrupted by copyPaths.\n",
-               network_->name(from_pt_vertex.pin()));
+               from_pt_vertex.pin() ? network_->name(from_pt_vertex.pin()) : "virtual");
         fflush(stdout);
         continue;
       }
@@ -558,44 +558,32 @@ LocalArrivalVisitor::localSetVertexArrivals(PtVertex &pt_vertex, TagGroupBldr *t
   Path *prev_paths = pt_vertex.paths();
   TagGroup *tag_group = search_->findExistingTagGroup(tag_bldr);
   if (tag_group == prev_tag_group) {
-    // Even if tag_group is the same, we need to ensure prev_paths is not null
     if (prev_paths == nullptr) {
-      const char *vname = pt_vertex.pin() ? network_->name(pt_vertex.pin()) : "virtual";
-      printf("LocalArrivalVisitor::localSetVertexArrivals: prev_paths == nullptr for %s.\n",
-             vname);
-      fflush(stdout);
+      // Normal for virtual vertices (paths_ starts null after initVirtualPaths).
+      // Use copyPaths to fully initialize Path objects including Tag*.
+      // ptCopyPaths must NOT be used here: it only writes arrival/prev, leaving
+      // Tag* uninitialized, causing crashes in tagIndex() later.
       size_t path_count = tag_bldr->pathCount();
       Path *paths = pt_graph_->makePaths(pt_vertex.objectIdx(), path_count);
-      // Since prev_paths is nullptr, we can't preserve required, just copy arrivals
-      // This should be rare - only happens on first arrival computation
       tag_bldr->copyPaths(tag_group, paths);
     } else {
-      // Normal case: preserve required while updating arrivals
+      // Normal incremental case: preserve required while updating arrivals.
       tag_bldr->ptCopyPaths(prev_tag_group, prev_paths);
     }
   } else {
-    // printf("Warning: LocalArrivalVisitor::localSetVertexArrivals: TagGroup changed for %s (may lose requireds).\n",
-    //        network_->name(pt_vertex.pin()));
-
-    // const char *pin_name = pt_vertex.pin() ? network_->name(pt_vertex.pin()) : "virtual";
-    // // 只为特定的 pin 输出详细信息
-    // bool is_debug_pin = (strcmp(pin_name, "g42937/Y") == 0);
-    
-    // if (is_debug_pin) {
-    //   printf("\n=== NEW TagGroup for %s ===\n", pin_name);
-      
-    //   if (prev_tag_group && tag_group) {
-    //     printf("Previous: index=%u, paths=%zu\n",
-    //             prev_tag_group->index(), prev_tag_group->pathCount());
-    //     printf("New: index=%u, paths=%zu\n",
-    //             tag_group->index(), tag_group->pathCount());
-    //   }
-    //   fflush(stdout);
-    // }
-    
-    // Save required values before deleting old paths
-    
-    tag_bldr->ptCopyPaths(prev_tag_group, prev_paths);
+    if (prev_paths == nullptr) {
+      // Virtual vertex, tag group changed on first initialization.
+      // Allocate fresh paths and update tagGroupIndex to match the new layout,
+      // so PtVertexPathIterator uses the correct path_count from tag_group.
+      if (tag_group) {
+        size_t path_count = tag_bldr->pathCount();
+        Path *paths = pt_graph_->makePaths(pt_vertex.objectIdx(), path_count);
+        tag_bldr->copyPaths(tag_group, paths);
+        pt_vertex.setTagGroupIndex(tag_group->index());
+      }
+    } else {
+      tag_bldr->ptCopyPaths(prev_tag_group, prev_paths);
+    }
   }
   // We don't consider filtered paths since we don't consider
   // false path in the local graph (we can prevent it from the

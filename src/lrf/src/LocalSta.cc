@@ -1025,7 +1025,11 @@ LocalSta::annotateLoadDelays(PtVertex &drvr_pt_vertex,
           continue;
         load_idx = load_pin_index_map[load_pin];
       } else {
-        // Virtual load: use index 0 (single virtual wire edge for buffer)
+        // Virtual load: excluded from load_pin_index_map, so dcalc_result has
+        // no entry for it. Skip annotation; wire delay stays at 0.
+        if (load_pin_index_map.empty())
+          continue;
+        // Mixed real+virtual: use index 0 as approximation
         load_idx = 0;
       }
 
@@ -1831,8 +1835,13 @@ LocalSta::virtualReplaceCell(PtGraph *pt_graph, LibertyCell *new_cell)
 {
   // If it's nullptr, we use original ref lib cell of pt graph
   if (new_cell) {
-    if (!equivCellsArcs(pt_graph->refGate(), new_cell)) {
-      printf("This cell: %s replacement needs more processing\n", new_cell->name());
+    // Relax check: only require port and function equivalence.
+    // Timing arc set differences (e.g. different conditional arc
+    // granularity between drive strengths in ASAP7) are handled
+    // by the fallback logic in PtGraph::updateTimingArcSets().
+    if (!equivCellPorts(pt_graph->refGate(), new_cell)
+        || !equivCellFuncs(pt_graph->refGate(), new_cell)) {
+      printf("This cell: %s (orig: %s) replacement needs more processing\n", new_cell->name(), pt_graph->refGate()->name());
       return;
     }
     pt_graph->setRefGate(new_cell);
