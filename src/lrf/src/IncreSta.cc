@@ -862,10 +862,7 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
               return a.cost_change > b.cost_change;
             });
 
-  auto end_total = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> diff_total = end_total - start_total;
-
-  // Print summary
+  // Count positive before filtering (for logging)
   size_t positive_count = 0;
   for (const auto &r : results) {
     if (r.cost_change > 0.0f)
@@ -874,20 +871,91 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
   printf("Precheck: %zu/%zu instances have positive benefit\n",
          positive_count, results.size());
 
-  // Print top results
-  size_t top_n = std::min(static_cast<size_t>(results.size() * top_ratio),
-                          results.size());
-  top_n = std::min(top_n, static_cast<size_t>(20));  // cap at 20 for printing
-  printf("Top %zu instances by resize benefit:\n", top_n);
-  for (size_t i = 0; i < top_n; i++) {
-    printf("  [%zu] %s  cost_change=%.6f\n", i,
+  // Filter: keep top_ratio fraction, remove non-positive
+  size_t top_n = static_cast<size_t>(results.size() * top_ratio);
+  results.resize(top_n);
+  results.erase(
+    std::remove_if(results.begin(), results.end(),
+                   [](const ResizeBenefit &b) { return b.cost_change <= 0.0f; }),
+    results.end());
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_total = end_total - start_total;
+
+  // Print top results (cap at 20 for display)
+  size_t print_n = std::min(results.size(), static_cast<size_t>(20));
+  printf("Selected %zu instances (top_ratio=%.2f), top %zu:\n",
+         results.size(), top_ratio, print_n);
+  for (size_t i = 0; i < print_n; i++) {
+    printf("  [%zu] %s  cost_change=%.6f  vertex_idx=%zu\n", i,
            network_->pathName(results[i].inst),
-           results[i].cost_change);
+           results[i].cost_change, results[i].vertex_idx);
   }
   printf("precedingResizeCheck total time: %f s\n", diff_total.count());
   fflush(stdout);
 
   return results;
+}
+
+void
+IncreSta::parallelResizeByArrayWithPrecheck(
+    rsz::Resizer *resizer, float avg_delay, float avg_power,
+    float PT_tradeoff, float top_ratio)
+{
+  auto start_total = std::chrono::high_resolution_clock::now();
+
+  // Phase 1: Precheck — returns filtered top instances sorted by benefit
+  auto t_precheck_start = std::chrono::high_resolution_clock::now();
+  auto benefits = precedingResizeCheck(resizer, avg_delay, avg_power,
+                                       PT_tradeoff, top_ratio);
+  auto t_precheck_end = std::chrono::high_resolution_clock::now();
+  double precheck_sec = std::chrono::duration<double>(t_precheck_end - t_precheck_start).count();
+
+  // Phase 2: Mark selected instances
+  TaskArranger *task_arranger = local_sta_->taskArranger();
+  task_arranger->markSelectedInstances(benefits);
+
+  // Phase 3: Resize (only selected instances visited in runTask)
+  Slack wns = sta_->worstSlack(MinMax::max());
+  auto t_resize_start = std::chrono::high_resolution_clock::now();
+  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
+  visitor->init(avg_delay, avg_power, wns, PT_tradeoff,
+      &swappable_cells_cache_, &inst_info_map_);
+  visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+  visitor->setMoveType(MoveType::Resizing);
+  local_sta_->runResize(resizer, visitor);
+  auto t_resize_end = std::chrono::high_resolution_clock::now();
+  double resize_sec = std::chrono::duration<double>(t_resize_end - t_resize_start).count();
+
+  sta_->updateTiming(true);
+  sta_->findRequireds();
+  double tns = sta_->totalNegativeSlack(MinMax::max());
+  double wns_after = sta_->worstSlack(MinMax::max());
+  printf("After parallel LR resize with precheck, TNS: %e, WNS: %e\n", tns, wns_after);
+  printf("  precheck time: %.3f s, resize time: %.3f s, ratio: %.2f\n",
+         precheck_sec, resize_sec,
+         resize_sec > 0 ? precheck_sec / resize_sec : 0.0);
+
+  if (isPowerOptimizationMode()) {
+    ParallelLrVisitor *cp_visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
+    cp_visitor->init(avg_delay, avg_power, wns_after,
+        PT_tradeoff, &swappable_cells_cache_, &inst_info_map_);
+    cp_visitor->setMoveType(MoveType::Resizing);
+    auto start_cps = std::chrono::high_resolution_clock::now();
+    LrSizer lr_sizer(sta_, lr_helper_, cp_visitor);
+    lr_sizer.criticalPathSizing();
+    auto end_cps = std::chrono::high_resolution_clock::now();
+    printf("After critical path sizing, TNS: %e, WNS: %e\n",
+           sta_->totalNegativeSlack(MinMax::max()),
+           (double)sta_->worstSlack(MinMax::max()));
+    printf("critical path sizing time: %f s\n",
+           std::chrono::duration<double>(end_cps - start_cps).count());
+    delete cp_visitor;
+  }
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  printf("parallelResizeByArrayWithPrecheck total time %.3f s\n",
+         std::chrono::duration<double>(end_total - start_total).count());
 }
 
 void
