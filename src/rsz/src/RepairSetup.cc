@@ -639,11 +639,10 @@ void RepairSetup::repairSetup(const Pin* end_pin, bool size_up_only)
   } else {
     move_sequence = {resizer_->unbuffer_move_.get(),
                      resizer_->vt_swap_speed_move_.get(),
-                     resizer_->size_down_move_.get(),
+                     //resizer_->size_down_move_.get(),
                      resizer_->size_up_move_.get(),
                      resizer_->swap_pins_move_.get(),
                      resizer_->buffer_move_.get(),
-                     resizer_->clone_move_.get(),
                      resizer_->split_load_move_.get()};
   }
 

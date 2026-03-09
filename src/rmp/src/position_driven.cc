@@ -698,12 +698,13 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
     }
   }
 
-  // Attempt size-up on cut instances if there are setup violations
+  // Attempt repair moves on cut instances if there are setup violations:
+  // UnbufferMove -> VTSwapSpeed -> SizeUpMove -> SwapPinsMove -> BufferMove -> SplitLoadMove
   if (worst_vertex && fuzzyLess(worst_slack, 0.0f)) {
     rsz::Resizer* resizer = remapper.getResizer();
     const sta::InstanceSet& cut_insts = candidate_cut.cut_instances();
     resizer->setSizeUpInstanceFilter(&cut_insts);
-    resizer->repairSetup(worst_vertex->pin(), /*size_up_only=*/true);
+    resizer->repairSetup(worst_vertex->pin(), /*size_up_only=*/false);
     resizer->setSizeUpInstanceFilter(nullptr);
     // Recompute timing after size-up
     sta->networkChanged();
