@@ -59,6 +59,12 @@ public:
   void initVirtualPaths(PtVertex &virtual_vertex, PtVertex &source_vertex);
   void deleteEdge(sta::EdgeId edge_id);
   void deleteVertex(sta::VertexId vertex_id);
+  void reserveVertices(size_t count) { pt_vertices_.reserve(count); }
+  void reserveEdges(size_t count) { pt_edges_.reserve(count); }
+  size_t vertexCount() const { return pt_vertices_.size(); }
+  size_t edgeCount() const { return pt_edges_.size(); }
+  size_t vertexCapacity() const { return pt_vertices_.capacity(); }
+  size_t edgeCapacity() const { return pt_edges_.capacity(); }
   PtEdge &edge(sta::EdgeId edge_id) { return pt_edges_[edge_id]; }
   PtVertex &ptVertex(sta::VertexId vertex_id) { return pt_vertices_[vertex_id]; }
   const PtVertex &ptVertex(sta::VertexId vertex_id) const {
@@ -242,6 +248,10 @@ class PtVertex {
 public:
   PtVertex();
   ~PtVertex();
+  PtVertex(PtVertex &&other) noexcept;
+  PtVertex &operator=(PtVertex &&other) noexcept;
+  PtVertex(const PtVertex &) = delete;
+  PtVertex &operator=(const PtVertex &) = delete;
 
   void init(sta::Vertex *vertex);
   void initVirtual(sta::LibertyCell *cell, sta::LibertyPort *port,

@@ -1960,4 +1960,81 @@ TestLrf::printAllCellsInfo(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock 
 }
 
 
+void
+TestLrf::testSingleInstBuffering(char *inst_name, sta::dbSta* sta,
+                                  rsz::Resizer *resizer, odb::dbBlock *block)
+{
+  printf("----- Test Single Instance Buffering: %s -----\n", inst_name);
+  fflush(stdout);
+
+  sta::dbNetwork *db_network = sta->getDbNetwork();
+  odb::dbInst *db_inst = block->findInst(inst_name);
+  if (!db_inst) {
+    printf("Error: instance '%s' not found\n", inst_name);
+    return;
+  }
+
+  sta::Instance *inst = db_network->dbToSta(db_inst);
+  if (!inst) {
+    printf("Error: failed to convert dbInst to sta::Instance\n");
+    return;
+  }
+
+  // Setup: IncreSta for LM values, resizer preamble
+  IncreSta *incre_sta = new IncreSta(sta);
+  LocalSta *local_sta = incre_sta->localSta();
+  sta->findRequireds();
+  for (int i = 0; i < 5; i++) {
+    incre_sta->lmUpdate();
+  }
+  resizer->resizePreamble();
+  resizer->makeEquivCells();
+  LrRebuffer::initGlobalPreamble(sta, resizer);
+
+  // Report initial timing
+  sta::Slack wns = sta->worstSlack(sta::MinMax::max());
+  sta::Slack tns = sta->totalNegativeSlack(sta::MinMax::max());
+  printf("Initial WNS: %.3f ps, TNS: %.3f ps\n", wns * 1e12, tns * 1e12);
+  fflush(stdout);
+
+  // Create visitor with BufferInsertion move type
+  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta, local_sta, resizer);
+  visitor->init(0, 0, wns, 100.0, nullptr, nullptr);
+  visitor->setMoveType(MoveType::BufferInsertion);
+
+  printf("Visitor created, calling visit(%s)...\n", inst_name);
+  fflush(stdout);
+
+  // Visit the instance — this calls tryBuffering internally
+  bool success = visitor->visit(inst);
+
+  printf("visit() returned: %s\n", success ? "true" : "false");
+  fflush(stdout);
+
+  if (success) {
+    // Apply buffering changes to DB
+    visitor->applyChangesToDb(resizer);
+    printf("Buffering changes applied to DB\n");
+
+    // Re-evaluate timing
+    sta->updateTiming(true);
+    sta->findRequireds();
+    sta::Slack wns_after = sta->worstSlack(sta::MinMax::max());
+    sta::Slack tns_after = sta->totalNegativeSlack(sta::MinMax::max());
+    printf("After buffering WNS: %.3f ps, TNS: %.3f ps\n",
+           wns_after * 1e12, tns_after * 1e12);
+    printf("WNS delta: %.3f ps, TNS delta: %.3f ps\n",
+           (wns_after - wns) * 1e12, (tns_after - tns) * 1e12);
+  } else {
+    printf("No buffering applied (visit returned false)\n");
+  }
+  fflush(stdout);
+
+  delete visitor;
+  delete incre_sta;
+
+  printf("----- End Test Single Instance Buffering -----\n");
+  fflush(stdout);
+}
+
 }  // namespace lrf

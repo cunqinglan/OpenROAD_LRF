@@ -1153,21 +1153,24 @@ ParallelLrVisitor::tryBuffering(sta::Instance *inst)
         "setMoveType(BufferInsertion) must be called before visiting");
   }
   sta::dbNetwork *network = db_sta_->getDbNetwork();
-  int drvr_count = 0;
-  for (PtVertex &pt_vertex : pt_graph_->ptVertices()) {
+  // Collect driver vertex info before calling rebufferPin, which may
+  // reallocate pt_vertices_ and invalidate iterators/references.
+  struct DrvrInfo { sta::Pin *pin; VertexId vid; };
+  std::vector<DrvrInfo> drvr_infos;
+  for (size_t i = 0; i < pt_graph_->vertexCount(); i++) {
+    PtVertex &pt_vertex = pt_graph_->ptVertex(i);
     if (pt_vertex.vertex() && pt_vertex.type() == PtVertexType::RefOutput) {
-      sta::Pin *pin = pt_vertex.vertex()->pin();
-      rebuffer_->rebufferPin(pin, pt_vertex);
-      drvr_count++;
-      // If multi-driver instance is found, we should first invest what would 
-      // happen.
-      if (drvr_count > 1) {
-        printf("Warning: ParallelLrVisitor::tryBuffering instance %s has more than 1 driver pins, buffering may not be correct\n",
-              db_sta_->network()->pathName(inst));
-        fflush(stdout);
-        return false;
-      }
+      drvr_infos.push_back({pt_vertex.vertex()->pin(), pt_vertex.objectIdx()});
     }
+  }
+  if (drvr_infos.size() > 1) {
+    printf("Warning: ParallelLrVisitor::tryBuffering instance %s has more than 1 driver pins, buffering may not be correct\n",
+           db_sta_->network()->pathName(inst));
+    fflush(stdout);
+    return false;
+  }
+  for (auto &di : drvr_infos) {
+    rebuffer_->rebufferPin(di.pin, pt_graph_->ptVertex(di.vid));
   }
   
   if (rebuffer_->bestBnet() == nullptr) {
