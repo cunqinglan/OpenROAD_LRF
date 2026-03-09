@@ -376,9 +376,10 @@ protected:
   void graphPop();
   void setSta(dbSta *sta) { sta_ = sta; }
   DelayLmSumResult initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
-  DelayLmSumResult increAndGetLocalTimingCost(PtGraph *pt_graph, 
+  DelayLmSumResult increAndGetLocalTimingCost(PtGraph *pt_graph,
                                     ArcDelayCalc *arc_delay_calc,
                                     LibertyCell *equiv_cell);
+  void updateLocalTiming(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
   Slack localSlackAroundRef(PtGraph *pt_graph);
   Slack localSlackAtEndpoints(PtGraph *pt_graph);
   

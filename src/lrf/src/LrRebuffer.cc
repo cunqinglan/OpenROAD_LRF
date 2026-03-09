@@ -202,9 +202,12 @@ LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
     localAnnotateLoadSlacks(bnet, drvr_pt_vertex);
     annotateLoadLMs(drvr_pt_vertex, bnet);
 
+    // Save VertexId — PtVertex references may be invalidated by vector
+    // reallocation inside buildVirtualBuffer during evaluateOption.
+    VertexId drvr_vid = drvr_pt_vertex.objectIdx();
     const bool allow_topology_rewrite = true;
     for (int i = 0; i < 3; i++) {
-      bnet = bufferForTiming(drvr_pt_vertex, bnet, allow_topology_rewrite);
+      bnet = bufferForTiming(drvr_vid, bnet, allow_topology_rewrite);
       if (!bnet) {
         printf("LrRebuffer::rebufferPin: Warning: bufferForTiming failed for pin %s at iteration %d\n",
                network_->name(drvr_pin), i);
@@ -343,8 +346,8 @@ static BufferedNetPtr createBnetJunction(rsz::Resizer* resizer,
 
 // Find buffering choices with best delay LM sum and leakage
 BnetPtr
-LrRebuffer::bufferForTiming(PtVertex &pt_drvr_vertex, 
-                            const BnetPtr &tree, 
+LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
+                            const BnetPtr &tree,
                             bool allow_topology_rewrite)
 {
   sta::LibertyPort *strong_driver;
@@ -497,7 +500,7 @@ LrRebuffer::bufferForTiming(PtVertex &pt_drvr_vertex,
               }
 
               if (junc->fanout() <= fanout_limit_) {
-                printf("junction fanout %zu within limit %f\n", junc->fanout(), fanout_limit_);
+                // printf("junction fanout %zu within limit %f\n", junc->fanout(), fanout_limit_);
                 best_cap = junc->cap();
                 opts.push_back(std::move(junc));
               }
@@ -555,9 +558,8 @@ LrRebuffer::bufferForTiming(PtVertex &pt_drvr_vertex,
   PtGraph *pt_graph = visitor_->ptGraph();
   local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
   float origial_slack = local_sta_->localSlackAroundRef(pt_graph);
-  
   for (const BnetPtr& p : top_opts) {
-    LMValue cost = evaluateOption(pt_drvr_vertex, p, origial_slack);
+    LMValue cost = evaluateOption(drvr_vertex_id, p, origial_slack);
     
     // printf("option %d: cost = %.3e, slack = %.3e, cap = %.3e, fanout = %0.f\n",
     //        i, cost, p->slack().toSeconds(), p->cap(), p->fanout());
@@ -581,23 +583,27 @@ LrRebuffer::bufferForTiming(PtVertex &pt_drvr_vertex,
 }
 
 LMValue
-LrRebuffer::evaluateOption(PtVertex &pt_vertex, const BnetPtr& option, 
+LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
                            float original_slack)
 {
+  PtGraph *pt_graph = visitor_->ptGraph();
   float driver_leakage = local_sta_->cellAvgLeakage(drvr_port_->libertyCell());
   sta::Slew max_slew;
-  float cell_delay_lm_sum = cellDelayLmSum(pt_vertex, option, max_slew);
+  float cell_delay_lm_sum = cellDelayLmSum(pt_vertex_id, option, max_slew);
   float total_cost = option->bufferCost() + cell_delay_lm_sum + driver_leakage;
   if (hasViolation(option, max_slew)) {
     return INF;
   }
 
   // Virtual slack check: build virtual sub-graph and run full local timing
-  PtGraph *pt_graph = visitor_->ptGraph();
-
-  VirtualBufferInfo vinfo = buildVirtualBuffer(pt_vertex, option);
+  VirtualBufferInfo vinfo = buildVirtualBuffer(pt_vertex_id, option);
+  if (vinfo.failed) {
+    // buildVirtualBuffer failed (e.g., no timing arc set for buffer cell)
+    removeVirtualBuffer(vinfo);
+    return total_cost;  // Fall back to analytical cost only
+  }
   pt_graph->topoSortVertices();
-  local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
+  local_sta_->updateLocalTiming(pt_graph, arc_delay_calc_);
   float slack_after = local_sta_->localSlackAroundRef(pt_graph);
   removeVirtualBuffer(vinfo);
 
@@ -747,7 +753,7 @@ LrRebuffer::insertBufferOptions(BnetSeq& opts,
 }
 
 float
-LrRebuffer::cellDelayLmSum(PtVertex &pt_drvr_vertex,
+LrRebuffer::cellDelayLmSum(VertexId pt_vertex_id,
                            const BnetPtr& load_opt,
                            float &max_slew)
 {
@@ -757,14 +763,15 @@ LrRebuffer::cellDelayLmSum(PtVertex &pt_drvr_vertex,
   sta::DcalcAnalysisPt *dcalc_pt = pt_graph->dcalcAnalysisPt();
   sta::DcalcAPIndex ap_index = dcalc_pt->index();
   float output_cap = load_opt->cap();
-  PtVertexInEdgeIterator in_edge_iter(pt_drvr_vertex.objectIdx(), pt_graph);
+  PtVertexInEdgeIterator in_edge_iter(pt_vertex_id, pt_graph);
   while (in_edge_iter.hasNext()) {
     PtEdge &pt_edge = in_edge_iter.next();
     sta::Edge *edge = pt_edge.edge();
     auto *lms = edge->arcLms();
     if (lms == nullptr) {
+      PtVertex &v = pt_graph->ptVertex(pt_vertex_id);
       printf("LrRebuffer::cellDelayLmSum: Warning: edge from vertex %s has no LM values\n",
-             pt_drvr_vertex.vertex()->to_string(graph_).c_str());
+             v.vertex() ? v.vertex()->to_string(graph_).c_str() : "virtual");
       continue;
     }
     PtVertex &pt_from_vertex = pt_graph->ptVertex(pt_edge.ptFromId());
@@ -1047,17 +1054,39 @@ LrRebuffer::attemptTopologyRewrite(const BnetPtr& node,
 }
 
 VirtualBufferInfo
-LrRebuffer::buildVirtualBuffer(PtVertex &drvr_pt_vertex,
+LrRebuffer::buildVirtualBuffer(VertexId drvr_vertex_id,
                                 const BnetPtr &option)
 {
   VirtualBufferInfo info;
   PtGraph *pt_graph = visitor_->ptGraph();
-  sta::Vertex *drvr_vertex = drvr_pt_vertex.vertex();
+  sta::Vertex *drvr_vertex = pt_graph->ptVertex(drvr_vertex_id).vertex();
+
+
+  // Pre-count buffers and loads to reserve vector space,
+  // avoiding reallocation that would invalidate references.
+  size_t num_buffers = 0, num_loads = 0;
+  visitTree(
+    [&](auto& recurse, int level, const BnetPtr& node) -> int {
+      switch (node->type()) {
+        case BnetType::buffer: num_buffers++; return recurse(node->ref());
+        case BnetType::junction: return recurse(node->ref()) + recurse(node->ref2());
+        case BnetType::wire: case BnetType::via: return recurse(node->ref());
+        case BnetType::load: num_loads++; return 1;
+        default: return 0;
+      }
+    }, option);
+  // Each buffer creates 2 vertices + 3 edges (wire_in, gate, wire_out implicit)
+  // Each load creates 1 wire edge
+  // Over-reserve to avoid reallocation during walk
+  size_t v_extra = num_buffers * 4 + num_loads + 16;
+  size_t e_extra = num_buffers * 4 + num_loads * 2 + 16;
+  pt_graph->reserveVertices(pt_graph->vertexCount() + v_extra);
+  pt_graph->reserveEdges(pt_graph->edgeCount() + e_extra);
 
   // 1. Collect and delete original wire edges from driver to loads
   {
     std::vector<EdgeId> orig_wire_eids;
-    PtVertexOutEdgeIterator out_iter(drvr_pt_vertex, pt_graph);
+    PtVertexOutEdgeIterator out_iter(drvr_vertex_id, pt_graph);
     while (out_iter.hasNext()) {
       PtEdge &pt_edge = out_iter.next();
       if (pt_edge.isWire())
@@ -1072,6 +1101,7 @@ LrRebuffer::buildVirtualBuffer(PtVertex &drvr_pt_vertex,
   // 2. Walk BnetPtr tree, build virtual sub-graph
   using BnetWalker = std::function<void(const BnetPtr&, VertexId current_drvr_id)>;
   BnetWalker walk = [&](const BnetPtr& node, VertexId current_drvr_id) {
+    if (info.failed) return;
     switch (node->type()) {
       case BnetType::wire:
       case BnetType::via:
@@ -1101,19 +1131,43 @@ LrRebuffer::buildVirtualBuffer(PtVertex &drvr_pt_vertex,
         pt_graph->ptVertex(buf_out_id).setProxyVertex(drvr_vertex);
 
         // Init paths from driver's tag group
-        pt_graph->initVirtualPaths(pt_graph->ptVertex(buf_in_id), drvr_pt_vertex);
-        pt_graph->initVirtualPaths(pt_graph->ptVertex(buf_out_id), drvr_pt_vertex);
+        pt_graph->initVirtualPaths(pt_graph->ptVertex(buf_in_id),
+                                   pt_graph->ptVertex(drvr_vertex_id));
+        pt_graph->initVirtualPaths(pt_graph->ptVertex(buf_out_id),
+                                   pt_graph->ptVertex(drvr_vertex_id));
 
         // Wire edge: current_drvr → buf_in
         EdgeId wire_in_eid = pt_graph->makeVirtualEdge(
-            current_drvr_id, buf_in_id, nullptr, true);
+            current_drvr_id, buf_in_id,
+            sta::TimingArcSet::wireTimingArcSet(), true);
         info.edge_ids.push_back(wire_in_eid);
 
         // Gate edge: buf_in → buf_out
         sta::TimingArcSet *arc_set = nullptr;
-        for (auto *as : buf_cell->timingArcSets(in_port, out_port)) {
-          arc_set = as;
-          break;
+        if (in_port && out_port) {
+          for (auto *as : buf_cell->timingArcSets(in_port, out_port)) {
+            arc_set = as;
+            break;
+          }
+        }
+        if (!arc_set) {
+          // No timing arc found — try all arc sets for this cell
+          for (auto *as : buf_cell->timingArcSets()) {
+            if (as->from() == in_port && as->to() == out_port) {
+              arc_set = as;
+              break;
+            }
+          }
+        }
+        if (!arc_set) {
+          printf("Warning: buildVirtualBuffer: no timing arc set for %s (%s -> %s)\n",
+                 buf_cell->name(),
+                 in_port ? in_port->name() : "null",
+                 out_port ? out_port->name() : "null");
+          fflush(stdout);
+          // Failed — caller will handle cleanup via removeVirtualBuffer
+          info.failed = true;
+          return;
         }
         EdgeId gate_eid = pt_graph->makeVirtualEdge(
             buf_in_id, buf_out_id, arc_set, false);
@@ -1139,7 +1193,8 @@ LrRebuffer::buildVirtualBuffer(PtVertex &drvr_pt_vertex,
         PtVertex *load_pt_vertex = pt_graph->ptVertex(load_vertex);
         if (load_pt_vertex) {
           EdgeId wire_eid = pt_graph->makeVirtualEdge(
-              current_drvr_id, load_pt_vertex->objectIdx(), nullptr, true);
+              current_drvr_id, load_pt_vertex->objectIdx(),
+              sta::TimingArcSet::wireTimingArcSet(), true);
           info.edge_ids.push_back(wire_eid);
 
           const auto &lms = node->lms();
@@ -1155,7 +1210,7 @@ LrRebuffer::buildVirtualBuffer(PtVertex &drvr_pt_vertex,
     }
   };
 
-  walk(option, drvr_pt_vertex.objectIdx());
+  walk(option, drvr_vertex_id);
   return info;
 }
 
@@ -1164,12 +1219,20 @@ LrRebuffer::removeVirtualBuffer(VirtualBufferInfo &info)
 {
   PtGraph *pt_graph = visitor_->ptGraph();
 
-  // 1. Delete all virtual edges and vertices
-  for (EdgeId eid : info.edge_ids) {
-    pt_graph->deleteEdge(eid);
-  }
+  // 1. Delete all virtual vertices (this also deletes their edges).
+  // NOTE: Do NOT deleteEdge separately before deleteVertex — deleteVertex
+  // already handles all edges via in_edges_/out_edges_ traversal.
+  // Calling deleteEdge first would unlink edges from adjacency lists without
+  // clearing the vertex's head pointers, causing deleteVertex to double-unlink
+  // and corrupt real vertex adjacency lists.
   for (VertexId vid : info.vertex_ids) {
     pt_graph->deleteVertex(vid);
+  }
+  // Delete edges that connect real vertices (e.g., wire edges from
+  // real driver to real loads created in the load case, if any remain).
+  for (EdgeId eid : info.edge_ids) {
+    if (pt_graph->edge(eid).type() != PtEdgeType::Sentinel)
+      pt_graph->deleteEdge(eid);
   }
 
   // 2. Re-link original wire edges

@@ -353,10 +353,9 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
   Arrival to_arrival;
 
   // Virtual edge: combinational pass-through (tag unchanged)
+  // Skip thruTag since it dereferences the null base edge.
   if (!pt_edge.hasBase()) {
-    to_tag = search_->thruTag(from_tag, edge, to_rf, min_max, path_ap, tag_cache_);
-    if (to_tag == nullptr)
-      to_tag = from_tag;  // fallback: pass tag through for virtual combinational
+    to_tag = from_tag;
     arc_delay = pt_graph_->arcDelay(pt_edge, arc, path_ap->dcalcAnalysisPt()->index());
     to_arrival = from_arrival + arc_delay;
     if (to_tag) {

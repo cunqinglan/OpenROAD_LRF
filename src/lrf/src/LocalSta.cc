@@ -538,9 +538,11 @@ LocalSta::seedRootSlew(PtVertex &pt_vertex, PtGraph *pt_graph,
                        ArcDelayCalc *arc_delay_calc)
 {
   if (!pt_vertex.hasBase()) {
-    // buffer vertex will never be root, since ref gate vertex
-    // will be below it.
-    throw std::runtime_error("LocalSta::seedRootSlew: vertex has no base");
+    // Virtual vertex as root: no slew to seed, delays will be
+    // computed when arrival propagation reaches it.
+    if (pt_vertex.type() != PtVertexType::Sentinel)
+      throw std::runtime_error("LocalSta::seedRootSlew: Virtual root vertex type must be Sentinal");
+    return;
   }
   Vertex *vertex = pt_vertex.vertex();
 
@@ -894,10 +896,11 @@ LocalSta::findDriverEdgeDelays(PtVertex &drvr_pt_vertex,
   // If both vertices belong to ref instance, use ref cell's timing
   TimingArcSet *ref_arc_set = pt_edge.timingArcSet();
   if (ref_arc_set == nullptr){
-    // printf("LocalSta::findDriverEdgeDelays: timingArcSet is nullptr for edge %s\n",
-    //        pt_edge.edge()->to_string(graph_).c_str());
-    //        fflush(stdout);
-    // ref_arc_set = pt_edge.edge()->timingArcSet();
+    printf("ERROR findDriverEdgeDelays: timingArcSet is nullptr for edge %u "
+           "(from %u to %u), type=%d, hasBase=%d, isWire=%d\n",
+           pt_edge.objectIdx(), pt_edge.ptFromId(), pt_edge.ptToId(),
+           (int)pt_edge.type(), (int)pt_edge.hasBase(), (int)pt_edge.isWire());
+    fflush(stdout);
     throw std::runtime_error("LocalSta::findDriverEdgeDelays: timingArcSet is nullptr");
   }
   
@@ -941,6 +944,12 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
   const RiseFall *drvr_rf = arc->toEdge()->asRiseFall();
   if (from_rf && drvr_rf) {
     const Pin *drvr_pin = drvr_pt_vertex.pin();
+    // For virtual vertices, fall back to proxy vertex pin for PVT lookup in gateDelay
+    const Pin *dcalc_pin = drvr_pin;
+    if (!dcalc_pin && drvr_pt_vertex.proxyVertex())
+      dcalc_pin = drvr_pt_vertex.proxyVertex()->pin();
+    if (!dcalc_pin)
+      throw std::runtime_error("LocalSta::findDriverArcDelays: virtual vertex has no pin and no proxy vertex");
     const Parasitic *parasitic = nullptr;
     float load_cap = 0.0f;
 
@@ -958,7 +967,7 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
                                             dcalc_ap, pt_graph);
       ArcDcalcResult dcalc_result;
       dcalc_result = arc_delay_calc->gateDelay(
-                          drvr_pin, arc, in_slew, load_cap, parasitic,
+                          dcalc_pin, arc, in_slew, load_cap, parasitic,
                           load_pin_index_map, dcalc_ap);
 
       annotateDelaysSlews(pt_edge, arc, dcalc_result,
@@ -1336,7 +1345,7 @@ LocalSta::initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_c
 }
 
 DelayLmSumResult
-LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph, 
+LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph,
                                      ArcDelayCalc *arc_delay_calc,
                                      LibertyCell *equiv_cell)
 {
@@ -1347,6 +1356,14 @@ LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph,
   const Corner *corner = corners_->findCorner("default");
   DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
   return delayLmSum(pt_graph, dcalc_ap, false);
+}
+
+void
+LocalSta::updateLocalTiming(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc)
+{
+  findLocalDelays(pt_graph, arc_delay_calc);
+  findLocalArrivals(pt_graph);
+  findLocalRequireds(pt_graph);
 }
 
 // Recompute local parasitics after cell swap

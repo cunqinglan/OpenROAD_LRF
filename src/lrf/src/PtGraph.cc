@@ -911,7 +911,7 @@ PtGraph::delayLmSum(const sta::MinMax *minmax, float &delay_lambda_sum, bool avo
 {
   delay_lambda_sum = 0.0f;
   for (PtEdge &pt_edge : pt_edges_) {
-    if (pt_edge.type() == PtEdgeType::Sentinel)
+    if (pt_edge.type() == PtEdgeType::Sentinel || !pt_edge.hasBase())
       continue;
     sta::TimingArcSet *arc_set = pt_edge.timingArcSet();
     if (arc_set == nullptr)
@@ -948,7 +948,7 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
   const sta::DcalcAPIndex ap_index = dcalc_ap->index();
   delay_lambda_sum = 0.0f;
   for (PtEdge &pt_edge : pt_edges_) {
-    if (pt_edge.type() == PtEdgeType::Sentinel)
+    if (pt_edge.type() == PtEdgeType::Sentinel || !pt_edge.hasBase())
       continue;
     sta::TimingArcSet *arc_set = pt_edge.timingArcSet();
     if (arc_set == nullptr)
@@ -986,7 +986,7 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
     result->vec_delays.clear();
   }
   for (PtEdge &pt_edge : pt_edges_) {
-    if (pt_edge.type() == PtEdgeType::Sentinel)
+    if (pt_edge.type() == PtEdgeType::Sentinel || !pt_edge.hasBase())
       continue;
     sta::TimingArcSet *arc_set = pt_edge.timingArcSet();
     if (arc_set == nullptr)
@@ -1315,6 +1315,52 @@ PtVertex::PtVertex() :
 PtVertex::~PtVertex()
 {
   delete[] paths_;
+}
+
+PtVertex::PtVertex(PtVertex &&other) noexcept
+  : vertex_(other.vertex_),
+    proxy_vertex_(other.proxy_vertex_),
+    liberty_port_(other.liberty_port_),
+    liberty_cell_(other.liberty_cell_),
+    level_(other.level_),
+    arrivals_(std::move(other.arrivals_)),
+    object_idx_(other.object_idx_),
+    out_edges_(other.out_edges_),
+    in_edges_(other.in_edges_),
+    slews_(std::move(other.slews_)),
+    is_root_(other.is_root_),
+    type_(other.type_),
+    tag_group_index_(other.tag_group_index_),
+    paths_(other.paths_),
+    is_driver_(other.is_driver_),
+    is_load_(other.is_load_)
+{
+  other.paths_ = nullptr;
+}
+
+PtVertex &PtVertex::operator=(PtVertex &&other) noexcept
+{
+  if (this != &other) {
+    delete[] paths_;
+    vertex_ = other.vertex_;
+    proxy_vertex_ = other.proxy_vertex_;
+    liberty_port_ = other.liberty_port_;
+    liberty_cell_ = other.liberty_cell_;
+    level_ = other.level_;
+    arrivals_ = std::move(other.arrivals_);
+    object_idx_ = other.object_idx_;
+    out_edges_ = other.out_edges_;
+    in_edges_ = other.in_edges_;
+    slews_ = std::move(other.slews_);
+    is_root_ = other.is_root_;
+    type_ = other.type_;
+    tag_group_index_ = other.tag_group_index_;
+    paths_ = other.paths_;
+    is_driver_ = other.is_driver_;
+    is_load_ = other.is_load_;
+    other.paths_ = nullptr;
+  }
+  return *this;
 }
 
 void

@@ -25,6 +25,7 @@ struct VirtualBufferInfo {
   std::vector<sta::VertexId> vertex_ids;
   std::vector<sta::EdgeId> edge_ids;
   std::vector<sta::EdgeId> orig_wire_edge_ids;
+  bool failed = false;
 };
 
 class LrRebuffer : public rsz::Rebuffer
@@ -37,7 +38,7 @@ public:
   // Compute the best buffering option and save it at best_bnet_.
   void rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex);
   // void annoataLoadSlacks();
-  rsz::BufferedNetPtr bufferForTiming(PtVertex &pt_drvr_vertex, const rsz::BufferedNetPtr& tree, bool allow_topology_rewrite);
+  rsz::BufferedNetPtr bufferForTiming(sta::VertexId drvr_vertex_id, const rsz::BufferedNetPtr& tree, bool allow_topology_rewrite);
   void annotateLoadLMs(PtVertex &drvr_pt_vertex, const rsz::BufferedNetPtr& tree);
   void insertBufferOptions(rsz::BufferedNetSeq& opts,
                            int level,
@@ -52,22 +53,22 @@ public:
 
 protected:
   void localAnnotateLoadSlacks(const rsz::BufferedNetPtr& tree, PtVertex &drvr_pt_vertex);
-  
+
   // Cost computation: delay_LM_sum + leakage
   float computeBufferAddedCost(float buffer_delay_seconds,
                                 float buffer_leakage,
                                 const rsz::BufferedNetPtr& load_opt);
   void propagateLmsThroughBuffer(rsz::BufferedNetPtr& buffer_node,
                                  const rsz::BufferedNetPtr& load_opt);
-  std::vector<float> mergeLmVectors(const std::vector<float>& lm1, 
+  std::vector<float> mergeLmVectors(const std::vector<float>& lm1,
                                     const std::vector<float>& lm2);
-  LMValue evaluateOption(PtVertex &pt_vertex, const rsz::BufferedNetPtr& option,
+  LMValue evaluateOption(sta::VertexId pt_vertex_id, const rsz::BufferedNetPtr& option,
                        float original_slack);
-  float cellDelayLmSum(PtVertex &pt_drvr_vertex,
+  float cellDelayLmSum(sta::VertexId pt_vertex_id,
                        const rsz::BufferedNetPtr& load_opt,
                        sta::Slew &max_slew);
   bool hasViolation(const rsz::BufferedNetPtr& option, sta::Slew max_slew);
-  VirtualBufferInfo buildVirtualBuffer(PtVertex &drvr_pt_vertex,
+  VirtualBufferInfo buildVirtualBuffer(sta::VertexId drvr_vertex_id,
                                        const rsz::BufferedNetPtr& option);
   void removeVirtualBuffer(VirtualBufferInfo &info);
   float computeVirtualSlack(const VirtualBufferInfo &info);

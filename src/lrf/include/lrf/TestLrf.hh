@@ -61,6 +61,9 @@ public:
   // Test single net buffer insertion
   void testBufferInsertion(char *inst_name, sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
 
+  // Test buffering on a single instance via visitor->visit() path
+  void testSingleInstBuffering(char *inst_name, sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
+
   void testMEEAssignments(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
 
   void testParallelResize(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
