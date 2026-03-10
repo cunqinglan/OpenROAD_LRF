@@ -85,6 +85,7 @@ class Restructure
   void setAnnealingInitialOps(unsigned ops) { annealing_init_ops_ = ops; }
   void setSlackThreshold(sta::Slack thresh) { slack_threshold_ = thresh; }
   void setMode(const char* mode_name);
+  void setSplitLargeInputs(int k);
   void setTieLoPort(sta::LibertyPort* loport);
   void setTieHiPort(sta::LibertyPort* hiport);
 
@@ -100,9 +101,14 @@ class Restructure
   int countConsts(odb::dbBlock* top_block);
   void removeConstCells();
   void removeConstCell(odb::dbInst* inst);
+<<<<<<< HEAD
   bool readAbcLog(const std::string& abc_file_name,
                   int& level_gain,
                   float& delay_val);
+=======
+  bool readAbcLog(std::string abc_file_name, int& level_gain, float& delay_val);
+  void collectLargeInputDontUse();
+>>>>>>> phyls/develop
 
   utl::Logger* logger_;
   utl::UniqueName name_generator_;
@@ -132,6 +138,8 @@ class Restructure
   std::string output_blif_file_name_;
   std::vector<std::string> lib_file_names_;
   std::set<odb::dbInst*> path_insts_;
+  std::set<std::string> abc_dont_use_;
+  std::optional<int> split_large_inputs_k_;
 
   Mode opt_mode_{Mode::DELAY_1};
   bool is_area_mode_{false};

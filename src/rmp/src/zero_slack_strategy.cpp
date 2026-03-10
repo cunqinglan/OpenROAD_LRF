@@ -3,6 +3,7 @@
 
 #include "zero_slack_strategy.h"
 
+#include <optional>
 #include <vector>
 
 #include "cut/abc_library_factory.h"
@@ -11,6 +12,7 @@
 #include "db_sta/dbNetwork.hh"
 #include "db_sta/dbSta.hh"
 #include "delay_optimization_strategy.h"
+#include "map/mio/mio.h"
 #include "rsz/Resizer.hh"
 #include "sta/Graph.hh"
 #include "sta/GraphDelayCalc.hh"
@@ -71,11 +73,59 @@ void ZeroSlackStrategy::OptimizeDesign(sta::dbSta* sta,
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> mapped_abc_network
       = cut.BuildMappedAbcNetwork(abc_library, network, logger);
 
+  cut::AbcLibrary* map_library = &abc_library;
+  abc::Mio_Library_t* map_mio
+      = static_cast<abc::Mio_Library_t*>(mapped_abc_network->pManFunc);
+  std::optional<cut::AbcLibrary> small_library;
+
+  if (split_large_inputs_k_ && *split_large_inputs_k_ >= 2) {
+    const int kLargeInputThreshold = *split_large_inputs_k_;
+    const int kMaxSmallInputs = *split_large_inputs_k_ - 1;
+    int large_cell_count = 0;
+    const bool has_large_inputs = HasLargeInputCells(
+        cut, network, kLargeInputThreshold, &large_cell_count);
+
+    if (has_large_inputs) {
+      cut::AbcLibraryFactory small_factory(logger);
+      small_factory.AddDbSta(sta);
+      small_factory.AddResizer(resizer);
+      small_factory.SetCorner(corner_);
+      small_factory.SetMaxInputCount(kMaxSmallInputs);
+      small_library.emplace(small_factory.Build());
+      map_library = &*small_library;
+      map_mio = map_library->mio_library();
+
+      if (abc::Mio_LibraryReadBuf(map_mio) == nullptr) {
+        logger->warn(
+            utl::RMP,
+            1033,
+            "No buffer cell found after limiting to <= {} input gates; "
+            "falling back to full library mapping.",
+            kMaxSmallInputs);
+        map_library = &abc_library;
+        map_mio
+            = static_cast<abc::Mio_Library_t*>(mapped_abc_network->pManFunc);
+      } else {
+        logger->info(
+            utl::RMP,
+            1034,
+            "Found {} cells with >= {} inputs in the cut; "
+            "remapping with <= {} input gates.",
+            large_cell_count,
+            kLargeInputThreshold,
+            kMaxSmallInputs);
+      }
+    }
+  }
+
   DelayOptimizationStrategy strategy;
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> remapped
-      = strategy.Optimize(mapped_abc_network.get(), abc_library, logger);
+      = strategy.Optimize(mapped_abc_network.get(),
+                          *map_library,
+                          map_mio,
+                          logger);
 
   cut.InsertMappedAbcNetwork(
-      remapped.get(), abc_library, network, name_generator, logger);
+      remapped.get(), *map_library, network, name_generator, logger);
 }
 }  // namespace rmp

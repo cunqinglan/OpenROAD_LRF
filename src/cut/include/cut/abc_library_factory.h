@@ -64,6 +64,9 @@ class AbcLibraryFactory
   AbcLibraryFactory& AddDbSta(sta::dbSta* db_sta);
   AbcLibraryFactory& AddResizer(rsz::Resizer* resizer);
   AbcLibraryFactory& SetCorner(sta::Corner* corner);
+  // Limit included cells to those with input count <= max_inputs.
+  // Useful for mapping that prefers smaller fan-in gates.
+  AbcLibraryFactory& SetMaxInputCount(int max_inputs);
   AbcLibrary Build();
 
  private:
@@ -88,6 +91,7 @@ class AbcLibraryFactory
   sta::dbSta* db_sta_ = nullptr;
   sta::Corner* corner_ = nullptr;
   rsz::Resizer* resizer_ = nullptr;
+  std::optional<int> max_input_count_;
 };
 
 }  // namespace cut

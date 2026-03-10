@@ -446,54 +446,39 @@ Timing::getLmDelaySum(odb::dbInst* inst, const sta::MinMax *minmax) {
   return delay_lambda_sum;
 }
 
-bool
-Timing::checkErcViolations(odb::dbInst* inst, sta::Corner* corner) {
-  bool violated = false;
+float Timing::getWorstSlack(MinMax minmax)
+{
+  sta::dbSta* sta = getSta();
+  sta::Vertex* vertex;
+  sta::Slack worstSlack;
+  sta->worstSlack(getMinMax(minmax), worstSlack, vertex);
+  return worstSlack;
+}
+
+float Timing::getTns(sta::Corner* corner, MinMax minmax)
+{
+  sta::dbSta* sta = getSta();
+  float tns = sta->totalNegativeSlack(corner, getMinMax(minmax));
+  return tns;
+}
+
+float Timing::getTns(MinMax minmax)
+{
+  sta::dbSta* sta = getSta();
+  return sta->totalNegativeSlack(getMinMax(minmax));
+}
+
+float Timing::leakagePower(odb::dbInst* inst, odb::dbMaster* master, sta::Corner* corner)
+{
   sta::dbSta* sta = getSta();
   sta::dbNetwork* network = sta->getDbNetwork();
-  sta::Instance* sta_inst = network->dbToSta(inst);
 
-  sta::InstancePinIterator* pin_iterator = sta->network()->pinIterator(sta_inst);
-  while (pin_iterator->hasNext()) {
-    sta::Pin* pin = pin_iterator->next();
-    // Check max slew
-    float limit = sta->getIncreSta()->maxInputSlew(pin, corner);
-    for (const sta::RiseFall* rf : sta::RiseFall::range()) {
-      if (network->isLoad(pin)) {
-        sta::Vertex *vertex = sta->graph()->pinLoadVertex(pin);
-        const sta::DcalcAnalysisPt* dcalc_ap = corner->findDcalcAnalysisPt(sta::MinMax::max());
-        float actual_slew = sta->graph()->slew(vertex, rf, dcalc_ap->index());
-        if (actual_slew > limit) {
-          violated = true;
-          // Use the project's logger (fmt-style) instead of printf to avoid
-          // format-string/type mismatches and integrate with logging.
-          design_->getLogger()->report(
-            "ERC Violation: Instance {} Pin {} exceeds max slew limit {:.3f} with actual slew {:.3f}",
-            inst->getName(),
-            network->name(pin),
-            limit,
-            actual_slew);
-        }
-      }
-    }
-    // Check max capacitance
-    if (network->isDriver(pin)) {
-      const sta::Corner* corner1 = nullptr;
-      float cap1, max_cap1, cap_slack1;
-      const sta::RiseFall* rf;
-      sta->checkCapacitance(pin, corner, sta::MinMax::max(), corner1, rf, cap1, max_cap1, cap_slack1);
-      if (cap_slack1 < 0.0) {
-        violated = true;
-        design_->getLogger()->report(
-          "ERC Violation: Instance {} Pin {} exceeds max capacitance limit {:.3f} with actual capacitance {:.3f}",
-          inst->getName(),
-          network->name(pin),
-          max_cap1,
-          cap1);
-      }
-    }
+  sta::Instance* sta_inst = network->dbToSta(inst);
+  if (!sta_inst) {
+    return 0.0;
   }
-  return violated;
+  sta::PowerResult power = sta->power(sta_inst, corner);
+  return power.leakage();
 }
 
 void 

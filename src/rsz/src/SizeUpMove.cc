@@ -69,6 +69,10 @@ bool SizeUpMove::doMove(const Path* drvr_path,
     }
 
     LibertyPort* drvr_port = network_->libertyPort(drvr_pin);
+
+    // Annotate the driver pin with STA
+    resizer_->annotateInputSlews(network_->instance(drvr_pin), dcalc_ap);
+
     LibertyCell* upsize
         = upsizeCell(in_port, drvr_port, load_cap, prev_drive, dcalc_ap);
 
