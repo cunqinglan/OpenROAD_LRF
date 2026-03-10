@@ -132,7 +132,7 @@ LrSizer::sizeCriticalPathGates(sta::Path* path_end)
       }
     }
   }
-  printf("Sized %zu gates on critical path.\n", gates_sized);
+  printf("Sized %d gates on critical path.\n", gates_sized);
 
   return gates_sized > 0;
 }

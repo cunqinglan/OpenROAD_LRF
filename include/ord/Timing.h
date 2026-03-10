@@ -86,10 +86,6 @@ class Timing
   void makeEquivCells();
   std::vector<odb::dbMaster*> equivCells(odb::dbMaster* master);
 
-  float getWorstSlack(MinMax minmax = Max);
-  float getTns(MinMax minmax = Max);
-  float getTns(sta::Corner* corner, MinMax minmax = Max);
-
   /////////////////////////////////////////////////////////////
   // Functions for LR sizing
   /////////////////////////////////////////////////////////////

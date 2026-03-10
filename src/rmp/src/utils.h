@@ -11,11 +11,8 @@
 #include "resynthesis_strategy.h"
 #include "rsz/Resizer.hh"
 #include "sta/Delay.hh"
-<<<<<<< HEAD
 #include "sta/Graph.hh"
-=======
 #include "sta/Liberty.hh"
->>>>>>> phyls/develop
 #include "utl/Logger.h"
 #include "utl/deleter.h"
 

@@ -1777,7 +1777,7 @@ LocalSta::virtualReplaceCell(PtGraph *pt_graph, LibertyCell *new_cell)
   // If it's nullptr, we use original ref lib cell of pt graph
   if (new_cell) {
     if (!equivCellsArcs(pt_graph->refGate(), new_cell)) {
-      printf("This cell: %s replacement needs more processing\n", new_cell->name());
+      // printf("This cell: %s replacement needs more processing\n", new_cell->name());
       return;
     }
     pt_graph->setRefGate(new_cell);
