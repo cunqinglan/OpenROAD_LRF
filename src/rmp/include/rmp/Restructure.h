@@ -94,21 +94,17 @@ class Restructure
   void getBlob(unsigned max_depth);
   void runABC();
   void postABC(float worst_slack);
-  bool writeAbcScript(const std::string& file_name);
+  bool writeAbcScript(const std::string file_name);
   void writeOptCommands(std::ofstream& script);
   void initDB();
   void getEndPoints(sta::PinSet& ends, bool area_mode, unsigned max_depth);
   int countConsts(odb::dbBlock* top_block);
   void removeConstCells();
   void removeConstCell(odb::dbInst* inst);
-<<<<<<< HEAD
   bool readAbcLog(const std::string& abc_file_name,
                   int& level_gain,
                   float& delay_val);
-=======
-  bool readAbcLog(std::string abc_file_name, int& level_gain, float& delay_val);
   void collectLargeInputDontUse();
->>>>>>> phyls/develop
 
   utl::Logger* logger_;
   utl::UniqueName name_generator_;

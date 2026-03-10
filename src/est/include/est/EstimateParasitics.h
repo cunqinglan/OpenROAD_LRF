@@ -221,7 +221,6 @@ class EstimateParasitics : public sta::dbStaState
 
  private:
   void ensureParasitics();
-<<<<<<< HEAD
   void estimateWireParasiticSteiner(const sta::Pin* drvr_pin,
                                     const sta::Net* net,
                                     sta::SpefWriter* spef_writer);
@@ -235,25 +234,6 @@ class EstimateParasitics : public sta::dbStaState
   double computeAverageCutResistance(sta::Corner* corner);
   void parasiticNodeConnectPins(sta::Parasitic* parasitic,
                                 sta::ParasiticNode* node,
-=======
-  void estimateWireParasiticSteiner(const Pin* drvr_pin,
-                                    const Net* net,
-                                    SpefWriter* spef_writer);
-  void makePadParasitic(const Net* net, SpefWriter* spef_writer);
-  bool isPadNet(const Net* net) const;
-  bool isPadPin(const Pin* pin) const;
-  bool isPad(const Instance* inst) const;
-  float pinCapacitance(const Pin* pin, const DcalcAnalysisPt* dcalc_ap) const;
-  odb::dbTechLayer* getPinLayer(const Pin* pin);
-  double computeAverageCutResistance(Corner* corner);
-  void parasiticNodeConnectPins(Parasitic* parasitic,
-    ParasiticNode* node,
-    SteinerTree* tree,
-    SteinerPt pt,
-    size_t& resistor_id);
-  void parasiticNodeConnectPins(Parasitic* parasitic,
-                                ParasiticNode* node,
->>>>>>> phyls/develop
                                 SteinerTree* tree,
                                 SteinerPt pt,
                                 size_t& resistor_id,
