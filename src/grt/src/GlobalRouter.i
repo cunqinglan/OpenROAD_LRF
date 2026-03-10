@@ -92,6 +92,16 @@ void set_congestion_report_file (const char * file_name)
   getGlobalRouter()->setCongestionReportFile(file_name);
 }
 
+int get_overflow(int layer)
+{
+  return getGlobalRouter()->getOverflow(layer);
+}
+
+void report_congestion ()
+{
+  getGlobalRouter()->reportCongestion();
+}
+
 void
 set_grid_origin(int x, int y)
 {

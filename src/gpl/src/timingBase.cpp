@@ -85,7 +85,7 @@ void TimingBase::setTimingNetWeightOverflows(const std::vector<int>& overflows)
 {
   // sort by decreasing order
   auto sorted = overflows;
-  std::ranges::sort(sorted, std::greater<int>());
+  std::sort(sorted.begin(), sorted.end(), std::greater<int>());
   for (auto& overflow : sorted) {
     addTimingNetWeightOverflow(overflow);
   }

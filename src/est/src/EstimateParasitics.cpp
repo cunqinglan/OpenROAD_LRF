@@ -812,22 +812,10 @@ void EstimateParasitics::estimateWireParasiticSteiner(
           parasitics_->makeResistor(parasitic, resistor_id++, res, n1, n2);
           parasitics_->incrCap(n2, cap / 2.0);
         }
-        parasiticNodeConnectPins(parasitic,
-                                 n1,
-                                 tree,
-                                 steiner_pt1,
-                                 resistor_id,
-                                 corner,
-                                 connected_pins,
-                                 is_clk);
-        parasiticNodeConnectPins(parasitic,
-                                 n2,
-                                 tree,
-                                 steiner_pt2,
-                                 resistor_id,
-                                 corner,
-                                 connected_pins,
-                                 is_clk);
+
+        //for avoiding segmentation fault when running ChipTop.
+        parasiticNodeConnectPins(parasitic, n1, tree, steiner_pt1, resistor_id);
+        parasiticNodeConnectPins(parasitic, n2, tree, steiner_pt2, resistor_id);
       }
       if (spef_writer) {
         spef_writer->writeNet(corner, net, parasitic);
@@ -915,6 +903,24 @@ double EstimateParasitics::computeAverageCutResistance(sta::Corner* corner)
   }
 
   return count > 0 ? total_resistance / count : 0.0;
+}
+
+void EstimateParasitics::parasiticNodeConnectPins(Parasitic* parasitic,
+                                       ParasiticNode* node,
+                                       SteinerTree* tree,
+                                       SteinerPt pt,
+                                       size_t& resistor_id)
+{
+  const PinSeq* pins = tree->pins(pt);
+  if (pins) {
+    for (const Pin* pin : *pins) {
+      ParasiticNode* pin_node
+          = parasitics_->ensureParasiticNode(parasitic, pin, network_);
+      // Use a small resistor to keep the connectivity intact.
+      parasitics_->makeResistor(
+          parasitic, resistor_id++, 1.0e-3, node, pin_node);
+    }
+  }
 }
 
 void EstimateParasitics::parasiticNodeConnectPins(

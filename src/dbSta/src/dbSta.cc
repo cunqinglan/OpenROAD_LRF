@@ -224,6 +224,12 @@ dbSta::dbSta(Tcl_Interp* tcl_interp, odb::dbDatabase* db, utl::Logger* logger)
 {
   std::call_once(init_sta_flag, []() { sta::initSta(); });
   initVars(tcl_interp, db, logger);
+<<<<<<< HEAD
+=======
+  // if (!sta::IncreSta::increSta()) {
+  //   sta::IncreSta::setIncreSta(this);
+  // }
+>>>>>>> phyls/develop
   if (!sta::Sta::sta()) {
     sta::Sta::setSta(this);
   }
@@ -231,6 +237,12 @@ dbSta::dbSta(Tcl_Interp* tcl_interp, odb::dbDatabase* db, utl::Logger* logger)
 
 dbSta::~dbSta()
 {
+<<<<<<< HEAD
+=======
+  // if (sta::IncreSta::increSta() == this) {
+  //   sta::IncreSta::setIncreSta(nullptr);
+  // }
+>>>>>>> phyls/develop
   if (sta::Sta::sta() == this) {
     sta::Sta::setSta(nullptr);
   }

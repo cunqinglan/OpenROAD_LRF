@@ -1471,7 +1471,8 @@ bool PadDirectConnectionStraps::refineShapes(
     return false;
   }
 
-  const auto [first, last] = std::ranges::unique(refine.begin(), refine.end());
+  auto first = refine.begin();
+  auto last = std::unique(first, refine.end());
   refine.erase(first, last);
 
   for (auto* refine_shape : refine) {

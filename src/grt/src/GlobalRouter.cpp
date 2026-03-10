@@ -5288,6 +5288,25 @@ void GlobalRouter::reportCongestion()
   logger_->report("");
 }
 
+int GlobalRouter::getOverflow(int layer)
+{
+  
+  fastroute_->computeCongestionInformation();
+  const std::vector<int>& overflows = fastroute_->getTotalOverflowPerLayer();
+
+  int total_overflow = 0;
+  
+  if (layer == -1) {
+    for (size_t l = 0; l < overflows.size(); l++) {
+      total_overflow += overflows[l];
+    }
+  } else {
+    total_overflow = overflows[layer-1];
+  }
+
+  return total_overflow;
+}
+
 void GlobalRouter::reportNetLayerWirelengths(odb::dbNet* db_net,
                                              std::ofstream& out)
 {

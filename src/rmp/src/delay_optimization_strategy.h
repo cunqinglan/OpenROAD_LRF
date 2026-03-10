@@ -5,6 +5,7 @@
 
 #include "base/abc/abc.h"
 #include "logic_optimization_strategy.h"
+#include "map/mio/mio.h"
 #include "utl/Logger.h"
 #include "utl/deleter.h"
 
@@ -24,6 +25,12 @@ class DelayOptimizationStrategy : public LogicOptimizationStrategy
       const abc::Abc_Ntk_t* ntk,
       cut::AbcLibrary& abc_library,
       utl::Logger* logger) override;
+
+  utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> Optimize(
+      const abc::Abc_Ntk_t* ntk,
+      cut::AbcLibrary& abc_library,
+      abc::Mio_Library_t* map_library,
+      utl::Logger* logger);
 };
 
 }  // namespace rmp
