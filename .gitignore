@@ -67,3 +67,6 @@ projectview.bazelproject
 .bsp/
 .bazelbsp/
 /buildifier
+
+lrf.sh
+log
