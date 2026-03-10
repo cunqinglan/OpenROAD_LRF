@@ -1876,8 +1876,8 @@ bool ClusteringEngine::sameConnectionSignature(Cluster* a, Cluster* b) const
     return false;
   }
 
-  std::ranges::sort(a_neighbors);
-  std::ranges::sort(b_neighbors);
+  std::sort(a_neighbors.begin(), a_neighbors.end());
+  std::sort(b_neighbors.begin(), b_neighbors.end());
 
   for (int i = 0; i < a_neighbors.size(); i++) {
     if (a_neighbors[i] != b_neighbors[i]) {
@@ -1969,7 +1969,7 @@ Cluster* ClusteringEngine::findSingleWellFormedConnectedCluster(
 
     if (strongConnection(target_cluster, candidate, &connection_weight)) {
       auto small_child_found
-          = std::ranges::find(small_clusters_id_list, cluster_id);
+          = std::find(small_clusters_id_list.begin(), small_clusters_id_list.end(), cluster_id);
 
       // A small child is not well-formed, so we avoid them.
       if (small_child_found == small_clusters_id_list.end()) {

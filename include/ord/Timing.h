@@ -72,6 +72,10 @@ class Timing
   float getMaxCapLimit(odb::dbMTerm* pin);
   float getMaxSlewLimit(odb::dbMTerm* pin);
   float staticPower(odb::dbInst* inst, sta::Corner* corner);
+
+  float leakagePower(odb::dbInst* inst, odb::dbMaster* master, 
+    sta::Corner* corner);
+
   float dynamicPower(odb::dbInst* inst, sta::Corner* corner);
 
   std::vector<odb::dbMTerm*> getTimingFanoutFrom(odb::dbMTerm* input);
@@ -82,12 +86,16 @@ class Timing
   void makeEquivCells();
   std::vector<odb::dbMaster*> equivCells(odb::dbMaster* master);
 
+  float getWorstSlack(MinMax minmax = Max);
+  float getTns(MinMax minmax = Max);
+  float getTns(sta::Corner* corner, MinMax minmax = Max);
+
   /////////////////////////////////////////////////////////////
   // Functions for LR sizing
   /////////////////////////////////////////////////////////////
   float getLmDelaySum(odb::dbInst* inst, const sta::MinMax *minmax = sta::MinMax::max());
     
-  bool checkErcViolations(odb::dbInst* inst, sta::Corner* corner);
+  // bool checkErcViolations(odb::dbInst* inst, sta::Corner* corner);
 
   void lmUpdate();
 

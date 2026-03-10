@@ -836,8 +836,10 @@ void PlacerBaseCommon::init()
 
   // Extending instances by average pin density.
   auto count_signal_pins = [](const Instance& inst) -> int {
-    return std::ranges::count_if(
-        inst.dbInst()->getITerms(),
+    // 1. 获取集合对象
+    auto iterms = inst.dbInst()->getITerms();
+    // 2. 使用标准 count_if 配合 begin/end
+    return std::count_if(iterms.begin(), iterms.end(),
         [](odb::dbITerm* iterm) { return !iterm->getSigType().isSupply(); });
   };
 
