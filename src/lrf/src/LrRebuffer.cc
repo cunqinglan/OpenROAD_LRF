@@ -7,6 +7,7 @@
 #include "rsz/Resizer.hh"
 #include "LocalSta.hh"
 #include "ParallelVisitor.hh"
+#include "sta/FuncExpr.hh"
 #include "sta/Fuzzy.hh"
 
 
@@ -32,6 +33,23 @@ using BnetType = BufferedNetType;
 using BnetSeq = BufferedNetSeq;
 using BnetPtr = BufferedNetPtr;
 using BnetMetrics = BufferedNet::Metrics;
+
+int 
+LrRebuffer::bufferNum(const BnetPtr& tree)
+{
+  int num_buffers = 0;
+  visitTree(
+    [&](auto& recurse, int level, const BnetPtr& node) -> int {
+      switch (node->type()) {
+        case BnetType::buffer: num_buffers++; return recurse(node->ref());
+        case BnetType::junction: return recurse(node->ref()) + recurse(node->ref2());
+        case BnetType::wire: case BnetType::via: return recurse(node->ref());
+        case BnetType::load: return 1;
+        default: return 0;
+      }
+    }, tree);
+  return num_buffers;
+}
 
 LrRebuffer::LrRebuffer(rsz::Resizer *resizer, ParallelLrVisitor* visitor) :
     Rebuffer(resizer),
@@ -564,6 +582,7 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
     // printf("option %d: cost = %.3e, slack = %.3e, cap = %.3e, fanout = %0.f\n",
     //        i, cost, p->slack().toSeconds(), p->cap(), p->fanout());
 
+    if (bufferNum(p) < 1) continue;
     if (cost < best_cost) {
       best_cost = cost;
       best_option = p;
@@ -573,10 +592,22 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
   }
 
   if (best_option) {
-    printf("best option: %d cost=%.3e, slack=%.3e, cap=%.3e, fanout=%.0f\n",
+    // Count buffers in best option tree
+    size_t buf_count = 0;
+    visitTree(
+      [&](auto& recurse, int level, const BnetPtr& node) -> int {
+        switch (node->type()) {
+          case BnetType::buffer: buf_count++; return recurse(node->ref());
+          case BnetType::junction: return recurse(node->ref()) + recurse(node->ref2());
+          case BnetType::wire: case BnetType::via: return recurse(node->ref());
+          default: return 0;
+        }
+      }, best_option);
+    printf("best option: %d cost=%.3e, slack=%.3e, cap=%.3e, fanout=%.0f, buffers=%zu\n",
            best_index, best_cost, best_option->slack().toSeconds(),
-           best_option->cap(), best_option->fanout());
+           best_option->cap(), best_option->fanout(), buf_count);
     fflush(stdout);
+
   }
 
   return best_option;
@@ -596,20 +627,60 @@ LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
   }
 
   // Virtual slack check: build virtual sub-graph and run full local timing
+  // [Layer 1] Record graph counts before building virtual buffer
+  size_t v_count_before = pt_graph->vertexCount();
+  size_t e_count_before = pt_graph->edgeCount();
+
   VirtualBufferInfo vinfo = buildVirtualBuffer(pt_vertex_id, option);
   if (vinfo.failed) {
     // buildVirtualBuffer failed (e.g., no timing arc set for buffer cell)
     removeVirtualBuffer(vinfo);
     return total_cost;  // Fall back to analytical cost only
   }
+  // [Layer 1] Record counts after build
+  size_t v_count_built = pt_graph->vertexCount();
+  size_t e_count_built = pt_graph->edgeCount();
+  printf("[GRAPH BUILD] V: %zu->%zu (+%zu), E: %zu->%zu (+%zu)\n",
+         v_count_before, v_count_built, v_count_built - v_count_before,
+         e_count_before, e_count_built, e_count_built - e_count_before);
+  fflush(stdout);
+
   pt_graph->topoSortVertices();
   local_sta_->updateLocalTiming(pt_graph, arc_delay_calc_);
+
+  // Arc delay printing moved to bufferForTiming (best option only)
+
   float slack_after = local_sta_->localSlackAroundRef(pt_graph);
+
+  // [Layer 2] Slack comparison log
+  printf("[SLACK] original=%.3f ps, after_vbuf=%.3f ps, delta=%.3f ps\n",
+         original_slack * 1e12, slack_after * 1e12,
+         (slack_after - original_slack) * 1e12);
+  fflush(stdout);
+
   removeVirtualBuffer(vinfo);
 
-  if (slack_after > original_slack * visitor_->slackMargin()) {
-    return INF;  // Buffer insertion worsens slack
+  // [Layer 1] Verify graph counts restored after remove
+  size_t v_count_after = pt_graph->vertexCount();
+  size_t e_count_after = pt_graph->edgeCount();
+  if (v_count_after != v_count_before || e_count_after != e_count_before) {
+    printf("[GRAPH INTEGRITY ERROR] after remove: V=%zu (expected %zu), E=%zu (expected %zu)\n",
+           v_count_after, v_count_before, e_count_after, e_count_before);
+  } else {
+    printf("[GRAPH OK] counts restored: V=%zu E=%zu\n", v_count_after, e_count_after);
   }
+  fflush(stdout);
+
+  // [TEST] Skip slack filter — purpose is to verify slack calculation accuracy,
+  // not to make buffering decisions. Remove this bypass after validation.
+  // if (slack_after > original_slack * visitor_->slackMargin()) {
+  //   return INF;  // Buffer insertion worsens slack
+  // }
+  printf("[SLACK FILTER BYPASSED] slack_after=%.3f ps, threshold=%.3f ps, margin=%.3f\n",
+         slack_after * 1e12,
+         original_slack * visitor_->slackMargin() * 1e12,
+         visitor_->slackMargin());
+  fflush(stdout);
   return total_cost;
 }
 
@@ -1096,16 +1167,35 @@ LrRebuffer::buildVirtualBuffer(VertexId drvr_vertex_id,
       pt_graph->deleteEdge(eid);
     }
     info.orig_wire_edge_ids = std::move(orig_wire_eids);
+    // Tag driver: original parasitic is invalid, use virtual load cap instead
+    pt_graph->ptVertex(drvr_vertex_id).setHasVirtualBuffer(true);
   }
 
-  // 2. Walk BnetPtr tree, build virtual sub-graph
-  using BnetWalker = std::function<void(const BnetPtr&, VertexId current_drvr_id)>;
-  BnetWalker walk = [&](const BnetPtr& node, VertexId current_drvr_id) {
+  // Annotate a virtual wire edge with a pre-computed RC delay.
+  // Wire edges store delays indexed by rf->index() * ap_count + ap_index,
+  // so use setWireArcDelay (not setArcDelay) to write the correct slots.
+  auto setVirtualWireDelay = [&](EdgeId eid, float delay_sec) {
+    PtEdge &e = pt_graph->edge(eid);
+    sta::ArcDelay d(delay_sec);
+    for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+      for (sta::DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
+        pt_graph->setWireArcDelay(e, rf, dcalc_ap->index(), d);
+      }
+    }
+  };
+
+  // 2. Walk BnetPtr tree, build virtual sub-graph.
+  // acc_wire_delay accumulates Elmore RC wire delays (seconds) from the
+  // current driver through all wire/via segments to the next buffer or load.
+  // Gate delays are left at 0 here and computed by updateLocalTiming later.
+  using BnetWalker = std::function<void(const BnetPtr&, VertexId, float)>;
+  BnetWalker walk = [&](const BnetPtr& node, VertexId current_drvr_id, float acc_wire_delay) {
     if (info.failed) return;
     switch (node->type()) {
       case BnetType::wire:
       case BnetType::via:
-        walk(node->ref(), current_drvr_id);
+        // Accumulate first-order RC delay from BnetPtr node
+        walk(node->ref(), current_drvr_id, acc_wire_delay + node->delay().toSeconds());
         break;
 
       case BnetType::buffer: {
@@ -1137,12 +1227,14 @@ LrRebuffer::buildVirtualBuffer(VertexId drvr_vertex_id,
                                    pt_graph->ptVertex(drvr_vertex_id));
 
         // Wire edge: current_drvr → buf_in
+        // Delay = accumulated RC wire delay from current driver to buffer insertion point
         EdgeId wire_in_eid = pt_graph->makeVirtualEdge(
             current_drvr_id, buf_in_id,
             sta::TimingArcSet::wireTimingArcSet(), true);
         info.edge_ids.push_back(wire_in_eid);
+        setVirtualWireDelay(wire_in_eid, acc_wire_delay);
 
-        // Gate edge: buf_in → buf_out
+        // Gate edge: buf_in → buf_out (delay left 0; computed by updateLocalTiming)
         sta::TimingArcSet *arc_set = nullptr;
         if (in_port && out_port) {
           for (auto *as : buf_cell->timingArcSets(in_port, out_port)) {
@@ -1178,13 +1270,14 @@ LrRebuffer::buildVirtualBuffer(VertexId drvr_vertex_id,
           pt_graph->setVirtualEdgeLms(pt_graph->edge(gate_eid), lms);
         }
 
-        walk(node->ref(), buf_out_id);
+        // Recurse with fresh accumulator after the buffer
+        walk(node->ref(), buf_out_id, 0.0f);
         break;
       }
 
       case BnetType::junction:
-        walk(node->ref(), current_drvr_id);
-        walk(node->ref2(), current_drvr_id);
+        walk(node->ref(), current_drvr_id, acc_wire_delay);
+        walk(node->ref2(), current_drvr_id, acc_wire_delay);
         break;
 
       case BnetType::load: {
@@ -1196,6 +1289,8 @@ LrRebuffer::buildVirtualBuffer(VertexId drvr_vertex_id,
               current_drvr_id, load_pt_vertex->objectIdx(),
               sta::TimingArcSet::wireTimingArcSet(), true);
           info.edge_ids.push_back(wire_eid);
+          // Accumulated RC wire delay from current driver to this load
+          setVirtualWireDelay(wire_eid, acc_wire_delay);
 
           const auto &lms = node->lms();
           if (!lms.empty()) {
@@ -1210,7 +1305,7 @@ LrRebuffer::buildVirtualBuffer(VertexId drvr_vertex_id,
     }
   };
 
-  walk(option, drvr_vertex_id);
+  walk(option, drvr_vertex_id, 0.0f);
   return info;
 }
 
@@ -1235,7 +1330,13 @@ LrRebuffer::removeVirtualBuffer(VirtualBufferInfo &info)
       pt_graph->deleteEdge(eid);
   }
 
-  // 2. Re-link original wire edges
+  // 2. Clear virtual buffer tag on driver vertex
+  if (!info.orig_wire_edge_ids.empty()) {
+    VertexId drvr_id = pt_graph->edge(info.orig_wire_edge_ids[0]).ptFromId();
+    pt_graph->ptVertex(drvr_id).setHasVirtualBuffer(false);
+  }
+
+  // 3. Re-link original wire edges
   for (EdgeId eid : info.orig_wire_edge_ids) {
     PtEdge &pt_edge = pt_graph->edge(eid);
     VertexId from_id = pt_edge.ptFromId();

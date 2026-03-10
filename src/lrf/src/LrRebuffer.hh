@@ -1,4 +1,6 @@
 
+#include <string>
+#include <vector>
 #include "lrf/LrfClass.hh"
 #include "../../rsz/src/Rebuffer.hh"
 // #include "LocalSta.hh"
@@ -20,6 +22,7 @@ namespace lrf {
 class ParallelLrVisitor;
 class PtGraph;
 class LocalSta;
+class TestLrf;
 
 struct VirtualBufferInfo {
   std::vector<sta::VertexId> vertex_ids;
@@ -30,6 +33,7 @@ struct VirtualBufferInfo {
 
 class LrRebuffer : public rsz::Rebuffer
 {
+  friend class TestLrf;
 public:
   LrRebuffer(rsz::Resizer* resizer, ParallelLrVisitor* parallel_visitor);
   // Call once in serial before creating any LrRebuffer instances in parallel.
@@ -76,6 +80,7 @@ protected:
                                              const rsz::BufferedNetPtr& left,
                                              const rsz::BufferedNetPtr& right,
                                              float best_cap);
+  int bufferNum(const rsz::BufferedNetPtr& tree);
 private:
   LocalSta *local_sta_;
   ParallelLrVisitor* visitor_;

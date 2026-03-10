@@ -79,11 +79,21 @@ public:
   // Functions for Searching arrivals and required times
   void findLocalArrivals(PtGraph *pt_graph);
   void findLocalRequireds(PtGraph *pt_graph);
-  void localParasiticLoad(const Pin *drvr_pin,
+  // Full version: checks hasVirtualBuffer tag and recomputes load cap if needed
+  void localParasiticLoad(PtVertex &drvr_pt_vertex,
                           const RiseFall *rf,
                           const DcalcAnalysisPt *dcalc_ap,
                           const MultiDrvrNet *multi_drvr_net,
                           // Return values
+                          float &load_cap,
+                          const Parasitic *&parasitic,
+                          PtGraph *pt_graph);
+  // Pin-only version: always uses original parasitic (no virtual buffer check).
+  // Used by ViolationCheck where virtual buffers are never present.
+  void localParasiticLoad(const Pin *drvr_pin,
+                          const RiseFall *rf,
+                          const DcalcAnalysisPt *dcalc_ap,
+                          const MultiDrvrNet *multi_drvr_net,
                           float &load_cap,
                           const Parasitic *&parasitic) const;
 

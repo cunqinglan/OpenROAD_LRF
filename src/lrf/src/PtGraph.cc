@@ -645,7 +645,8 @@ PtGraph::initWireDelays(PtVertex &drvr_pt_vertex)
   PtVertexOutEdgeIterator out_iter(drvr_pt_vertex.objectIdx(), this);
   while (out_iter.hasNext()) {
     PtEdge &out_pt_edge = out_iter.next();
-    if (out_pt_edge.isWire()) {
+    if (out_pt_edge.isWire()
+        && out_pt_edge.type() != PtEdgeType::VirtualWireEdge) {
       for (const sta::DcalcAnalysisPt * dcalc_ap : sta_->corners()->dcalcAnalysisPts()) {
         const sta::MinMax *delay_min_max = dcalc_ap->delayMinMax();
         sta::Delay delay_init_value(delay_min_max->initValue());

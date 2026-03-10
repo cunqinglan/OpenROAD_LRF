@@ -52,6 +52,7 @@ public:
   void operator()(sta::Instance *inst) { visit(inst); }
   void printVisitedInstNames() const;
   PtGraph *ptGraph() const { return pt_graph_; }
+  LrRebuffer *rebuffer() const { return rebuffer_; }
   void setPtGraph(PtGraph *pt_graph) { pt_graph_ = pt_graph; }
   sta::Instance *refInst() const { return ref_inst_; }
   sta::LibertyCell *bestCell() const { return best_cell_; }
@@ -147,6 +148,7 @@ protected:
   };
 private:
   friend class LrRebuffer;
+  friend class TestLrf;
 };
 
 
