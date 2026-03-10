@@ -294,6 +294,10 @@ public:
     return type_ == PtVertexType::VirtualInput
         || type_ == PtVertexType::VirtualOutput;
   }
+  // True when this driver's downstream loads include a virtual buffer,
+  // meaning the original parasitic is invalid and load_cap should be recomputed.
+  void setHasVirtualBuffer(bool v) { has_virtual_buffer_ = v; }
+  bool hasVirtualBuffer() const { return has_virtual_buffer_; }
 
 protected:
   sta::Vertex *vertex_{nullptr};
@@ -312,6 +316,7 @@ protected:
   sta::Path *paths_ = nullptr;
   bool is_driver_{false};
   bool is_load_{false};
+  bool has_virtual_buffer_{false};
 
 private:
   friend class PtGraph;

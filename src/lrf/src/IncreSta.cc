@@ -835,10 +835,6 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
 
   // Ensure prerequisites
   local_sta_->initParallel();
-  if (!swap_cell_presaved_)
-    makeSwappableCellsCache(resizer);
-  if (!swap_cell_leakage_presaved_)
-    preSaveLibCellLeakage();
   if (!equiv_cell_array_built_)
     makeEquivCellArray();
 

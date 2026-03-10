@@ -1,3 +1,5 @@
+#include <map>
+#include <tuple>
 #include "db_sta/dbSta.hh"
 #include "sta/ArcDelayCalc.hh"
 #include "rsz/Resizer.hh"
@@ -10,12 +12,15 @@
 #include "odb/db.h"
 #include "sta/Liberty.hh"
 #include "sta/Corner.hh"
+#include "sta/FuncExpr.hh"
 #include "LocalSearch.hh"
 #include "PtGraph.hh"
 #include "ParallelVisitor.hh"
 #include "sta/DispatchQueue.hh"
 #include "TaskArranger.hh"
+#include "sta/TimingRole.hh"
 #include "sta/PowerClass.hh"
+#include "sta/PathAnalysisPt.hh"
 #include "sta/Delay.hh"
 #include "est/EstimateParasitics.h"
 #include "sta/EquivCells.hh"
@@ -1997,26 +2002,80 @@ TestLrf::testSingleInstBuffering(char *inst_name, sta::dbSta* sta,
   printf("Initial WNS: %.3f ps, TNS: %.3f ps\n", wns * 1e12, tns * 1e12);
   fflush(stdout);
 
-  // Create visitor with BufferInsertion move type
+  // [Layer 3] Run visit() twice WITHOUT applying changes; results must be identical
+  printf("===== [Layer 3] Stability: calling visit() twice =====\n");
+  fflush(stdout);
+
+  for (int round = 1; round <= 2; round++) {
+    printf("----- Round %d -----\n", round);
+    fflush(stdout);
+
+    ParallelLrVisitor *visitor = new ParallelLrVisitor(sta, local_sta, resizer);
+    visitor->init(0, 0, wns, 100.0, nullptr, nullptr);
+    visitor->setMoveType(MoveType::BufferInsertion);
+
+    bool success = visitor->visit(inst);
+    printf("[Round %d] visit() returned: %s\n", round, success ? "true" : "false");
+    fflush(stdout);
+
+    // Do NOT apply changes — discard visitor to restore state
+    delete visitor;
+  }
+
+  printf("===== [Layer 3] If Round 1 and Round 2 outputs match, graph restore is correct =====\n");
+  fflush(stdout);
+
+  // Now apply the real buffering
+  printf("===== Applying buffering =====\n");
   ParallelLrVisitor *visitor = new ParallelLrVisitor(sta, local_sta, resizer);
   visitor->init(0, 0, wns, 100.0, nullptr, nullptr);
   visitor->setMoveType(MoveType::BufferInsertion);
-
-  printf("Visitor created, calling visit(%s)...\n", inst_name);
-  fflush(stdout);
-
-  // Visit the instance — this calls tryBuffering internally
   bool success = visitor->visit(inst);
 
   printf("visit() returned: %s\n", success ? "true" : "false");
   fflush(stdout);
 
   if (success) {
-    // Apply buffering changes to DB
+    // ===== BEFORE apply: report OpenSTA timing on driver output net =====
+    const sta::Pin *drvr_pin = visitor->rebuffer()->drvrPin();
+    sta::Graph *graph = sta->graph();
+    sta::dbNetwork *network = sta->getDbNetwork();
+
+    printf("===== [TIMING CMP] Before Apply: OpenSTA per-pin timing =====\n");
+    {
+      sta::Vertex *drvr_vertex = graph->pinDrvrVertex(drvr_pin);
+      if (drvr_vertex) {
+        sta::Slack drvr_slack = sta->vertexSlack(drvr_vertex, sta::MinMax::max());
+        sta::Arrival drvr_arr = sta->vertexArrival(drvr_vertex, sta::MinMax::max());
+        printf("  [BEFORE] driver %s  arr=%.3f ps  slack=%.3f ps\n",
+               drvr_vertex->to_string(sta).c_str(),
+               drvr_arr * 1e12, drvr_slack * 1e12);
+      }
+      // Report load pins
+      sta::Net *net = network->net(drvr_pin);
+      if (net) {
+        sta::NetPinIterator *pin_iter = network->pinIterator(net);
+        while (pin_iter->hasNext()) {
+          const sta::Pin *pin = pin_iter->next();
+          if (pin == drvr_pin) continue;
+          sta::Vertex *load_vertex = graph->pinLoadVertex(pin);
+          if (load_vertex) {
+            sta::Slack load_slack = sta->vertexSlack(load_vertex, sta::MinMax::max());
+            sta::Arrival load_arr = sta->vertexArrival(load_vertex, sta::MinMax::max());
+            printf("  [BEFORE] load   %s  arr=%.3f ps  slack=%.3f ps\n",
+                   load_vertex->to_string(sta).c_str(),
+                   load_arr * 1e12, load_slack * 1e12);
+          }
+        }
+        delete pin_iter;
+      }
+    }
+    fflush(stdout);
+
+    // ===== Apply buffering =====
     visitor->applyChangesToDb(resizer);
     printf("Buffering changes applied to DB\n");
 
-    // Re-evaluate timing
     sta->updateTiming(true);
     sta->findRequireds();
     sta::Slack wns_after = sta->worstSlack(sta::MinMax::max());
@@ -2025,6 +2084,381 @@ TestLrf::testSingleInstBuffering(char *inst_name, sta::dbSta* sta,
            wns_after * 1e12, tns_after * 1e12);
     printf("WNS delta: %.3f ps, TNS delta: %.3f ps\n",
            (wns_after - wns) * 1e12, (tns_after - tns) * 1e12);
+
+    // ===== AFTER apply: Compare LOCAL vs OPENSTA arc delays =====
+    // Rebuild virtual buffer on PtGraph to collect LOCAL timing, then compare with OPENSTA.
+    printf("===== [ARC DELAY COMPARE] LOCAL vs OPENSTA =====\n");
+    {
+      struct ArcDelayRecord {
+        std::string from_port, to_port, edge_label, cond;
+        bool is_wire;
+        uintptr_t arc_set_id;
+        float delay_ps;
+      };
+
+      // Helper: get "when" condition string from TimingArcSet
+      auto arcSetCond = [](sta::TimingArcSet *aset) -> std::string {
+        if (!aset) return "";
+        auto *cond = aset->cond();
+        return cond ? cond->to_string() : "";
+      };
+
+      // Helper: get "inst/port" for PtVertex (real pin -> pathName, virtual -> cell/port)
+      auto ptQualifiedName = [&](PtVertex &v) -> std::string {
+        if (v.pin()) return network->pathName(v.pin());
+        sta::LibertyPort *lp = v.libertyPort();
+        if (lp) {
+          sta::LibertyCell *cell = lp->libertyCell();
+          return std::string(cell ? cell->name() : "?") + "/" + lp->name();
+        }
+        return "?";
+      };
+
+      sta::DcalcAPIndex ap = sta->corners()->dcalcAnalysisPts()[0]->index();
+      LrRebuffer *rebuffer = visitor->rebuffer();
+      PtGraph *pt_graph = visitor->ptGraph();
+      LocalSta *local_sta = rebuffer->local_sta_;
+      sta::ArcDelayCalc *arc_delay_calc = visitor->arcDelayCalc();
+
+      // --- Collect LOCAL arc delays by rebuilding virtual buffer ---
+      std::vector<ArcDelayRecord> local_arcs;
+
+      // Find driver PtVertex id from driver pin
+      sta::Vertex *drvr_sta_vertex = graph->pinDrvrVertex(drvr_pin);
+      PtVertex *drvr_ptv = pt_graph->ptVertex(drvr_sta_vertex);
+      sta::VertexId drvr_vertex_id = drvr_ptv ? drvr_ptv->objectIdx() : sta::VertexId(0);
+      const rsz::BufferedNetPtr &best_bnet = rebuffer->bestBnet();
+
+      if (drvr_ptv && best_bnet) {
+        VirtualBufferInfo vinfo = rebuffer->buildVirtualBuffer(drvr_vertex_id, best_bnet);
+        if (!vinfo.failed) {
+          pt_graph->topoSortVertices();
+          local_sta->updateLocalTiming(pt_graph, arc_delay_calc);
+
+          // 1. Driver instance gate arcs (RefInstEdge)
+          PtVertexInEdgeIterator in_iter(drvr_vertex_id, pt_graph);
+          while (in_iter.hasNext()) {
+            PtEdge &e = in_iter.next();
+            if (e.type() != PtEdgeType::RefInstEdge) continue;
+            PtVertex &from_v = pt_graph->ptVertex(e.ptFromId());
+            PtVertex &to_v = pt_graph->ptVertex(drvr_vertex_id);
+            std::string from_name = ptQualifiedName(from_v);
+            std::string to_name = ptQualifiedName(to_v);
+            sta::TimingArcSet *arc_set = e.timingArcSet();
+            if (arc_set) {
+              std::string cond = arcSetCond(arc_set);
+              for (sta::TimingArc *arc : arc_set->arcs()) {
+                sta::ArcDelay d = pt_graph->arcDelay(e, arc, ap);
+                std::string label = std::string(arc->fromEdge()->to_string())
+                                    + "->" + arc->toEdge()->to_string();
+                local_arcs.push_back({from_name, to_name, label, cond, false,
+                                      (uintptr_t)arc_set,
+                                      (float)(sta::delayAsFloat(d) * 1e12)});
+              }
+            }
+          }
+
+          // 2. Virtual buffer tree arcs (wire + gate)
+          for (EdgeId eid : vinfo.edge_ids) {
+            PtEdge &e = pt_graph->edge(eid);
+            PtVertex &from_v = pt_graph->ptVertex(e.ptFromId());
+            PtVertex &to_v = pt_graph->ptVertex(e.ptToId());
+            std::string from_name = ptQualifiedName(from_v);
+            std::string to_name = ptQualifiedName(to_v);
+            if (e.isWire()) {
+              for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+                sta::ArcDelay d = pt_graph->wireArcDelay(e, rf, ap);
+                local_arcs.push_back({from_name, to_name,
+                                      rf->shortName(), "", true, 0,
+                                      (float)(sta::delayAsFloat(d) * 1e12)});
+              }
+            } else {
+              sta::TimingArcSet *arc_set = e.timingArcSet();
+              if (arc_set) {
+                std::string cond = arcSetCond(arc_set);
+                for (sta::TimingArc *arc : arc_set->arcs()) {
+                  sta::ArcDelay d = pt_graph->arcDelay(e, arc, ap);
+                  std::string label = std::string(arc->fromEdge()->to_string())
+                                      + "->" + arc->toEdge()->to_string();
+                  local_arcs.push_back({from_name, to_name, label, cond, false,
+                                        (uintptr_t)arc_set,
+                                        (float)(sta::delayAsFloat(d) * 1e12)});
+                }
+              }
+            }
+          }
+
+          // 3. Collect LOCAL worst arrival/slack per vertex
+          // Only collect driver instance + virtual buffer + direct load vertices
+          struct VtRecord { std::string name; float arr_ps; float slk_ps; };
+          std::vector<VtRecord> local_vt;
+          // Driver instance pins
+          for (size_t vid = 0; vid < pt_graph->vertexCount(); vid++) {
+            PtVertex &ptv = pt_graph->ptVertex(sta::VertexId(vid));
+            if (ptv.type() == PtVertexType::Sentinel) continue;
+            // Include: driver instance pins (RefInput/RefOutput) and virtual vertices
+            if (ptv.type() != PtVertexType::RefInput
+                && ptv.type() != PtVertexType::RefOutput
+                && ptv.type() != PtVertexType::VirtualInput
+                && ptv.type() != PtVertexType::VirtualOutput) continue;
+            sta::Path *worst = local_sta->ptVertexWorstSlackPath(ptv, sta::MinMax::max());
+            if (worst) {
+              local_vt.push_back({ptQualifiedName(ptv),
+                                  (float)(worst->arrival() * 1e12),
+                                  (float)(worst->slack(local_sta) * 1e12)});
+            }
+          }
+          // Also include direct load pins (RefDriver that are wire targets)
+          for (EdgeId eid : vinfo.edge_ids) {
+            PtEdge &e = pt_graph->edge(eid);
+            if (!e.isWire()) continue;
+            PtVertex &to_v = pt_graph->ptVertex(e.ptToId());
+            if (to_v.type() == PtVertexType::RefDriver
+                || to_v.type() == PtVertexType::RefInput) {
+              sta::Path *worst = local_sta->ptVertexWorstSlackPath(to_v, sta::MinMax::max());
+              if (worst) {
+                local_vt.push_back({ptQualifiedName(to_v),
+                                    (float)(worst->arrival() * 1e12),
+                                    (float)(worst->slack(local_sta) * 1e12)});
+              }
+            }
+          }
+
+          rebuffer->removeVirtualBuffer(vinfo);
+
+          // --- Collect OPENSTA arc delays ---
+          std::vector<ArcDelayRecord> opensta_arcs;
+          sta::Vertex *drvr_vertex = graph->pinDrvrVertex(drvr_pin);
+
+          // OPENSTA driver gate arcs
+          if (drvr_vertex) {
+            sta::VertexInEdgeIterator oin_iter(drvr_vertex, graph);
+            while (oin_iter.hasNext()) {
+              sta::Edge *edge = oin_iter.next();
+              if (edge->role()->isWire()) continue;
+              sta::Vertex *from_v = edge->from(graph);
+              const sta::Pin *from_pin = from_v->pin();
+              std::string from_port = from_pin ? network->pathName(from_pin) : "?";
+              const sta::Pin *to_pin_v = drvr_vertex->pin();
+              std::string to_port = to_pin_v ? network->pathName(to_pin_v) : "?";
+              sta::TimingArcSet *aset = edge->timingArcSet();
+              std::string cond = arcSetCond(aset);
+              for (sta::TimingArc *arc : aset->arcs()) {
+                sta::ArcDelay d = graph->arcDelay(edge, arc, ap);
+                std::string label = std::string(arc->fromEdge()->to_string())
+                                    + "->" + arc->toEdge()->to_string();
+                opensta_arcs.push_back({from_port, to_port, label, cond, false,
+                                        (uintptr_t)aset, (float)(d * 1e12)});
+              }
+            }
+          }
+
+          // OPENSTA BFS: buffer tree wire + gate arcs
+          // Helper: get qualified name for OPENSTA pins (buffer pins -> cell/port)
+          auto openStaQualName = [&](const sta::Pin *pin) -> std::string {
+            if (!pin) return "?";
+            sta::Instance *inst = network->instance(pin);
+            sta::LibertyCell *cell = network->libertyCell(inst);
+            if (cell && cell->isBuffer())
+              return std::string(cell->name()) + "/" + network->portName(pin);
+            return network->pathName(pin);
+          };
+
+          std::vector<sta::Vertex*> queue;
+          if (drvr_vertex) queue.push_back(drvr_vertex);
+          while (!queue.empty()) {
+            sta::Vertex *cur = queue.back();
+            queue.pop_back();
+            std::string cur_port = openStaQualName(cur->pin());
+            sta::VertexOutEdgeIterator out_iter(cur, graph);
+            while (out_iter.hasNext()) {
+              sta::Edge *edge = out_iter.next();
+              sta::Vertex *to_v = edge->to(graph);
+              if (!edge->role()->isWire()) continue;
+              const sta::Pin *to_pin = to_v->pin();
+              std::string to_full = openStaQualName(to_pin);
+              for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+                sta::ArcDelay wd = graph->wireArcDelay(edge, rf, ap);
+                opensta_arcs.push_back({cur_port, to_full, rf->shortName(), "", true,
+                                        0, (float)(wd * 1e12)});
+              }
+              // BFS through buffers
+              if (to_pin && network->isLeaf(to_pin)) {
+                sta::Instance *to_inst = network->instance(to_pin);
+                sta::LibertyCell *to_cell = network->libertyCell(to_inst);
+                if (to_cell && to_cell->isBuffer()) {
+                  sta::InstancePinIterator *ipin_iter = network->pinIterator(to_inst);
+                  while (ipin_iter->hasNext()) {
+                    const sta::Pin *ipin = ipin_iter->next();
+                    if (network->direction(ipin)->isOutput()) {
+                      sta::Vertex *out_v = graph->pinDrvrVertex(ipin);
+                      if (out_v) {
+                        // Buffer gate arcs
+                        sta::VertexInEdgeIterator buf_in_iter(out_v, graph);
+                        while (buf_in_iter.hasNext()) {
+                          sta::Edge *gate_edge = buf_in_iter.next();
+                          if (gate_edge->role()->isWire()) continue;
+                          std::string gf_port = openStaQualName(gate_edge->from(graph)->pin());
+                          std::string gt_port = openStaQualName(out_v->pin());
+                          sta::TimingArcSet *gaset = gate_edge->timingArcSet();
+                          std::string gcond = arcSetCond(gaset);
+                          for (sta::TimingArc *arc : gaset->arcs()) {
+                            sta::ArcDelay gd = graph->arcDelay(gate_edge, arc, ap);
+                            std::string label = std::string(arc->fromEdge()->to_string())
+                                                + "->" + arc->toEdge()->to_string();
+                            opensta_arcs.push_back({gf_port, gt_port, label, gcond, false,
+                                                    (uintptr_t)gaset, (float)(gd * 1e12)});
+                          }
+                        }
+                        queue.push_back(out_v);
+                      }
+                    }
+                  }
+                  delete ipin_iter;
+                }
+              }
+            }
+          }
+
+          // --- Key-based matching ---
+          using ArcKey = std::tuple<std::string, std::string, std::string, bool, uintptr_t>;
+          struct ArcVal { float delay_ps; std::string cond; };
+          std::map<ArcKey, ArcVal> opensta_map;
+          for (const auto &o : opensta_arcs) {
+            opensta_map[{o.from_port, o.to_port, o.edge_label, o.is_wire, o.arc_set_id}]
+                = {o.delay_ps, o.cond};
+          }
+
+          float max_err = 0, sum_err = 0;
+          size_t matched = 0, unmatched_local = 0;
+          printf("  %-8s %-30s %-6s %-20s %10s %10s %10s\n",
+                 "type", "from->to", "edge", "when", "LOCAL", "OPENSTA", "err");
+          printf("  %-8s %-30s %-6s %-20s %10s %10s %10s\n",
+                 "----", "--------", "----", "----", "-----", "-------", "---");
+
+          for (const auto &l : local_arcs) {
+            ArcKey key = {l.from_port, l.to_port, l.edge_label, l.is_wire, l.arc_set_id};
+            std::string from_to = l.from_port + "->" + l.to_port;
+            std::string cond_disp = l.cond.empty() ? "-" : l.cond;
+            auto it = opensta_map.find(key);
+            if (it != opensta_map.end()) {
+              float err = l.delay_ps - it->second.delay_ps;
+              if (std::abs(err) > max_err) max_err = std::abs(err);
+              sum_err += std::abs(err);
+              matched++;
+              printf("  %-8s %-30s %-6s %-20s %10.3f %10.3f %10.3f\n",
+                     l.is_wire ? "wire" : "gate", from_to.c_str(),
+                     l.edge_label.c_str(), cond_disp.c_str(),
+                     l.delay_ps, it->second.delay_ps, err);
+              opensta_map.erase(it);
+            } else {
+              unmatched_local++;
+              printf("  %-8s %-30s %-6s %-20s %10.3f %10s %10s\n",
+                     l.is_wire ? "wire" : "gate", from_to.c_str(),
+                     l.edge_label.c_str(), cond_disp.c_str(),
+                     l.delay_ps, "N/A", "---");
+            }
+          }
+          for (const auto &[key, val] : opensta_map) {
+            const auto &[fp, tp, el, iw, asid] = key;
+            std::string cd = val.cond.empty() ? "-" : val.cond;
+            printf("  %-8s %-30s %-6s %-20s %10s %10.3f %10s\n",
+                   iw ? "wire" : "gate", (fp + "->" + tp).c_str(),
+                   el.c_str(), cd.c_str(), "N/A", val.delay_ps, "---");
+          }
+          printf("  --- Arc Delay Summary: %zu matched, %zu LOCAL-only, %zu OPENSTA-only, "
+                 "max_err=%.3f ps, avg_err=%.3f ps ---\n",
+                 matched, unmatched_local, opensta_map.size(),
+                 max_err, matched > 0 ? sum_err / matched : 0.0f);
+
+          // --- Worst arrival/slack comparison ---
+          printf("\n  === Worst Arrival / Slack Comparison (max) ===\n");
+          printf("  %-30s %12s %12s %12s %12s %12s %12s\n",
+                 "pin", "L_arr(ps)", "O_arr(ps)", "arr_err", "L_slk(ps)", "O_slk(ps)", "slk_err");
+          printf("  %-30s %12s %12s %12s %12s %12s %12s\n",
+                 "---", "--------", "--------", "-------", "--------", "--------", "-------");
+
+          // Collect OPENSTA worst arrival/slack
+          auto getOpenStaWorst = [&](sta::Vertex *v) -> std::pair<float, float> {
+            float worst_arr = -1e30, worst_slk = 1e30;
+            bool found = false;
+            sta::VertexPathIterator path_iter(v, sta);
+            while (path_iter.hasNext()) {
+              sta::Path *path = path_iter.next();
+              if (path->pathAnalysisPt(sta)->pathMinMax() != sta::MinMax::max()) continue;
+              float arr = path->arrival() * 1e12;
+              float slk = path->slack(sta) * 1e12;
+              if (!found || slk < worst_slk) { worst_arr = arr; worst_slk = slk; found = true; }
+            }
+            return {worst_arr, worst_slk};
+          };
+
+          std::map<std::string, std::pair<float, float>> opensta_vt;
+          // Driver instance pins
+          sta::Instance *drv_inst = network->instance(drvr_pin);
+          sta::InstancePinIterator *dpin_iter = network->pinIterator(drv_inst);
+          while (dpin_iter->hasNext()) {
+            const sta::Pin *pin = dpin_iter->next();
+            sta::Vertex *v = graph->pinDrvrVertex(pin);
+            if (!v) v = graph->pinLoadVertex(pin);
+            if (v) opensta_vt[network->pathName(pin)] = getOpenStaWorst(v);
+          }
+          delete dpin_iter;
+          // Buffer tree + load pins via BFS
+          std::vector<sta::Vertex*> vtq;
+          if (drvr_vertex) vtq.push_back(drvr_vertex);
+          while (!vtq.empty()) {
+            sta::Vertex *cur = vtq.back(); vtq.pop_back();
+            sta::VertexOutEdgeIterator oe(cur, graph);
+            while (oe.hasNext()) {
+              sta::Edge *edge = oe.next();
+              sta::Vertex *to_v = edge->to(graph);
+              const sta::Pin *tp = to_v->pin();
+              if (!edge->role()->isWire() || !tp || !network->isLeaf(tp)) continue;
+              sta::Instance *ti = network->instance(tp);
+              sta::LibertyCell *tc = network->libertyCell(ti);
+              if (tc && tc->isBuffer()) {
+                opensta_vt[openStaQualName(tp)] = getOpenStaWorst(to_v);
+                sta::InstancePinIterator *bpi = network->pinIterator(ti);
+                while (bpi->hasNext()) {
+                  const sta::Pin *bp = bpi->next();
+                  if (network->direction(bp)->isOutput()) {
+                    sta::Vertex *bov = graph->pinDrvrVertex(bp);
+                    if (bov) {
+                      opensta_vt[openStaQualName(bp)] = getOpenStaWorst(bov);
+                      vtq.push_back(bov);
+                    }
+                  }
+                }
+                delete bpi;
+              } else {
+                opensta_vt[network->pathName(tp)] = getOpenStaWorst(to_v);
+              }
+            }
+          }
+
+          for (const auto &lv : local_vt) {
+            auto it = opensta_vt.find(lv.name);
+            if (it != opensta_vt.end()) {
+              printf("  %-30s %12.3f %12.3f %12.3f %12.3f %12.3f %12.3f\n",
+                     lv.name.c_str(),
+                     lv.arr_ps, it->second.first, lv.arr_ps - it->second.first,
+                     lv.slk_ps, it->second.second, lv.slk_ps - it->second.second);
+            } else {
+              printf("  %-30s %12.3f %12s %12s %12.3f %12s %12s\n",
+                     lv.name.c_str(), lv.arr_ps, "N/A", "---", lv.slk_ps, "N/A", "---");
+            }
+          }
+          fflush(stdout);
+        } else {
+          printf("  buildVirtualBuffer failed for best option\n");
+          rebuffer->removeVirtualBuffer(vinfo);
+        }
+      } else {
+        printf("  No driver PtVertex or best option found\n");
+      }
+    }
+    printf("===== [ARC DELAY COMPARE] End =====\n");
   } else {
     printf("No buffering applied (visit returned false)\n");
   }

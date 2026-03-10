@@ -624,7 +624,7 @@ LocalSta::seedNoDrvrCellSlew(PtVertex &pt_drvr_vertex,
   drive->driveResistance(rf, cnst_min_max, drive_res, exists);
   const Parasitic *parasitic;
   float load_cap;
-  localParasiticLoad(drvr_pin, rf, dcalc_ap, nullptr, load_cap, parasitic);
+  localParasiticLoad(pt_drvr_vertex, rf, dcalc_ap, nullptr, load_cap, parasitic, pt_graph);
   if (exists) {
     drive_delay = load_cap * drive_res;
     slew = load_cap * drive_res;
@@ -869,8 +869,10 @@ LocalSta::zeroSlewAndWireDelays(PtVertex &drvr_pt_vertex,
         PtVertex &load_pt_vertex = pt_graph->ptVertex(pt_edge.ptToId());
         Vertex *load_vertex = load_pt_vertex.vertex();
         Edge *wire_edge = pt_edge.edge();
-        bool wire_annotated = wire_edge
-            ? graph_->wireDelayAnnotated(wire_edge, rf, ap_index) : false;
+        // VirtualWireEdge has pre-set delays from buildVirtualBuffer;
+        // treat as annotated to avoid zeroing them.
+        bool wire_annotated = (pt_edge.type() == PtEdgeType::VirtualWireEdge)
+            || (wire_edge && graph_->wireDelayAnnotated(wire_edge, rf, ap_index));
         if (!wire_annotated) {
           pt_graph->setWireArcDelay(pt_edge, rf, ap_index, delay_zero);
         }
@@ -953,13 +955,8 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
     const Parasitic *parasitic = nullptr;
     float load_cap = 0.0f;
 
-    if (drvr_pin) {
-      localParasiticLoad(drvr_pin, drvr_rf, dcalc_ap, multi_drvr_net,
-                         load_cap, parasitic);
-    } else {
-      // Virtual driver: compute load_cap analytically from downstream loads
-      load_cap = computeVirtualLoadCap(drvr_pt_vertex, drvr_rf, dcalc_ap, pt_graph);
-    }
+    localParasiticLoad(drvr_pt_vertex, drvr_rf, dcalc_ap, multi_drvr_net,
+                       load_cap, parasitic, pt_graph);
 
     if (multi_drvr_net == nullptr) {
       PtVertex &from_pt_vertex = pt_graph->ptVertex(pt_edge.ptFromId());
@@ -1026,26 +1023,26 @@ LocalSta::annotateLoadDelays(PtVertex &drvr_pt_vertex,
       Vertex *load_vertex = load_pt_vertex.vertex();
       Pin *load_pin = load_vertex ? load_vertex->pin() : nullptr;
 
-      // For virtual loads, use sequential index (no pin-based map lookup)
-      size_t load_idx;
-      if (load_pin) {
-        // Skip load pins not in the map (hierarchical pins)
-        if (load_pin_index_map.find(load_pin) == load_pin_index_map.end())
-          continue;
-        load_idx = load_pin_index_map[load_pin];
-      } else {
-        // Virtual load: excluded from load_pin_index_map, so dcalc_result has
-        // no entry for it. Skip annotation; wire delay stays at 0.
-        if (load_pin_index_map.empty())
-          continue;
-        // Mixed real+virtual: use index 0 as approximation
-        load_idx = 0;
+      if (!load_pin) {
+        // Virtual load: no parasitic, wire delay = 0, load slew = driver slew.
+        Slew drvr_slew = dcalc_result.drvrSlew();
+        const Slew &cur_slew = pt_graph->slew(load_pt_vertex, to_rf, ap_index);
+        if (!merge || delayGreater(drvr_slew, cur_slew, slew_min_max, this)) {
+          pt_graph->setSlew(load_pt_vertex, to_rf, ap_index, drvr_slew);
+          load_changed = true;
+        }
+        // Wire delay stays at 0 (already initialized)
+        continue;
       }
+
+      // Skip load pins not in the map (hierarchical pins)
+      if (load_pin_index_map.find(load_pin) == load_pin_index_map.end())
+        continue;
+      size_t load_idx = load_pin_index_map[load_pin];
 
       ArcDelay wire_delay = dcalc_result.wireDelay(load_idx);
       Slew load_slew = dcalc_result.loadSlew(load_idx);
-      bool load_slew_annotated = load_vertex
-          ? load_vertex->slewAnnotated(to_rf, slew_min_max) : false;
+      bool load_slew_annotated = load_vertex->slewAnnotated(to_rf, slew_min_max);
       bool drvr_slew_annotated = drvr_vertex
           ? drvr_vertex->slewAnnotated(to_rf, slew_min_max) : false;
       if (!load_slew_annotated) {
@@ -1135,7 +1132,19 @@ LocalSta::computeVirtualLoadCap(PtVertex &drvr_pt_vertex,
   float load_cap = 0.0f;
   const Corner *corner = dcalc_ap->corner();
   const MinMax *min_max = dcalc_ap->constraintMinMax();
+
+  // Driver output pin capacitance (self-cap of the output port)
+  LibertyPort *drvr_port = drvr_pt_vertex.libertyPort();
+  if (drvr_port) {
+    float port_cap = drvr_port->capacitance();
+    load_cap += port_cap;
+    printf("[DEBUG computeVirtualLoadCap] drvr_port=%s cap=%.6f\n",
+           drvr_port->name(), port_cap * 1e12);
+  }
+
+  // Downstream load pin capacitances
   PtVertexOutEdgeIterator edge_iter(drvr_pt_vertex.objectIdx(), pt_graph);
+  int load_count = 0;
   while (edge_iter.hasNext()) {
     PtEdge &pt_edge = edge_iter.next();
     if (pt_edge.isWire()) {
@@ -1146,18 +1155,28 @@ LocalSta::computeVirtualLoadCap(PtVertex &drvr_pt_vertex,
         if (load_pin) {
           LibertyPort *load_port = network_->libertyPort(load_pin);
           if (load_port) {
-            load_cap += load_port->capacitance(drvr_rf, min_max);
+            float pin_cap = load_port->capacitance(drvr_rf, min_max);
+            load_cap += pin_cap;
+            printf("[DEBUG computeVirtualLoadCap] real_load=%s cap=%.6f\n",
+                   network_->name(load_pin), pin_cap * 1e12);
+            load_count++;
           }
         }
       } else {
         // Virtual load: get capacitance from LibertyPort
         LibertyPort *load_port = load_pt_vertex.libertyPort();
         if (load_port) {
-          load_cap += load_port->capacitance(drvr_rf, min_max);
+          float port_cap = load_port->capacitance(drvr_rf, min_max);
+          load_cap += port_cap;
+          printf("[DEBUG computeVirtualLoadCap] virtual_load=%s cap=%.6f\n",
+                 load_port->name(), port_cap * 1e12);
+          load_count++;
         }
       }
     }
   }
+  printf("[DEBUG computeVirtualLoadCap] total_cap=%.6f (loads=%d)\n",
+         load_cap * 1e12, load_count);
   return load_cap;
 }
 
@@ -1416,25 +1435,33 @@ LocalSta::localSlackAtEndpoints(PtGraph *pt_graph)
   return local_slack;
 }
 
-void 
-LocalSta::localParasiticLoad(const Pin *drvr_pin,
+void
+LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
                           const RiseFall *rf,
                           const DcalcAnalysisPt *dcalc_ap,
                           const MultiDrvrNet *multi_drvr_net,
                           // Return values
                           float &load_cap,
-                          const Parasitic *&parasitic) const
+                          const Parasitic *&parasitic,
+                          PtGraph *pt_graph)
 {
-  bool has_net_load;
-  float fanout;
-  float pin_cap, wire_cap;
+  parasitic = nullptr;
+  load_cap = 0.0f;
+  const Pin *drvr_pin = drvr_pt_vertex.pin();
 
+  // Virtual driver or driver with virtual buffer downstream:
+  // original parasitic is invalid, compute load_cap from PtGraph topology
+  if (!drvr_pin || drvr_pt_vertex.hasVirtualBuffer()) {
+    load_cap = computeVirtualLoadCap(drvr_pt_vertex, rf, dcalc_ap, pt_graph);
+    return;
+  }
+
+  // Real driver without virtual buffer: use original parasitic
   parasitic = local_parasitics_->findLocalParasitic(drvr_pin, rf, dcalc_ap);
   if (parasitic != nullptr) {
     if (!local_parasitics_->isPiModel(parasitic)) {
       printf("LocalSta::localParasiticLoad: Non-PI model parasitic found for pin %s\n",
              network_->name(drvr_pin));
-      // fflush(stdout);
       return;
     }
     load_cap = local_parasitics_->capacitance(parasitic);
@@ -1442,27 +1469,47 @@ LocalSta::localParasiticLoad(const Pin *drvr_pin,
     load_cap = 0.0;
   }
   else {
-    // This should be revised since output cap will be changed
+    bool has_net_load;
+    float fanout;
+    float pin_cap, wire_cap;
     netCaps(drvr_pin, rf, dcalc_ap, multi_drvr_net,
           pin_cap, wire_cap, fanout, has_net_load);
     load_cap = pin_cap + wire_cap;
-    // if (has_net_load)
-    const char *exclude_pin_name = "CON";
-    if (strstr(network_->name(drvr_pin), exclude_pin_name) == nullptr) {
-      // Skip printing for CON pins
-      // printf("LocalSta::localParasiticLoad failed at pin %s: has_net_load=%d, pin_cap=%f fF, wire_cap=%f fF\n",
-      //     network_->name(drvr_pin),
-      //     has_net_load,
-      //     pin_cap * 1.0e15,
-      //     wire_cap * 1.0e15);
-      return;
-    }
-    // fflush(stdout);
-    // throw std::runtime_error("LocalSta::localParasiticLoad: Net load not supported yet");
   }
 }
 
-void 
+void
+LocalSta::localParasiticLoad(const Pin *drvr_pin,
+                          const RiseFall *rf,
+                          const DcalcAnalysisPt *dcalc_ap,
+                          const MultiDrvrNet *multi_drvr_net,
+                          float &load_cap,
+                          const Parasitic *&parasitic) const
+{
+  parasitic = nullptr;
+  load_cap = 0.0f;
+
+  parasitic = local_parasitics_->findLocalParasitic(drvr_pin, rf, dcalc_ap);
+  if (parasitic != nullptr) {
+    if (!local_parasitics_->isPiModel(parasitic)) {
+      printf("LocalSta::localParasiticLoad: Non-PI model parasitic found for pin %s\n",
+             network_->name(drvr_pin));
+      return;
+    }
+    load_cap = local_parasitics_->capacitance(parasitic);
+  } else if (network_->net(drvr_pin) == nullptr) {
+    load_cap = 0.0;
+  } else {
+    bool has_net_load;
+    float fanout;
+    float pin_cap, wire_cap;
+    netCaps(drvr_pin, rf, dcalc_ap, multi_drvr_net,
+          pin_cap, wire_cap, fanout, has_net_load);
+    load_cap = pin_cap + wire_cap;
+  }
+}
+
+void
 LocalSta::printLocalParasitics(PtGraph *pt_graph) const
 {
   for (auto& pt_vertex : pt_graph->ptVertices()) {
