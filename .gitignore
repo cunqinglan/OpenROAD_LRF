@@ -68,5 +68,6 @@ projectview.bazelproject
 .bazelbsp/
 /buildifier
 
-lrf.sh
+lrf_api.sh
 log
+precheimprov.md
