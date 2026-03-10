@@ -719,27 +719,4 @@ Timing::testReportVertices() {
   }
 }
 
-
-float Timing::getWorstSlack(MinMax minmax)
-{
-  sta::dbSta* sta = getSta();
-  sta::Vertex* vertex;
-  sta::Slack worstSlack;
-  sta->worstSlack(getMinMax(minmax), worstSlack, vertex);
-  return worstSlack;
-}
-
-float Timing::getTns(sta::Corner* corner, MinMax minmax)
-{
-  sta::dbSta* sta = getSta();
-  float tns = sta->totalNegativeSlack(corner, getMinMax(minmax));
-  return tns;
-}
-
-float Timing::getTns(MinMax minmax)
-{
-  sta::dbSta* sta = getSta();
-  return sta->totalNegativeSlack(getMinMax(minmax));
-}
-
 }  // namespace ord

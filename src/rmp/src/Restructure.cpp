@@ -60,7 +60,6 @@ Restructure::Restructure(utl::Logger* logger,
                          rsz::Resizer* resizer,
                          est::EstimateParasitics* estimate_parasitics)
 {
-  logger_ = logger;
   db_ = db;
   open_sta_ = open_sta;
   resizer_ = resizer;
@@ -511,9 +510,6 @@ void Restructure::removeConstCell(odb::dbInst* inst)
   odb::dbInst::destroy(inst);
 }
 
-<<<<<<< HEAD
-bool Restructure::writeAbcScript(const std::string& file_name)
-=======
 static bool IsCombinationalCell(sta::LibertyCell* cell)
 {
   if (!cell) {
@@ -553,7 +549,6 @@ void Restructure::collectLargeInputDontUse()
 }
 
 bool Restructure::writeAbcScript(std::string file_name)
->>>>>>> phyls/develop
 {
   std::ofstream script(file_name.c_str());
 
