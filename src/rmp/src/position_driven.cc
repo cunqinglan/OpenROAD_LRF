@@ -414,7 +414,7 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
       abc::Abc_NtkNodeNum(logic_network.get()));
 
   // Step 5: Enumerate all possible mapping solutions using ABC.
-  int nMaxSolutions = 20;
+  int nMaxSolutions = 80;
   int fVerbose = 1;
 
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> strashed_network(
