@@ -3,4 +3,4 @@
 	url = ../../PhySyn/OpenSTA.git
 [submodule "src/abc"]
 	path = third-party/abc
-	url = ../../The-OpenROAD-Project/abc.git
+	url = ../../PhySyn/abc.git
