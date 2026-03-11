@@ -1,4 +1,4 @@
-set DESIGN $env(DESIGN_NAME)
+set DESIGN "NV_NVDLA_partition_m"
 set LEF_DIR "/home/jzj/OpenROAD-flow-scripts/flow/platforms/asap7/lef"
 #set LIB_DIR "/app/OpenROAD-flow-scripts/flow/platforms/asap7/lib/NLDM"
 set BASE_DIR "/home/jzj/physyn/OpenROAD/testremap/designs"
@@ -52,36 +52,14 @@ estimate_parasitics -placement
 
 puts "=====timing report before remap======"
 
-report_checks -path_delay max
+# Check if clocks are defined
+report_clocks
 
-position_driven_remap
+# Check if timing graph has any endpoints
+report_checks -path_delay max -unconstrained
 
-puts "=====timing report after remap======"
+# Check what libs are loaded
+list_libs
 
-report_checks -path_delay max
-
-global_placement -routability_driven -init_density_penalty 0.05 -initial_place_max_iter 10
-detailed_placement
-
-estimate_parasitics -placement
-
-puts "=====timing report after remap and placement======"
-
-report_checks -path_delay max
-
-repair_design -cap_margin 1 -slew_margin 1
-
-repair_timing -setup
-
-global_placement -routability_driven -init_density_penalty 0.05 -initial_place_max_iter 10
-detailed_placement
-
-estimate_parasitics -placement
-
-puts "=====timing report after remap, placement and repair timing======"
-
-report_checks -path_delay max
-
-#report_timing_histogram
-
-exit
+# Check design has instances
+report_design_area

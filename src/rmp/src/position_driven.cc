@@ -278,7 +278,7 @@ sta::Vertex* PositionDrivenStrategy::getWorstVertex(
     remapper.getLogger()->warn(
         utl::RES, 333, "No worst-slack path found for endpoint {}.",
         worst_end_vertex->name(network));
-    return worst_end_vertex;
+    return nullptr;
   }
 
   sta::PathExpanded expanded(end_path, sta);
@@ -355,6 +355,15 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
     remapper.getLogger()->error(
         utl::RES, 350, "Worst vertex {} is not driven by an instance.",
         bad_vertex->name(network));
+    return;
+  }
+  sta::LibertyCell* bad_cell = network->libertyCell(bad_instance);
+  if (bad_cell == nullptr
+      || !remapper.getAbcLibrary()->IsSupportedCell(bad_cell->name())) {
+    remapper.getLogger()->warn(
+        utl::RES, 336, "Worst vertex {} is a cell type ({}) not supported by ABC, skipping.",
+        bad_vertex->name(network),
+        bad_cell ? bad_cell->name() : "unknown");
     return;
   }
   setRefGate(bad_instance);
@@ -672,10 +681,10 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
   sta::dbSta* sta = remapper.getSta();
   utl::Logger* logger = remapper.getLogger();
 
-  // Always run GPL placement — each call is either in an isolated child
-  // (fork-based evaluation) or in the parent for the final permanent apply.
-  remapper.performIncrePlace(candidate_cut, remapper.getGpl(), remapper.getDpl());
-  //remapper.performIncreDpl(candidate_cut);
+  // Run DPL to legalize placement of newly inserted cut instances.
+  // Each call is either in an isolated child (fork-based evaluation) or
+  // in the parent for the final permanent apply.
+  remapper.performIncreDpl(candidate_cut, remapper.getDpl());
 
   // Recompute timing from the current network state.
   sta->networkChanged();

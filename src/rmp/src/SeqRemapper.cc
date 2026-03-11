@@ -29,6 +29,7 @@
 #include "sta/Graph.hh"
 #include "sta/GraphDelayCalc.hh"
 #include "sta/MinMax.hh"
+#include "sta/PortDirection.hh"
 #include "sta/Search.hh"
 #include "utils.h"
 #include "utl/Logger.h"
@@ -465,15 +466,102 @@ void SeqRemapper::performPlace(cut::LogicCut& logic_cut, gpl::Replace *gpl, dpl:
     logger_->warn(utl::RES, 348, "GPL is nullptr, cannot perform global placement");
     return;
   }
-  
+
   size_t thread_count = 4;
   gpl::PlaceOptions options;
-  
+
   // Call the existing incremental placement implementation
   gpl->doPlace(thread_count, options);
-  
+
   logger_->info(utl::RES, 347, "Global placement completed");
 }
+
+void SeqRemapper::performIncreDpl(cut::LogicCut& logic_cut, dpl::Opendp* dpl)
+{
+  if (dpl == nullptr) {
+    logger_->warn(utl::RES, 337, "DPL is nullptr, cannot perform incremental detailed placement");
+    return;
+  }
+
+  sta::dbNetwork* network = sta_->getDbNetwork();
+
+  // Step 1: Compute a centroid seed position from the boundary pins of the cut.
+  //   - primary_input nets: the driver pin (output direction) is an external instance.
+  //   - primary_output nets: the load pins (input direction) are external instances.
+  int sum_x = 0, sum_y = 0, count = 0;
+
+  auto accumulate_pin_location = [&](sta::Net* net, bool want_driver) {
+    sta::NetPinIterator* pin_iter = network->pinIterator(net);
+    while (pin_iter->hasNext()) {
+      const sta::Pin* pin = pin_iter->next();
+      sta::PortDirection* dir = network->direction(pin);
+      if (dir == nullptr) {
+        continue;
+      }
+      bool is_driver = dir->isAnyOutput();
+      if (is_driver != want_driver) {
+        continue;
+      }
+      if (network->isTopLevelPort(pin)) {
+        continue;
+      }
+      sta::Instance* sta_inst = network->instance(pin);
+      if (sta_inst == nullptr) {
+        continue;
+      }
+      odb::dbInst* db_inst = network->staToDb(sta_inst);
+      if (db_inst == nullptr) {
+        continue;
+      }
+      int x, y;
+      db_inst->getLocation(x, y);
+      sum_x += x;
+      sum_y += y;
+      ++count;
+    }
+    delete pin_iter;
+  };
+
+  for (sta::Net* net : logic_cut.primary_inputs()) {
+    accumulate_pin_location(net, /*want_driver=*/true);
+  }
+  for (sta::Net* net : logic_cut.primary_outputs()) {
+    accumulate_pin_location(net, /*want_driver=*/false);
+  }
+
+  odb::Point centroid(0, 0);
+  if (count > 0) {
+    centroid = odb::Point(sum_x / count, sum_y / count);
+  } else if (block_ != nullptr) {
+    odb::Rect core = block_->getCoreArea();
+    centroid = odb::Point(core.xMin(), core.yMin());
+  }
+
+  // Step 2: Seed each new cut instance at the centroid and mark it PLACED
+  //         so DPL can legally snap it to a valid row/site.
+  for (const sta::Instance* sta_inst : logic_cut.cut_instances()) {
+    odb::dbInst* db_inst = network->staToDb(sta_inst);
+    if (db_inst == nullptr) {
+      continue;
+    }
+    db_inst->setLocation(centroid.x(), centroid.y());
+    db_inst->setPlacementStatus(odb::dbPlacementStatus::PLACED);
+  }
+
+  // Step 3: Legalize each new cut instance in place — snaps to the nearest
+  //         legal row/site and resolves overlaps locally, like rsz does after
+  //         cell insertion.
+  for (const sta::Instance* sta_inst : logic_cut.cut_instances()) {
+    odb::dbInst* db_inst = network->staToDb(sta_inst);
+    if (db_inst == nullptr) {
+      continue;
+    }
+    dpl->legalCellPos(db_inst);
+  }
+
+  logger_->info(utl::RES, 338, "Incremental detailed placement completed");
+}
+
 /*
 void 
 SeqRemapper::performIncrePlace(cut::LogicCut& logic_cut, gpl::Replace *gpl, dpl::Opendp* dpl)
