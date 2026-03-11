@@ -54,7 +54,7 @@ puts "=====timing report before remap======"
 
 report_checks -path_delay max
 
-position_driven_remap
+position_driven_remap -percentage 1
 
 puts "=====timing report after remap======"
 
