@@ -109,6 +109,51 @@ void printNtkInfo(abc::Aig_Man_t* aig, utl::Logger* logger)
                abc::Aig_ManCoNum(aig),
                abc::Aig_ManRegNum(aig),
                abc::Aig_ManLevelNum(aig));
+int CountInputPins(const sta::LibertyCell* cell)
+{
+  if (!cell) {
+    return 0;
+  }
+
+  sta::LibertyCellPortIterator cell_port_iterator(
+      const_cast<sta::LibertyCell*>(cell));
+  int input_count = 0;
+  while (cell_port_iterator.hasNext()) {
+    sta::LibertyPort* port = cell_port_iterator.next();
+    if (port->direction()->isInput()) {
+      input_count++;
+    }
+  }
+
+  return input_count;
+}
+
+bool HasLargeInputCells(const cut::LogicCut& cut,
+                        sta::dbNetwork* network,
+                        int min_inputs,
+                        int* large_cell_count)
+{
+  int count = 0;
+  for (const sta::Instance* instance : cut.cut_instances()) {
+    if (!instance) {
+      continue;
+    }
+    sta::LibertyCell* cell = network->libertyCell(instance);
+    if (!cell) {
+      continue;
+    }
+    if (CountInputPins(cell) >= min_inputs) {
+      count++;
+      if (large_cell_count == nullptr) {
+        return true;
+      }
+    }
+  }
+
+  if (large_cell_count != nullptr) {
+    *large_cell_count = count;
+  }
+  return count > 0;
 }
 
 }  // namespace rmp
