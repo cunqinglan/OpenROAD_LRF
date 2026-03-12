@@ -726,7 +726,6 @@ void Restructure::positionDrivenRemap(sta::Corner* corner,
   // Create a SeqRemapper with all required dependencies
   SeqRemapper remapper(open_sta_, db_, corner, resizer_, logger_,
                        replace_, opendp_, estimate_parasitics_);
-  remapper.buildAbcLibrary();
 
   // Create and run the position-driven strategy
   PositionDrivenStrategy strategy(logger_);
