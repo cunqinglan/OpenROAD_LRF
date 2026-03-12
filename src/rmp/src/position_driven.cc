@@ -361,7 +361,7 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
   if (bad_cell == nullptr
       || !remapper.getAbcLibrary()->IsSupportedCell(bad_cell->name())) {
     remapper.getLogger()->warn(
-        utl::RES, 336, "Worst vertex {} is a cell type ({}) not supported by ABC, skipping.",
+        utl::RES, 365, "Worst vertex {} is a cell type ({}) not supported by ABC, skipping.",
         bad_vertex->name(network),
         bad_cell ? bad_cell->name() : "unknown");
     return;

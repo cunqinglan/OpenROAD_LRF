@@ -597,7 +597,7 @@ void
 SeqRemapper::performIncreDpl(cut::LogicCut& logic_cut, dpl::Opendp* dpl)
 {
   if (dpl == nullptr) {
-    logger_->warn(utl::RES, 337, "DPL is nullptr, cannot perform incremental detailed placement");
+    logger_->warn(utl::RES, 366, "DPL is nullptr, cannot perform incremental detailed placement");
     return;
   }
   // TODO: develop incremental DPL placement in two steps:
@@ -619,7 +619,7 @@ SeqRemapper::performIncreDpl(cut::LogicCut& logic_cut, dpl::Opendp* dpl)
       dpl->legalCellPos(db_inst);
     }
   }
-  logger_->info(utl::RES, 338, "Incremental detailed placement completed");
+  logger_->info(utl::RES, 367, "Incremental detailed placement completed");
 }
 
 void 
