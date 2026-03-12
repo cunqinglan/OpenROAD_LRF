@@ -521,23 +521,6 @@ void DeleteExistingLogicCut(sta::dbNetwork* network,
                             sta::InstanceSet& cut_instances,
                             utl::Logger* logger)
 {
-  int pins_disconnected = 0;
-  // First, disconnect all pins from their nets to prevent dangling references
-  for (const sta::Instance* instance : cut_instances) {
-    auto pin_iterator = std::unique_ptr<sta::InstancePinIterator>(
-        network->pinIterator(instance));
-    while (pin_iterator->hasNext()) {
-      sta::Pin* pin = pin_iterator->next();
-      sta::Net* connected_net = network->net(pin);
-      if (connected_net != nullptr) {
-        network->disconnectPin(pin);
-        pins_disconnected++;
-      }
-    }
-  }
-  
-  logger->info(utl::CUT, 58, "Disconnected {} pins before deletion.", pins_disconnected);
-  
   // Delete nets that only belong to the cut set.
   sta::NetSet nets_to_be_deleted(network);
   std::unordered_set<sta::Net*> primary_input_or_output_nets;
@@ -556,15 +539,21 @@ void DeleteExistingLogicCut(sta::dbNetwork* network,
       sta::Pin* pin = pin_iterator->next();
       sta::Net* connected_net = network->net(pin);
       if (connected_net == nullptr) {
+        // This net is not connected to anything, so we cannot delete it.
+        // This can happen if you have an unconnected output port.
+        // For example one of Sky130's tie cell has both high and low outputs
+        // and only one is connected to a net.
         continue;
       }
+      // If pin isn't a primary input or output add to deleted list. The only
+      // way this can happen is if a net is only used within the cutset, and
+      // in that case we want to delete it.
       if (primary_input_or_output_nets.find(connected_net)
           == primary_input_or_output_nets.end()) {
         nets_to_be_deleted.insert(connected_net);
       }
     }
   }
-  
   for (const sta::Instance* instance : cut_instances) {
     network->deleteInstance(const_cast<sta::Instance*>(instance));
   }
@@ -718,7 +707,6 @@ void MapConstantCells(AbcLibrary& abc_library,
 void LogicCut::InsertMappedAbcNetwork(abc::Abc_Ntk_t* abc_network,
                                       AbcLibrary& abc_library,
                                       sta::dbNetwork* network,
-                                        sta::dbSta* sta,
                                       utl::UniqueName& unique_name,
                                       utl::Logger* logger)
 {
@@ -738,36 +726,26 @@ void LogicCut::InsertMappedAbcNetwork(abc::Abc_Ntk_t* abc_network,
 
   MapConstantCells(abc_library, abc_network, logger);
 
-  logger->info(utl::CUT, 54, "Inserting mapped ABC network with {} nodes.",
-               abc::Abc_NtkNodeNum(abc_network));
-
-  // Get parent instance before deleting old cut
   sta::Instance* parent_instance
       = GetLogicalParentInstance(cut_instances_, network, logger);
-
-  // Delete the old cut BEFORE creating new instances to avoid database conflicts
-  DeleteExistingLogicCut(
-      network, primary_inputs_, primary_outputs_, cut_instances_, logger);
-  logger->info(utl::CUT, 55, "Deleted existing logic cut.");
-
   std::unordered_map<abc::Abc_Obj_t*, sta::Instance*> abc_objs_to_instances
       = CreateInstances(
           abc_network, network, parent_instance, unique_name, logger);
   std::unordered_map<abc::Abc_Obj_t*, sta::Net*> abc_nets_to_sta_nets
       = CreateNets(abc_network, network, parent_instance, unique_name, logger);
-  // Connect the new instances to each other and to their primary inputs/outputs
+
+  // Get rid of the old cut in preparation to connect the new ones.
+  DeleteExistingLogicCut(
+      network, primary_inputs_, primary_outputs_, cut_instances_, logger);
+
+  // Connects the new instances to each other and to their primary inputs
+  // and outputs.
   ConnectInstances(abc_network,
                    network,
                    abc_objs_to_instances,
                    abc_nets_to_sta_nets,
                    logger);
-  logger->info(utl::CUT, 56, "Instances inserted and connected.");
 
-  // Notify STA that network topology has changed
-  if (sta) {
-    logger->info(utl::CUT, 57, "Calling networkChanged() to invalidate timing graph.");
-    sta->networkChanged();
-  }
   // Final clean up to make this cut valid again. Replace the old cut instances
   // with the new ones. This should result in an equally valid LogicCut since
   // the PI/POs haven't changed just the junk inside.
@@ -806,7 +784,6 @@ void LogicCut::InsertAbcMapSolution(abc::Map_MappingSolution_t* pSolution,
                                      abc::Abc_Ntk_t* pOriginalNetwork,
                                      AbcLibrary& abc_library,
                                      sta::dbNetwork* network,
-                                     sta::dbSta* sta,
                                      utl::UniqueName& unique_name,
                                      utl::Logger* logger)
 {
@@ -845,15 +822,12 @@ void LogicCut::InsertAbcMapSolution(abc::Map_MappingSolution_t* pSolution,
   // Wrap the network in a unique pointer for automatic cleanup
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> abc_network_ptr(
       abc_mapped_network, &abc::Abc_NtkDelete);
-  utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> abc_netlist_ptr(
-      abc::Abc_NtkToNetlist(abc_network_ptr.get()), &abc::Abc_NtkDelete);
 
   // Insert the mapped network into the OpenROAD network
   // This will replace the current cut instances with the new mapped instances
-  InsertMappedAbcNetwork(abc_netlist_ptr.get(),
+  InsertMappedAbcNetwork(abc_mapped_network,
                         abc_library,
                         network,
-                        sta,
                         unique_name,
                         logger);
 } 
