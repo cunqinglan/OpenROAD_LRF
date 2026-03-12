@@ -444,6 +444,9 @@ PtGraph::deleteVertex(VertexId vertex_id)
   pt_vertex.out_edges_ = pt_edge_id_null;
   pt_vertex.in_edges_ = pt_edge_id_null;
   pt_vertex.setType(PtVertexType::Sentinel);
+  // Reset tagGroupIndex so PtVertexPathIterator doesn't see tagGroupIndex
+  // set but paths_ == nullptr on a deleted (Sentinel) virtual vertex.
+  pt_vertex.setTagGroupIndex(sta::tag_group_index_max);
   sorted_ = false;
 }
 

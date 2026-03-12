@@ -312,7 +312,7 @@ protected:
   std::vector<sta::Slew> slews_;
   bool is_root_{};
   PtVertexType type_{PtVertexType::None};
-  int tag_group_index_ {0};
+  int tag_group_index_ {static_cast<int>(sta::tag_group_index_max)};
   sta::Path *paths_ = nullptr;
   bool is_driver_{false};
   bool is_load_{false};

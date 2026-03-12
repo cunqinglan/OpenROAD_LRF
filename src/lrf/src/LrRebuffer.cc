@@ -1029,10 +1029,13 @@ LrRebuffer::attemptTopologyRewrite(const BnetPtr& node,
   //   aux1 and aux2 are merged into a junction, buffered, then joined with costly2
   const BnetPtr in1 = addWire(aux1, node->location(), -1);
   const BnetPtr in2 = addWire(aux2, node->location(), -1);
-  const BnetPtr junc1
-      = addWire(createBnetJunction(resizer_, in1, in2, node->location()),
-                node->location(),
-                -1);
+  BnetPtr junc1_raw = createBnetJunction(resizer_, in1, in2, node->location());
+  // Merge LMs from both branches onto the junction before wrapping with wire
+  auto junc1_lms = mergeLmVectors(in1->lms(), in2->lms());
+  junc1_raw->setLms(std::move(junc1_lms));
+  junc1_raw->setBufferCost(in1->bufferCost() + in2->bufferCost());
+  junc1_raw->setLeakage(in1->leakage() + in2->leakage());
+  const BnetPtr junc1 = addWire(junc1_raw, node->location(), -1);
   const BnetPtr in3 = addWire(costly2, node->location(), -1);
 
   // The cost of the merged auxiliary junction (before buffer)
@@ -1096,7 +1099,6 @@ LrRebuffer::attemptTopologyRewrite(const BnetPtr& node,
       return result;
     }
   }
-
   return {};
 }
 

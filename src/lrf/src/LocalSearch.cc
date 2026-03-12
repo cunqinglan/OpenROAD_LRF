@@ -123,7 +123,7 @@ LocalArrivalVisitor::findVertexArrival(VertexId vertex_id)
     // When the vertex is not a refoutput, its arrival is
     // not used in local slack calculation. Since the output
     // slack is calculated by top/bottom req - arc_delay.
-    // But when the vertex is a refoutput, its arrival 
+    // But when the vertex is a refoutput, its arrival
     // is needed.
     seedLocalRootArrivals(pt_vertex);
   else
@@ -202,6 +202,30 @@ LocalArrivalVisitor::findVirtualVertexArrival(PtVertex &pt_vertex)
   has_fanin_one_ = true;
 
   localVisitFaninPaths(pt_vertex);
+
+  if (tag_bldr_->empty()) {
+    // Debug: report why no arrivals were propagated to this virtual vertex
+    printf("DEBUG findVirtualVertexArrival: tag_bldr empty for virtual_%u "
+           "(proxy=%s, tagGroupIdx=%d)\n",
+           pt_vertex.objectIdx(),
+           init_vertex ? network_->name(init_vertex->pin()) : "null",
+           (int)pt_vertex.tagGroupIndex());
+    // Check fanin edges
+    PtVertexInEdgeIterator in_iter(pt_vertex.objectIdx(), pt_graph_);
+    while (in_iter.hasNext()) {
+      PtEdge &e = in_iter.next();
+      PtVertex &from = pt_graph_->ptVertex(e.ptFromId());
+      printf("  fanin edge %u: from vertex %u (%s), hasBase=%d, "
+             "from.tagGroupIdx=%d, from.paths=%p\n",
+             e.objectIdx(), from.objectIdx(),
+             from.pin() ? network_->name(from.pin()) : "virtual",
+             e.hasBase(), (int)from.tagGroupIndex(),
+             (void*)from.paths());
+      fflush(stdout);
+    }
+    fflush(stdout);
+  }
+
   localSetVertexArrivals(pt_vertex, tag_bldr_);
 }
 
@@ -548,11 +572,8 @@ LocalArrivalVisitor::localVisitFromToPath(
 void
 LocalArrivalVisitor::localSetVertexArrivals(PtVertex &pt_vertex, TagGroupBldr *tag_bldr)
 {
-  if (tag_bldr->empty())
+  if (pt_vertex.tagGroupIndex() == sta::tag_group_index_max)
     return;
-  if (pt_vertex.tagGroupIndex() == sta::tag_group_index_max) {
-    return;
-  }
   TagGroup *prev_tag_group = search_->tagGroup(pt_vertex.tagGroupIndex());
   Path *prev_paths = pt_vertex.paths();
   TagGroup *tag_group = search_->findExistingTagGroup(tag_bldr);
