@@ -900,6 +900,14 @@ IncreSta::parallelResizeByArrayWithPrecheck(
 {
   auto start_total = std::chrono::high_resolution_clock::now();
 
+  // Ensure swappable cells cache and leakage data are populated
+  if (!swap_cell_presaved_) {
+    makeSwappableCellsCache(resizer);
+  }
+  if (!swap_cell_leakage_presaved_) {
+    preSaveLibCellLeakage();
+  }
+
   // Phase 1: Precheck — returns filtered top instances sorted by benefit
   auto t_precheck_start = std::chrono::high_resolution_clock::now();
   auto benefits = precedingResizeCheck(resizer, avg_delay, avg_power,
@@ -960,6 +968,14 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff)
   printf("IncreSta::parallelBuffering start\n");
   auto start_total = std::chrono::high_resolution_clock::now();
 
+  // Compute average delay/leakage for swapCost normalization
+  float avg_delay = averageDelayOnCritPath();
+  float avg_leakage = averageLeakage();
+  printf("Buffering avg_delay: %e, avg_leakage: %e\n", avg_delay, avg_leakage);
+
+  // Ensure required times are up-to-date (LMs depend on them)
+  sta_->findRequireds();
+
   // We first create a serials of instance visitors
   local_sta_->initParallel();
   Slack wns = sta_->worstSlack(MinMax::max());
@@ -972,7 +988,7 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff)
 
   auto start_resize = std::chrono::high_resolution_clock::now();
   ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
-  visitor->init(0, 0, wns, PT_tradeoff, nullptr, nullptr);
+  visitor->init(avg_delay, avg_leakage, wns, PT_tradeoff, nullptr, nullptr);
   visitor->setMoveType(MoveType::BufferInsertion);  // creates LrRebuffer via initLocal()
   task_arranger->visitParallel(sta_, local_sta_, resizer, visitor);
   auto end_resize = std::chrono::high_resolution_clock::now();
@@ -984,11 +1000,11 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff)
   double tns_after_resize = sta_->totalNegativeSlack(MinMax::max());
   double wns_after_resize = sta_->worstSlack(MinMax::max());
   printf("After parallel LR Buffering, TNS: %.6f, WNS: %.6f\n", tns_after_resize * 1e12, wns_after_resize * 1e12);
-  printf("parallel resize time: %f s\n", diff_resize.count());
+  printf("parallel buffering time: %f s\n", diff_resize.count());
 
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_total = end_total - start_total;
-  printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
+  printf("IncreSta::parallelBuffering total time %f s\n", diff_total.count());
 }
 
 } // namespace lrf

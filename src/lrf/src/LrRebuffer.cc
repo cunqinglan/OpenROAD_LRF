@@ -424,8 +424,10 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
           
             int round = 0;
             while (location != node->location()) {
-              printf("LrRebuffer::bufferForTiming: round %d, location (%d, %d), target (%d, %d), options %zu\n",
-                     round, location.x(), location.y(), node->location().x(), node->location().y(), opts.size());
+              if (verbose_) {
+                printf("LrRebuffer::bufferForTiming: round %d, location (%d, %d), target (%d, %d), options %zu\n",
+                       round, location.x(), location.y(), node->location().x(), node->location().y(), opts.size());
+              }
 
               const int step = wire_length_step_;
 
@@ -496,6 +498,7 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
                   float junc_cost = junc->ref()->bufferCost()
                                   + junc->ref2()->bufferCost();
                   junc->setBufferCost(junc_cost);
+                  junc->setLeakage(junc->ref()->leakage() + junc->ref2()->leakage());
                   // Merge LMs from the rewritten children
                   auto merged_lms = mergeLmVectors(junc->ref()->lms(),
                                                    junc->ref2()->lms());
@@ -509,7 +512,8 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
                 // Calculate junction's buffer cost = sum of both branches
                 float junc_cost = (*li)->bufferCost() + (*ri)->bufferCost();
                 junc->setBufferCost(junc_cost);
-                
+                junc->setLeakage((*li)->leakage() + (*ri)->leakage());
+
                 // Merge LMs from both branches
                 const auto& left_lms = (*li)->lms();
                 const auto& right_lms = (*ri)->lms();
@@ -582,7 +586,7 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
     // printf("option %d: cost = %.3e, slack = %.3e, cap = %.3e, fanout = %0.f\n",
     //        i, cost, p->slack().toSeconds(), p->cap(), p->fanout());
 
-    if (bufferNum(p) < 1) continue;
+    // if (bufferNum(p) < 1) continue;
     if (cost < best_cost) {
       best_cost = cost;
       best_option = p;
@@ -603,11 +607,12 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
           default: return 0;
         }
       }, best_option);
-    printf("best option: %d cost=%.3e, slack=%.3e, cap=%.3e, fanout=%.0f, buffers=%zu\n",
-           best_index, best_cost, best_option->slack().toSeconds(),
-           best_option->cap(), best_option->fanout(), buf_count);
-    fflush(stdout);
-
+    if (verbose_) {
+      printf("best option: %d cost=%.3e, slack=%.3e, cap=%.3e, fanout=%.0f, buffers=%zu\n",
+             best_index, best_cost, best_option->slack().toSeconds(),
+             best_option->cap(), best_option->fanout(), buf_count);
+      fflush(stdout);
+    }
   }
 
   return best_option;
@@ -618,69 +623,37 @@ LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
                            float original_slack)
 {
   PtGraph *pt_graph = visitor_->ptGraph();
-  float driver_leakage = local_sta_->cellAvgLeakage(drvr_port_->libertyCell());
-  sta::Slew max_slew;
+  float total_cost = INF;
+  float max_slew = 0.0f;
   float cell_delay_lm_sum = cellDelayLmSum(pt_vertex_id, option, max_slew);
-  float total_cost = option->bufferCost() + cell_delay_lm_sum + driver_leakage;
   if (hasViolation(option, max_slew)) {
-    return INF;
+    return total_cost;  // Fast fail if option has any violation
   }
 
-  // Virtual slack check: build virtual sub-graph and run full local timing
-  // [Layer 1] Record graph counts before building virtual buffer
-  size_t v_count_before = pt_graph->vertexCount();
-  size_t e_count_before = pt_graph->edgeCount();
-
+  // Virtual slack checkZ: build virtual sub-graph and run full local timing
   VirtualBufferInfo vinfo = buildVirtualBuffer(pt_vertex_id, option);
   if (vinfo.failed) {
-    // buildVirtualBuffer failed (e.g., no timing arc set for buffer cell)
     removeVirtualBuffer(vinfo);
     return total_cost;  // Fall back to analytical cost only
   }
-  // [Layer 1] Record counts after build
-  size_t v_count_built = pt_graph->vertexCount();
-  size_t e_count_built = pt_graph->edgeCount();
-  printf("[GRAPH BUILD] V: %zu->%zu (+%zu), E: %zu->%zu (+%zu)\n",
-         v_count_before, v_count_built, v_count_built - v_count_before,
-         e_count_before, e_count_built, e_count_built - e_count_before);
-  fflush(stdout);
 
   pt_graph->topoSortVertices();
-  local_sta_->updateLocalTiming(pt_graph, arc_delay_calc_);
-
-  // Arc delay printing moved to bufferForTiming (best option only)
-
+  auto result = local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
+  float delay_lm_sum = result.delay_lm_sum;
   float slack_after = local_sta_->localSlackAroundRef(pt_graph);
+  if (slack_after > original_slack * visitor_->slackMargin()) {
+    total_cost = visitor_->swapCost(delay_lm_sum, option->leakage());
+  }
 
   // [Layer 2] Slack comparison log
-  printf("[SLACK] original=%.3f ps, after_vbuf=%.3f ps, delta=%.3f ps\n",
-         original_slack * 1e12, slack_after * 1e12,
-         (slack_after - original_slack) * 1e12);
-  fflush(stdout);
+  if (verbose_) {
+    printf("[SLACK] original=%.3f ps, after_vbuf=%.3f ps, delta=%.3f ps\n",
+           original_slack * 1e12, slack_after * 1e12,
+           (slack_after - original_slack) * 1e12);
+    fflush(stdout);
+  }
 
   removeVirtualBuffer(vinfo);
-
-  // [Layer 1] Verify graph counts restored after remove
-  size_t v_count_after = pt_graph->vertexCount();
-  size_t e_count_after = pt_graph->edgeCount();
-  if (v_count_after != v_count_before || e_count_after != e_count_before) {
-    printf("[GRAPH INTEGRITY ERROR] after remove: V=%zu (expected %zu), E=%zu (expected %zu)\n",
-           v_count_after, v_count_before, e_count_after, e_count_before);
-  } else {
-    printf("[GRAPH OK] counts restored: V=%zu E=%zu\n", v_count_after, e_count_after);
-  }
-  fflush(stdout);
-
-  // [TEST] Skip slack filter — purpose is to verify slack calculation accuracy,
-  // not to make buffering decisions. Remove this bypass after validation.
-  // if (slack_after > original_slack * visitor_->slackMargin()) {
-  //   return INF;  // Buffer insertion worsens slack
-  // }
-  printf("[SLACK FILTER BYPASSED] slack_after=%.3f ps, threshold=%.3f ps, margin=%.3f\n",
-         slack_after * 1e12,
-         original_slack * visitor_->slackMargin() * 1e12,
-         visitor_->slackMargin());
-  fflush(stdout);
   return total_cost;
 }
 
@@ -811,7 +784,8 @@ LrRebuffer::insertBufferOptions(BnetSeq& opts,
       
       // Set the total buffer cost for this buffer option
       z->setBufferCost(load_opt_total_cost);
-      
+      z->setLeakage(load_opt->leakage() + local_sta_->cellAvgLeakage(buffer_cell));
+
       // Propagate LMs through buffer
       propagateLmsThroughBuffer(z, load_opt);
 
@@ -938,6 +912,7 @@ LrRebuffer::addWire(const BnetPtr& p,
   // Update total buffer cost: previous cost + wire's delta
   float total_cost = p->bufferCost() + wire_delta_cost;
   z->setBufferCost(total_cost);
+  z->setLeakage(p->leakage());
 
   if (level != -1) {
     // printf("  %*sAdded wire: length=%d um, %s s, delta_cost=%.3e, total_cost=%.3e\n",
@@ -1111,6 +1086,7 @@ LrRebuffer::attemptTopologyRewrite(const BnetPtr& node,
       buffer->setSlackTransition(junc1->slackTransition());
       buffer->setDelay(buffer_delay);
       buffer->setBufferCost(junc1_cost + buffer_delta_cost);
+      buffer->setLeakage(junc1->leakage() + buffer_leakage);
 
       // Propagate LMs through the buffer
       propagateLmsThroughBuffer(buffer, junc1);
@@ -1233,6 +1209,13 @@ LrRebuffer::buildVirtualBuffer(VertexId drvr_vertex_id,
             sta::TimingArcSet::wireTimingArcSet(), true);
         info.edge_ids.push_back(wire_in_eid);
         setVirtualWireDelay(wire_in_eid, acc_wire_delay);
+        // Set LMs on wire-to-buffer edge (same as gate: sum of downstream load LMs)
+        {
+          const auto &wire_lms = node->lms();
+          if (!wire_lms.empty()) {
+            pt_graph->setVirtualEdgeLms(pt_graph->edge(wire_in_eid), wire_lms);
+          }
+        }
 
         // Gate edge: buf_in → buf_out (delay left 0; computed by updateLocalTiming)
         sta::TimingArcSet *arc_set = nullptr;

@@ -259,6 +259,8 @@ class BufferedNet
   // Functions for LrRebuffer
   float bufferCost() const { return buffer_cost_; }
   void setBufferCost(float cost) { buffer_cost_ = cost; }
+  float leakage() const { return leakage_; }
+  void setLeakage(float leakage) { leakage_ = leakage; }
   std::vector<float>& lms() { return lms_; }
   void setLms(const std::vector<float>& lms) { lms_ = lms; }
   void setLms(std::vector<float>&& lms) noexcept { lms_ = std::move(lms); }
@@ -313,6 +315,8 @@ class BufferedNet
 
   // LM delay sum from here to load, used for LrRebuffer.
   float buffer_cost_ = 0;
+  // Accumulated buffer leakage from here to loads, used for LrRebuffer.
+  float leakage_ = 0;
 };
 
 // Template magic to make it easier to write algorithms descending
