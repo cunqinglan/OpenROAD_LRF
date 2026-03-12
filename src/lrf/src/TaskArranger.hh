@@ -116,6 +116,10 @@ public:
   ~TaskArranger();
   void init();
   void reinit();
+  // Rebuild the entire graph from scratch (clears old vertices/edges).
+  void rebuild();
+  // Mark graph as dirty (e.g. after buffer insertion changes the netlist).
+  void markDirty() { dirty_ = true; }
 
   // Functions of making graph
   void makeGraph();
@@ -219,6 +223,8 @@ protected:
   size_t max_resize_num_ = 1000000;
   // Flag of if the first time visitParallel
   bool incremental_ = false;
+  // Flag set after netlist-modifying operations (e.g. buffer insertion)
+  bool dirty_ = false;
   
   // Topology validation
   bool enable_topology_check_ = false;

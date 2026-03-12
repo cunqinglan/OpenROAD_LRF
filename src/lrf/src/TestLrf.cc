@@ -2518,4 +2518,146 @@ TestLrf::testSingleInstBuffering(char *inst_name, sta::dbSta* sta,
   fflush(stdout);
 }
 
+void
+TestLrf::testParallelKKTProjection(sta::dbSta* sta,
+                                    rsz::Resizer *resizer,
+                                    odb::dbBlock *block,
+                                    size_t thread_num,
+                                    std::string lr_helper_method)
+{
+  printf("----- Testing Parallel KKT Projection (serial vs %zu threads) -----\n",
+         thread_num);
+  fflush(stdout);
+
+  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+  sta->findRequireds();
+
+  // Create IncreSta with thread_num threads
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  incre_sta->makeLRHelper(lr_helper_method);
+  lrf::LRHelper *lr_helper = incre_sta->lrHelper();
+
+  // Initialize LM values via one round of updateAllEdgeLms
+  lr_helper->ensureSorted(sta);
+  lr_helper->updateAllEdgeLms(sta);
+
+  // Record LM state before serial KKT
+  int pre_serial_frame = lr_helper->recordLM();
+
+  // --- Serial KKT ---
+  auto serial_start = std::chrono::high_resolution_clock::now();
+  bool serial_result = lr_helper->KKTProjection(sta);
+  auto serial_end = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> serial_elapsed = serial_end - serial_start;
+  printf("Serial KKT: %s, took %f seconds\n",
+         serial_result ? "satisfied" : "NOT satisfied", serial_elapsed.count());
+
+  // Record LM state after serial KKT
+  int post_serial_frame = lr_helper->recordLM();
+
+  // Restore to pre-serial state for parallel run
+  lr_helper->restoreLM(pre_serial_frame);
+
+  // --- Parallel KKT ---
+  auto parallel_start = std::chrono::high_resolution_clock::now();
+  bool parallel_result = lr_helper->parallelKKTProjection(sta);
+  auto parallel_end = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> parallel_elapsed = parallel_end - parallel_start;
+  printf("Parallel KKT (%zu threads): %s, took %f seconds\n",
+         thread_num,
+         parallel_result ? "satisfied" : "NOT satisfied",
+         parallel_elapsed.count());
+  printf("Speedup: %.2fx\n",
+         serial_elapsed.count() / std::max(parallel_elapsed.count(), 1e-9));
+
+  // Record LM state after parallel KKT
+  int post_parallel_frame = lr_helper->recordLM();
+
+  // --- Compare arc LMs between serial and parallel results ---
+  // Restore serial result, snapshot it, then restore parallel and compare
+  lr_helper->restoreLM(post_serial_frame);
+  // Collect serial arc LMs
+  sta::Graph *graph = sta->graph();
+  size_t total_arcs = 0;
+  size_t mismatch_count = 0;
+  double max_rel_error = 0.0;
+
+  // First pass: count arcs
+  sta::VertexIterator vert_iter(graph);
+  while (vert_iter.hasNext()) {
+    sta::Vertex *v = vert_iter.next();
+    sta::VertexOutEdgeIterator edge_iter(v, graph);
+    while (edge_iter.hasNext()) {
+      sta::Edge *edge = edge_iter.next();
+      for (sta::TimingArc *arc : edge->timingArcSet()->arcs()) {
+        for (size_t ap = 0; ap < graph->apCount(); ap++) {
+          total_arcs++;
+        }
+      }
+    }
+  }
+
+  // Snapshot serial LMs
+  std::vector<LMValue> serial_lms(total_arcs);
+  size_t idx = 0;
+  sta::VertexIterator vert_iter2(graph);
+  while (vert_iter2.hasNext()) {
+    sta::Vertex *v = vert_iter2.next();
+    sta::VertexOutEdgeIterator edge_iter(v, graph);
+    while (edge_iter.hasNext()) {
+      sta::Edge *edge = edge_iter.next();
+      LMValue const *lms = edge->arcLms();
+      for (sta::TimingArc *arc : edge->timingArcSet()->arcs()) {
+        for (size_t ap = 0; ap < graph->apCount(); ap++) {
+          size_t lm_idx = arc->index() * graph->apCount() + ap;
+          serial_lms[idx++] = lms[lm_idx];
+        }
+      }
+    }
+  }
+
+  // Restore parallel result and compare
+  lr_helper->restoreLM(post_parallel_frame);
+  idx = 0;
+  sta::VertexIterator vert_iter3(graph);
+  while (vert_iter3.hasNext()) {
+    sta::Vertex *v = vert_iter3.next();
+    sta::VertexOutEdgeIterator edge_iter(v, graph);
+    while (edge_iter.hasNext()) {
+      sta::Edge *edge = edge_iter.next();
+      LMValue const *lms = edge->arcLms();
+      for (sta::TimingArc *arc : edge->timingArcSet()->arcs()) {
+        for (size_t ap = 0; ap < graph->apCount(); ap++) {
+          size_t lm_idx = arc->index() * graph->apCount() + ap;
+          LMValue parallel_val = lms[lm_idx];
+          LMValue serial_val = serial_lms[idx++];
+          if (serial_val != 0.0) {
+            double rel_error = std::abs(parallel_val - serial_val) / std::abs(serial_val);
+            if (rel_error > 1e-6) {
+              mismatch_count++;
+              if (rel_error > max_rel_error)
+                max_rel_error = rel_error;
+            }
+          } else if (parallel_val != 0.0) {
+            mismatch_count++;
+          }
+        }
+      }
+    }
+  }
+
+  printf("Arc LM comparison: %zu total arcs, %zu mismatches, max relative error: %e\n",
+         total_arcs, mismatch_count, max_rel_error);
+  if (mismatch_count == 0) {
+    printf("PASS: Serial and parallel KKT produce identical results.\n");
+  } else {
+    printf("FAIL: Serial and parallel KKT produce different results!\n");
+  }
+  fflush(stdout);
+
+  delete incre_sta;
+  printf("----- End Test Parallel KKT Projection -----\n");
+  fflush(stdout);
+}
+
 }  // namespace lrf

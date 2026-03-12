@@ -646,10 +646,13 @@ LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
   }
 
   // [Layer 2] Slack comparison log
-  if (verbose_) {
-    printf("[SLACK] original=%.3f ps, after_vbuf=%.3f ps, delta=%.3f ps\n",
+  {
+    float threshold = original_slack * visitor_->slackMargin();
+    printf("[SLACK] orig=%.3f ps, after=%.3f ps, delta=%.3f ps, thresh=%.3f ps, %s\n",
            original_slack * 1e12, slack_after * 1e12,
-           (slack_after - original_slack) * 1e12);
+           (slack_after - original_slack) * 1e12,
+           threshold * 1e12,
+           (slack_after > threshold) ? "ACCEPT" : "REJECT");
     fflush(stdout);
   }
 

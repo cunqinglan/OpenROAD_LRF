@@ -15,6 +15,7 @@
 #include "sta/TimingRole.hh"
 #include "sta/Clock.hh"
 #include "sta/Sdc.hh"
+#include "sta/DispatchQueue.hh"
 
 namespace lrf {
 using namespace sta;
@@ -625,6 +626,329 @@ void
 LRHelper::clearLmHistory() {
   lm_history_.clear();
 }
+
+//////////////////////////////////////////////////////////////////////
+// Parallel KKT Projection and LM Update
+//
+// - Forward pass (computeInLmSums): embarrassingly parallel (read-only on arc LMs)
+// - Backward pass (distributeLmOutToIn): uses BfsBkwdIterator::visitParallel()
+//   to dispatch same-level vertices in parallel, level-by-level from high to low.
+// - checkKKT: embarrassingly parallel (read-only)
+// - updateAllEdgeLms: embarrassingly parallel (each edge writes only its own arc LMs)
+//
+// dispatch_queue_ and thread_count_ are inherited from StaState.
+
+// KKTBackwardVisitor: VertexVisitor for reverse-topo KKT projection.
+// Used with BfsBkwdIterator::visitParallel() to process vertices level-by-level
+// from high level to low level. Same-level vertices are processed in parallel.
+// Thread safety: same-level vertices have disjoint input edges, so
+// distributeLmOutToIn writes to different Edge::arcLms() arrays.
+class KKTBackwardVisitor : public sta::VertexVisitor
+{
+public:
+  KKTBackwardVisitor(LRHelper *helper,
+                     DcalcAPToLMValueSeqMap &ap_lm_seq_map)
+    : helper_(helper),
+      ap_lm_seq_map_(ap_lm_seq_map) {}
+
+  VertexVisitor *copy() const override {
+    return new KKTBackwardVisitor(helper_, ap_lm_seq_map_);
+  }
+
+  void visit(Vertex *vertex) override {
+    if (!hasFanin(vertex, helper_->search_pred_, helper_->graph_) ||
+        !hasFanout(vertex, helper_->search_pred_, helper_->graph_))
+      return;
+
+    VertexId vid = helper_->graph_->id(vertex);
+    auto it = helper_->vertex_to_sorted_idx_.find(vid);
+    if (it == helper_->vertex_to_sorted_idx_.end())
+      return;
+    size_t idx = it->second;
+
+    LMValueSeq out_lm_sums = helper_->computeOutLmSum(vertex);
+    helper_->distributeLmOutToIn(vertex, out_lm_sums, ap_lm_seq_map_, idx);
+  }
+
+private:
+  LRHelper *helper_;
+  DcalcAPToLMValueSeqMap &ap_lm_seq_map_;
+};
+
+void
+LRHelper::parallelComputeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_map)
+{
+  const size_t n = sorted_lm_vertices_.size();
+
+  // Pre-allocate vectors for each analysis point
+  for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
+    ap_lm_map[dcalc_ap].resize(n, 0.0);
+  }
+
+  if (thread_count_ <= 1 || !dispatch_queue_) {
+    printf("[ERROR] parallelComputeInLmSums called with thread_count_=%d, dispatch_queue_=%p\n",
+           thread_count_, (void*)dispatch_queue_);
+  }
+
+  // Chunk vertices across threads.
+  // This is safe because each vertex reads only its own input edges' arc LMs
+  // (which are not being modified concurrently) and writes to its own index.
+  const size_t chunk = (n + thread_count_ - 1) / thread_count_;
+  for (size_t t = 0; t < (size_t)thread_count_; t++) {
+    const size_t start = t * chunk;
+    const size_t end = std::min(start + chunk, n);
+    if (start >= end) break;
+    dispatch_queue_->dispatch([this, &ap_lm_map, start, end](int) {
+      for (size_t i = start; i < end; i++) {
+        Vertex *vertex = sorted_lm_vertices_[i];
+        if (!hasFanin(vertex, search_pred_, graph_)) {
+          for (auto &[ap, seq] : ap_lm_map)
+            seq[i] = 0.0;
+          continue;
+        }
+        for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
+          const size_t ap_index = dcalc_ap->index();
+          LMValue in_lm_sum = 0.0;
+          size_t in_edge_count = 0;
+          VertexInEdgeIterator in_edge_iter(vertex, graph_);
+          while (in_edge_iter.hasNext()) {
+            const Edge *in_edge = in_edge_iter.next();
+            if (in_edge->role()->isTimingCheck())
+              continue;
+            LMValue const *lms = in_edge->arcLms();
+            for (TimingArc *arc : in_edge->timingArcSet()->arcs()) {
+              size_t lm_idx = arc->index() * graph_->apCount() + ap_index;
+              in_lm_sum += lms[lm_idx];
+            }
+            in_edge_count++;
+          }
+          if (in_lm_sum == 0.0 || in_edge_count == 0)
+            in_lm_sum = 1.0;
+          ap_lm_map[dcalc_ap][i] = in_lm_sum;
+        }
+      }
+    });
+  }
+  dispatch_queue_->finishTasks();
+}
+
+bool
+LRHelper::parallelCheckKKTForAllVertices()
+{
+  printf("LRHelper::parallelCheckKKTForAllVertices()\n");
+  fflush(stdout);
+
+  const size_t n = sorted_lm_vertices_.size();
+  if (thread_count_ <= 1 || !dispatch_queue_) {
+    printf("[ERROR] parallelCheckKKTForAllVertices called with thread_count_=%d, dispatch_queue_=%p\n",
+           thread_count_, (void*)dispatch_queue_);
+  }
+
+  std::atomic<bool> all_satisfied(true);
+  std::mutex stats_mutex;
+  LMValue global_max_lm = MIN_LM_VALUE;
+  LMValue global_min_lm = MAX_LM_VALUE;
+  sta::Edge *global_max_lm_edge = nullptr;
+  sta::Edge *global_min_lm_edge = nullptr;
+
+  const size_t chunk = (n + thread_count_ - 1) / thread_count_;
+  for (size_t t = 0; t < (size_t)thread_count_; t++) {
+    const size_t start = t * chunk;
+    const size_t end = std::min(start + chunk, n);
+    if (start >= end) break;
+    dispatch_queue_->dispatch([this, start, end, &all_satisfied,
+                               &stats_mutex, &global_max_lm, &global_min_lm,
+                               &global_max_lm_edge, &global_min_lm_edge](int) {
+      LMValue local_max_lm = MIN_LM_VALUE;
+      LMValue local_min_lm = MAX_LM_VALUE;
+      sta::Edge *local_max_edge = nullptr;
+      sta::Edge *local_min_edge = nullptr;
+
+      for (size_t idx = start; idx < end; idx++) {
+        Vertex *vertex = sorted_lm_vertices_[idx];
+        if (!hasFanin(vertex, search_pred_, graph_) ||
+            !hasFanout(vertex, search_pred_, graph_) ||
+            network_->isRegClkPin(vertex->pin()))
+          continue;
+
+        std::vector<LMValue> out_lm_vec(graph_->apCount(), 0.0);
+        for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
+          const size_t ap_index = dcalc_ap->index();
+          LMValue out_lm_sum = 0.0;
+          size_t out_edge_count = 0;
+          VertexOutEdgeIterator out_edge_iter(vertex, graph_);
+          while (out_edge_iter.hasNext()) {
+            Edge *out_edge = out_edge_iter.next();
+            if (out_edge->role()->isTimingCheck())
+              continue;
+            LMValue const *lms = out_edge->arcLms();
+            for (TimingArc *arc : out_edge->timingArcSet()->arcs()) {
+              size_t lm_idx = arc->index() * graph_->apCount() + ap_index;
+              LMValue arc_lm = lms[lm_idx];
+              out_lm_sum += arc_lm;
+              if (arc_lm > local_max_lm) { local_max_lm = arc_lm; local_max_edge = out_edge; }
+              if (arc_lm < local_min_lm) { local_min_lm = arc_lm; local_min_edge = out_edge; }
+            }
+            out_edge_count++;
+          }
+          if (out_edge_count == 0) out_lm_sum = -1.0;
+          out_lm_vec[ap_index] = out_lm_sum;
+        }
+
+        for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
+          const size_t ap_index = dcalc_ap->index();
+          LMValue in_lm_sum = 0.0;
+          size_t in_edge_count = 0;
+          VertexInEdgeIterator in_edge_iter(vertex, graph_);
+          while (in_edge_iter.hasNext()) {
+            Edge *in_edge = in_edge_iter.next();
+            if (in_edge->role()->isTimingCheck())
+              continue;
+            LMValue const *lms = in_edge->arcLms();
+            for (TimingArc *arc : in_edge->timingArcSet()->arcs()) {
+              size_t lm_idx = arc->index() * graph_->apCount() + ap_index;
+              LMValue arc_lm = lms[lm_idx];
+              in_lm_sum += arc_lm;
+              if (arc_lm > local_max_lm) { local_max_lm = arc_lm; local_max_edge = in_edge; }
+              if (arc_lm < local_min_lm) { local_min_lm = arc_lm; local_min_edge = in_edge; }
+            }
+            in_edge_count++;
+          }
+          LMValue out_lm_sum = out_lm_vec[ap_index];
+          const float epsilon = 1e-4;
+          if (!(out_lm_sum == 0.0 && in_lm_sum == 0.0)
+                && !(out_lm_sum == 0.0)
+                && (std::abs(out_lm_sum - in_lm_sum)/out_lm_sum > epsilon)
+                && !(in_edge_count == 0)
+                && !(out_lm_sum == -1.0)) {
+            all_satisfied.store(false);
+          }
+        }
+      }
+
+      // Merge local stats
+      std::lock_guard<std::mutex> lock(stats_mutex);
+      if (local_max_lm > global_max_lm) { global_max_lm = local_max_lm; global_max_lm_edge = local_max_edge; }
+      if (local_min_lm < global_min_lm) { global_min_lm = local_min_lm; global_min_lm_edge = local_min_edge; }
+    });
+  }
+  dispatch_queue_->finishTasks();
+
+  printf("LRHelper::parallelCheckKKTForAllVertices(): max LM (%s) & min LM (%s) value encountered: %.6f, %.6f\n",
+         global_max_lm_edge ? global_max_lm_edge->to_string(graph_).c_str() : "N/A",
+         global_min_lm_edge ? global_min_lm_edge->to_string(graph_).c_str() : "N/A",
+         global_max_lm, global_min_lm);
+  fflush(stdout);
+  return all_satisfied.load();
+}
+
+bool
+LRHelper::parallelKKTProjection(Sta *sta)
+{
+  printf("LRHelper::parallelKKTProjection() with %d threads\n", thread_count_);
+  fflush(stdout);
+
+  // Fallback to serial if single-threaded
+  if (thread_count_ <= 1 || !dispatch_queue_)
+    return KKTProjection(sta);
+
+  const VertexSeq &sorted_vertices = ensureSorted(sta);
+  const size_t n = sorted_vertices.size();
+
+  // Step 1: Build vertex-to-sorted-index mapping (needed for distributeLmOutToIn)
+  vertex_to_sorted_idx_.clear();
+  vertex_to_sorted_idx_.reserve(n);
+  for (size_t i = 0; i < n; i++) {
+    VertexId vid = graph_->id(sorted_lm_vertices_[i]);
+    vertex_to_sorted_idx_[vid] = i;
+  }
+
+  // Step 2: Parallel compute in LM sums (read-only on arc LMs)
+  DcalcAPToLMValueSeqMap ap_lm_seq_map;
+  parallelComputeInLmSums(ap_lm_seq_map);
+
+  // Step 3: Backward pass using BfsBkwdIterator::visitParallel().
+  // Pre-enqueue all sorted vertices; visitParallel processes them
+  // level-by-level from high to low with parallel dispatch within each level.
+  // Same-level vertices have disjoint input edges, so writes are thread-safe.
+  {
+    BfsBkwdIterator bkwd_iter(BfsIndex::other, search_pred_, sta);
+    bkwd_iter.ensureSize();
+    for (Vertex *vertex : sorted_lm_vertices_) {
+      bkwd_iter.enqueue(vertex);
+    }
+
+    KKTBackwardVisitor visitor(this, ap_lm_seq_map);
+    bkwd_iter.visitParallel(0, &visitor);
+  }
+
+  // Step 4: Parallel KKT check
+  bool kkt_satisfied = parallelCheckKKTForAllVertices();
+  if (kkt_satisfied) {
+    printf("LRHelper::parallelKKTProjection(): KKT conditions satisfied\n");
+  } else {
+    printf("LRHelper::parallelKKTProjection(): KKT conditions NOT satisfied\n");
+  }
+  fflush(stdout);
+  return kkt_satisfied;
+}
+
+void
+LRHelper::parallelUpdateAllEdgeLms(Sta *sta)
+{
+  printf("Size of sorted_lm_vertices_: %zu\n", sorted_lm_vertices_.size());
+  printf("Using LRHelper strategy: %s (parallel, %d threads)\n",
+         strategyName().c_str(), thread_count_);
+  fflush(stdout);
+
+  if (thread_count_ <= 1 || !dispatch_queue_) {
+    printf("[ERROR] parallelUpdateAllEdgeLms called with thread_count_=%d, dispatch_queue_=%p\n",
+           thread_count_, (void*)dispatch_queue_);
+  }
+
+  sta->findRequireds();
+  copyState(sta);
+
+  // Pre-mark endpoints on main thread (not thread-safe to do in parallel)
+  for (Vertex *vertex : *(sta->endpoints())) {
+    vertex->setIsEndpoint(true);
+  }
+
+  // Partition vertices into chunks and dispatch.
+  // Each vertex's output edges are independent — writes go to different
+  // Edge::arcLms() arrays, and timing queries are read-only after findRequireds().
+  const size_t n = sorted_lm_vertices_.size();
+  const size_t chunk = (n + thread_count_ - 1) / thread_count_;
+  for (size_t t = 0; t < (size_t)thread_count_; t++) {
+    const size_t start = t * chunk;
+    const size_t end = std::min(start + chunk, n);
+    if (start >= end) break;
+    dispatch_queue_->dispatch([this, sta, start, end](int) {
+      for (size_t i = start; i < end; i++) {
+        Vertex *vertex = sorted_lm_vertices_[i];
+        VertexOutEdgeIterator out_edge_iter(vertex, graph_);
+        while (out_edge_iter.hasNext()) {
+          Edge *out_edge = out_edge_iter.next();
+          if (out_edge->role()->isTimingCheck())
+            continue;
+          // updateEdgeLms skips endpoint marking (already done above)
+          for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
+            for (TimingArc *arc : out_edge->timingArcSet()->arcs()) {
+              if (out_edge->to(graph_)->isEndPoint() && RATCONS_) {
+                updateEndPointArcLms(out_edge, arc, sta, dcalc_ap);
+              } else {
+                updateArcLms(out_edge, arc, sta, dcalc_ap);
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+  dispatch_queue_->finishTasks();
+}
+
+//////////////////////////////////////////////////////////////////////
 
 std::string
 AdaptiveLrHelper::strategyName() const
