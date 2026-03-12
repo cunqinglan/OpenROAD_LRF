@@ -86,6 +86,7 @@ private:
   ParallelLrVisitor* visitor_;
   const sta::Pin *drvr_pin_ = nullptr;
   rsz::BufferedNetPtr best_bnet_ = nullptr;
+  bool verbose_ = false;
 };
 
 

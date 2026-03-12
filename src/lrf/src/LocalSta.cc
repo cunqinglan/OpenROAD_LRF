@@ -1134,12 +1134,21 @@ LocalSta::computeVirtualLoadCap(PtVertex &drvr_pt_vertex,
   const MinMax *min_max = dcalc_ap->constraintMinMax();
 
   // Driver output pin capacitance (self-cap of the output port)
-  LibertyPort *drvr_port = drvr_pt_vertex.libertyPort();
+  LibertyPort *drvr_port = nullptr;
+  const Pin *drvr_pin = drvr_pt_vertex.pin();
+  if (drvr_pin) {
+    drvr_port = network_->libertyPort(drvr_pin);
+  } else {
+    drvr_port = drvr_pt_vertex.libertyPort();
+  }
   if (drvr_port) {
-    float port_cap = drvr_port->capacitance();
-    load_cap += port_cap;
-    printf("[DEBUG computeVirtualLoadCap] drvr_port=%s cap=%.6f\n",
-           drvr_port->name(), port_cap * 1e12);
+    float dcap = drvr_port->capacitance();
+    load_cap += dcap;
+    // printf("[DEBUG computeVirtualLoadCap] drvr_port=%s self_cap=%.6f pF\n",
+    //        drvr_port->name(), dcap * 1e12);
+  } else {
+    printf("[WARINING computeVirtualLoadCap] drvr_port=NULL (pin=%p)\n",
+           (void*)drvr_pin);
   }
 
   // Downstream load pin capacitances
@@ -1149,34 +1158,32 @@ LocalSta::computeVirtualLoadCap(PtVertex &drvr_pt_vertex,
     PtEdge &pt_edge = edge_iter.next();
     if (pt_edge.isWire()) {
       PtVertex &load_pt_vertex = pt_graph->ptVertex(pt_edge.ptToId());
+      LibertyPort *load_port = nullptr;
+      std::string load_name;
+
       if (load_pt_vertex.hasBase()) {
-        // Real load: get pin capacitance from network
-        const Pin *load_pin = load_pt_vertex.pin();
-        if (load_pin) {
-          LibertyPort *load_port = network_->libertyPort(load_pin);
-          if (load_port) {
-            float pin_cap = load_port->capacitance(drvr_rf, min_max);
-            load_cap += pin_cap;
-            printf("[DEBUG computeVirtualLoadCap] real_load=%s cap=%.6f\n",
-                   network_->name(load_pin), pin_cap * 1e12);
-            load_count++;
-          }
+        // Real load: use network->libertyPort
+        if (const Pin *load_pin = load_pt_vertex.pin()) {
+          load_port = network_->libertyPort(load_pin);
+          load_name = network_->name(load_pin);
         }
       } else {
-        // Virtual load: get capacitance from LibertyPort
-        LibertyPort *load_port = load_pt_vertex.libertyPort();
-        if (load_port) {
-          float port_cap = load_port->capacitance(drvr_rf, min_max);
-          load_cap += port_cap;
-          printf("[DEBUG computeVirtualLoadCap] virtual_load=%s cap=%.6f\n",
-                 load_port->name(), port_cap * 1e12);
-          load_count++;
-        }
+        // Virtual load: use libertyPort directly
+        load_port = load_pt_vertex.libertyPort();
+        load_name = load_port ? load_port->name() : "?";
+      }
+
+      if (load_port) {
+        float pin_cap = load_port->capacitance(drvr_rf, min_max);
+        load_cap += pin_cap;
+        // printf("[DEBUG computeVirtualLoadCap] load=%s cap=%.6f\n",
+        //        load_name.c_str(), pin_cap * 1e12);
+        load_count++;
       }
     }
   }
-  printf("[DEBUG computeVirtualLoadCap] total_cap=%.6f (loads=%d)\n",
-         load_cap * 1e12, load_count);
+  // printf("[DEBUG computeVirtualLoadCap] total_cap=%.6f (loads=%d)\n",
+  //        load_cap * 1e12, load_count);
   return load_cap;
 }
 

@@ -912,7 +912,7 @@ PtGraph::delayLmSum(const sta::MinMax *minmax, float &delay_lambda_sum, bool avo
 {
   delay_lambda_sum = 0.0f;
   for (PtEdge &pt_edge : pt_edges_) {
-    if (pt_edge.type() == PtEdgeType::Sentinel || !pt_edge.hasBase())
+    if (pt_edge.type() == PtEdgeType::Sentinel)
       continue;
     sta::TimingArcSet *arc_set = pt_edge.timingArcSet();
     if (arc_set == nullptr)
@@ -949,7 +949,8 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
   const sta::DcalcAPIndex ap_index = dcalc_ap->index();
   delay_lambda_sum = 0.0f;
   for (PtEdge &pt_edge : pt_edges_) {
-    if (pt_edge.type() == PtEdgeType::Sentinel || !pt_edge.hasBase())
+    if (pt_edge.type() == PtEdgeType::Sentinel
+        || (!pt_edge.hasBase() && !pt_edge.isVirtual()))
       continue;
     sta::TimingArcSet *arc_set = pt_edge.timingArcSet();
     if (arc_set == nullptr)
@@ -973,7 +974,7 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
 }
 
 void
-PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap, 
+PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
                     DelayLmSumResult *result,
                     bool collect_vecs)
 {
@@ -987,7 +988,8 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
     result->vec_delays.clear();
   }
   for (PtEdge &pt_edge : pt_edges_) {
-    if (pt_edge.type() == PtEdgeType::Sentinel || !pt_edge.hasBase())
+    if (pt_edge.type() == PtEdgeType::Sentinel
+        || (!pt_edge.hasBase() && !pt_edge.isVirtual()))
       continue;
     sta::TimingArcSet *arc_set = pt_edge.timingArcSet();
     if (arc_set == nullptr)

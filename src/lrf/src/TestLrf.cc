@@ -2135,6 +2135,53 @@ TestLrf::testSingleInstBuffering(char *inst_name, sta::dbSta* sta,
           pt_graph->topoSortVertices();
           local_sta->updateLocalTiming(pt_graph, arc_delay_calc);
 
+          // === Report LMs on all edges ===
+          printf("\n  === Edge LM Report ===\n");
+          printf("  %-8s %-40s %-6s %12s %12s\n",
+                 "type", "from->to", "edge", "delay(ps)", "LM");
+          printf("  %-8s %-40s %-6s %12s %12s\n",
+                 "----", "--------", "----", "--------", "--------");
+          for (const PtEdge &e : pt_graph->ptEdges()) {
+            if (e.type() == PtEdgeType::Sentinel) continue;
+            if (!e.hasBase() && !e.isVirtual()) continue;
+            PtVertex &from_v = pt_graph->ptVertex(e.ptFromId());
+            PtVertex &to_v = pt_graph->ptVertex(e.ptToId());
+            std::string from_name = ptQualifiedName(from_v);
+            std::string to_name = ptQualifiedName(to_v);
+            std::string from_to = from_name + "->" + to_name;
+            const LMValue *lms = e.arcLms();
+            sta::TimingArcSet *arc_set = e.timingArcSet();
+            if (!arc_set) continue;
+            const char *etype = e.isVirtual()
+                ? (e.isWire() ? "v_wire" : "v_gate")
+                : (e.isWire() ? "wire" : "gate");
+            if (e.isWire()) {
+              for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+                sta::ArcDelay d = pt_graph->wireArcDelay(e, rf, ap);
+                int lm_index = rf->index() * sta->graph()->apCount() + ap;
+                float lm_val = (lms != nullptr) ? lms[lm_index] : 0.0f;
+                printf("  %-8s %-40s %-6s %12.3f %12.6f%s\n",
+                       etype, from_to.c_str(), rf->shortName(),
+                       (float)(sta::delayAsFloat(d) * 1e12), lm_val,
+                       lms ? "" : " (NULL)");
+              }
+            } else {
+              for (sta::TimingArc *arc : arc_set->arcs()) {
+                sta::ArcDelay d = pt_graph->arcDelay(e, arc, ap);
+                size_t lm_index = lmIndex(arc, ap, sta->graph()->apCount());
+                float lm_val = (lms != nullptr) ? lms[lm_index] : 0.0f;
+                std::string label = std::string(arc->fromEdge()->to_string())
+                                    + "->" + arc->toEdge()->to_string();
+                printf("  %-8s %-40s %-6s %12.3f %12.6f%s\n",
+                       etype, from_to.c_str(), label.c_str(),
+                       (float)(sta::delayAsFloat(d) * 1e12), lm_val,
+                       lms ? "" : " (NULL)");
+              }
+            }
+          }
+          printf("  === End Edge LM Report ===\n\n");
+          fflush(stdout);
+
           // 1. Driver instance gate arcs (RefInstEdge)
           PtVertexInEdgeIterator in_iter(drvr_vertex_id, pt_graph);
           while (in_iter.hasNext()) {
