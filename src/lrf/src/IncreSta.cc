@@ -238,7 +238,7 @@ IncreSta::isPowerOptimizationMode() const
   return lr_helper_->mode() == "power";
 }
 
-void 
+void
 IncreSta::lmUpdate()
 {
   sta::Slack wns = sta_->worstSlack(sta::MinMax::max());
@@ -246,18 +246,32 @@ IncreSta::lmUpdate()
     lr_helper_->setMode("power");
     printf("All timing constraints are met (WNS %e), switching to power optimization mode\n", wns);
   }
-  
+
+  const bool use_parallel = (thread_count_ > 1 && dispatch_queue_);
+
   if (projected_) {
-    printf("DEBUG: IncreSta::lmUpdate calling updateAllEdgeLms\n");
+    printf("DEBUG: IncreSta::lmUpdate calling updateAllEdgeLms%s\n",
+           use_parallel ? " (parallel)" : "");
     fflush(stdout);
-    lr_helper_->updateAllEdgeLms(sta_);
-    printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (projected_)\n");
+    if (use_parallel)
+      lr_helper_->parallelUpdateAllEdgeLms(sta_);
+    else
+      lr_helper_->updateAllEdgeLms(sta_);
+
+    printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (projected_)%s\n",
+           use_parallel ? " (parallel)" : "");
     fflush(stdout);
-    lr_helper_->KKTProjection(sta_);
+    if (use_parallel)
+      lr_helper_->parallelKKTProjection(sta_);
+    else
+      lr_helper_->KKTProjection(sta_);
   } else {
-    printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (else)\n");
+    printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (else)%s\n",
+           use_parallel ? " (parallel)" : "");
     fflush(stdout);
-    bool kkt_satisfied = lr_helper_->KKTProjection(sta_);
+    bool kkt_satisfied = use_parallel
+      ? lr_helper_->parallelKKTProjection(sta_)
+      : lr_helper_->KKTProjection(sta_);
     if (kkt_satisfied)
       projected_ = true;
     else {
@@ -1112,9 +1126,15 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
   visitor->init(avg_delay, avg_leakage, wns, PT_tradeoff, nullptr, nullptr);
   visitor->setMoveType(MoveType::BufferInsertion);
   task_arranger->visitParallel(sta_, local_sta_, resizer, visitor);
+  // Buffer insertion changed the netlist; mark dirty so next
+  // visitParallel() rebuilds the graph from updated netlist.
+  task_arranger->markDirty();
   auto end_buffer = std::chrono::high_resolution_clock::now();
   double buffer_sec = std::chrono::duration<double>(end_buffer - start_buffer).count();
 
+  printf("DEBUG: TNS before full update = %.3f ps\n",
+         sta_->totalNegativeSlack(MinMax::max()) * 1e12);
+  fflush(stdout);
   sta_->updateTiming(true);
   sta_->findRequireds();
   double tns_after = sta_->totalNegativeSlack(MinMax::max());
