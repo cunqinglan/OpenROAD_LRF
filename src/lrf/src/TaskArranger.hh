@@ -180,8 +180,8 @@ public:
   void printVisitedInstNames() const;
 
   // Mark top instances as selected based on precheck results.
-  // All vertices are first reset to unselected, then only those in benefits are marked.
-  void markSelectedInstances(const std::vector<ResizeBenefit> &benefits);
+  // All vertices are first reset to unselected, then only those in vertex_ids are marked.
+  void markSelectedInstances(const std::vector<size_t> &vertex_ids);
 
   void setMaxResizeNum(size_t max_resize_num) { max_resize_num_ = max_resize_num; }
   size_t vertexCount() const { return vertices_.size(); }

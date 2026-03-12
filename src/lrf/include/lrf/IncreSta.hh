@@ -71,12 +71,17 @@ public:
                       float PT_tradeoff);
   void setMaxResizeNum(size_t max_resize_num);
 
-  void parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff);
+  void parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
+                         int top_n = 100);
+
+  // Screen buffering candidates: collect gates with negative late slack,
+  // sort by output_cap / input_cap ratio descending, return top_n vertex ids.
+  std::vector<size_t> bufferingVerticesCandidate(int top_n);
 
   // Preceding resize check: evaluate resize benefit for all instances
-  // in parallel (no conflict graph). Returns sorted vector of
-  // ResizeBenefit (descending by cost_change).
-  std::vector<ResizeBenefit> precedingResizeCheck(
+  // in parallel (no conflict graph). Returns vertex indices of
+  // selected top instances (sorted by benefit, filtered by top_ratio).
+  std::vector<size_t> precedingResizeCheck(
       rsz::Resizer *resizer, float avg_delay, float avg_power,
       float PT_tradeoff, float top_ratio = 0.3);
 

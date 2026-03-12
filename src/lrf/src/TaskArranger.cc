@@ -911,14 +911,14 @@ TaskArranger::visitParallelPrecheck(sta::dbSta *sta, LocalSta *local_sta,
 }
 
 void
-TaskArranger::markSelectedInstances(const std::vector<ResizeBenefit> &benefits)
+TaskArranger::markSelectedInstances(const std::vector<size_t> &vertex_ids)
 {
   // Reset all vertices to unselected
   for (auto &v : vertices_)
     v.selected_ = false;
   // Mark only the top instances from precheck as selected
-  for (const auto &b : benefits)
-    vertices_[b.vertex_idx].selected_ = true;
+  for (size_t idx : vertex_ids)
+    vertices_[idx].selected_ = true;
 }
 
 void
