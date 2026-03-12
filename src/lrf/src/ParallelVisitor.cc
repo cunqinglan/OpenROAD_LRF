@@ -386,12 +386,24 @@ ParallelLrVisitor::trySwapPrecheck(sta::Instance *inst, int col_padding, int row
       full_equiv_cells = cell_info->equiv_cells;
     }
   }
-
-  // Evaluate all candidates (including ori_cell)
+  
   auto t_eval_start = std::chrono::high_resolution_clock::now();
-  float ori_cost = std::numeric_limits<float>::max();
+
+  // Build O(1) leakage lookup to replace the O(N) linear scan per candidate.
+  std::unordered_map<sta::LibertyCell*, float> leakage_cache;
+  if (cell_info && full_equiv_cells) {
+    for (size_t j = 0; j < full_equiv_cells->size(); j++)
+      leakage_cache[(*full_equiv_cells)[j]] = cell_info->cell_leakages[j];
+  }
+
+  struct CandResult {
+    float cost  = std::numeric_limits<float>::max();
+    sta::Slack slack = 0.0f;
+  };
+  std::vector<CandResult> cand_results(candidates.size());
+
+  float ori_cost  = std::numeric_limits<float>::max();
   float ori_slack = 0.0f;
-  float best_cost = std::numeric_limits<float>::max();
 
   for (size_t i = 0; i < candidates.size(); i++) {
     sta::LibertyCell *cand = candidates[i];
@@ -400,16 +412,10 @@ ParallelLrVisitor::trySwapPrecheck(sta::Instance *inst, int col_padding, int row
         && cand != ori_cell)
       continue;
 
-    // Look up pre-computed leakage
     float leakage = 0.0f;
-    if (cell_info && full_equiv_cells) {
-      for (size_t j = 0; j < full_equiv_cells->size(); j++) {
-        if ((*full_equiv_cells)[j] == cand) {
-          leakage = cell_info->cell_leakages[j];
-          break;
-        }
-      }
-    }
+    auto lk_it = leakage_cache.find(cand);
+    if (lk_it != leakage_cache.end())
+      leakage = lk_it->second;
 
     float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
         pt_graph, arc_delay_calc_, cand).delay_lm_sum;
@@ -418,52 +424,32 @@ ParallelLrVisitor::trySwapPrecheck(sta::Instance *inst, int col_padding, int row
         && cand != ori_cell)
       continue;
 
-    float cost = swapCost(delay_lm_sum, leakage);
+    float cost       = swapCost(delay_lm_sum, leakage);
     sta::Slack slack = local_sta_->localSlackAroundRef(pt_graph);
+    cand_results[i]  = {cost, slack};
 
     if (cand == ori_cell) {
-      ori_cost = cost;
+      ori_cost  = cost;
       ori_slack = slack;
     }
   }
 
-  // Second pass: find best cost with slack protection
+  // Derive best cost from cached results — no second STA pass needed.
   if (ori_cost == std::numeric_limits<float>::max()) {
     // pt_graph is owned by local_sta_->local_graphs_, do NOT delete here
     return 0.0f;
   }
 
-  best_cost = ori_cost;
+  float best_cost = ori_cost;
   for (size_t i = 0; i < candidates.size(); i++) {
-    sta::LibertyCell *cand = candidates[i];
-    if (cand == ori_cell)
+    if (candidates[i] == ori_cell)
       continue;
-
-    if (!local_sta_->legalCheckBeforeSwap(inst, cand, nullptr, nullptr, pt_graph))
-      continue;
-
-    float leakage = 0.0f;
-    if (cell_info && full_equiv_cells) {
-      for (size_t j = 0; j < full_equiv_cells->size(); j++) {
-        if ((*full_equiv_cells)[j] == cand) {
-          leakage = cell_info->cell_leakages[j];
-          break;
-        }
-      }
-    }
-
-    float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
-        pt_graph, arc_delay_calc_, cand).delay_lm_sum;
-
-    if (!local_sta_->legalCheckAfterSwap(inst, cand, nullptr, nullptr, pt_graph))
-      continue;
-
-    float cost = swapCost(delay_lm_sum, leakage);
-    sta::Slack slack = local_sta_->localSlackAroundRef(pt_graph);
-
-    // Slack protection: same as trySwapByArray line 316
-    if (cost < best_cost && slack >= ori_slack * slack_margin_)
-      best_cost = cost;
+    const CandResult &r = cand_results[i];
+    if (r.cost == std::numeric_limits<float>::max())
+      continue;  // was skipped (illegal)
+    // Slack protection: same as trySwapByArray
+    if (r.cost < best_cost && r.slack >= ori_slack * slack_margin_)
+      best_cost = r.cost;
   }
 
   auto t_eval_end = std::chrono::high_resolution_clock::now();
