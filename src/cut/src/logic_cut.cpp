@@ -811,7 +811,8 @@ void LogicCut::InsertAbcMapSolution(abc::Map_MappingSolution_t* pSolution,
   
   // Convert the mapped manager to an ABC netlist
   // fUseBuffs = 0 means we don't want to insert buffers
-  abc::Abc_Ntk_t* abc_mapped_network = Abc_NtkFromMap(pMan, pOriginalNetwork, 0);
+  abc::Abc_Ntk_t* abc_mapped_network =
+      abc::Abc_NtkFromMap(pMan, pOriginalNetwork, 0);
   
   if (!abc_mapped_network) {
     logger->error(utl::CUT,
