@@ -109,6 +109,7 @@ void printNtkInfo(abc::Aig_Man_t* aig, utl::Logger* logger)
                abc::Aig_ManCoNum(aig),
                abc::Aig_ManRegNum(aig),
                abc::Aig_ManLevelNum(aig));
+}
 int CountInputPins(const sta::LibertyCell* cell)
 {
   if (!cell) {
