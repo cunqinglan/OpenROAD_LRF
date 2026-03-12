@@ -458,19 +458,7 @@ float Timing::leakagePower(odb::dbInst* inst, odb::dbMaster* master, sta::Corner
   if (!sta_inst) {
     return 0.0;
   }
-
-  sta::Cell* cell = network->dbToSta(master);
-  if (!cell) {
-    return 0.0;
-  }
-  sta::LibertyCell* libcell = network->libertyCell(cell);
-  if (network->isHierarchical(sta_inst)) {
-    utl::Logger* logger = design_->getLogger();
-    logger->error(utl::ORD, 105, "Cannot get leakage power for hierarchical instance {}",
-                  inst->getName());
-    return 0.0;
-  }
-  sta::PowerResult power = sta->getLeakagePower(sta_inst, libcell, corner);
+  sta::PowerResult power = sta->power(sta_inst, corner);
   return power.leakage();
 }
 
