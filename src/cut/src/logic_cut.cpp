@@ -707,6 +707,7 @@ void MapConstantCells(AbcLibrary& abc_library,
 void LogicCut::InsertMappedAbcNetwork(abc::Abc_Ntk_t* abc_network,
                                       AbcLibrary& abc_library,
                                       sta::dbNetwork* network,
+                                      sta::dbSta* sta,
                                       utl::UniqueName& unique_name,
                                       utl::Logger* logger)
 {
@@ -784,6 +785,7 @@ void LogicCut::InsertAbcMapSolution(abc::Map_MappingSolution_t* pSolution,
                                      abc::Abc_Ntk_t* pOriginalNetwork,
                                      AbcLibrary& abc_library,
                                      sta::dbNetwork* network,
+                                     sta::dbSta* sta,
                                      utl::UniqueName& unique_name,
                                      utl::Logger* logger)
 {
@@ -829,6 +831,7 @@ void LogicCut::InsertAbcMapSolution(abc::Map_MappingSolution_t* pSolution,
   InsertMappedAbcNetwork(abc_mapped_network,
                         abc_library,
                         network,
+                        sta,
                         unique_name,
                         logger);
 } 

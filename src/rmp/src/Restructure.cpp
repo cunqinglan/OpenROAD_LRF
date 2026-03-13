@@ -47,6 +47,7 @@
 #include "zero_slack_strategy.h"
 #include "position_driven.hh"
 #include "rmp/SeqRemapper.hh"
+#include "utils.h"
 
 using utl::RMP;
 using namespace abc;
@@ -86,11 +87,12 @@ void Restructure::reset()
 {
   lib_file_names_.clear();
   path_insts_.clear();
+  abc_dont_use_.clear();
 }
 
 void Restructure::resynth(sta::Corner* corner)
 {
-  ZeroSlackStrategy zero_slack_strategy(corner);
+  ZeroSlackStrategy zero_slack_strategy(corner, split_large_inputs_k_);
   zero_slack_strategy.OptimizeDesign(
       open_sta_, name_generator_, resizer_, logger_);
 }
@@ -103,7 +105,8 @@ void Restructure::resynthAnnealing(sta::Corner* corner)
                                        annealing_temp_,
                                        annealing_iters_,
                                        annealing_revert_after_,
-                                       annealing_init_ops_);
+                                       annealing_init_ops_,
+                                       split_large_inputs_k_);
   annealing_strategy.OptimizeDesign(
       open_sta_, name_generator_, resizer_, logger_);
 }
@@ -176,6 +179,10 @@ void Restructure::runABC()
       = work_dir_name_ + std::string(block_->getConstName());
   input_blif_file_name_ = prefix + "_crit_path.blif";
   std::vector<std::string> files_to_remove;
+
+  if (!is_area_mode_) {
+    collectLargeInputDontUse();
+  }
 
   debugPrint(logger_,
              utl::RMP,
@@ -509,6 +516,44 @@ void Restructure::removeConstCell(odb::dbInst* inst)
   odb::dbInst::destroy(inst);
 }
 
+static bool IsCombinationalCell(sta::LibertyCell* cell)
+{
+  if (!cell) {
+    return false;
+  }
+  return (!cell->isClockGate() && !cell->isPad() && !cell->isMacro()
+          && !cell->hasSequentials() && !cell->isLevelShifter()
+          && !cell->isIsolationCell() && !cell->isMemory());
+}
+
+void Restructure::collectLargeInputDontUse()
+{
+  abc_dont_use_.clear();
+  if (block_ == nullptr || open_sta_ == nullptr) {
+    return;
+  }
+
+  if (!split_large_inputs_k_) {
+    return;
+  }
+  const int kLargeInputThreshold = *split_large_inputs_k_;
+  for (auto* lib : block_->getDb()->getLibs()) {
+    for (auto* master : lib->getMasters()) {
+      if (master->isBlock()) {
+        continue;
+      }
+      sta::LibertyCell* cell = open_sta_->getDbNetwork()->libertyCell(
+          open_sta_->getDbNetwork()->dbToSta(master));
+      if (!IsCombinationalCell(cell)) {
+        continue;
+      }
+      if (CountInputPins(cell) >= kLargeInputThreshold) {
+        abc_dont_use_.insert(cell->name());
+      }
+    }
+  }
+}
+
 bool Restructure::writeAbcScript(std::string file_name)
 {
   std::ofstream script(file_name.c_str());
@@ -521,7 +566,13 @@ bool Restructure::writeAbcScript(std::string file_name)
   for (const auto& lib_name : lib_file_names_) {
     // abc read_lib prints verbose by default, -v toggles to off to avoid read
     // time being printed
-    std::string read_lib_str = "read_lib -v " + lib_name + "\n";
+    std::string read_lib_str = "read_lib -v";
+    if (!is_area_mode_ && !abc_dont_use_.empty()) {
+      for (const auto& cell_name : abc_dont_use_) {
+        read_lib_str += " -X " + cell_name;
+      }
+    }
+    read_lib_str += " " + lib_name + "\n";
     script << read_lib_str;
   }
 
@@ -628,6 +679,22 @@ void Restructure::setMode(const char* mode_name)
   } else {
     logger_->warn(RMP, 10, "Mode {} not recognized.", mode_name);
   }
+}
+
+void Restructure::setSplitLargeInputs(int k)
+{
+  if (k >= 2) {
+    split_large_inputs_k_ = k;
+    return;
+  }
+  if (k != 0) {
+    logger_->warn(
+        RMP,
+        1037,
+        "Invalid -split_large_inputs value {}, must be >= 2; disabling.",
+        k);
+  }
+  split_large_inputs_k_.reset();
 }
 
 void Restructure::setTieHiPort(sta::LibertyPort* tieHiPort)

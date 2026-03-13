@@ -20,6 +20,7 @@
 #include "cut/logic_extractor.h"
 #include "db_sta/dbNetwork.hh"
 #include "db_sta/dbSta.hh"
+#include "map/mio/mio.h"
 #include "map/if/if.h"
 #include "map/scl/sclSize.h"
 #include "misc/vec/vecPtr.h"
@@ -119,6 +120,54 @@ void AnnealingStrategy::OptimizeDesign(sta::dbSta* sta,
   factory.AddResizer(resizer);
   factory.SetCorner(corner_);
   cut::AbcLibrary abc_library = factory.Build();
+
+  cut::AbcLibrary* map_library = nullptr;
+  abc::Mio_Library_t* map_mio = nullptr;
+  std::optional<cut::AbcLibrary> small_library;
+
+  if (split_large_inputs_k_ && *split_large_inputs_k_ >= 2) {
+    const int kLargeInputThreshold = *split_large_inputs_k_;
+    const int kMaxSmallInputs = *split_large_inputs_k_ - 1;
+    cut::LogicExtractorFactory logic_extractor(sta, logger);
+    for (sta::Vertex* negative_endpoint : candidate_vertices) {
+      logic_extractor.AppendEndpoint(negative_endpoint);
+    }
+    cut::LogicCut cut = logic_extractor.BuildLogicCut(abc_library);
+    int large_cell_count = 0;
+    const bool has_large_inputs = HasLargeInputCells(
+        cut, sta->getDbNetwork(), kLargeInputThreshold, &large_cell_count);
+
+    if (has_large_inputs) {
+      cut::AbcLibraryFactory small_factory(logger);
+      small_factory.AddDbSta(sta);
+      small_factory.AddResizer(resizer);
+      small_factory.SetCorner(corner_);
+      small_factory.SetMaxInputCount(kMaxSmallInputs);
+      small_library.emplace(small_factory.Build());
+      map_library = &*small_library;
+      map_mio = map_library->mio_library();
+
+      if (abc::Mio_LibraryReadBuf(map_mio) == nullptr) {
+        logger->warn(
+            RMP,
+            1035,
+            "No buffer cell found after limiting to <= {} input gates; "
+            "falling back to full library mapping.",
+            kMaxSmallInputs);
+        map_library = nullptr;
+        map_mio = nullptr;
+      } else {
+        logger->info(
+            RMP,
+            1036,
+            "Found {} cells with >= {} inputs in the cut; "
+            "remapping with <= {} input gates.",
+            large_cell_count,
+            kLargeInputThreshold,
+            kMaxSmallInputs);
+      }
+    }
+  }
 
   // GIA ops as lambdas
   // All the magic numbers are defaults from abc/src/base/abci/abc.c
@@ -331,6 +380,8 @@ void AnnealingStrategy::OptimizeDesign(sta::dbSta* sta,
   RunGia(sta,
          candidate_vertices,
          abc_library,
+         map_library,
+         map_mio,
          ops,
          SEARCH_RESIZE_ITERS,
          name_generator,
@@ -395,6 +446,8 @@ void AnnealingStrategy::OptimizeDesign(sta::dbSta* sta,
     RunGia(sta,
            candidate_vertices,
            abc_library,
+           map_library,
+           map_mio,
            new_ops,
            SEARCH_RESIZE_ITERS,
            name_generator,
@@ -470,6 +523,8 @@ void AnnealingStrategy::OptimizeDesign(sta::dbSta* sta,
   RunGia(sta,
          candidate_vertices,
          abc_library,
+         map_library,
+         map_mio,
          best_ops,
          FINAL_RESIZE_ITERS,
          name_generator,
@@ -480,6 +535,8 @@ void AnnealingStrategy::RunGia(
     sta::dbSta* sta,
     const std::vector<sta::Vertex*>& candidate_vertices,
     cut::AbcLibrary& abc_library,
+    cut::AbcLibrary* map_library,
+    abc::Mio_Library_t* map_mio,
     const std::vector<GiaOp>& gia_ops,
     size_t resize_iters,
     utl::UniqueName& name_generator,
@@ -502,17 +559,22 @@ void AnnealingStrategy::RunGia(
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> mapped_abc_network
       = cut.BuildMappedAbcNetwork(abc_library, network, logger);
 
+  cut::AbcLibrary& mapping_library
+      = (map_library != nullptr) ? *map_library : abc_library;
+  abc::Mio_Library_t* mapping_mio = map_mio;
+  if (mapping_mio == nullptr) {
+    mapping_mio
+        = static_cast<abc::Mio_Library_t*>(mapped_abc_network->pManFunc);
+  }
+
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> current_network(
       abc::Abc_NtkToLogic(
           const_cast<abc::Abc_Ntk_t*>(mapped_abc_network.get())),
       &abc::Abc_NtkDelete);
 
   {
-    auto library
-        = static_cast<abc::Mio_Library_t*>(mapped_abc_network->pManFunc);
-
     // Install library for NtkMap
-    abc::Abc_FrameSetLibGen(library);
+    abc::Abc_FrameSetLibGen(mapping_mio);
 
     debugPrint(logger,
                RMP,
@@ -522,7 +584,6 @@ void AnnealingStrategy::RunGia(
                abc::Abc_NtkNodeNum(current_network.get()),
                abc::Abc_NtkPoNum(current_network.get()));
 
-    current_network->pManFunc = library;
     abc::Gia_Man_t* gia = nullptr;
 
     {
@@ -609,7 +670,7 @@ void AnnealingStrategy::RunGia(
     {
       utl::SuppressStdout nostdout(logger);
       current_network = WrapUnique(abc::Abc_NtkMap(current_network.get(),
-                                                   nullptr,
+                                                   mapping_mio,
                                                    /*DelayTarget=*/1.0,
                                                    /*AreaMulti=*/0.0,
                                                    /*DelayMulti=*/2.5,
@@ -645,9 +706,9 @@ void AnnealingStrategy::RunGia(
       pars.BypassFreq = 0;
       pars.fUseDept = true;
       abc::Abc_SclUpsizePerform(
-          abc_library.abc_library(), current_network.get(), &pars, nullptr);
+          mapping_library.abc_library(), current_network.get(), &pars, nullptr);
       abc::Abc_SclDnsizePerform(
-          abc_library.abc_library(), current_network.get(), &pars, nullptr);
+          mapping_library.abc_library(), current_network.get(), &pars, nullptr);
     }
 
     current_network = WrapUnique(abc::Abc_NtkToNetlist(current_network.get()));
