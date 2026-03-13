@@ -1,6 +1,7 @@
 #include "position_driven.hh"
 
 #include <algorithm>      // std::sort
+#include <utility>        // std::pair, tuple interface
 #include <cmath>          // std::ceil, std::floor
 #include <cstdint>        // uint32_t
 #include <cstdio>         // freopen
@@ -102,7 +103,7 @@ sta::Vertex* PositionDrivenStrategy::getFarthestOutputVertex(
   sta::dbNetwork* network = remapper.getSta()->getDbNetwork();
   sta::Graph* graph = remapper.getSta()->graph();
   sta::Vertex* farthest_vertex = nullptr;
-  Slack worst_slack = std::numeric_limits<Slack>::max();
+  Slack worst_slack = std::numeric_limits<Slack>::infinity();
 
   cut::LogicCut bottleneck_cut = remapper.extractBottleneck(*this);
 
@@ -165,11 +166,18 @@ static std::vector<sta::Vertex*> selectCandidateEndpoints(
     return {};
   }
 
+  // Precompute slack once per vertex to avoid repeated STA queries during sort.
+  using VertexSlackPair = std::pair<sta::Vertex*, sta::Slack>;
+  std::vector<VertexSlackPair> endpoint_slacks;
+  endpoint_slacks.reserve(all_endpoints.size());
+  for (sta::Vertex* v : all_endpoints) {
+    endpoint_slacks.emplace_back(v, sta->vertexSlack(v, sta::MinMax::max()));
+  }
+
   // Sort ascending by slack (most negative = worst first).
-  std::sort(all_endpoints.begin(), all_endpoints.end(),
-    [&sta](sta::Vertex* a, sta::Vertex* b) {
-      return sta->vertexSlack(a, sta::MinMax::max())
-           < sta->vertexSlack(b, sta::MinMax::max());
+  std::sort(endpoint_slacks.begin(), endpoint_slacks.end(),
+    [](const VertexSlackPair& a, const VertexSlackPair& b) {
+      return a.second < b.second;
     });
 
   // Threshold above which slack_threshold is considered "not set".
@@ -178,23 +186,28 @@ static std::vector<sta::Vertex*> selectCandidateEndpoints(
   if (percentage >= 0.0f) {
     // Percentage mode: fix top N% of all endpoints, at least 1.
     size_t n = static_cast<size_t>(
-        std::ceil(static_cast<float>(all_endpoints.size()) * percentage / 100.0f));
+        std::ceil(static_cast<float>(endpoint_slacks.size()) * percentage / 100.0f));
     n = std::max(n, size_t(1));
-    n = std::min(n, all_endpoints.size());
-    return {all_endpoints.begin(), all_endpoints.begin() + static_cast<ptrdiff_t>(n)};
+    n = std::min(n, endpoint_slacks.size());
+    std::vector<sta::Vertex*> result;
+    result.reserve(n);
+    for (size_t i = 0; i < n; ++i) {
+      result.push_back(endpoint_slacks[i].first);
+    }
+    return result;
   }
 
   if (max_percentage >= 0.0f && slack_threshold < kNoThreshold) {
     // max_percentage + slack_threshold mode: keep endpoints below threshold,
     // capped at max_percentage of the total endpoint count.
     size_t max_n = static_cast<size_t>(
-        std::floor(static_cast<float>(all_endpoints.size()) * max_percentage / 100.0f));
+        std::floor(static_cast<float>(endpoint_slacks.size()) * max_percentage / 100.0f));
     std::vector<sta::Vertex*> result;
-    for (sta::Vertex* v : all_endpoints) {
+    for (const auto& [v, slack] : endpoint_slacks) {
       if (result.size() >= max_n) {
         break;
       }
-      if (sta->vertexSlack(v, sta::MinMax::max()) < slack_threshold) {
+      if (slack < slack_threshold) {
         result.push_back(v);
       } else {
         break;  // sorted: no further endpoint will be below threshold
@@ -204,7 +217,7 @@ static std::vector<sta::Vertex*> selectCandidateEndpoints(
   }
 
   // Default: fix only the single worst endpoint.
-  return {all_endpoints[0]};
+  return {endpoint_slacks[0].first};
 }
 
 sta::Vertex* PositionDrivenStrategy::getWorstVertex(
@@ -361,7 +374,7 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
   if (bad_cell == nullptr
       || !remapper.getAbcLibrary()->IsSupportedCell(bad_cell->name())) {
     remapper.getLogger()->warn(
-        utl::RES, 336, "Worst vertex {} is a cell type ({}) not supported by ABC, skipping.",
+        utl::RES, 365, "Worst vertex {} is a cell type ({}) not supported by ABC, skipping.",
         bad_vertex->name(network),
         bad_cell ? bad_cell->name() : "unknown");
     return;

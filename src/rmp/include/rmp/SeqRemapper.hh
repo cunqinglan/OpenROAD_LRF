@@ -116,7 +116,7 @@ class SeqRemapper : public sta::dbStaState
 
   // Preparation before remapping
   void remapPreamble();
-  // Identify bottleneck area and extract subsircuit
+  // Identify bottleneck area and extract subcircuit
   cut::LogicCut extractBottleneck(Strategy &strategy);
   // Convert subsircuit into AIG representation
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> netlistToAig(cut::LogicCut& logic_cut);
