@@ -103,7 +103,7 @@ sta::Vertex* PositionDrivenStrategy::getFarthestOutputVertex(
   sta::dbNetwork* network = remapper.getSta()->getDbNetwork();
   sta::Graph* graph = remapper.getSta()->graph();
   sta::Vertex* farthest_vertex = nullptr;
-  Slack worst_slack = 0.0;
+  Slack worst_slack = std::numeric_limits<Slack>::infinity();
 
   cut::LogicCut bottleneck_cut = remapper.extractBottleneck(*this);
 
