@@ -956,7 +956,7 @@ ParallelLrVisitor::updateTimingFromPtGraph()
   }
 }
 
-void 
+void
 ParallelLrVisitor::updateVertexInfo(sta::VertexId vertex_id)
 {
   PtVertex &pt_vertex = pt_graph_->ptVertex(vertex_id);
@@ -967,41 +967,8 @@ ParallelLrVisitor::updateVertexInfo(sta::VertexId vertex_id)
     return;
   }
   sta::Vertex *sta_vertex = pt_vertex.vertex();
-  // Update slews
-  sta::Graph *sta_graph = db_sta_->graph();
-  for (const sta::RiseFall *rf : sta::RiseFall::range()) {
-    for (int i = 0; i < sta_graph->apCount(); i++) {
-      sta::Slew slew = pt_graph_->slew(pt_vertex, rf, i);
-      sta_graph->setSlew(sta_vertex, rf, i, slew);
-    }
-  }
-
-  // update paths
-  // Do not replace the path array, as it causes ownership issues with prev_path_.
-  // Instead, copy the updated timing values (arrival, required) back to the existing paths.
-  sta::Path *pt_paths = pt_vertex.paths();
-  sta::Path *sta_paths = sta_vertex->paths();
-  
-  if (pt_paths && sta_paths) {
-    sta::TagGroup *pt_tag_group = pt_graph_->tagGroup(pt_vertex);
-    sta::TagGroup *sta_tag_group = db_sta_->search()->tagGroup(sta_vertex);
-    if (pt_tag_group->index() != sta_tag_group->index()) {
-      printf("TagGroup mismatch for vertex %s: PtTagGroup index %u, StaTagGroup index %u\n",
-             sta_vertex->to_string(db_sta_).c_str(),
-             pt_tag_group->index(),
-             sta_tag_group->index());
-      // We neglect many cases here for simplicity.
-      // So when tag groups do not match, we skip 
-      // updating paths, and just keep the existing ones.
-      return;
-    }
-    size_t path_count = pt_tag_group->pathCount();
-    
-    for (size_t i = 0; i < path_count; i++) {
-      sta_paths[i].setArrival(pt_paths[i].arrival());
-      sta_paths[i].setRequired(pt_paths[i].required());
-    }
-  }
+  pt_graph_->writeSlewToGraph(pt_vertex, sta_vertex);
+  pt_graph_->writePathsToGraph(pt_vertex, sta_vertex);
 }
 
 void 

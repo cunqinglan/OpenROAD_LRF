@@ -9,6 +9,8 @@
 #include "ParallelVisitor.hh"
 #include "sta/FuncExpr.hh"
 #include "sta/Fuzzy.hh"
+#include "sta/TimingRole.hh"
+#include "sta/PortDirection.hh"
 
 
 namespace {
@@ -179,17 +181,31 @@ LrRebuffer::annotateLoadLMs(PtVertex &drvr_pt_vertex, const BnetPtr& tree)
       tree);
 }
 
-int 
+int
 LrRebuffer::applyBufferingToDb()
 {
   odb::dbNet* const db_net = db_network_->flatNet(drvr_pin_);
-  return exportBufferTree(best_bnet_, db_network_->dbToSta(db_net), 1, nullptr, "rebuffer");
+  int count = exportBufferTree(best_bnet_, db_network_->dbToSta(db_net), 1, nullptr, "rebuffer");
+  if (count > 0) {
+    writeLmsToGraph();
+    writeTimingToGraph();
+  }
+  // Clean up virtual buffer vertices/edges left by bufferForTiming.
+  if (!best_vinfo_.vertex_ids.empty()) {
+    removeVirtualBuffer(best_vinfo_);
+    best_vinfo_ = VirtualBufferInfo{};
+  }
+  return count;
 }
 
 void
 LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
 {
   best_bnet_ = nullptr;
+  if (!best_vinfo_.vertex_ids.empty()) {
+    removeVirtualBuffer(best_vinfo_);
+  }
+  best_vinfo_ = VirtualBufferInfo{};
   if (network_->isTopLevelPort(drvr_pin)) {
     printf("LrRebuffer::rebufferPin: Warning: rebuffering does not support top port as the driver pin: %s\n",
            network_->name(drvr_pin));
@@ -224,7 +240,7 @@ LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
     // reallocation inside buildVirtualBuffer during evaluateOption.
     VertexId drvr_vid = drvr_pt_vertex.objectIdx();
     const bool allow_topology_rewrite = true;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 1; i++) {
       bnet = bufferForTiming(drvr_vid, bnet, allow_topology_rewrite);
       if (!bnet) {
         printf("LrRebuffer::rebufferPin: Warning: bufferForTiming failed for pin %s at iteration %d\n",
@@ -613,6 +629,17 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
              best_option->cap(), best_option->fanout(), buf_count);
       fflush(stdout);
     }
+
+    // Rebuild virtual buffer for best option and run local timing so that
+    // PtGraph contains complete timing data (slew, arrival, required, arc
+    // delay) on all virtual vertices/edges.  Keep the VirtualBufferInfo in
+    // best_vinfo_ — it will be consumed by writeTimingToGraph after physical
+    // insertion and cleaned up by removeVirtualBuffer in applyBufferingToDb.
+    best_vinfo_ = buildVirtualBuffer(drvr_vertex_id, best_option);
+    if (!best_vinfo_.failed) {
+      pt_graph->topoSortVertices();
+      local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
+    }
   }
 
   return best_option;
@@ -962,6 +989,274 @@ LrRebuffer::mergeLmVectors(const std::vector<float>& lm1,
   }
   
   return merged;
+}
+
+// After exportBufferTree physically inserts buffers into the real graph,
+// walk the BnetPtr tree in lockstep with the real graph and write LMs from
+// each BnetPtr node to the corresponding real edge, so that KKT conditions
+// are satisfied without an extra lmUpdate pass.
+//
+// Mapping (BnetPtr → real graph edge → LM source):
+//   load   → drvr_vertex → loadPin wire edge     : load->lms()
+//   junction → no new edge; children share same drvr_vertex
+//   buffer → drvr_vertex → buf_input wire edge    : buffer->lms()
+//            buf_input → buf_output gate edge      : buffer->lms()
+//            buf_output becomes new drvr_vertex for subtree
+//   wire/via → transparent, follow through to ref()
+void
+LrRebuffer::writeLmsToGraph()
+{
+  if (!best_bnet_ || !drvr_pin_)
+    return;
+
+  sta::Graph *graph = graph_;
+  const size_t ap_count = graph->apCount();
+  const size_t wire_lm_size = sta::TimingArcSet::wireArcCount() * ap_count;
+
+  // Helper: copy LM vector into a real edge's arcLms array.
+  auto writeLms = [](sta::Edge *edge, const std::vector<float>& src,
+                     size_t max_size) {
+    LMValue *dst = edge->arcLms();
+    if (!dst || src.empty())
+      return;
+    size_t n = std::min(src.size(), max_size);
+    for (size_t i = 0; i < n; i++)
+      dst[i] = src[i];
+  };
+
+  std::function<void(sta::Vertex*, const BnetPtr&)> writeSubtree;
+  using BnetType = rsz::BufferedNetType;
+
+  writeSubtree = [&](sta::Vertex *drvr_vertex, const BnetPtr& tree) {
+    if (!drvr_vertex || !tree)
+      return;
+
+    switch (tree->type()) {
+      case BnetType::wire:
+      case BnetType::via:
+        writeSubtree(drvr_vertex, tree->ref());
+        break;
+
+      case BnetType::load: {
+        const sta::Pin *load_pin = tree->loadPin();
+        if (!load_pin || tree->lms().empty())
+          break;
+        sta::VertexOutEdgeIterator out_iter(drvr_vertex, graph);
+        while (out_iter.hasNext()) {
+          sta::Edge *edge = out_iter.next();
+          if (!edge->role()->isWire())
+            continue;
+          if (edge->to(graph)->pin() == load_pin) {
+            writeLms(edge, tree->lms(), wire_lm_size);
+            break;
+          }
+        }
+        break;
+      }
+
+      case BnetType::junction:
+        writeSubtree(drvr_vertex, tree->ref());
+        writeSubtree(drvr_vertex, tree->ref2());
+        break;
+
+      case BnetType::buffer: {
+        // Use the instance recorded by exportBufferTree for exact matching.
+        sta::Instance *buf_inst = tree->bufInst();
+        if (!buf_inst)
+          break;
+
+        sta::LibertyCell *buf_cell = tree->bufferCell();
+        sta::LibertyPort *input_port, *output_port;
+        buf_cell->bufferPorts(input_port, output_port);
+        const sta::Pin *buf_in_pin = nullptr;
+        const sta::Pin *buf_out_pin = nullptr;
+        sta::InstancePinIterator *pin_iter = network_->pinIterator(buf_inst);
+        while (pin_iter->hasNext()) {
+          const sta::Pin *pin = pin_iter->next();
+          if (network_->direction(pin)->isInput())
+            buf_in_pin = pin;
+          else if (network_->direction(pin)->isOutput())
+            buf_out_pin = pin;
+        }
+        delete pin_iter;
+
+        if (!buf_in_pin || !buf_out_pin)
+          break;
+
+        // 1. Wire edge: drvr_vertex → buf_input — write merged downstream LMs.
+        sta::VertexOutEdgeIterator out_iter(drvr_vertex, graph);
+        while (out_iter.hasNext()) {
+          sta::Edge *edge = out_iter.next();
+          if (!edge->role()->isWire())
+            continue;
+          if (edge->to(graph)->pin() == buf_in_pin) {
+            writeLms(edge, tree->lms(), wire_lm_size);
+            break;
+          }
+        }
+
+        // 2. Gate edge: buf_input → buf_output — same LMs (positive-unate
+        //    buffer arcs have same index layout as wire rise/fall).
+        sta::Vertex *buf_out_vertex = graph->pinDrvrVertex(buf_out_pin);
+        if (buf_out_vertex && !tree->lms().empty()) {
+          sta::VertexInEdgeIterator in_iter(buf_out_vertex, graph);
+          while (in_iter.hasNext()) {
+            sta::Edge *gate_edge = in_iter.next();
+            if (gate_edge->role()->isWire())
+              continue;
+            size_t gate_lm_size
+                = gate_edge->timingArcSet()->arcCount() * ap_count;
+            writeLms(gate_edge, tree->lms(), gate_lm_size);
+          }
+        }
+
+        // 3. Recurse into subtree with buf_output as new driver.
+        if (buf_out_vertex) {
+          writeSubtree(buf_out_vertex, tree->ref());
+        }
+        break;
+      }
+    }
+  };
+
+  sta::Vertex *drvr_vertex = graph->pinDrvrVertex(drvr_pin_);
+  if (drvr_vertex) {
+    writeSubtree(drvr_vertex, best_bnet_);
+  }
+}
+
+// Write timing data (slew, arrival/required paths) from PtGraph virtual
+// buffer vertices to the real graph.  This mirrors the tree walk order of
+// buildVirtualBuffer so that best_vinfo_.vertex_ids[vi] and
+// best_vinfo_.edge_ids[ei] correspond to the same BnetPtr nodes.
+// Edge delays are NOT written — downstream LocalSta recomputes them from
+// slew and load cap.
+//
+// For each buffer in the BnetPtr tree:
+//   vertex_ids consumed: buf_in, buf_out  (2 per buffer)
+//   edge_ids consumed:   wire_in, gate    (2 per buffer, consumed but not used)
+// For each load:
+//   edge_ids consumed:   wire_to_load     (1 per load, consumed but not used)
+void
+LrRebuffer::writeTimingToGraph()
+{
+  if (!best_bnet_ || !drvr_pin_ || best_vinfo_.failed)
+    return;
+
+  PtGraph *pt_graph = visitor_->ptGraph();
+  sta::Graph *sta_graph = graph_;
+
+  // Indices into best_vinfo_ arrays, consumed in tree-walk order.
+  size_t vi = 0;  // vertex index
+  size_t ei = 0;  // edge index
+
+  using BnetType = rsz::BufferedNetType;
+  std::function<void(sta::Vertex*, const BnetPtr&)> walkTree;
+
+  walkTree = [&](sta::Vertex *real_drvr, const BnetPtr &tree) {
+    if (!real_drvr || !tree)
+      return;
+
+    switch (tree->type()) {
+      case BnetType::wire:
+      case BnetType::via:
+        walkTree(real_drvr, tree->ref());
+        break;
+
+      case BnetType::load: {
+        // Consume the wire edge ID (keep indices in sync with buildVirtualBuffer)
+        if (ei >= best_vinfo_.edge_ids.size())
+          break;
+        EdgeId pt_wire_eid = best_vinfo_.edge_ids[ei++];
+
+        const sta::Pin *load_pin = tree->loadPin();
+        if (!load_pin)
+          break;
+
+        // Update load vertex slew + paths
+        sta::Vertex *load_vertex = sta_graph->pinLoadVertex(load_pin);
+        if (load_vertex) {
+          VertexId pt_load_vid = pt_graph->edge(pt_wire_eid).ptToId();
+          const PtVertex &pt_load = pt_graph->ptVertex(pt_load_vid);
+          pt_graph->writeSlewToGraph(pt_load, load_vertex);
+          pt_graph->writePathsToGraph(pt_load, load_vertex);
+        }
+        break;
+      }
+
+      case BnetType::junction:
+        walkTree(real_drvr, tree->ref());
+        walkTree(real_drvr, tree->ref2());
+        break;
+
+      case BnetType::buffer: {
+        if (vi + 1 >= best_vinfo_.vertex_ids.size()
+            || ei + 1 >= best_vinfo_.edge_ids.size())
+          break;
+
+        // Consume PtGraph virtual IDs (same order as buildVirtualBuffer)
+        VertexId pt_buf_in_vid = best_vinfo_.vertex_ids[vi++];
+        VertexId pt_buf_out_vid = best_vinfo_.vertex_ids[vi++];
+        ei += 2;  // skip wire_in and gate edge IDs
+
+        const PtVertex &pt_buf_in = pt_graph->ptVertex(pt_buf_in_vid);
+        const PtVertex &pt_buf_out = pt_graph->ptVertex(pt_buf_out_vid);
+
+        // Find real buffer instance recorded during exportBufferTree
+        sta::Instance *buf_inst = tree->bufInst();
+        if (!buf_inst)
+          break;
+        const sta::Pin *buf_in_pin = nullptr;
+        const sta::Pin *buf_out_pin = nullptr;
+        sta::InstancePinIterator *pin_iter = network_->pinIterator(buf_inst);
+        while (pin_iter->hasNext()) {
+          const sta::Pin *pin = pin_iter->next();
+          if (network_->direction(pin)->isInput())
+            buf_in_pin = pin;
+          else if (network_->direction(pin)->isOutput())
+            buf_out_pin = pin;
+        }
+        delete pin_iter;
+
+        if (!buf_in_pin || !buf_out_pin)
+          break;
+
+        sta::Vertex *real_buf_in = sta_graph->pinLoadVertex(buf_in_pin);
+        sta::Vertex *real_buf_out = sta_graph->pinDrvrVertex(buf_out_pin);
+
+        // Buffer input vertex: slew + paths
+        if (real_buf_in) {
+          pt_graph->writeSlewToGraph(pt_buf_in, real_buf_in);
+          pt_graph->writePathsToGraph(pt_buf_in, real_buf_in);
+        }
+
+        // Buffer output vertex: slew + paths
+        if (real_buf_out) {
+          pt_graph->writeSlewToGraph(pt_buf_out, real_buf_out);
+          pt_graph->writePathsToGraph(pt_buf_out, real_buf_out);
+        }
+
+        // Recurse into subtree with buf_output as new driver
+        walkTree(real_buf_out, tree->ref());
+        break;
+      }
+    }
+  };
+
+  sta::Vertex *real_drvr = sta_graph->pinDrvrVertex(drvr_pin_);
+  if (real_drvr) {
+    // Update ref instance RefOutput vertices — slew changed because the
+    // output load cap decreased after buffer insertion.
+    for (VertexId vid : pt_graph->sortedVertexIds()) {
+      PtVertex &pv = pt_graph->ptVertex(vid);
+      if (pv.type() == PtVertexType::RefOutput && pv.vertex()) {
+        pt_graph->writeSlewToGraph(pv, pv.vertex());
+        pt_graph->writePathsToGraph(pv, pv.vertex());
+      }
+    }
+    // Walk the BnetPtr tree to write timing for buffer and load vertices.
+    walkTree(real_drvr, best_bnet_);
+  }
 }
 
 // LrRebuffer version of attemptTopologyRewrite:

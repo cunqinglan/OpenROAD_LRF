@@ -295,6 +295,7 @@ LRHelper::checkKKTForAllVertices() {
       const float epsilon = 1e-4;
       if (!(out_lm_sum == 0.0 && in_lm_sum == 0.0)
             && !(out_lm_sum == 0.0)   // All output edges disabled for this AP
+            && !(in_lm_sum == 0.0)    // All input edges disabled for this AP
             && (std::abs(out_lm_sum - in_lm_sum)/out_lm_sum > epsilon)
             && !(in_edge_count == 0)
             && !(out_lm_sum == -1.0)) {
@@ -818,6 +819,7 @@ LRHelper::parallelCheckKKTForAllVertices()
           const float epsilon = 1e-4;
           if (!(out_lm_sum == 0.0 && in_lm_sum == 0.0)
                 && !(out_lm_sum == 0.0)
+                && !(in_lm_sum == 0.0)
                 && (std::abs(out_lm_sum - in_lm_sum)/out_lm_sum > epsilon)
                 && !(in_edge_count == 0)
                 && !(out_lm_sum == -1.0)) {

@@ -578,6 +578,36 @@ PtGraph::tagGroup(const PtVertex &pt_vertex)
   return sta_->search()->tagGroup(pt_vertex.tagGroupIndex());
 }
 
+void
+PtGraph::writeSlewToGraph(const PtVertex &pt_vertex, sta::Vertex *sta_vertex)
+{
+  sta::Graph *sta_graph = sta_->graph();
+  for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+    for (size_t ap = 0; ap < ap_count_; ap++) {
+      sta::Slew s = slew(pt_vertex, rf, ap);
+      sta_graph->setSlew(sta_vertex, rf, ap, s);
+    }
+  }
+}
+
+void
+PtGraph::writePathsToGraph(const PtVertex &pt_vertex, sta::Vertex *sta_vertex)
+{
+  sta::Path *pt_paths = pt_vertex.paths();
+  sta::Path *sta_paths = sta_vertex->paths();
+  if (!pt_paths || !sta_paths)
+    return;
+  sta::TagGroup *pt_tg = tagGroup(pt_vertex);
+  sta::TagGroup *sta_tg = sta_->search()->tagGroup(sta_vertex);
+  if (!pt_tg || !sta_tg || pt_tg->index() != sta_tg->index())
+    return;
+  size_t count = pt_tg->pathCount();
+  for (size_t i = 0; i < count; i++) {
+    sta_paths[i].setArrival(pt_paths[i].arrival());
+    sta_paths[i].setRequired(pt_paths[i].required());
+  }
+}
+
 bool
 PtGraph::topoSortVertices()
 {

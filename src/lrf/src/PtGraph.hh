@@ -116,6 +116,12 @@ public:
   const sta::ArcDelay &wireArcDelay(const PtEdge &pt_edge,
                                     const sta::RiseFall *rf,
                                     sta::DcalcAPIndex ap_index);
+  // Copy slew from PtVertex to real sta::Vertex.
+  void writeSlewToGraph(const PtVertex &pt_vertex, sta::Vertex *sta_vertex);
+  // Copy paths (arrival + required) from PtVertex to real sta::Vertex.
+  // Skips if paths are null or tag groups don't match.
+  void writePathsToGraph(const PtVertex &pt_vertex, sta::Vertex *sta_vertex);
+
   // Output informations of the PtGraph for debug purpose
   std::string to_string();
   void printGraph(bool dot_format = false);

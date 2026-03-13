@@ -19,6 +19,10 @@
 #include "sta/Transition.hh"
 #include "utl/Logger.h"
 
+namespace sta {
+class Instance;
+}
+
 namespace est {
 class EstimateParasitics;
 }
@@ -268,6 +272,9 @@ class BufferedNet
     lms_.clear();
     lms_.assign(lms, lms + count);
   }
+  // Set by exportBufferTree after physical insertion; used by writeLmsToGraph.
+  sta::Instance* bufInst() const { return buf_inst_; }
+  void setBufInst(sta::Instance* inst) { buf_inst_ = inst; }
 
 
  private:
@@ -317,6 +324,8 @@ class BufferedNet
   float buffer_cost_ = 0;
   // Accumulated buffer leakage from here to loads, used for LrRebuffer.
   float leakage_ = 0;
+  // Set by exportBufferTree: the physical instance created for this buffer node.
+  sta::Instance* buf_inst_ = nullptr;
 };
 
 // Template magic to make it easier to write algorithms descending
