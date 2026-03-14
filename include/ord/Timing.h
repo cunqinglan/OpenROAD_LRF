@@ -146,6 +146,7 @@ class Timing
   void testPrecedingResizeCheck(float PT_tradeoff = 100.0,
                                 float top_ratio = 0.3);
   void testSingleInstBuffering(char *inst_name);
+  void testParallelKKTProjection(const char *lr_helper_method = "RapidLRHelper");
   /////////////////////////////////////////////////////////////
   // End functions for testing LR sizing
   /////////////////////////////////////////////////////////////
