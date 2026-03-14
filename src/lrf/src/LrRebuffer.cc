@@ -3,10 +3,16 @@
 
 
 #include "LrRebuffer.hh"
+#include "PtGraph.hh"
 #include "rsz/Resizer.hh"
 #include "LocalSta.hh"
 #include "ParallelVisitor.hh"
+#include "sta/FuncExpr.hh"
 #include "sta/Fuzzy.hh"
+#include "sta/TimingRole.hh"
+#include "sta/PortDirection.hh"
+#include "search/TagGroup.hh"
+#include "sta/Search.hh"
 
 
 namespace {
@@ -31,6 +37,23 @@ using BnetType = BufferedNetType;
 using BnetSeq = BufferedNetSeq;
 using BnetPtr = BufferedNetPtr;
 using BnetMetrics = BufferedNet::Metrics;
+
+int 
+LrRebuffer::bufferNum(const BnetPtr& tree)
+{
+  int num_buffers = 0;
+  visitTree(
+    [&](auto& recurse, int level, const BnetPtr& node) -> int {
+      switch (node->type()) {
+        case BnetType::buffer: num_buffers++; return recurse(node->ref());
+        case BnetType::junction: return recurse(node->ref()) + recurse(node->ref2());
+        case BnetType::wire: case BnetType::via: return recurse(node->ref());
+        case BnetType::load: return 1;
+        default: return 0;
+      }
+    }, tree);
+  return num_buffers;
+}
 
 LrRebuffer::LrRebuffer(rsz::Resizer *resizer, ParallelLrVisitor* visitor) :
     Rebuffer(resizer),
@@ -160,17 +183,31 @@ LrRebuffer::annotateLoadLMs(PtVertex &drvr_pt_vertex, const BnetPtr& tree)
       tree);
 }
 
-int 
+int
 LrRebuffer::applyBufferingToDb()
 {
   odb::dbNet* const db_net = db_network_->flatNet(drvr_pin_);
-  return exportBufferTree(best_bnet_, db_network_->dbToSta(db_net), 1, nullptr, "rebuffer");
+  int count = exportBufferTree(best_bnet_, db_network_->dbToSta(db_net), 1, nullptr, "rebuffer");
+  if (count > 0) {
+    writeLmsToGraph();
+    writeTimingToGraph();
+  }
+  // Clean up virtual buffer vertices/edges left by bufferForTiming.
+  if (!best_vinfo_.vertex_ids.empty()) {
+    removeVirtualBuffer(best_vinfo_);
+    best_vinfo_ = VirtualBufferInfo{};
+  }
+  return count;
 }
 
 void
 LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
 {
   best_bnet_ = nullptr;
+  if (!best_vinfo_.vertex_ids.empty()) {
+    removeVirtualBuffer(best_vinfo_);
+  }
+  best_vinfo_ = VirtualBufferInfo{};
   if (network_->isTopLevelPort(drvr_pin)) {
     printf("LrRebuffer::rebufferPin: Warning: rebuffering does not support top port as the driver pin: %s\n",
            network_->name(drvr_pin));
@@ -201,9 +238,12 @@ LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
     localAnnotateLoadSlacks(bnet, drvr_pt_vertex);
     annotateLoadLMs(drvr_pt_vertex, bnet);
 
+    // Save VertexId — PtVertex references may be invalidated by vector
+    // reallocation inside buildVirtualBuffer during evaluateOption.
+    VertexId drvr_vid = drvr_pt_vertex.objectIdx();
     const bool allow_topology_rewrite = true;
-    for (int i = 0; i < 3; i++) {
-      bnet = bufferForTiming(drvr_pt_vertex, bnet, allow_topology_rewrite);
+    for (int i = 0; i < 1; i++) {
+      bnet = bufferForTiming(drvr_vid, bnet, allow_topology_rewrite);
       if (!bnet) {
         printf("LrRebuffer::rebufferPin: Warning: bufferForTiming failed for pin %s at iteration %d\n",
                network_->name(drvr_pin), i);
@@ -259,8 +299,13 @@ LrRebuffer::localAnnotateLoadSlacks(const BnetPtr& tree, PtVertex &drvr_pt_verte
             } else {
               const sta::RiseFall* rf = req_path->transition(sta_);
               node->setSlackTransition(rf->asRiseFallBoth());
-              node->setSlack(FixedDelay(
-                  req_path->required() - arrival_path->arrival(), resizer_));
+              sta::Delay slack_value = req_path->required() - arrival_path->arrival();
+              if (sta::delayInf(slack_value)
+                  || slack_value > 100.0 || slack_value < -100.0) {
+                node->setSlack(FixedDelay::INF);
+              } else {
+                node->setSlack(FixedDelay(slack_value, resizer_));
+              }
 
               if (arrival_paths_[rf->index()] == nullptr) {
                 arrival_paths_[rf->index()] = arrival_path;
@@ -342,8 +387,8 @@ static BufferedNetPtr createBnetJunction(rsz::Resizer* resizer,
 
 // Find buffering choices with best delay LM sum and leakage
 BnetPtr
-LrRebuffer::bufferForTiming(PtVertex &pt_drvr_vertex, 
-                            const BnetPtr &tree, 
+LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
+                            const BnetPtr &tree,
                             bool allow_topology_rewrite)
 {
   sta::LibertyPort *strong_driver;
@@ -402,9 +447,6 @@ LrRebuffer::bufferForTiming(PtVertex &pt_drvr_vertex,
           
             int round = 0;
             while (location != node->location()) {
-              printf("LrRebuffer::bufferForTiming: round %d, location (%d, %d), target (%d, %d), options %zu\n",
-                     round, location.x(), location.y(), node->location().x(), node->location().y(), opts.size());
-
               const int step = wire_length_step_;
 
               // move `location` towards `node->location()` by `step`
@@ -474,6 +516,7 @@ LrRebuffer::bufferForTiming(PtVertex &pt_drvr_vertex,
                   float junc_cost = junc->ref()->bufferCost()
                                   + junc->ref2()->bufferCost();
                   junc->setBufferCost(junc_cost);
+                  junc->setLeakage(junc->ref()->leakage() + junc->ref2()->leakage());
                   // Merge LMs from the rewritten children
                   auto merged_lms = mergeLmVectors(junc->ref()->lms(),
                                                    junc->ref2()->lms());
@@ -487,7 +530,8 @@ LrRebuffer::bufferForTiming(PtVertex &pt_drvr_vertex,
                 // Calculate junction's buffer cost = sum of both branches
                 float junc_cost = (*li)->bufferCost() + (*ri)->bufferCost();
                 junc->setBufferCost(junc_cost);
-                
+                junc->setLeakage((*li)->leakage() + (*ri)->leakage());
+
                 // Merge LMs from both branches
                 const auto& left_lms = (*li)->lms();
                 const auto& right_lms = (*ri)->lms();
@@ -496,7 +540,7 @@ LrRebuffer::bufferForTiming(PtVertex &pt_drvr_vertex,
               }
 
               if (junc->fanout() <= fanout_limit_) {
-                printf("junction fanout %zu within limit %f\n", junc->fanout(), fanout_limit_);
+                // printf("junction fanout %zu within limit %f\n", junc->fanout(), fanout_limit_);
                 best_cap = junc->cap();
                 opts.push_back(std::move(junc));
               }
@@ -550,13 +594,17 @@ LrRebuffer::bufferForTiming(PtVertex &pt_drvr_vertex,
   BnetPtr best_option = nullptr;
   int best_index = 0;
   int i = 1;
-  
+
+  PtGraph *pt_graph = visitor_->ptGraph();
+  local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
+  float origial_slack = local_sta_->localSlackOnSinks(pt_graph);
   for (const BnetPtr& p : top_opts) {
-    LMValue cost = evaluateOption(pt_drvr_vertex, p);
+    LMValue cost = evaluateOption(drvr_vertex_id, p, origial_slack);
     
     // printf("option %d: cost = %.3e, slack = %.3e, cap = %.3e, fanout = %0.f\n",
     //        i, cost, p->slack().toSeconds(), p->cap(), p->fanout());
 
+    // if (bufferNum(p) < 1) continue;
     if (cost < best_cost) {
       best_cost = cost;
       best_option = p;
@@ -566,25 +614,78 @@ LrRebuffer::bufferForTiming(PtVertex &pt_drvr_vertex,
   }
 
   if (best_option) {
-    printf("best option: %d cost=%.3e, slack=%.3e, cap=%.3e, fanout=%.0f\n",
-           best_index, best_cost, best_option->slack().toSeconds(),
-           best_option->cap(), best_option->fanout());
-    fflush(stdout);
+    // Count buffers in best option tree
+    size_t buf_count = 0;
+    visitTree(
+      [&](auto& recurse, int level, const BnetPtr& node) -> int {
+        switch (node->type()) {
+          case BnetType::buffer: buf_count++; return recurse(node->ref());
+          case BnetType::junction: return recurse(node->ref()) + recurse(node->ref2());
+          case BnetType::wire: case BnetType::via: return recurse(node->ref());
+          default: return 0;
+        }
+      }, best_option);
+    if (verbose_) {
+      printf("best option: %d cost=%.3e, slack=%.3e, cap=%.3e, fanout=%.0f, buffers=%zu\n",
+             best_index, best_cost, best_option->slack().toSeconds(),
+             best_option->cap(), best_option->fanout(), buf_count);
+      fflush(stdout);
+    }
+
+    // Rebuild virtual buffer for best option and run local timing so that
+    // PtGraph contains complete timing data (slew, arrival, required, arc
+    // delay) on all virtual vertices/edges.  Keep the VirtualBufferInfo in
+    // best_vinfo_ — it will be consumed by writeTimingToGraph after physical
+    // insertion and cleaned up by removeVirtualBuffer in applyBufferingToDb.
+    best_vinfo_ = buildVirtualBuffer(drvr_vertex_id, best_option);
+    if (!best_vinfo_.failed) {
+      pt_graph->topoSortVertices();
+      local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
+    }
   }
 
   return best_option;
 }
 
 LMValue
-LrRebuffer::evaluateOption(PtVertex &pt_vertex, const BnetPtr& option)
+LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
+                           float original_slack)
 {
-  float driver_leakage = local_sta_->cellAvgLeakage(drvr_port_->libertyCell());
-  sta::Slew max_slew;
-  float cell_delay_lm_sum = cellDelayLmSum(pt_vertex, option, max_slew);
-  float total_cost = option->bufferCost() + cell_delay_lm_sum + driver_leakage;
+  PtGraph *pt_graph = visitor_->ptGraph();
+  float total_cost = INF;
+  float max_slew = 0.0f;
+  float cell_delay_lm_sum = cellDelayLmSum(pt_vertex_id, option, max_slew);
   if (hasViolation(option, max_slew)) {
-    return INF;  // Assign infinite cost to options with violations
+    return INF;  // Fast fail if option has any violation
   }
+
+  // Virtual slack checkZ: build virtual sub-graph and run full local timing
+  VirtualBufferInfo vinfo = buildVirtualBuffer(pt_vertex_id, option);
+  if (vinfo.failed) {
+    removeVirtualBuffer(vinfo);
+    return INF;  // Fall back to analytical cost only
+  }
+
+  pt_graph->topoSortVertices();
+  auto result = local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
+  float delay_lm_sum = result.delay_lm_sum;
+  float slack_after = local_sta_->localSlackOnSinks(pt_graph);
+  if (slack_after > original_slack * 0.95) {
+    total_cost = visitor_->swapCost(delay_lm_sum, option->leakage());
+  }
+
+  // [Layer 2] Slack comparison log
+  {
+    float threshold = original_slack * 0.95f;
+    printf("[SLACK] orig=%.3f ps, after=%.3f ps, delta=%.3f ps, thresh=%.3f ps, %s\n",
+           original_slack * 1e12, slack_after * 1e12,
+           (slack_after - original_slack) * 1e12,
+           threshold * 1e12,
+           (slack_after > threshold) ? "ACCEPT" : "REJECT");
+    fflush(stdout);
+  }
+
+  removeVirtualBuffer(vinfo);
   return total_cost;
 }
 
@@ -715,7 +816,8 @@ LrRebuffer::insertBufferOptions(BnetSeq& opts,
       
       // Set the total buffer cost for this buffer option
       z->setBufferCost(load_opt_total_cost);
-      
+      z->setLeakage(load_opt->leakage() + local_sta_->cellAvgLeakage(buffer_cell));
+
       // Propagate LMs through buffer
       propagateLmsThroughBuffer(z, load_opt);
 
@@ -728,7 +830,7 @@ LrRebuffer::insertBufferOptions(BnetSeq& opts,
 }
 
 float
-LrRebuffer::cellDelayLmSum(PtVertex &pt_drvr_vertex,
+LrRebuffer::cellDelayLmSum(VertexId pt_vertex_id,
                            const BnetPtr& load_opt,
                            float &max_slew)
 {
@@ -738,14 +840,15 @@ LrRebuffer::cellDelayLmSum(PtVertex &pt_drvr_vertex,
   sta::DcalcAnalysisPt *dcalc_pt = pt_graph->dcalcAnalysisPt();
   sta::DcalcAPIndex ap_index = dcalc_pt->index();
   float output_cap = load_opt->cap();
-  PtVertexInEdgeIterator in_edge_iter(pt_drvr_vertex.objectIdx(), pt_graph);
+  PtVertexInEdgeIterator in_edge_iter(pt_vertex_id, pt_graph);
   while (in_edge_iter.hasNext()) {
     PtEdge &pt_edge = in_edge_iter.next();
     sta::Edge *edge = pt_edge.edge();
     auto *lms = edge->arcLms();
     if (lms == nullptr) {
+      PtVertex &v = pt_graph->ptVertex(pt_vertex_id);
       printf("LrRebuffer::cellDelayLmSum: Warning: edge from vertex %s has no LM values\n",
-             pt_drvr_vertex.vertex()->to_string(graph_).c_str());
+             v.vertex() ? v.vertex()->to_string(graph_).c_str() : "virtual");
       continue;
     }
     PtVertex &pt_from_vertex = pt_graph->ptVertex(pt_edge.ptFromId());
@@ -841,6 +944,7 @@ LrRebuffer::addWire(const BnetPtr& p,
   // Update total buffer cost: previous cost + wire's delta
   float total_cost = p->bufferCost() + wire_delta_cost;
   z->setBufferCost(total_cost);
+  z->setLeakage(p->leakage());
 
   if (level != -1) {
     // printf("  %*sAdded wire: length=%d um, %s s, delta_cost=%.3e, total_cost=%.3e\n",
@@ -887,6 +991,319 @@ LrRebuffer::mergeLmVectors(const std::vector<float>& lm1,
   }
   
   return merged;
+}
+
+// After exportBufferTree physically inserts buffers into the real graph,
+// walk the BnetPtr tree in lockstep with the real graph and write LMs from
+// each BnetPtr node to the corresponding real edge, so that KKT conditions
+// are satisfied without an extra lmUpdate pass.
+//
+// Mapping (BnetPtr → real graph edge → LM source):
+//   load   → drvr_vertex → loadPin wire edge     : load->lms()
+//   junction → no new edge; children share same drvr_vertex
+//   buffer → drvr_vertex → buf_input wire edge    : buffer->lms()
+//            buf_input → buf_output gate edge      : buffer->lms()
+//            buf_output becomes new drvr_vertex for subtree
+//   wire/via → transparent, follow through to ref()
+void
+LrRebuffer::writeLmsToGraph()
+{
+  if (!best_bnet_ || !drvr_pin_)
+    return;
+
+  sta::Graph *graph = graph_;
+  const size_t ap_count = graph->apCount();
+  const size_t wire_lm_size = sta::TimingArcSet::wireArcCount() * ap_count;
+
+  // Helper: copy LM vector into a real edge's arcLms array.
+  auto writeLms = [](sta::Edge *edge, const std::vector<float>& src,
+                     size_t max_size) {
+    LMValue *dst = edge->arcLms();
+    if (!dst || src.empty())
+      return;
+    size_t n = std::min(src.size(), max_size);
+    for (size_t i = 0; i < n; i++)
+      dst[i] = src[i];
+  };
+
+  std::function<void(sta::Vertex*, const BnetPtr&)> writeSubtree;
+  using BnetType = rsz::BufferedNetType;
+
+  writeSubtree = [&](sta::Vertex *drvr_vertex, const BnetPtr& tree) {
+    if (!drvr_vertex || !tree)
+      return;
+
+    switch (tree->type()) {
+      case BnetType::wire:
+      case BnetType::via:
+        writeSubtree(drvr_vertex, tree->ref());
+        break;
+
+      case BnetType::load: {
+        const sta::Pin *load_pin = tree->loadPin();
+        if (!load_pin || tree->lms().empty())
+          break;
+        sta::VertexOutEdgeIterator out_iter(drvr_vertex, graph);
+        while (out_iter.hasNext()) {
+          sta::Edge *edge = out_iter.next();
+          if (!edge->role()->isWire())
+            continue;
+          if (edge->to(graph)->pin() == load_pin) {
+            writeLms(edge, tree->lms(), wire_lm_size);
+            break;
+          }
+        }
+        break;
+      }
+
+      case BnetType::junction:
+        writeSubtree(drvr_vertex, tree->ref());
+        writeSubtree(drvr_vertex, tree->ref2());
+        break;
+
+      case BnetType::buffer: {
+        // Use the instance recorded by exportBufferTree for exact matching.
+        sta::Instance *buf_inst = tree->bufInst();
+        if (!buf_inst)
+          break;
+
+        sta::LibertyCell *buf_cell = tree->bufferCell();
+        sta::LibertyPort *input_port, *output_port;
+        buf_cell->bufferPorts(input_port, output_port);
+        const sta::Pin *buf_in_pin = nullptr;
+        const sta::Pin *buf_out_pin = nullptr;
+        sta::InstancePinIterator *pin_iter = network_->pinIterator(buf_inst);
+        while (pin_iter->hasNext()) {
+          const sta::Pin *pin = pin_iter->next();
+          if (network_->direction(pin)->isInput())
+            buf_in_pin = pin;
+          else if (network_->direction(pin)->isOutput())
+            buf_out_pin = pin;
+        }
+        delete pin_iter;
+
+        if (!buf_in_pin || !buf_out_pin)
+          break;
+
+        // 1. Wire edge: drvr_vertex → buf_input — write merged downstream LMs.
+        sta::VertexOutEdgeIterator out_iter(drvr_vertex, graph);
+        while (out_iter.hasNext()) {
+          sta::Edge *edge = out_iter.next();
+          if (!edge->role()->isWire())
+            continue;
+          if (edge->to(graph)->pin() == buf_in_pin) {
+            writeLms(edge, tree->lms(), wire_lm_size);
+            break;
+          }
+        }
+
+        // 2. Gate edge: buf_input → buf_output — same LMs (positive-unate
+        //    buffer arcs have same index layout as wire rise/fall).
+        sta::Vertex *buf_out_vertex = graph->pinDrvrVertex(buf_out_pin);
+        if (buf_out_vertex && !tree->lms().empty()) {
+          sta::VertexInEdgeIterator in_iter(buf_out_vertex, graph);
+          while (in_iter.hasNext()) {
+            sta::Edge *gate_edge = in_iter.next();
+            if (gate_edge->role()->isWire())
+              continue;
+            size_t gate_lm_size
+                = gate_edge->timingArcSet()->arcCount() * ap_count;
+            writeLms(gate_edge, tree->lms(), gate_lm_size);
+          }
+        }
+
+        // 3. Recurse into subtree with buf_output as new driver.
+        if (buf_out_vertex) {
+          writeSubtree(buf_out_vertex, tree->ref());
+        }
+        break;
+      }
+    }
+  };
+
+  sta::Vertex *drvr_vertex = graph->pinDrvrVertex(drvr_pin_);
+  if (drvr_vertex) {
+    writeSubtree(drvr_vertex, best_bnet_);
+  }
+}
+
+// Write timing data (slew, arrival/required paths) from PtGraph virtual
+// buffer vertices to the real graph.  This mirrors the tree walk order of
+// buildVirtualBuffer so that best_vinfo_.vertex_ids[vi] and
+// best_vinfo_.edge_ids[ei] correspond to the same BnetPtr nodes.
+// Edge delays are NOT written — downstream LocalSta recomputes them from
+// slew and load cap.
+//
+// For each buffer in the BnetPtr tree:
+//   vertex_ids consumed: buf_in, buf_out  (2 per buffer)
+//   edge_ids consumed:   wire_in, gate    (2 per buffer, consumed but not used)
+// For each load:
+//   edge_ids consumed:   wire_to_load     (1 per load, consumed but not used)
+
+// Initialize a newly-created STA vertex (from buffer insertion) with timing
+// data from the corresponding PtGraph virtual vertex.  New STA vertices have
+// no tag group and no paths; this copies tag_index, arrival, required from
+// the PtVertex paths so that subsequent PtGraph construction on adjacent nets
+// sees valid timing data instead of garbage.
+void
+LrRebuffer::initNewStaVertexPaths(const PtVertex &pt_vertex,
+                                  sta::Vertex *sta_vertex)
+{
+  sta::Path *pt_paths = pt_vertex.paths();
+  if (!pt_paths)
+    return;
+  sta::TagGroup *pt_tg = search_->tagGroup(pt_vertex.tagGroupIndex());
+  if (!pt_tg)
+    return;
+
+  // If the STA vertex already has matching paths, just update arrival/required.
+  sta::TagGroup *sta_tg = search_->tagGroup(sta_vertex);
+  if (sta_tg && sta_tg->index() == pt_tg->index()) {
+    sta::Path *sta_paths = sta_vertex->paths();
+    if (sta_paths) {
+      size_t count = pt_tg->pathCount();
+      for (size_t i = 0; i < count; i++) {
+        sta_paths[i].setArrival(pt_paths[i].arrival());
+        sta_paths[i].setRequired(pt_paths[i].required());
+      }
+      return;
+    }
+  }
+
+  // New vertex: allocate paths and initialize from PtVertex data.
+  size_t path_count = pt_tg->pathCount();
+  sta::Path *sta_paths = graph_->makePaths(sta_vertex, path_count);
+  for (size_t i = 0; i < path_count; i++) {
+    sta::Tag *tag = search_->tag(pt_paths[i].tagIndex(this));
+    sta_paths[i].init(sta_vertex, tag, pt_paths[i].arrival(), this);
+    // Path::init sets required = 0.0.  Required on buffer vertices is not
+    // needed: sink required is unchanged by upstream buffer insertion, and
+    // the next global findRequireds() will compute correct values.
+  }
+  sta_vertex->setTagGroupIndex(pt_tg->index());
+  pt_tg->incrRefCount();
+}
+
+void
+LrRebuffer::writeTimingToGraph()
+{
+  if (!best_bnet_ || !drvr_pin_ || best_vinfo_.failed)
+    return;
+
+  PtGraph *pt_graph = visitor_->ptGraph();
+  sta::Graph *sta_graph = graph_;
+
+  // Indices into best_vinfo_ arrays, consumed in tree-walk order.
+  size_t vi = 0;  // vertex index
+  size_t ei = 0;  // edge index
+
+  using BnetType = rsz::BufferedNetType;
+  std::function<void(sta::Vertex*, const BnetPtr&)> walkTree;
+
+  walkTree = [&](sta::Vertex *real_drvr, const BnetPtr &tree) {
+    if (!real_drvr || !tree)
+      return;
+
+    switch (tree->type()) {
+      case BnetType::wire:
+      case BnetType::via:
+        walkTree(real_drvr, tree->ref());
+        break;
+
+      case BnetType::load: {
+        // Consume the wire edge ID (keep indices in sync with buildVirtualBuffer)
+        if (ei >= best_vinfo_.edge_ids.size())
+          break;
+        EdgeId pt_wire_eid = best_vinfo_.edge_ids[ei++];
+
+        const sta::Pin *load_pin = tree->loadPin();
+        if (!load_pin)
+          break;
+
+        // Update load vertex slew + paths
+        sta::Vertex *load_vertex = sta_graph->pinLoadVertex(load_pin);
+        if (load_vertex) {
+          VertexId pt_load_vid = pt_graph->edge(pt_wire_eid).ptToId();
+          const PtVertex &pt_load = pt_graph->ptVertex(pt_load_vid);
+          pt_graph->writeSlewToGraph(pt_load, load_vertex);
+          pt_graph->writePathsToGraph(pt_load, load_vertex);
+        }
+        break;
+      }
+
+      case BnetType::junction:
+        walkTree(real_drvr, tree->ref());
+        walkTree(real_drvr, tree->ref2());
+        break;
+
+      case BnetType::buffer: {
+        if (vi + 1 >= best_vinfo_.vertex_ids.size()
+            || ei + 1 >= best_vinfo_.edge_ids.size())
+          break;
+
+        // Consume PtGraph virtual IDs (same order as buildVirtualBuffer)
+        VertexId pt_buf_in_vid = best_vinfo_.vertex_ids[vi++];
+        VertexId pt_buf_out_vid = best_vinfo_.vertex_ids[vi++];
+        ei += 2;  // skip wire_in and gate edge IDs
+
+        const PtVertex &pt_buf_in = pt_graph->ptVertex(pt_buf_in_vid);
+        const PtVertex &pt_buf_out = pt_graph->ptVertex(pt_buf_out_vid);
+
+        // Find real buffer instance recorded during exportBufferTree
+        sta::Instance *buf_inst = tree->bufInst();
+        if (!buf_inst)
+          break;
+        const sta::Pin *buf_in_pin = nullptr;
+        const sta::Pin *buf_out_pin = nullptr;
+        sta::InstancePinIterator *pin_iter = network_->pinIterator(buf_inst);
+        while (pin_iter->hasNext()) {
+          const sta::Pin *pin = pin_iter->next();
+          if (network_->direction(pin)->isInput())
+            buf_in_pin = pin;
+          else if (network_->direction(pin)->isOutput())
+            buf_out_pin = pin;
+        }
+        delete pin_iter;
+
+        if (!buf_in_pin || !buf_out_pin)
+          break;
+
+        sta::Vertex *real_buf_in = sta_graph->pinLoadVertex(buf_in_pin);
+        sta::Vertex *real_buf_out = sta_graph->pinDrvrVertex(buf_out_pin);
+
+        // Buffer input vertex: slew + paths
+        if (real_buf_in) {
+          pt_graph->writeSlewToGraph(pt_buf_in, real_buf_in);
+          initNewStaVertexPaths(pt_buf_in, real_buf_in);
+        }
+
+        // Buffer output vertex: slew + paths
+        if (real_buf_out) {
+          pt_graph->writeSlewToGraph(pt_buf_out, real_buf_out);
+          initNewStaVertexPaths(pt_buf_out, real_buf_out);
+        }
+
+        // Recurse into subtree with buf_output as new driver
+        walkTree(real_buf_out, tree->ref());
+        break;
+      }
+    }
+  };
+
+  sta::Vertex *real_drvr = sta_graph->pinDrvrVertex(drvr_pin_);
+  if (real_drvr) {
+    // Update ref instance RefOutput vertices — slew changed because the
+    // output load cap decreased after buffer insertion.
+    for (VertexId vid : pt_graph->sortedVertexIds()) {
+      PtVertex &pv = pt_graph->ptVertex(vid);
+      if (pv.type() == PtVertexType::RefOutput && pv.vertex()) {
+        pt_graph->writeSlewToGraph(pv, pv.vertex());
+        pt_graph->writePathsToGraph(pv, pv.vertex());
+      }
+    }
+    // Walk the BnetPtr tree to write timing for buffer and load vertices.
+    walkTree(real_drvr, best_bnet_);
+  }
 }
 
 // LrRebuffer version of attemptTopologyRewrite:
@@ -957,10 +1374,13 @@ LrRebuffer::attemptTopologyRewrite(const BnetPtr& node,
   //   aux1 and aux2 are merged into a junction, buffered, then joined with costly2
   const BnetPtr in1 = addWire(aux1, node->location(), -1);
   const BnetPtr in2 = addWire(aux2, node->location(), -1);
-  const BnetPtr junc1
-      = addWire(createBnetJunction(resizer_, in1, in2, node->location()),
-                node->location(),
-                -1);
+  BnetPtr junc1_raw = createBnetJunction(resizer_, in1, in2, node->location());
+  // Merge LMs from both branches onto the junction before wrapping with wire
+  auto junc1_lms = mergeLmVectors(in1->lms(), in2->lms());
+  junc1_raw->setLms(std::move(junc1_lms));
+  junc1_raw->setBufferCost(in1->bufferCost() + in2->bufferCost());
+  junc1_raw->setLeakage(in1->leakage() + in2->leakage());
+  const BnetPtr junc1 = addWire(junc1_raw, node->location(), -1);
   const BnetPtr in3 = addWire(costly2, node->location(), -1);
 
   // The cost of the merged auxiliary junction (before buffer)
@@ -1014,6 +1434,7 @@ LrRebuffer::attemptTopologyRewrite(const BnetPtr& node,
       buffer->setSlackTransition(junc1->slackTransition());
       buffer->setDelay(buffer_delay);
       buffer->setBufferCost(junc1_cost + buffer_delta_cost);
+      buffer->setLeakage(junc1->leakage() + buffer_leakage);
 
       // Propagate LMs through the buffer
       propagateLmsThroughBuffer(buffer, junc1);
@@ -1023,9 +1444,255 @@ LrRebuffer::attemptTopologyRewrite(const BnetPtr& node,
       return result;
     }
   }
-
   return {};
 }
 
+VirtualBufferInfo
+LrRebuffer::buildVirtualBuffer(VertexId drvr_vertex_id,
+                                const BnetPtr &option)
+{
+  VirtualBufferInfo info;
+  PtGraph *pt_graph = visitor_->ptGraph();
+  sta::Vertex *drvr_vertex = pt_graph->ptVertex(drvr_vertex_id).vertex();
+
+
+  // Pre-count buffers and loads to reserve vector space,
+  // avoiding reallocation that would invalidate references.
+  size_t num_buffers = 0, num_loads = 0;
+  visitTree(
+    [&](auto& recurse, int level, const BnetPtr& node) -> int {
+      switch (node->type()) {
+        case BnetType::buffer: num_buffers++; return recurse(node->ref());
+        case BnetType::junction: return recurse(node->ref()) + recurse(node->ref2());
+        case BnetType::wire: case BnetType::via: return recurse(node->ref());
+        case BnetType::load: num_loads++; return 1;
+        default: return 0;
+      }
+    }, option);
+  // Each buffer creates 2 vertices + 3 edges (wire_in, gate, wire_out implicit)
+  // Each load creates 1 wire edge
+  // Over-reserve to avoid reallocation during walk
+  size_t v_extra = num_buffers * 4 + num_loads + 16;
+  size_t e_extra = num_buffers * 4 + num_loads * 2 + 16;
+  pt_graph->reserveVertices(pt_graph->vertexCount() + v_extra);
+  pt_graph->reserveEdges(pt_graph->edgeCount() + e_extra);
+
+  // 1. Collect and delete original wire edges from driver to loads
+  {
+    std::vector<EdgeId> orig_wire_eids;
+    PtVertexOutEdgeIterator out_iter(drvr_vertex_id, pt_graph);
+    while (out_iter.hasNext()) {
+      PtEdge &pt_edge = out_iter.next();
+      if (pt_edge.isWire())
+        orig_wire_eids.push_back(pt_edge.objectIdx());
+    }
+    for (EdgeId eid : orig_wire_eids) {
+      pt_graph->deleteEdge(eid);
+    }
+    info.orig_wire_edge_ids = std::move(orig_wire_eids);
+    // Tag driver: original parasitic is invalid, use virtual load cap instead
+    pt_graph->ptVertex(drvr_vertex_id).setHasVirtualBuffer(true);
+  }
+
+  // Annotate a virtual wire edge with a pre-computed RC delay.
+  // Wire edges store delays indexed by rf->index() * ap_count + ap_index,
+  // so use setWireArcDelay (not setArcDelay) to write the correct slots.
+  auto setVirtualWireDelay = [&](EdgeId eid, float delay_sec) {
+    PtEdge &e = pt_graph->edge(eid);
+    sta::ArcDelay d(delay_sec);
+    for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+      for (sta::DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
+        pt_graph->setWireArcDelay(e, rf, dcalc_ap->index(), d);
+      }
+    }
+  };
+
+  // 2. Walk BnetPtr tree, build virtual sub-graph.
+  // acc_wire_delay accumulates Elmore RC wire delays (seconds) from the
+  // current driver through all wire/via segments to the next buffer or load.
+  // Gate delays are left at 0 here and computed by updateLocalTiming later.
+  using BnetWalker = std::function<void(const BnetPtr&, VertexId, float)>;
+  BnetWalker walk = [&](const BnetPtr& node, VertexId current_drvr_id, float acc_wire_delay) {
+    if (info.failed) return;
+    switch (node->type()) {
+      case BnetType::wire:
+      case BnetType::via:
+        // Accumulate first-order RC delay from BnetPtr node
+        walk(node->ref(), current_drvr_id, acc_wire_delay + node->delay().toSeconds());
+        break;
+
+      case BnetType::buffer: {
+        sta::LibertyCell *buf_cell = node->bufferCell();
+        sta::LibertyPort *in_port, *out_port;
+        buf_cell->bufferPorts(in_port, out_port);
+
+        VertexId buf_in_id = pt_graph->makeVirtualVertex(
+            buf_cell, in_port, false, true, PtVertexType::VirtualInput);
+        info.vertex_ids.push_back(buf_in_id);
+
+        VertexId buf_out_id = pt_graph->makeVirtualVertex(
+            buf_cell, out_port, true, false, PtVertexType::VirtualOutput);
+        info.vertex_ids.push_back(buf_out_id);
+
+        // Levels: midpoint between driver and downstream
+        float drvr_level = pt_graph->ptVertex(current_drvr_id).level();
+        pt_graph->ptVertex(buf_in_id).setLevel(drvr_level + 0.25f);
+        pt_graph->ptVertex(buf_out_id).setLevel(drvr_level + 0.5f);
+
+        // Proxy vertex for tag_bldr init
+        pt_graph->ptVertex(buf_in_id).setProxyVertex(drvr_vertex);
+        pt_graph->ptVertex(buf_out_id).setProxyVertex(drvr_vertex);
+
+        // Init paths from driver's tag group
+        pt_graph->initVirtualPaths(pt_graph->ptVertex(buf_in_id),
+                                   pt_graph->ptVertex(drvr_vertex_id));
+        pt_graph->initVirtualPaths(pt_graph->ptVertex(buf_out_id),
+                                   pt_graph->ptVertex(drvr_vertex_id));
+
+        // Wire edge: current_drvr → buf_in
+        // Delay = accumulated RC wire delay from current driver to buffer insertion point
+        EdgeId wire_in_eid = pt_graph->makeVirtualEdge(
+            current_drvr_id, buf_in_id,
+            sta::TimingArcSet::wireTimingArcSet(), true);
+        info.edge_ids.push_back(wire_in_eid);
+        setVirtualWireDelay(wire_in_eid, acc_wire_delay);
+        // Set LMs on wire-to-buffer edge (same as gate: sum of downstream load LMs)
+        {
+          const auto &wire_lms = node->lms();
+          if (!wire_lms.empty()) {
+            pt_graph->setVirtualEdgeLms(pt_graph->edge(wire_in_eid), wire_lms);
+          }
+        }
+
+        // Gate edge: buf_in → buf_out (delay left 0; computed by updateLocalTiming)
+        sta::TimingArcSet *arc_set = nullptr;
+        if (in_port && out_port) {
+          for (auto *as : buf_cell->timingArcSets(in_port, out_port)) {
+            arc_set = as;
+            break;
+          }
+        }
+        if (!arc_set) {
+          // No timing arc found — try all arc sets for this cell
+          for (auto *as : buf_cell->timingArcSets()) {
+            if (as->from() == in_port && as->to() == out_port) {
+              arc_set = as;
+              break;
+            }
+          }
+        }
+        if (!arc_set) {
+          printf("Warning: buildVirtualBuffer: no timing arc set for %s (%s -> %s)\n",
+                 buf_cell->name(),
+                 in_port ? in_port->name() : "null",
+                 out_port ? out_port->name() : "null");
+          fflush(stdout);
+          // Failed — caller will handle cleanup via removeVirtualBuffer
+          info.failed = true;
+          return;
+        }
+        EdgeId gate_eid = pt_graph->makeVirtualEdge(
+            buf_in_id, buf_out_id, arc_set, false);
+        info.edge_ids.push_back(gate_eid);
+
+        const auto &lms = node->lms();
+        if (!lms.empty()) {
+          pt_graph->setVirtualEdgeLms(pt_graph->edge(gate_eid), lms);
+        }
+
+        // Recurse with fresh accumulator after the buffer
+        walk(node->ref(), buf_out_id, 0.0f);
+        break;
+      }
+
+      case BnetType::junction:
+        walk(node->ref(), current_drvr_id, acc_wire_delay);
+        walk(node->ref2(), current_drvr_id, acc_wire_delay);
+        break;
+
+      case BnetType::load: {
+        const sta::Pin *load_pin = node->loadPin();
+        sta::Vertex *load_vertex = graph_->pinLoadVertex(load_pin);
+        PtVertex *load_pt_vertex = pt_graph->ptVertex(load_vertex);
+        if (load_pt_vertex) {
+          EdgeId wire_eid = pt_graph->makeVirtualEdge(
+              current_drvr_id, load_pt_vertex->objectIdx(),
+              sta::TimingArcSet::wireTimingArcSet(), true);
+          info.edge_ids.push_back(wire_eid);
+          // Accumulated RC wire delay from current driver to this load
+          setVirtualWireDelay(wire_eid, acc_wire_delay);
+
+          const auto &lms = node->lms();
+          if (!lms.empty()) {
+            pt_graph->setVirtualEdgeLms(pt_graph->edge(wire_eid), lms);
+          }
+        }
+        break;
+      }
+
+      default:
+        break;
+    }
+  };
+
+  walk(option, drvr_vertex_id, 0.0f);
+  return info;
+}
+
+void
+LrRebuffer::removeVirtualBuffer(VirtualBufferInfo &info)
+{
+  PtGraph *pt_graph = visitor_->ptGraph();
+
+  // 1. Delete all virtual vertices (this also deletes their edges).
+  // NOTE: Do NOT deleteEdge separately before deleteVertex — deleteVertex
+  // already handles all edges via in_edges_/out_edges_ traversal.
+  // Calling deleteEdge first would unlink edges from adjacency lists without
+  // clearing the vertex's head pointers, causing deleteVertex to double-unlink
+  // and corrupt real vertex adjacency lists.
+  for (VertexId vid : info.vertex_ids) {
+    pt_graph->deleteVertex(vid);
+  }
+  // Delete edges that connect real vertices (e.g., wire edges from
+  // real driver to real loads created in the load case, if any remain).
+  for (EdgeId eid : info.edge_ids) {
+    if (pt_graph->edge(eid).type() != PtEdgeType::Sentinel)
+      pt_graph->deleteEdge(eid);
+  }
+
+  // 2. Clear virtual buffer tag on driver vertex
+  if (!info.orig_wire_edge_ids.empty()) {
+    VertexId drvr_id = pt_graph->edge(info.orig_wire_edge_ids[0]).ptFromId();
+    pt_graph->ptVertex(drvr_id).setHasVirtualBuffer(false);
+  }
+
+  // 3. Re-link original wire edges
+  for (EdgeId eid : info.orig_wire_edge_ids) {
+    PtEdge &pt_edge = pt_graph->edge(eid);
+    VertexId from_id = pt_edge.ptFromId();
+    VertexId to_id = pt_edge.ptToId();
+
+    pt_edge.setType(PtEdgeType::None);
+
+    // Re-link into from vertex's out_edges (doubly-linked, insert at head)
+    EdgeId old_head = pt_graph->ptVertex(from_id).out_edges_;
+    pt_edge.vertex_out_next_ = old_head;
+    pt_edge.vertex_out_prev_ = pt_edge_id_null;
+    if (old_head != pt_edge_id_null)
+      pt_graph->edge(old_head).vertex_out_prev_ = eid;
+    pt_graph->ptVertex(from_id).out_edges_ = eid;
+
+    // Re-link into to vertex's in_edges (singly-linked, insert at head)
+    pt_edge.vertex_in_link_ = pt_graph->ptVertex(to_id).in_edges_;
+    pt_graph->ptVertex(to_id).in_edges_ = eid;
+  }
+}
+
+float
+LrRebuffer::computeVirtualSlack(const VirtualBufferInfo &info)
+{
+  PtGraph *pt_graph = visitor_->ptGraph();
+  return local_sta_->localSlackAroundRef(pt_graph);
+}
 
 }

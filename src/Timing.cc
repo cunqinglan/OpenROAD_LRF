@@ -512,7 +512,7 @@ Timing::averageDelayOnCritPath() {
 ////////////////////////////////////////////
 // Functions of testing IncreSta
 ////////////////////////////////////////////
-void 
+void
 Timing::testBufferInsertion(char *inst_name) {
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
@@ -521,7 +521,16 @@ Timing::testBufferInsertion(char *inst_name) {
   test_lrf.testBufferInsertion(inst_name, sta, resizer, design_->getBlock());
 }
 
-void 
+void
+Timing::testSingleInstBuffering(char *inst_name) {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testSingleInstBuffering(inst_name, sta, resizer, design_->getBlock());
+}
+
+void
 Timing::testLocalDelayCompute(char *inst_name) {
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
@@ -687,6 +696,20 @@ Timing::testPrecedingResizeCheck(float PT_tradeoff, float top_ratio)
   lrf::TestLrf test_lrf;
   test_lrf.testPrecedingResizeCheck(sta, resizer, design_->getBlock(),
     thread_num, PT_tradeoff, top_ratio);
+}
+
+void
+Timing::testParallelKKTProjection(const char *lr_helper_method)
+{
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testParallelKKTProjection with %zu threads\n", thread_num);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testParallelKKTProjection(sta, resizer, design_->getBlock(),
+    thread_num, lr_helper_method);
 }
 
 void
