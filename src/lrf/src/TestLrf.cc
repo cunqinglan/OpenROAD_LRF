@@ -1164,13 +1164,14 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
   local_sta->initParallel();
 
   for (size_t i = 0; i < iterations; ++i) {
+    // Perform parallel resize by array
     sta->findRequireds();
     printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
     auto start = std::chrono::high_resolution_clock::now();
     incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
     auto end = std::chrono::high_resolution_clock::now();
     printf("parallelResizeByArray took %f seconds\n",
-           std::chrono::duration<double>(end - start).count());
+          std::chrono::duration<double>(end - start).count());
 
     est_parasitics->updateWireParasiticsNoDeleteNetwork();
     sta->delaysInvalid();
@@ -1186,9 +1187,9 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
       leakage += power_result.leakage();
     }
 
-    printf("Worst Negative Slack: %f\n", wns * 1e12);
-    printf("Total Negative Slack: %f\n", tns * 1e12);
-    printf("Total Leakage Power: %f\n", leakage * 1e10);
+    printf("Worst Negative Slack after RSZ: %f\n", wns * 1e12);
+    printf("Total Negative Slack after RSZ: %f\n", tns * 1e12);
+    printf("Total Leakage Power after RSZ: %f\n", leakage * 1e10);
     fflush(stdout);
     incre_sta->lmUpdate();
 
@@ -1210,7 +1211,6 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
       no_improve_count_ = 0;
     } else if (no_improve_count_ < num_no_improve_tolerance) {
       no_improve_count_++;
-      continue;
     } else if (eco_iter > 2) {
       printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
       break;
@@ -1220,6 +1220,64 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
       odb::dbDatabase::undoEco(block);
       odb::dbDatabase::beginEco(block);
       eco_iter++;
+    }
+
+    // Perform parallel buffering if WNS is negative after resize
+    if (wns < 0 && i > 3) {
+      printf("----- WNS negative, performing parallel buffering -----\n");
+      double wns_before_buf = wns * 1e12;
+      double tns_before_buf = tns * 1e12;
+      sta->findRequireds();
+      est_parasitics->updateWireParasiticsNoDeleteNetwork();
+      incre_sta->parallelBuffering(resizer, PT_tradeoff);
+      sta->delaysInvalid();
+      sta->updateTiming(true);
+      sta->findRequireds();
+      tns = sta->totalNegativeSlack(sta::MinMax::max());
+      wns = sta->worstSlack(sta::MinMax::max());
+      printf("Buffering diff: WNS %.3f -> %.3f ps (delta=%.3f), TNS %.3f -> %.3f ps (delta=%.3f)\n",
+             wns_before_buf, wns * 1e12, wns * 1e12 - wns_before_buf,
+             tns_before_buf, tns * 1e12, tns * 1e12 - tns_before_buf);
+      fflush(stdout);
+      float buf_leakage = 0;
+      for (odb::dbInst *inst : block->getInsts()) {
+        sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(inst);
+        if (!sta_inst) continue;
+        sta::PowerResult power_result = sta->power(sta_inst, corner);
+        buf_leakage += power_result.leakage();
+      }
+      printf("Worst Negative Slack after buffering: %f\n", wns * 1e12);
+      printf("Total Negative Slack after buffering: %f\n", tns * 1e12);
+      printf("Total Leakage Power after buffering: %f\n", buf_leakage * 1e10);
+      fflush(stdout);
+      incre_sta->lmUpdate();
+
+      if (wns > best_wns && wns < 0) {
+        best_wns = wns;
+        best_tns = tns;
+        best_leakage = buf_leakage;
+        odb::dbDatabase::endEco(block);
+        odb::dbDatabase::beginEco(block);
+        printf("Buffering improved WNS, accepting.\n");
+        no_improve_count_ = 0;
+      } else if (wns >= 0.0 && (wns > best_wns || buf_leakage < best_leakage)) {
+        best_wns = wns;
+        best_tns = tns;
+        best_leakage = buf_leakage;
+        odb::dbDatabase::endEco(block);
+        odb::dbDatabase::beginEco(block);
+        printf("Buffering: WNS positive, accepting.\n");
+        no_improve_count_ = 0;
+      } else if (no_improve_count_ < num_no_improve_tolerance) {
+        no_improve_count_++;
+        printf("Buffering did not improve (tolerance %zu/%zu), keeping.\n",
+               no_improve_count_, num_no_improve_tolerance);
+      } else {
+        printf("Buffering did not improve, reverting.\n");
+        odb::dbDatabase::endEco(block);
+        odb::dbDatabase::undoEco(block);
+        odb::dbDatabase::beginEco(block);
+      }
     }
   }
   tns = sta->totalNegativeSlack(sta::MinMax::max());
@@ -1231,34 +1289,6 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
     odb::dbDatabase::endEco(block);
     odb::dbDatabase::undoEco(block);
     printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
-  }
-
-  // If WNS is still negative after resizing, attempt parallel buffering
-  if (wns < 0) {
-    printf("----- WNS still negative, running parallel buffering -----\n");
-    sta->findRequireds();
-    est_parasitics->updateWireParasiticsNoDeleteNetwork();
-    auto start = std::chrono::high_resolution_clock::now();
-    incre_sta->parallelBuffering(resizer, PT_tradeoff);
-    auto end = std::chrono::high_resolution_clock::now();
-    printf("Parallel buffering took %f seconds\n",
-           std::chrono::duration<double>(end - start).count());
-
-    sta->delaysInvalid();
-    sta->updateTiming(true);
-    tns = sta->totalNegativeSlack(sta::MinMax::max());
-    wns = sta->worstSlack(sta::MinMax::max());
-    float leakage = 0;
-    for (odb::dbInst *inst : block->getInsts()) {
-      sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(inst);
-      if (!sta_inst) continue;
-      sta::PowerResult power_result = sta->power(sta_inst, corner);
-      leakage += power_result.leakage();
-    }
-    printf("Worst Negative Slack: %f\n", wns * 1e12);
-    printf("Total Negative Slack: %f\n", tns * 1e12);
-    printf("Total Leakage Power: %f\n", leakage * 1e10);
-    fflush(stdout);
   }
   delete incre_sta;
 }

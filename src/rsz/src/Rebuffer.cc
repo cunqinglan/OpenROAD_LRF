@@ -1814,8 +1814,8 @@ int Rebuffer::exportBufferTree(const BufferedNetPtr& choice,
                                               odb::dbNameUniquifyType::ALWAYS,
                                               true /*loads_on_diff_nets*/);
 
-
-        if (sta_buf_inst) {
+        odb::dbInst* buf_inst = db_network_->staToDb(sta_buf_inst);
+        if (buf_inst) {
           count++;
           resizer_->level_drvr_vertices_valid_ = false;
           // Record the physical instance on the BnetPtr node for LM write-back.

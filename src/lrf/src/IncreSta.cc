@@ -1132,14 +1132,15 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
   auto end_buffer = std::chrono::high_resolution_clock::now();
   double buffer_sec = std::chrono::duration<double>(end_buffer - start_buffer).count();
 
-  printf("DEBUG: TNS before full update = %.3f ps\n",
-         sta_->totalNegativeSlack(MinMax::max()) * 1e12);
+  printf("DEBUG: TNS before full update = %.3f ps, WNS = %.3f ps\n",
+         sta_->totalNegativeSlack(MinMax::max()) * 1e12,
+         sta_->worstSlack(MinMax::max()) * 1e12);
   fflush(stdout);
   sta_->updateTiming(true);
   sta_->findRequireds();
   double tns_after = sta_->totalNegativeSlack(MinMax::max());
   double wns_after = sta_->worstSlack(MinMax::max());
-  printf("After parallel LR Buffering, TNS: %.6f, WNS: %.6f\n",
+  printf("After parallel LR Buffering, TNS: %.4f ps, WNS: %.4f ps\n",
          tns_after * 1e12, wns_after * 1e12);
   printf("  screening time: %.3f s, buffering time: %.3f s\n",
          screen_sec, buffer_sec);

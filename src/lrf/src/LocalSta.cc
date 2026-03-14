@@ -27,6 +27,7 @@
 #include "TaskArranger.hh"
 #include "sta/PortDirection.hh"
 #include "search/Tag.hh"
+#include "search/TagGroup.hh"
 #include "sta/PathAnalysisPt.hh"
 #include "sta/FuncExpr.hh"
 #include "sta/LeakagePower.hh"
@@ -1439,6 +1440,73 @@ LocalSta::localSlackAtEndpoints(PtGraph *pt_graph)
   Slack local_slack;
   // pending implementation
   local_slack = 0.0;
+  return local_slack;
+}
+
+Slack
+LocalSta::localSlackOnSinks(PtGraph *pt_graph)
+{
+  // Collect actual sink PtVertices: load pins on nets driven by RefOutput.
+  // Walk RefOutput → wire out edges in sta graph → to vertex → ptVertex.
+  std::vector<PtVertex*> sink_vertices;
+  for (auto& pv : pt_graph->ptVertices()) {
+    if (pv.type() != PtVertexType::RefOutput || !pv.vertex())
+      continue;
+    sta::VertexOutEdgeIterator out_iter(pv.vertex(), graph_);
+    while (out_iter.hasNext()) {
+      sta::Edge *edge = out_iter.next();
+      if (!edge->isWire())
+        continue;
+      sta::Vertex *load_vertex = edge->to(graph_);
+      PtVertex *load_pv = pt_graph->ptVertex(load_vertex);
+      if (load_pv && load_pv->hasBase())
+        sink_vertices.push_back(load_pv);
+    }
+  }
+
+  Slack local_slack = 0.0;
+  for (PtVertex *pt_vp : sink_vertices) {
+    PtVertex &pt_vertex = *pt_vp;
+
+    sta::Path *pt_paths = pt_vertex.paths();
+    if (!pt_paths)
+      continue;
+
+    sta::Vertex *sta_vertex = pt_vertex.vertex();
+    sta::Path *sta_paths = sta_vertex->paths();
+    if (!sta_paths)
+      continue;
+
+    // Verify tag group match
+    sta::TagGroup *pt_tg = search_->tagGroup(pt_vertex.tagGroupIndex());
+    sta::TagGroup *sta_tg = search_->tagGroup(sta_vertex);
+    if (!pt_tg || !sta_tg || pt_tg->index() != sta_tg->index()) {
+      printf("Warning: localSlackOnSinks: tag group mismatch on vertex %s "
+             "(pt_tg=%p idx=%d, sta_tg=%p idx=%d)\n",
+             sta_vertex->to_string(graph_).c_str(),
+             pt_tg, pt_tg ? (int)pt_tg->index() : -1,
+             sta_tg, sta_tg ? (int)sta_tg->index() : -1);
+      fflush(stdout);
+      continue;
+    }
+
+    size_t path_count = pt_tg->pathCount();
+    for (size_t i = 0; i < path_count; i++) {
+      if (pt_paths[i].dcalcAnalysisPt(this) != pt_graph->dcalcAnalysisPt())
+        continue;
+      sta::Slack slack = sta_paths[i].required() - pt_paths[i].arrival();
+      printf("[SINK_SLACK] vertex %s path %zu: sta_req=%.3f ps, pt_arr=%.3f ps, slack=%.3f ps\n",
+             sta_vertex->to_string(graph_).c_str(), i,
+             sta_paths[i].required() * 1e12, pt_paths[i].arrival() * 1e12,
+             slack * 1e12);
+      fflush(stdout);
+      if (sta::delayInf(slack))
+        continue;
+      if (slack > 0.0)
+        continue;
+      local_slack += slack;
+    }
+  }
   return local_slack;
 }
 

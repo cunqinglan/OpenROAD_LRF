@@ -72,7 +72,7 @@ public:
   void setMaxResizeNum(size_t max_resize_num);
 
   void parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
-                         int top_n = 100);
+                         int top_n = 10);
 
   // Screen buffering candidates: collect gates with negative late slack,
   // sort by output_cap / input_cap ratio descending, return top_n vertex ids.
