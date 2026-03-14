@@ -23,12 +23,29 @@ PtVertexPathIterator::PtVertexPathIterator(PtVertex &pt_vertex,
     path_index_(0),
     next_(nullptr)
 {
-  // If the tag group index is valid, initialize the path count
+  // If the tag group index is valid and paths are allocated, initialize path count.
+  // paths_ may be nullptr for virtual vertices whose localSetVertexArrivals returned
+  // early (e.g. findExistingTagGroup returned null). Guard against dereferencing null.
   int tag_group_index = pt_vertex.tagGroupIndex();
   if (tag_group_index != tag_group_index_max) {
-    sta::TagGroup *tag_group = search_->tagGroup(pt_vertex.tagGroupIndex());
-    path_count_ = tag_group->pathCount();
-    findNext();
+    if (paths_ == nullptr) {
+      printf("PtVertexPathIterator: vertex objectIdx=%u has tagGroupIndex=%d but paths_==nullptr;"
+             " treating as empty (virtual vertex not yet initialized).\n",
+             pt_vertex.objectIdx(), tag_group_index);
+      fflush(stdout);
+      // Leave path_count_=0 so findNext() is not called — nothing to iterate.
+    } else {
+      sta::TagGroup *tag_group = search_->tagGroup(pt_vertex.tagGroupIndex());
+      if (tag_group == nullptr) {
+        printf("PtVertexPathIterator: vertex objectIdx=%u tagGroupIndex=%d but tagGroup is null;"
+               " treating as empty.\n",
+               pt_vertex.objectIdx(), tag_group_index);
+        fflush(stdout);
+      } else {
+        path_count_ = tag_group->pathCount();
+        findNext();
+      }
+    }
   }
 }
 

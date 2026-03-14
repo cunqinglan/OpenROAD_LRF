@@ -918,9 +918,13 @@ ParallelLrVisitor::applyResizeChangesToDb(rsz::Resizer *resizer)
   if (best_cell_ && pt_graph_->refInstance()) {
     sta::LibertyCell *from_lib_cell = 
                 db_sta_->network()->libertyCell(pt_graph_->refInstance());
-    if (!sta::equivCellsArcs(from_lib_cell, best_cell_)) {
-      // No change needed
-      printf("ParallelLrVisitor::applyChangesToDb skipping instance %s swap from cell %s to cell %s due to arc mismatch\n",
+    // Relaxed check: only require port and function equivalence.
+    // Timing arc set differences (e.g. different conditional arc
+    // granularity between drive strengths in ASAP7) are handled
+    // by PtGraph::updateTimingArcSets() during virtual replacement.
+    if (!sta::equivCellPorts(from_lib_cell, best_cell_)
+        || !sta::equivCellFuncs(from_lib_cell, best_cell_)) {
+      printf("ParallelLrVisitor::applyChangesToDb skipping instance %s swap from cell %s to cell %s due to port/function mismatch\n",
               db_sta_->network()->pathName(pt_graph_->refInstance()),
               from_lib_cell->name(),
               best_cell_->name());
@@ -948,15 +952,19 @@ ParallelLrVisitor::applyResizeChangesToDb(rsz::Resizer *resizer)
 void
 ParallelLrVisitor::updateTimingFromPtGraph()
 {
+  // Only write back vertex slews/paths.  Arc delays on edges are not
+  // written back because:
+  //  - The next instance's LocalSta recomputes all delays locally.
+  //  - The global sta->updateTiming() recalculates every edge delay
+  //    at the end of each iteration.
+  // Skipping edge writeback also avoids a dangling-pointer crash when
+  // Sta::replaceCell recreates edges for non-equiv timing arc sets.
   for (VertexId vertex_id : pt_graph_->sortedVertexIds()) {
     updateVertexInfo(vertex_id);
   }
-  for (const PtEdge &pt_edge : pt_graph_->ptEdges()) {
-    updateEdgeInfo(pt_edge.objectIdx());
-  }
 }
 
-void 
+void
 ParallelLrVisitor::updateVertexInfo(sta::VertexId vertex_id)
 {
   PtVertex &pt_vertex = pt_graph_->ptVertex(vertex_id);
@@ -967,41 +975,8 @@ ParallelLrVisitor::updateVertexInfo(sta::VertexId vertex_id)
     return;
   }
   sta::Vertex *sta_vertex = pt_vertex.vertex();
-  // Update slews
-  sta::Graph *sta_graph = db_sta_->graph();
-  for (const sta::RiseFall *rf : sta::RiseFall::range()) {
-    for (int i = 0; i < sta_graph->apCount(); i++) {
-      sta::Slew slew = pt_graph_->slew(pt_vertex, rf, i);
-      sta_graph->setSlew(sta_vertex, rf, i, slew);
-    }
-  }
-
-  // update paths
-  // Do not replace the path array, as it causes ownership issues with prev_path_.
-  // Instead, copy the updated timing values (arrival, required) back to the existing paths.
-  sta::Path *pt_paths = pt_vertex.paths();
-  sta::Path *sta_paths = sta_vertex->paths();
-  
-  if (pt_paths && sta_paths) {
-    sta::TagGroup *pt_tag_group = pt_graph_->tagGroup(pt_vertex);
-    sta::TagGroup *sta_tag_group = db_sta_->search()->tagGroup(sta_vertex);
-    if (pt_tag_group->index() != sta_tag_group->index()) {
-      printf("TagGroup mismatch for vertex %s: PtTagGroup index %u, StaTagGroup index %u\n",
-             sta_vertex->to_string(db_sta_).c_str(),
-             pt_tag_group->index(),
-             sta_tag_group->index());
-      // We neglect many cases here for simplicity.
-      // So when tag groups do not match, we skip 
-      // updating paths, and just keep the existing ones.
-      return;
-    }
-    size_t path_count = pt_tag_group->pathCount();
-    
-    for (size_t i = 0; i < path_count; i++) {
-      sta_paths[i].setArrival(pt_paths[i].arrival());
-      sta_paths[i].setRequired(pt_paths[i].required());
-    }
-  }
+  pt_graph_->writeSlewToGraph(pt_vertex, sta_vertex);
+  pt_graph_->writePathsToGraph(pt_vertex, sta_vertex);
 }
 
 void 
@@ -1139,22 +1114,26 @@ ParallelLrVisitor::tryBuffering(sta::Instance *inst)
         "setMoveType(BufferInsertion) must be called before visiting");
   }
   sta::dbNetwork *network = db_sta_->getDbNetwork();
-  int drvr_count = 0;
-  for (PtVertex &pt_vertex : pt_graph_->ptVertices()) {
+  // Collect driver vertex info before calling rebufferPin, which may
+  // reallocate pt_vertices_ and invalidate iterators/references.
+  struct DrvrInfo { sta::Pin *pin; VertexId vid; };
+  std::vector<DrvrInfo> drvr_infos;
+  for (size_t i = 0; i < pt_graph_->vertexCount(); i++) {
+    PtVertex &pt_vertex = pt_graph_->ptVertex(i);
     if (pt_vertex.vertex() && pt_vertex.type() == PtVertexType::RefOutput) {
-      sta::Pin *pin = pt_vertex.vertex()->pin();
-      rebuffer_->rebufferPin(pin, pt_vertex);
-      drvr_count++;
+      drvr_infos.push_back({pt_vertex.vertex()->pin(), pt_vertex.objectIdx()});
     }
   }
-  // If multi-driver instance is found, we should first invest what would 
-  // happen.
-  if (drvr_count > 1) {
+  if (drvr_infos.size() > 1) {
     printf("Warning: ParallelLrVisitor::tryBuffering instance %s has more than 1 driver pins, buffering may not be correct\n",
            db_sta_->network()->pathName(inst));
     fflush(stdout);
     return false;
   }
+  for (auto &di : drvr_infos) {
+    rebuffer_->rebufferPin(di.pin, pt_graph_->ptVertex(di.vid));
+  }
+  
   if (rebuffer_->bestBnet() == nullptr) {
     return false;
   }

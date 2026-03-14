@@ -4,11 +4,13 @@
 
 #pragma once
 
+#include <atomic>
+#include <memory>
+
 #include "lrf/LrfClass.hh"
 #include "sta/SearchPred.hh"
 #include "db_sta/dbSta.hh"
 #include "LmHistory.hh"
-
 
 namespace lrf {
 using namespace sta;
@@ -34,6 +36,12 @@ public:
   virtual void setMode(std::string mode) {};
   virtual std::string mode() const { return ""; }
 
+  // --- Parallel KKT projection and LM update ---
+  // Uses ref-count based parallel dispatch (similar to TaskArranger pattern).
+  // dispatch_queue_ and thread_count_ are inherited from StaState.
+  bool parallelKKTProjection(Sta *sta);
+  void parallelUpdateAllEdgeLms(Sta *sta);
+
   // --- LM History: snapshot & rollback ---
   // Record current LM values of all edges. Returns frame id.
   int recordLM();
@@ -54,12 +62,14 @@ protected:
   LMValueSeq computeOutLmSum(Vertex *vertex) const;
   size_t computeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_seq_map);
   bool checkKKTForAllVertices();
+  bool parallelCheckKKTForAllVertices();
+  void parallelComputeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_seq_map);
   bool isBeforeReg(Vertex *vertex) const;
   void topoSort(LRHelper *lr_helper, VertexSeq &sorted_vertices);
   virtual void updateEdgeLms(Edge *edge, Sta *sta);
-  virtual void updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, 
+  virtual void updateArcLms(Edge *edge, TimingArc *arc, Sta *sta,
                             DcalcAnalysisPt const *dcalc_ap);
-  virtual void updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta, 
+  virtual void updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta,
                                     DcalcAnalysisPt const *dcalc_ap);
   // Debug: print pins covered by set_false_path exceptions (from/to)
   void dumpFalsePathPins(Sta *sta);
@@ -74,9 +84,14 @@ protected:
   bool RATCONS_ = false;
   LmHistory lm_history_;
 
+  // vertex_to_sorted_idx_[vertex_id] -> index in sorted_lm_vertices_
+  // Used by parallel KKT backward pass to map Vertex* to ap_lm_seq_map index.
+  std::unordered_map<VertexId, size_t> vertex_to_sorted_idx_;
+
 private:
   friend class Graph;
   friend class SortVertexVisitor;
+  friend class KKTBackwardVisitor;
 };
 
 class RapidLrHelper : public LRHelper {

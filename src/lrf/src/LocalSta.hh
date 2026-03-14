@@ -79,11 +79,21 @@ public:
   // Functions for Searching arrivals and required times
   void findLocalArrivals(PtGraph *pt_graph);
   void findLocalRequireds(PtGraph *pt_graph);
-  void localParasiticLoad(const Pin *drvr_pin,
+  // Full version: checks hasVirtualBuffer tag and recomputes load cap if needed
+  void localParasiticLoad(PtVertex &drvr_pt_vertex,
                           const RiseFall *rf,
                           const DcalcAnalysisPt *dcalc_ap,
                           const MultiDrvrNet *multi_drvr_net,
                           // Return values
+                          float &load_cap,
+                          const Parasitic *&parasitic,
+                          PtGraph *pt_graph);
+  // Pin-only version: always uses original parasitic (no virtual buffer check).
+  // Used by ViolationCheck where virtual buffers are never present.
+  void localParasiticLoad(const Pin *drvr_pin,
+                          const RiseFall *rf,
+                          const DcalcAnalysisPt *dcalc_ap,
+                          const MultiDrvrNet *multi_drvr_net,
                           float &load_cap,
                           const Parasitic *&parasitic) const;
 
@@ -360,7 +370,11 @@ protected:
                           bool merge,
                           const DcalcAnalysisPt *dcalc_ap,
                           PtGraph *pt_graph);
-  
+  float computeVirtualLoadCap(PtVertex &drvr_pt_vertex,
+                              const RiseFall *drvr_rf,
+                              const DcalcAnalysisPt *dcalc_ap,
+                              PtGraph *pt_graph);
+
   float delayLmSum(Instance *inst, const MinMax *minmax);
   float delayLmSum(PtGraph *pt_graph, DcalcAnalysisPt *dcalc_ap);
   DelayLmSumResult delayLmSum(PtGraph *pt_graph,
@@ -372,11 +386,15 @@ protected:
   void graphPop();
   void setSta(dbSta *sta) { sta_ = sta; }
   DelayLmSumResult initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
-  DelayLmSumResult increAndGetLocalTimingCost(PtGraph *pt_graph, 
+  DelayLmSumResult increAndGetLocalTimingCost(PtGraph *pt_graph,
                                     ArcDelayCalc *arc_delay_calc,
                                     LibertyCell *equiv_cell);
+  void updateLocalTiming(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
   Slack localSlackAroundRef(PtGraph *pt_graph);
   Slack localSlackAtEndpoints(PtGraph *pt_graph);
+  // Compute slack at sink pins using STA required (unchanged by buffer)
+  // and PtVertex arrival (updated by findLocalArrivals through virtual buffer).
+  Slack localSlackOnSinks(PtGraph *pt_graph);
   
   ////////////////////////////////////////////////////////
   // Deal with parasitics

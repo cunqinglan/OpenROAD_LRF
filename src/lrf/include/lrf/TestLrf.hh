@@ -61,6 +61,9 @@ public:
   // Test single net buffer insertion
   void testBufferInsertion(char *inst_name, sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
 
+  // Test buffering on a single instance via visitor->visit() path
+  void testSingleInstBuffering(char *inst_name, sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
+
   void testMEEAssignments(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
 
   void testParallelResize(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
@@ -131,6 +134,13 @@ public:
                                 size_t thread_num,
                                 float PT_tradeoff = 100.0,
                                 float top_ratio = 0.3);
+
+  // Test parallel KKT projection correctness: compare serial vs parallel results.
+  void testParallelKKTProjection(sta::dbSta* sta,
+                                  rsz::Resizer *resizer,
+                                  odb::dbBlock *block,
+                                  size_t thread_num,
+                                  std::string lr_helper_method = "LRHelper");
 
 protected:
   void printSlewComparison(char *inst_name, sta::dbSta* sta, 

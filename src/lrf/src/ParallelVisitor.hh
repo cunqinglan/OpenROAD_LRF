@@ -52,6 +52,7 @@ public:
   void operator()(sta::Instance *inst) { visit(inst); }
   void printVisitedInstNames() const;
   PtGraph *ptGraph() const { return pt_graph_; }
+  LrRebuffer *rebuffer() const { return rebuffer_; }
   void setPtGraph(PtGraph *pt_graph) { pt_graph_ = pt_graph; }
   sta::Instance *refInst() const { return ref_inst_; }
   sta::LibertyCell *bestCell() const { return best_cell_; }
@@ -74,6 +75,7 @@ public:
   }
   void setPTTradeoff(float PT_tradeoff) { PT_tradeoff_ = PT_tradeoff; }
   void setSlackMargin(float slack_margin) { slack_margin_ = slack_margin; }
+  float slackMargin() const { return slack_margin_; }
   bool equivVtCells(sta::LibertyCell *cell1, sta::LibertyCell *cell2);
   void setClockPeriod(float clock_period) { clock_period_ = clock_period; }
   void setParallelLibData(ParallelLibData *parallel_lib_data) { parallel_lib_data_ = parallel_lib_data; }
@@ -146,6 +148,7 @@ protected:
   };
 private:
   friend class LrRebuffer;
+  friend class TestLrf;
 };
 
 

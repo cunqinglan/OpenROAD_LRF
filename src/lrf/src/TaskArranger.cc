@@ -95,17 +95,35 @@ TaskArranger::init()
   }
 }
 
-void 
+void
 TaskArranger::reinit()
 {
-  printf("TaskArranger::reinit checking graph consistency...\n");
-  // This number is completely wrong, need to double check
-  // if (network_->instanceCount() != vertices_.size() + 1) { // +1 for TOP instance
-  //   init();
-  // } else {
+  if (dirty_) {
+    printf("TaskArranger::reinit graph marked dirty, rebuilding...\n");
+    rebuild();
+  } else {
     initVertexRefCounts(false);
     ensureGraphVertices();
-  // }
+  }
+}
+
+void
+TaskArranger::rebuild()
+{
+  printf("TaskArranger::rebuild clearing and rebuilding graph...\n");
+  vertices_.clear();
+  edges_.clear();
+  inst_to_vid_.clear();
+  vertex_ref_counts_.reset();
+  num_com_ = 0;
+  incremental_ = false;
+  dirty_ = false;
+
+  makeGraph();
+  initVertexRefCounts(true);
+  ensureGraphVertices();
+  printf("TaskArranger::rebuild done. %zu vertices, %zu edges\n",
+         vertices_.size(), edges_.size());
 }
 
 void
@@ -911,14 +929,14 @@ TaskArranger::visitParallelPrecheck(sta::dbSta *sta, LocalSta *local_sta,
 }
 
 void
-TaskArranger::markSelectedInstances(const std::vector<ResizeBenefit> &benefits)
+TaskArranger::markSelectedInstances(const std::vector<size_t> &vertex_ids)
 {
   // Reset all vertices to unselected
   for (auto &v : vertices_)
     v.selected_ = false;
   // Mark only the top instances from precheck as selected
-  for (const auto &b : benefits)
-    vertices_[b.vertex_idx].selected_ = true;
+  for (size_t idx : vertex_ids)
+    vertices_[idx].selected_ = true;
 }
 
 void

@@ -116,6 +116,10 @@ public:
   ~TaskArranger();
   void init();
   void reinit();
+  // Rebuild the entire graph from scratch (clears old vertices/edges).
+  void rebuild();
+  // Mark graph as dirty (e.g. after buffer insertion changes the netlist).
+  void markDirty() { dirty_ = true; }
 
   // Functions of making graph
   void makeGraph();
@@ -180,8 +184,8 @@ public:
   void printVisitedInstNames() const;
 
   // Mark top instances as selected based on precheck results.
-  // All vertices are first reset to unselected, then only those in benefits are marked.
-  void markSelectedInstances(const std::vector<ResizeBenefit> &benefits);
+  // All vertices are first reset to unselected, then only those in vertex_ids are marked.
+  void markSelectedInstances(const std::vector<size_t> &vertex_ids);
 
   void setMaxResizeNum(size_t max_resize_num) { max_resize_num_ = max_resize_num; }
   size_t vertexCount() const { return vertices_.size(); }
@@ -219,6 +223,8 @@ protected:
   size_t max_resize_num_ = 1000000;
   // Flag of if the first time visitParallel
   bool incremental_ = false;
+  // Flag set after netlist-modifying operations (e.g. buffer insertion)
+  bool dirty_ = false;
   
   // Topology validation
   bool enable_topology_check_ = false;
