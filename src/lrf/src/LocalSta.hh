@@ -392,6 +392,9 @@ protected:
   void updateLocalTiming(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
   Slack localSlackAroundRef(PtGraph *pt_graph);
   Slack localSlackAtEndpoints(PtGraph *pt_graph);
+  // Compute slack at sink pins using STA required (unchanged by buffer)
+  // and PtVertex arrival (updated by findLocalArrivals through virtual buffer).
+  Slack localSlackOnSinks(PtGraph *pt_graph);
   
   ////////////////////////////////////////////////////////
   // Deal with parasitics

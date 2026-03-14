@@ -11,6 +11,8 @@
 #include "sta/Fuzzy.hh"
 #include "sta/TimingRole.hh"
 #include "sta/PortDirection.hh"
+#include "search/TagGroup.hh"
+#include "sta/Search.hh"
 
 
 namespace {
@@ -297,8 +299,13 @@ LrRebuffer::localAnnotateLoadSlacks(const BnetPtr& tree, PtVertex &drvr_pt_verte
             } else {
               const sta::RiseFall* rf = req_path->transition(sta_);
               node->setSlackTransition(rf->asRiseFallBoth());
-              node->setSlack(FixedDelay(
-                  req_path->required() - arrival_path->arrival(), resizer_));
+              sta::Delay slack_value = req_path->required() - arrival_path->arrival();
+              if (sta::delayInf(slack_value)
+                  || slack_value > 100.0 || slack_value < -100.0) {
+                node->setSlack(FixedDelay::INF);
+              } else {
+                node->setSlack(FixedDelay(slack_value, resizer_));
+              }
 
               if (arrival_paths_[rf->index()] == nullptr) {
                 arrival_paths_[rf->index()] = arrival_path;
@@ -440,11 +447,6 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
           
             int round = 0;
             while (location != node->location()) {
-              if (verbose_) {
-                printf("LrRebuffer::bufferForTiming: round %d, location (%d, %d), target (%d, %d), options %zu\n",
-                       round, location.x(), location.y(), node->location().x(), node->location().y(), opts.size());
-              }
-
               const int step = wire_length_step_;
 
               // move `location` towards `node->location()` by `step`
@@ -595,7 +597,7 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
 
   PtGraph *pt_graph = visitor_->ptGraph();
   local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
-  float origial_slack = local_sta_->localSlackAroundRef(pt_graph);
+  float origial_slack = local_sta_->localSlackOnSinks(pt_graph);
   for (const BnetPtr& p : top_opts) {
     LMValue cost = evaluateOption(drvr_vertex_id, p, origial_slack);
     
@@ -654,27 +656,27 @@ LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
   float max_slew = 0.0f;
   float cell_delay_lm_sum = cellDelayLmSum(pt_vertex_id, option, max_slew);
   if (hasViolation(option, max_slew)) {
-    return total_cost;  // Fast fail if option has any violation
+    return INF;  // Fast fail if option has any violation
   }
 
   // Virtual slack checkZ: build virtual sub-graph and run full local timing
   VirtualBufferInfo vinfo = buildVirtualBuffer(pt_vertex_id, option);
   if (vinfo.failed) {
     removeVirtualBuffer(vinfo);
-    return total_cost;  // Fall back to analytical cost only
+    return INF;  // Fall back to analytical cost only
   }
 
   pt_graph->topoSortVertices();
   auto result = local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
   float delay_lm_sum = result.delay_lm_sum;
-  float slack_after = local_sta_->localSlackAroundRef(pt_graph);
-  if (slack_after > original_slack * visitor_->slackMargin()) {
+  float slack_after = local_sta_->localSlackOnSinks(pt_graph);
+  if (slack_after > original_slack * 0.95) {
     total_cost = visitor_->swapCost(delay_lm_sum, option->leakage());
   }
 
   // [Layer 2] Slack comparison log
   {
-    float threshold = original_slack * visitor_->slackMargin();
+    float threshold = original_slack * 0.95f;
     printf("[SLACK] orig=%.3f ps, after=%.3f ps, delta=%.3f ps, thresh=%.3f ps, %s\n",
            original_slack * 1e12, slack_after * 1e12,
            (slack_after - original_slack) * 1e12,
@@ -1137,6 +1139,51 @@ LrRebuffer::writeLmsToGraph()
 //   edge_ids consumed:   wire_in, gate    (2 per buffer, consumed but not used)
 // For each load:
 //   edge_ids consumed:   wire_to_load     (1 per load, consumed but not used)
+
+// Initialize a newly-created STA vertex (from buffer insertion) with timing
+// data from the corresponding PtGraph virtual vertex.  New STA vertices have
+// no tag group and no paths; this copies tag_index, arrival, required from
+// the PtVertex paths so that subsequent PtGraph construction on adjacent nets
+// sees valid timing data instead of garbage.
+void
+LrRebuffer::initNewStaVertexPaths(const PtVertex &pt_vertex,
+                                  sta::Vertex *sta_vertex)
+{
+  sta::Path *pt_paths = pt_vertex.paths();
+  if (!pt_paths)
+    return;
+  sta::TagGroup *pt_tg = search_->tagGroup(pt_vertex.tagGroupIndex());
+  if (!pt_tg)
+    return;
+
+  // If the STA vertex already has matching paths, just update arrival/required.
+  sta::TagGroup *sta_tg = search_->tagGroup(sta_vertex);
+  if (sta_tg && sta_tg->index() == pt_tg->index()) {
+    sta::Path *sta_paths = sta_vertex->paths();
+    if (sta_paths) {
+      size_t count = pt_tg->pathCount();
+      for (size_t i = 0; i < count; i++) {
+        sta_paths[i].setArrival(pt_paths[i].arrival());
+        sta_paths[i].setRequired(pt_paths[i].required());
+      }
+      return;
+    }
+  }
+
+  // New vertex: allocate paths and initialize from PtVertex data.
+  size_t path_count = pt_tg->pathCount();
+  sta::Path *sta_paths = graph_->makePaths(sta_vertex, path_count);
+  for (size_t i = 0; i < path_count; i++) {
+    sta::Tag *tag = search_->tag(pt_paths[i].tagIndex(this));
+    sta_paths[i].init(sta_vertex, tag, pt_paths[i].arrival(), this);
+    // Path::init sets required = 0.0.  Required on buffer vertices is not
+    // needed: sink required is unchanged by upstream buffer insertion, and
+    // the next global findRequireds() will compute correct values.
+  }
+  sta_vertex->setTagGroupIndex(pt_tg->index());
+  pt_tg->incrRefCount();
+}
+
 void
 LrRebuffer::writeTimingToGraph()
 {
@@ -1227,13 +1274,13 @@ LrRebuffer::writeTimingToGraph()
         // Buffer input vertex: slew + paths
         if (real_buf_in) {
           pt_graph->writeSlewToGraph(pt_buf_in, real_buf_in);
-          pt_graph->writePathsToGraph(pt_buf_in, real_buf_in);
+          initNewStaVertexPaths(pt_buf_in, real_buf_in);
         }
 
         // Buffer output vertex: slew + paths
         if (real_buf_out) {
           pt_graph->writeSlewToGraph(pt_buf_out, real_buf_out);
-          pt_graph->writePathsToGraph(pt_buf_out, real_buf_out);
+          initNewStaVertexPaths(pt_buf_out, real_buf_out);
         }
 
         // Recurse into subtree with buf_output as new driver

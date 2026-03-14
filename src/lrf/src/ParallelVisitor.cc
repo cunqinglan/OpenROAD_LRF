@@ -918,9 +918,13 @@ ParallelLrVisitor::applyResizeChangesToDb(rsz::Resizer *resizer)
   if (best_cell_ && pt_graph_->refInstance()) {
     sta::LibertyCell *from_lib_cell = 
                 db_sta_->network()->libertyCell(pt_graph_->refInstance());
-    if (!sta::equivCellsArcs(from_lib_cell, best_cell_)) {
-      // No change needed
-      printf("ParallelLrVisitor::applyChangesToDb skipping instance %s swap from cell %s to cell %s due to arc mismatch\n",
+    // Relaxed check: only require port and function equivalence.
+    // Timing arc set differences (e.g. different conditional arc
+    // granularity between drive strengths in ASAP7) are handled
+    // by PtGraph::updateTimingArcSets() during virtual replacement.
+    if (!sta::equivCellPorts(from_lib_cell, best_cell_)
+        || !sta::equivCellFuncs(from_lib_cell, best_cell_)) {
+      printf("ParallelLrVisitor::applyChangesToDb skipping instance %s swap from cell %s to cell %s due to port/function mismatch\n",
               db_sta_->network()->pathName(pt_graph_->refInstance()),
               from_lib_cell->name(),
               best_cell_->name());
@@ -948,11 +952,15 @@ ParallelLrVisitor::applyResizeChangesToDb(rsz::Resizer *resizer)
 void
 ParallelLrVisitor::updateTimingFromPtGraph()
 {
+  // Only write back vertex slews/paths.  Arc delays on edges are not
+  // written back because:
+  //  - The next instance's LocalSta recomputes all delays locally.
+  //  - The global sta->updateTiming() recalculates every edge delay
+  //    at the end of each iteration.
+  // Skipping edge writeback also avoids a dangling-pointer crash when
+  // Sta::replaceCell recreates edges for non-equiv timing arc sets.
   for (VertexId vertex_id : pt_graph_->sortedVertexIds()) {
     updateVertexInfo(vertex_id);
-  }
-  for (const PtEdge &pt_edge : pt_graph_->ptEdges()) {
-    updateEdgeInfo(pt_edge.objectIdx());
   }
 }
 

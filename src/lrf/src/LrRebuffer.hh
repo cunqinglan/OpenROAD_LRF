@@ -87,13 +87,14 @@ protected:
   // Write timing (slew, arrival, required, arc delay) from PtGraph virtual
   // buffer vertices/edges to the corresponding real graph vertices/edges.
   void writeTimingToGraph();
+  void initNewStaVertexPaths(const PtVertex &pt_vertex, sta::Vertex *sta_vertex);
 private:
   LocalSta *local_sta_;
   ParallelLrVisitor* visitor_;
   const sta::Pin *drvr_pin_ = nullptr;
   rsz::BufferedNetPtr best_bnet_ = nullptr;
   VirtualBufferInfo best_vinfo_;
-  bool verbose_ = false;
+  bool verbose_ = true;
 };
 
 
