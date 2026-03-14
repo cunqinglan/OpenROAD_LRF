@@ -439,11 +439,17 @@ LocalSta::connectedCap(const Pin *drvr_pin,
                       const sta::MinMax *min_max,
                       float &load_cap) const
 {
+  if (drvr_pin == nullptr) {
+    load_cap = 0.0;
+    return;
+  }
   sta::Vertex *vertex, *bidir_vertex;
   graph_->pinVertices(drvr_pin, vertex, bidir_vertex);
+  if (vertex == nullptr) {
+    load_cap = 0.0;
+    return;
+  }
   sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(min_max);
-  if (vertex == nullptr)
-    throw std::runtime_error("LocalSta::getPinLoadCap: vertex is nullptr");
   const sta::Parasitic *parasitic;
   localParasiticLoad(drvr_pin, rf, dcalc_ap, nullptr, load_cap, parasitic);
   load_cap = std::max(load_cap, 0.0f);
@@ -453,12 +459,16 @@ float
 LocalSta::getNetCap(sta::Net *net, const sta::Corner *corner,
                         const sta::MinMax *min_max, PtGraph *pt_graph)
 {
+  if (net == nullptr)
+    return 0.0;
   const sta::Pin *pin = findNetParasiticDrvrPin(net);
+  if (pin == nullptr)
+    return 0.0;
   sta::Vertex *vertex, *bidir_vertex;
   graph_->pinVertices(pin, vertex, bidir_vertex);
-  sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(min_max);
   if (vertex == nullptr)
-    throw std::runtime_error("LocalSta::getPinLoadCap: vertex is nullptr");
+    return 0.0;
+  sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(min_max);
   const sta::Parasitic *parasitic;
   float max_cap = 0.0;
   for (const RiseFall *rf : RiseFall::range()) {
