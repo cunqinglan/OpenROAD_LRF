@@ -250,37 +250,22 @@ IncreSta::lmUpdate()
   const bool use_parallel = (thread_count_ > 1 && dispatch_queue_);
 
   if (projected_) {
-    printf("DEBUG: IncreSta::lmUpdate calling updateAllEdgeLms%s\n",
-           use_parallel ? " (parallel)" : "");
-    fflush(stdout);
     if (use_parallel)
       lr_helper_->parallelUpdateAllEdgeLms(sta_);
     else
       lr_helper_->updateAllEdgeLms(sta_);
 
-    printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (projected_)%s\n",
-           use_parallel ? " (parallel)" : "");
-    fflush(stdout);
     if (use_parallel)
       lr_helper_->parallelKKTProjection(sta_);
     else
       lr_helper_->KKTProjection(sta_);
   } else {
-    printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (else)%s\n",
-           use_parallel ? " (parallel)" : "");
-    fflush(stdout);
     bool kkt_satisfied = use_parallel
       ? lr_helper_->parallelKKTProjection(sta_)
       : lr_helper_->KKTProjection(sta_);
     if (kkt_satisfied)
       projected_ = true;
-    else {
-      printf("IncreSta::lmUpdate: Warning: KKT not satisfied, should be checked\n");
-      fflush(stdout);
-    }
   }
-  printf("DEBUG: IncreSta::lmUpdate end\n");
-  fflush(stdout);
 }
 
 bool

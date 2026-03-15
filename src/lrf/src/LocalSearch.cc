@@ -203,29 +203,6 @@ LocalArrivalVisitor::findVirtualVertexArrival(PtVertex &pt_vertex)
 
   localVisitFaninPaths(pt_vertex);
 
-  if (tag_bldr_->empty()) {
-    // Debug: report why no arrivals were propagated to this virtual vertex
-    printf("DEBUG findVirtualVertexArrival: tag_bldr empty for virtual_%u "
-           "(proxy=%s, tagGroupIdx=%d)\n",
-           pt_vertex.objectIdx(),
-           init_vertex ? network_->name(init_vertex->pin()) : "null",
-           (int)pt_vertex.tagGroupIndex());
-    // Check fanin edges
-    PtVertexInEdgeIterator in_iter(pt_vertex.objectIdx(), pt_graph_);
-    while (in_iter.hasNext()) {
-      PtEdge &e = in_iter.next();
-      PtVertex &from = pt_graph_->ptVertex(e.ptFromId());
-      printf("  fanin edge %u: from vertex %u (%s), hasBase=%d, "
-             "from.tagGroupIdx=%d, from.paths=%p\n",
-             e.objectIdx(), from.objectIdx(),
-             from.pin() ? network_->name(from.pin()) : "virtual",
-             e.hasBase(), (int)from.tagGroupIndex(),
-             (void*)from.paths());
-      fflush(stdout);
-    }
-    fflush(stdout);
-  }
-
   localSetVertexArrivals(pt_vertex, tag_bldr_);
 }
 
