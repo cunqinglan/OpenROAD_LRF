@@ -675,17 +675,6 @@ LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
     total_cost = visitor_->swapCost(delay_lm_sum, option->leakage());
   }
 
-  // [Layer 2] Slack comparison log
-  {
-    float threshold = original_slack * 0.95f;
-    printf("[SLACK] orig=%.3f ps, after=%.3f ps, delta=%.3f ps, thresh=%.3f ps, %s\n",
-           original_slack * 1e12, slack_after * 1e12,
-           (slack_after - original_slack) * 1e12,
-           threshold * 1e12,
-           (slack_after > threshold) ? "ACCEPT" : "REJECT");
-    fflush(stdout);
-  }
-
   removeVirtualBuffer(vinfo);
   return total_cost;
 }

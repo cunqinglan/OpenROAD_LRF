@@ -158,21 +158,6 @@ LocalSta::collectLocalFanoutVertices(sta::Vertex *drvr_vertex,
     Vertex *load_vertex = out_edge->to(graph_);
     // There might be internal arcs within a cell, still need to collect
     if (!network_->isLoad(load_vertex->pin())) {
-      // const Pin *pin = load_vertex->pin();
-      // const Instance *inst = network_->instance(pin);
-      // PortDirection *dir = network_->direction(pin);
-      // printf("Warning: LocalSta::collectLocalFanoutVertices: vertex %s is not a load\n",
-      //        load_vertex->to_string(graph_).c_str());
-      // printf(" Collect From %s Instance: %s, isLeaf: %d, Pin direction: %s, isAnyInput: %d, isAnyOutput: %d\n",
-      //        drvr_vertex->to_string(graph_).c_str(),
-      //        network_->pathName(inst),
-      //        network_->isLeaf(inst),
-      //        dir->name(),
-      //        dir->isAnyInput(),
-      //        dir->isAnyOutput());
-      // fflush(stdout);
-      // Skip here, since driver will still be collected in collect 
-      // vertices.
       continue;
     }
     if (out_edge->isWire())
@@ -1528,11 +1513,6 @@ LocalSta::localSlackOnSinks(PtGraph *pt_graph)
       if (pt_paths[i].dcalcAnalysisPt(this) != pt_graph->dcalcAnalysisPt())
         continue;
       sta::Slack slack = sta_paths[i].required() - pt_paths[i].arrival();
-      printf("[SINK_SLACK] vertex %s path %zu: sta_req=%.3f ps, pt_arr=%.3f ps, slack=%.3f ps\n",
-             sta_vertex->to_string(graph_).c_str(), i,
-             sta_paths[i].required() * 1e12, pt_paths[i].arrival() * 1e12,
-             slack * 1e12);
-      fflush(stdout);
       if (sta::delayInf(slack))
         continue;
       if (slack > 0.0)
