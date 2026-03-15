@@ -16,6 +16,10 @@ class ParasiticAnalysisPt;
 }
 
 namespace lrf {
+class PtPiElmore;
+}
+
+namespace lrf {
 using namespace sta;
 
 typedef Map<ParasiticNode*, double> ParasiticNodeValueMap;
@@ -98,6 +102,24 @@ public:
 		       ParasiticResistor *from_res,
 		       double elmore,
 		       Parasitic *pi_elmore);
+
+  // Reduce parasitic network into a PtGraph-local PtPiElmore.
+  // Uses the same reduceToPi DFS but stores results into PtPiElmore
+  // instead of the global parasitic map.
+  void makePtPiElmore(const Parasitic *parasitic_network,
+                      const Pin *drvr_pin,
+                      ParasiticNode *drvr_node,
+                      float coupling_cap_factor,
+                      const RiseFall *rf,
+                      const Corner *corner,
+                      const MinMax *min_max,
+                      const ParasiticAnalysisPt *ap,
+                      PtPiElmore &result);
+  void reduceElmoreDfsToPt(const Pin *drvr_pin,
+                           ParasiticNode *node,
+                           ParasiticResistor *from_res,
+                           double elmore,
+                           PtPiElmore &result);
 };
 
 

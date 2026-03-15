@@ -88,6 +88,12 @@ protected:
   // buffer vertices/edges to the corresponding real graph vertices/edges.
   void writeTimingToGraph();
   void initNewStaVertexPaths(const PtVertex &pt_vertex, sta::Vertex *sta_vertex);
+  // Build PtPiElmore parasitics for virtual buffer sub-graph.
+  // For original driver: adds virtual buffer input Elmore to existing PtPiElmore.
+  // For virtual buffer outputs: builds synthetic PtPiElmore from BnetPtr wireRC.
+  void buildVirtualParasitics(VertexId drvr_vertex_id,
+                              const rsz::BufferedNetPtr& option,
+                              const VirtualBufferInfo &vinfo);
 private:
   LocalSta *local_sta_;
   ParallelLrVisitor* visitor_;

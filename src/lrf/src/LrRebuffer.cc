@@ -667,6 +667,7 @@ LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
   }
 
   pt_graph->topoSortVertices();
+  buildVirtualParasitics(pt_vertex_id, option, vinfo);
   auto result = local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
   float delay_lm_sum = result.delay_lm_sum;
   float slack_after = local_sta_->localSlackOnSinks(pt_graph);
@@ -1640,9 +1641,116 @@ LrRebuffer::buildVirtualBuffer(VertexId drvr_vertex_id,
 }
 
 void
+LrRebuffer::buildVirtualParasitics(VertexId drvr_vertex_id,
+                                    const BufferedNetPtr& option,
+                                    const VirtualBufferInfo &vinfo)
+{
+  PtGraph *pt_graph = visitor_->ptGraph();
+  int vi = 0;  // index into vinfo.vertex_ids (pairs: buf_in, buf_out)
+
+  using Walker = std::function<void(const BufferedNetPtr&, VertexId, float)>;
+  Walker walk = [&](const BufferedNetPtr& node, VertexId current_drvr_id,
+                    float acc_wire_delay) {
+    switch (node->type()) {
+      case BufferedNetType::wire:
+      case BufferedNetType::via:
+        walk(node->ref(), current_drvr_id,
+             acc_wire_delay + node->delay().toSeconds());
+        break;
+
+      case BufferedNetType::buffer: {
+        if (vi + 1 >= (int)vinfo.vertex_ids.size()) break;
+        VertexId buf_in_id = vinfo.vertex_ids[vi++];
+        VertexId buf_out_id = vinfo.vertex_ids[vi++];
+
+        // Add virtual buffer input Elmore to current driver's PtPiElmore
+        for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+          for (sta::DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
+            PtPiElmore *drvr_pi = pt_graph->findPtParasitic(
+                current_drvr_id, rf, dcalc_ap->index());
+            if (drvr_pi) {
+              drvr_pi->addLoad(buf_in_id, nullptr, acc_wire_delay);
+            }
+          }
+        }
+
+        // Create empty PtPiElmore for virtual buffer output
+        for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+          for (sta::DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
+            pt_graph->makePtParasitic(buf_out_id, rf, dcalc_ap->index());
+          }
+        }
+
+        // Recurse: downstream loads will addLoad to buf_out_id's PtPiElmore
+        walk(node->ref(), buf_out_id, 0.0f);
+
+        // Set Pi model for buf_out: c2=0, rpi=0, c1=sum of downstream load caps
+        for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+          for (sta::DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
+            PtPiElmore *buf_pi = pt_graph->findPtParasitic(
+                buf_out_id, rf, dcalc_ap->index());
+            if (buf_pi) {
+              float total_cap = 0.0f;
+              for (const auto &load : buf_pi->loads()) {
+                PtVertex &lv = pt_graph->ptVertex(load.vertex_id);
+                sta::LibertyPort *lp = lv.hasBase()
+                    ? network_->libertyPort(lv.pin()) : lv.libertyPort();
+                if (lp) {
+                  total_cap += lp->capacitance(rf, dcalc_ap->constraintMinMax());
+                }
+              }
+              buf_pi->setPiModel(0.0f, 0.0f, total_cap);
+            }
+          }
+        }
+        break;
+      }
+
+      case BufferedNetType::junction:
+        walk(node->ref(), current_drvr_id, acc_wire_delay);
+        walk(node->ref2(), current_drvr_id, acc_wire_delay);
+        break;
+
+      case BufferedNetType::load: {
+        const sta::Pin *load_pin = node->loadPin();
+        sta::Vertex *load_vertex = graph_->pinLoadVertex(load_pin);
+        PtVertex *load_pt_vertex = pt_graph->ptVertex(load_vertex);
+        if (load_pt_vertex) {
+          VertexId load_vid = load_pt_vertex->objectIdx();
+          for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+            for (sta::DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
+              PtPiElmore &drvr_pi = pt_graph->makePtParasitic(
+                  current_drvr_id, rf, dcalc_ap->index());
+              drvr_pi.addLoad(load_vid, load_pin, acc_wire_delay);
+            }
+          }
+        }
+        break;
+      }
+
+      default:
+        break;
+    }
+  };
+
+  walk(option, drvr_vertex_id, 0.0f);
+}
+
+void
 LrRebuffer::removeVirtualBuffer(VirtualBufferInfo &info)
 {
   PtGraph *pt_graph = visitor_->ptGraph();
+
+  // 0. Clean up virtual parasitics
+  for (VertexId vid : info.vertex_ids) {
+    pt_graph->clearPtParasitics(vid);
+  }
+  // Restore original driver's PtPiElmore (remove added virtual buffer input entries)
+  // by re-reducing from the original parasitic network.
+  if (!info.orig_wire_edge_ids.empty()) {
+    VertexId drvr_id = pt_graph->edge(info.orig_wire_edge_ids[0]).ptFromId();
+    pt_graph->clearPtParasitics(drvr_id);
+  }
 
   // 1. Delete all virtual vertices (this also deletes their edges).
   // NOTE: Do NOT deleteEdge separately before deleteVertex — deleteVertex
