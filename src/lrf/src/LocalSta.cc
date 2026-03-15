@@ -210,16 +210,21 @@ LocalSta::collectLocalFaninSiblingVertices(Vertex *load_vertex,
 
   for (auto drvr_pin : drvrs) {
     Vertex *drvr_vertex = graph_->pinDrvrVertex(drvr_pin);
-    if (drvr_vertex && search_pred_->searchTo(drvr_vertex)) {
+    if (drvr_vertex == nullptr)
+      continue;
+    if (!search_pred_->searchTo(drvr_vertex)) {
+      // Still collect the driver so RefInput won't become a root without RefDriver
       local_vertices.insert(drvr_vertex);
-      VertexInEdgeIterator in_edge_iter(drvr_vertex, graph_);
-      while (in_edge_iter.hasNext()) {
-        Edge *in_edge = in_edge_iter.next();
-        Vertex *pred_vertex = in_edge->from(graph_);
-        if (search_pred_->searchThru(in_edge) && 
-            search_pred_->searchFrom(pred_vertex))
-          local_vertices.insert(pred_vertex);
-      }
+      continue;
+    }
+    local_vertices.insert(drvr_vertex);
+    VertexInEdgeIterator in_edge_iter(drvr_vertex, graph_);
+    while (in_edge_iter.hasNext()) {
+      Edge *in_edge = in_edge_iter.next();
+      Vertex *pred_vertex = in_edge->from(graph_);
+      if (search_pred_->searchThru(in_edge) &&
+          search_pred_->searchFrom(pred_vertex))
+        local_vertices.insert(pred_vertex);
     }
   }
 
@@ -537,8 +542,7 @@ LocalSta::seedRootSlew(PtVertex &pt_vertex, PtGraph *pt_graph,
     if (vertex->isDriver(network_)) {
       seedDrvrSlew(pt_vertex, pt_graph, arc_delay_calc);
     } else {
-      printf("Warning: LocalSta::seedRootSlew: Root vertex %s is not a driver\n",
-             vertex->to_string(graph_).c_str());
+      loadSlewFromGraph(pt_vertex, pt_graph);
     }
   } else {
     loadSlewFromGraph(pt_vertex, pt_graph);
