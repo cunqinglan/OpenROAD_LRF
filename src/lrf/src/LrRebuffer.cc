@@ -680,9 +680,18 @@ LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
          (slack_after - original_slack) * 1e12, delay_lm_sum);
   fflush(stdout);
 
-  if (slack_after > original_slack * 0.95) {
+  float thresh = original_slack;
+  if (slack_after > thresh) {
     total_cost = visitor_->swapCost(delay_lm_sum, option->leakage());
+    printf("[SLACK] orig=%.3f ps, after=%.3f ps, delta=%.3f ps, thresh=%.3f ps, ACCEPT\n",
+           original_slack * 1e12, slack_after * 1e12,
+           (slack_after - original_slack) * 1e12, thresh * 1e12);
+  } else {
+    printf("[SLACK] orig=%.3f ps, after=%.3f ps, delta=%.3f ps, thresh=%.3f ps, REJECT\n",
+           original_slack * 1e12, slack_after * 1e12,
+           (slack_after - original_slack) * 1e12, thresh * 1e12);
   }
+  fflush(stdout);
 
   removeVirtualBuffer(vinfo);
   local_sta_->recomputeSinglePtParasitic(pt_graph, pt_vertex_id);
@@ -1776,13 +1785,18 @@ buildSyntheticRCNetwork(const BufferedNetPtr& bnet,
                          sta::ConcreteParasiticNode* cur_node) {
     switch (node->type()) {
       case BufferedNetType::wire: {
-        double res, cap;
+        double unit_res, unit_cap;
         const_cast<BufferedNet*>(node.get())->wireRC(
-            corner, resizer, estimate_parasitics, res, cap);
+            corner, resizer, estimate_parasitics, unit_res, unit_cap);
+        double wire_length = resizer->dbuToMeters(node->length());
+        double wire_res = wire_length * unit_res;
+        double wire_cap = wire_length * unit_cap;
         auto *next = syn_net->ensureParasiticNode(net, node_id++, network);
         syn_net->addResistor(
-            new sta::ConcreteParasiticResistor(res_id++, res, cur_node, next));
-        next->incrCapacitance(cap);
+            new sta::ConcreteParasiticResistor(res_id++, wire_res, cur_node, next));
+        // Split cap: half on each end (pi-model, same as EstimateParasitics)
+        cur_node->incrCapacitance(wire_cap / 2.0);
+        next->incrCapacitance(wire_cap / 2.0);
         rc_walk(node->ref(), next);
         break;
       }
