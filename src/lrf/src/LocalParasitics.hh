@@ -65,9 +65,11 @@ public:
   // When run this in parallel, pt graph should be conflicted graph
   void recomputeLocalParasitics(PtGraph *pt_graph);
   void reduceLocalParasitic(Parasitic* parasitic_network,
-                            PtGraph *pt_graph, 
+                            PtGraph *pt_graph,
                             const PtVertex &pt_drvr_vertex,
                             const DcalcAnalysisPt *dcalc_ap);
+  // Reduce parasitic networks into PtGraph-local PtPiElmore objects.
+  void recomputePtParasitics(PtGraph *pt_graph);
   // Parasitic *
 
 protected:

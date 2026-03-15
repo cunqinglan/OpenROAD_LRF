@@ -1025,14 +1025,46 @@ LocalSta::annotateLoadDelays(PtVertex &drvr_pt_vertex,
       Pin *load_pin = load_vertex ? load_vertex->pin() : nullptr;
 
       if (!load_pin) {
-        // Virtual load: no parasitic, wire delay = 0, load slew = driver slew.
+        // Virtual load: try PtPiElmore Elmore delay for wire delay + load slew
+        PtPiElmore *pt_pi = pt_graph->findPtParasitic(
+            drvr_pt_vertex.objectIdx(), to_rf, ap_index);
+        if (pt_pi) {
+          bool exists;
+          float elmore = pt_pi->findElmoreByVertexId(
+              load_pt_vertex.objectIdx(), exists);
+          if (exists && elmore > 0.0f) {
+            Slew drvr_slew = dcalc_result.drvrSlew();
+            // Same formula as DmpCeff::dspfWireDelaySlew
+            LibertyPort *load_port = load_pt_vertex.libertyPort();
+            LibertyLibrary *load_lib = load_port
+                ? load_port->libertyCell()->libertyLibrary() : nullptr;
+            float vth = 0.5f, vl = 0.2f, vh = 0.8f, slew_derate = 1.0f;
+            if (load_lib) {
+              vth = load_lib->inputThreshold(to_rf);
+              vl = load_lib->slewLowerThreshold(to_rf);
+              vh = load_lib->slewUpperThreshold(to_rf);
+              slew_derate = load_lib->slewDerateFromLibrary();
+            }
+            ArcDelay wire_delay = -elmore * log(1.0 - vth);
+            Slew load_slew = drvr_slew
+                + elmore * log((1.0 - vl) / (1.0 - vh)) / slew_derate;
+
+            pt_graph->setWireArcDelay(wire_pt_edge, to_rf, ap_index, wire_delay);
+            const Slew &cur_slew = pt_graph->slew(load_pt_vertex, to_rf, ap_index);
+            if (!merge || delayGreater(load_slew, cur_slew, slew_min_max, this)) {
+              pt_graph->setSlew(load_pt_vertex, to_rf, ap_index, load_slew);
+              load_changed = true;
+            }
+            continue;
+          }
+        }
+        // Fallback: wire delay = 0, load slew = driver slew
         Slew drvr_slew = dcalc_result.drvrSlew();
         const Slew &cur_slew = pt_graph->slew(load_pt_vertex, to_rf, ap_index);
         if (!merge || delayGreater(drvr_slew, cur_slew, slew_min_max, this)) {
           pt_graph->setSlew(load_pt_vertex, to_rf, ap_index, drvr_slew);
           load_changed = true;
         }
-        // Wire delay stays at 0 (already initialized)
         continue;
       }
 
@@ -1400,6 +1432,7 @@ LocalSta::recomputeLocalParasitics(PtGraph *pt_graph)
   // printf("LocalSta::recomputeLocalParasitics recomputing local parasitics\n");
   // fflush(stdout);
   local_parasitics_->recomputeLocalParasitics(pt_graph);
+  local_parasitics_->recomputePtParasitics(pt_graph);
 }
 
 Slack
@@ -1522,6 +1555,17 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
 {
   parasitic = nullptr;
   load_cap = 0.0f;
+
+  // PtGraph-local PiElmore parasitic (highest priority)
+  PtPiElmore *pt_pi = pt_graph->findPtParasitic(
+      drvr_pt_vertex.objectIdx(), rf, dcalc_ap->index());
+  if (pt_pi && pt_pi->capacitance() > 0.0f) {
+    parasitic = pt_pi;
+    load_cap = pt_pi->capacitance();
+    return;
+  }
+
+  // Original logic (fallback)
   const Pin *drvr_pin = drvr_pt_vertex.pin();
 
   // Virtual driver or driver with virtual buffer downstream:

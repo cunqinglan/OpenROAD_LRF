@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <map>
+#include <unordered_map>
 
 #include "sta/Graph.hh"
 #include "sta/Sta.hh"
@@ -10,6 +11,7 @@
 #include "sta/TimingArc.hh"
 #include "sta/Map.hh"
 #include "lrf/LrfClass.hh"
+#include "PtPiElmore.hh"
 #include <stdexcept>
 
 namespace sta {
@@ -76,6 +78,16 @@ public:
       printf("PtGraph::ptVertex: vertex %s not found in map\n",
              vertex->to_string(sta_).c_str());
              fflush(stdout);
+      return nullptr;
+    }
+    return &pt_vertices_[it->second];
+  }
+  const PtVertex *ptVertex(const sta::Vertex *vertex) const {
+    auto it = vertex_map_.find(vertex);
+    if (it == vertex_map_.end()) {
+      printf("PtGraph::ptVertex const: vertex %s not found in map\n",
+             vertex->to_string(sta_).c_str());
+      fflush(stdout);
       return nullptr;
     }
     return &pt_vertices_[it->second];
@@ -158,6 +170,16 @@ public:
   void setDcalcAnalysisPt(sta::DcalcAnalysisPt *dcalc_ap) { dcalc_ap_ = dcalc_ap; }
   sta::DcalcAnalysisPt *dcalcAnalysisPt() const { return dcalc_ap_; }
 
+  // PtGraph-local PiElmore parasitics
+  PtPiElmore* findPtParasitic(VertexId drvr_id,
+                               const sta::RiseFall *rf,
+                               int ap_index);
+  PtPiElmore& makePtParasitic(VertexId drvr_id,
+                               const sta::RiseFall *rf,
+                               int ap_index);
+  void clearPtParasitics();
+  void clearPtParasitics(VertexId drvr_id);
+
 protected:
   void initVertexAndEdges();
   void annotateVerticesType();
@@ -178,6 +200,10 @@ protected:
   sta::Instance *ref_inst_ = nullptr;
   sta::LibertyCell *ref_lib_cell_ = nullptr;
   sta::DcalcAnalysisPt *dcalc_ap_ = nullptr;
+
+  // PtGraph-local PiElmore parasitics storage.
+  // Key: driver VertexId. Value: vector indexed by rf * ap_count + ap_index.
+  std::unordered_map<VertexId, std::vector<PtPiElmore>> pt_parasitics_;
 
 private:
   friend class PtEdge;

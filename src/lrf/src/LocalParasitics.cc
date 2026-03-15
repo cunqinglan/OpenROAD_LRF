@@ -13,6 +13,7 @@
 
 #include "LocalReduceParasitic.hh"
 #include "LocalParasitics.hh"
+#include "PtPiElmore.hh"
 
 namespace lrf {
 
@@ -206,6 +207,42 @@ LocalParasitics::recomputeLocalParasitics(PtGraph *pt_graph)
       //        network_->name(pt_vertex.vertex()->pin()));
       // fflush(stdout);
     }
+      }
+    }
+  }
+}
+
+void
+LocalParasitics::recomputePtParasitics(PtGraph *pt_graph)
+{
+  pt_graph->clearPtParasitics();
+  for (const auto &pt_vertex : pt_graph->ptVertices()) {
+    if (pt_vertex.type() != PtVertexType::RefDriver
+        && pt_vertex.type() != PtVertexType::RefOutput)
+      continue;
+    if (!pt_vertex.vertex() || !pt_vertex.vertex()->pin())
+      continue;
+    const Pin *drvr_pin = pt_vertex.vertex()->pin();
+    const Net *net = findParasiticNet(drvr_pin);
+    for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
+      ParasiticAnalysisPt *ap = dcalc_ap->parasiticAnalysisPt();
+      Parasitic *parasitic_network = findLocalParasiticNetwork(net, ap);
+      if (!parasitic_network)
+        continue;
+      ParasiticNode *drvr_node =
+          parasitics_->findParasiticNode(parasitic_network, drvr_pin);
+      if (!drvr_node)
+        continue;
+      for (const RiseFall *rf : RiseFall::range()) {
+        PtPiElmore &pt_pi = pt_graph->makePtParasitic(
+            pt_vertex.objectIdx(), rf, dcalc_ap->index());
+        pt_pi.clear();
+        LocalReduceToPiElmore reducer(this, pt_graph);
+        reducer.makePtPiElmore(parasitic_network, drvr_pin, drvr_node,
+                               ap->couplingCapFactor(), rf,
+                               dcalc_ap->corner(),
+                               dcalc_ap->constraintMinMax(), ap,
+                               pt_pi);
       }
     }
   }

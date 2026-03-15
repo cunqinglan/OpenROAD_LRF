@@ -124,6 +124,46 @@ PtGraph::~PtGraph()
 {
 }
 
+PtPiElmore*
+PtGraph::findPtParasitic(VertexId drvr_id,
+                          const sta::RiseFall *rf,
+                          int ap_index)
+{
+  auto it = pt_parasitics_.find(drvr_id);
+  if (it == pt_parasitics_.end())
+    return nullptr;
+  int idx = rf->index() * ap_count_ + ap_index;
+  auto &vec = it->second;
+  if (idx < 0 || idx >= (int)vec.size())
+    return nullptr;
+  return &vec[idx];
+}
+
+PtPiElmore&
+PtGraph::makePtParasitic(VertexId drvr_id,
+                          const sta::RiseFall *rf,
+                          int ap_index)
+{
+  auto &vec = pt_parasitics_[drvr_id];
+  size_t total = sta::RiseFall::index_count * ap_count_;
+  if (vec.size() < total)
+    vec.resize(total);
+  int idx = rf->index() * ap_count_ + ap_index;
+  return vec[idx];
+}
+
+void
+PtGraph::clearPtParasitics()
+{
+  pt_parasitics_.clear();
+}
+
+void
+PtGraph::clearPtParasitics(VertexId drvr_id)
+{
+  pt_parasitics_.erase(drvr_id);
+}
+
 sta::Level
 PtGraph::vertexLevel(VertexId vertex_id) const
 {
