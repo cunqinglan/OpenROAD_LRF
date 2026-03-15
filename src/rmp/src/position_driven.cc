@@ -448,9 +448,6 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
   logger_->info(utl::RES, 352, "After step 5.");
 
   // Step 6: Evaluate each solution using fork() for isolation.
-  // Each child inherits the full database via COW, freely modifies it
-  // (insert solution, run GPL, run STA), writes the slack result back
-  // via a pipe, and _exit()s.  The parent's state is never touched.
   abc::Map_Man_t* map_man = static_cast<abc::Map_Man_t*>(pMan);
   const int num_solutions = abc::Map_ManReadNumSolutions(map_man);
   if (num_solutions <= 0) {
@@ -460,180 +457,102 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
     return;
   }
 
-  logger_->info(utl::RES, 359, "Found {} solutions to evaluate.", num_solutions);
+  logger_->info(utl::RES, 359, "Found {} enumerated solutions to evaluate.", num_solutions);
 
   abc::Map_MappingSolution_t* pSolutionBest = nullptr;
   sta::Slack best_slack = std::numeric_limits<sta::Slack>::lowest();
   int best_solution_index = -1;
   int evaluated_count = 0;
 
-  // --- Phase 1: Fork all children in parallel ---
-  struct ChildInfo {
-    pid_t pid;
-    int pipe_fd;        // read end
-    int solution_index;
-    abc::Map_MappingSolution_t* pSolution;
-  };
-  std::vector<ChildInfo> children;
+  // --- Evaluate enumerated solutions ---
+  auto results = forkEvaluateSolutions(
+      map_man, logic_network.get(), candidate_cut, remapper,
+      0, num_solutions);
 
-  for (int i = 0; i < num_solutions; ++i) {
-    abc::Map_MappingSolution_t* pSolution =
-        abc::Map_MappingGetSolution(map_man, i);
-
-    if (pSolution == nullptr) {
-      logger_->warn(utl::RES, 349, "Solution {} is NULL, skipping.", i + 1);
-      continue;
-    }
-
-    int pipefd[2];
-    if (pipe(pipefd) == -1) {
-      logger_->warn(utl::RES, 356, "Solution {} pipe() failed, skipping.", i + 1);
-      continue;
-    }
-
-    pid_t pid = fork();
-    if (pid == -1) {
-      close(pipefd[0]);
-      close(pipefd[1]);
-      logger_->warn(utl::RES, 357, "Solution {} fork() failed, skipping.", i + 1);
-      continue;
-    }
-
-    if (pid == 0) {
-      // === CHILD PROCESS ===
-      close(pipefd[0]);  // close read end
-
-      // Force single-threaded to avoid fork+threads issues.
-      omp_set_num_threads(1);
-      sta->setThreadCount(1);
-
-      // Suppress raw stdout/stderr (GPL/ABC may printf).
-      freopen("/dev/null", "w", stdout);
-      freopen("/dev/null", "w", stderr);
-
-      // Capture all Logger output to a string.
-      logger_->redirectStringBegin();
-
-      candidate_cut.InsertAbcMapSolution(
-          pSolution,
-          map_man,
-          logic_network.get(),
-          *remapper.getAbcLibrary(),
-          network,
-          sta,
-          remapper.getNameGenerator(),
-          logger_);
-
-      sta::Slack slack = evaluateSolution(
-          pSolution,
-          map_man,
-          logic_network.get(),
-          candidate_cut,
-          remapper);
-
-      std::string log_output = logger_->redirectStringEnd();
-
-      // Write to pipe: slack, then log length, then log content.
-      uint32_t log_len = static_cast<uint32_t>(log_output.size());
-      write(pipefd[1], &slack, sizeof(slack));
-      write(pipefd[1], &log_len, sizeof(log_len));
-      if (log_len > 0)
-        write(pipefd[1], log_output.data(), log_len);
-      close(pipefd[1]);
-      _exit(0);
-    }
-
-    // === PARENT PROCESS ===
-    close(pipefd[1]);  // close write end
-    children.push_back({pid, pipefd[0], i, pSolution});
-  }
-
-  // --- Phase 2: Collect results from all children ---
-  struct ChildResult {
-    sta::Slack slack;
-    std::string log;
-    bool success;
-  };
-  std::vector<ChildResult> results(children.size(), {0.0, "", false});
-
-  for (size_t j = 0; j < children.size(); ++j) {
-    auto& child = children[j];
-    auto& result = results[j];
-
-    sta::Slack slack;
-    uint32_t log_len;
-    ssize_t n;
-
-    n = read(child.pipe_fd, &slack, sizeof(slack));
-    if (n != static_cast<ssize_t>(sizeof(slack))) {
-      close(child.pipe_fd);
-      continue;
-    }
-
-    n = read(child.pipe_fd, &log_len, sizeof(log_len));
-    if (n != static_cast<ssize_t>(sizeof(log_len))) {
-      close(child.pipe_fd);
-      continue;
-    }
-
-    std::string log(log_len, '\0');
-    size_t total_read = 0;
-    while (total_read < log_len) {
-      n = read(child.pipe_fd, log.data() + total_read, log_len - total_read);
-      if (n <= 0) break;
-      total_read += n;
-    }
-    close(child.pipe_fd);
-
-    if (total_read == log_len) {
-      result.slack = slack;
-      result.log = std::move(log);
-      result.success = true;
-    }
-  }
-
-  // Reap all children.
-  for (size_t j = 0; j < children.size(); ++j) {
-    int status;
-    waitpid(children[j].pid, &status, 0);
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-      results[j].success = false;
-    }
-  }
-
-  // --- Phase 3: Print results as coherent blocks, find best ---
-  for (size_t j = 0; j < children.size(); ++j) {
-    int idx = children[j].solution_index;
-    auto& result = results[j];
-
+  for (auto& res : results) {
+    int idx = res.solution_index;
     logger_->info(utl::RES, 355, "--- Solution {}/{} ---", idx + 1, num_solutions);
 
-    if (!result.success) {
+    if (!res.success) {
       logger_->warn(utl::RES, 358, "Solution {} child failed.", idx + 1);
       continue;
     }
 
-    // Print captured log as one coherent block.
-    if (!result.log.empty())
-      logger_->reportLiteral(result.log);
+    if (!res.log.empty())
+      logger_->reportLiteral(res.log);
 
-    if (result.slack > best_slack) {
-      best_slack = result.slack;
-      pSolutionBest = children[j].pSolution;
+    // Store evaluation result back into the solution for MCTS
+    abc::Map_MappingSolutionSetEvalResult(
+        res.pSolution, static_cast<float>(res.slack));
+
+    if (res.slack > best_slack) {
+      best_slack = res.slack;
+      pSolutionBest = res.pSolution;
       best_solution_index = idx;
       logger_->info(utl::RES, 362, "Solution {} is new best (slack={:.4f}).",
-                    idx + 1, result.slack);
+                    idx + 1, res.slack);
     } else {
       logger_->info(utl::RES, 363, "Solution {} (slack={:.4f}) not better than best ({:.4f}).",
-                    idx + 1, result.slack, best_slack);
+                    idx + 1, res.slack, best_slack);
     }
-
     evaluated_count++;
   }
 
   logger_->info(utl::RES, 360,
-               "Evaluation complete: {} solutions evaluated.",
+               "Enumeration evaluation complete: {} solutions evaluated.",
                evaluated_count);
+
+  // --- MCTS phase: generate new solutions guided by evaluation results ---
+  int nMctsIterations = 50;
+  double mctsC = 1.414;  // sqrt(2)
+  int nNewSolutions = abc::Map_MctsEnumerate(map_man, nMctsIterations, mctsC);
+
+  if (nNewSolutions > 0) {
+    logger_->info(utl::RES, 365,
+                  "MCTS generated {} new candidate solutions.", nNewSolutions);
+
+    int nTotal = abc::Map_ManReadNumSolutions(map_man);
+    int nOld = num_solutions;
+
+    auto mcts_results = forkEvaluateSolutions(
+        map_man, logic_network.get(), candidate_cut, remapper,
+        nOld, nTotal);
+
+    for (auto& res : mcts_results) {
+      int idx = res.solution_index;
+      logger_->info(utl::RES, 366, "--- MCTS Solution {}/{} ---",
+                    idx - nOld + 1, nNewSolutions);
+
+      if (!res.success) {
+        logger_->warn(utl::RES, 367, "MCTS solution {} child failed.",
+                      idx - nOld + 1);
+        continue;
+      }
+
+      if (!res.log.empty())
+        logger_->reportLiteral(res.log);
+
+      if (res.slack > best_slack) {
+        best_slack = res.slack;
+        pSolutionBest = res.pSolution;
+        best_solution_index = idx;
+        logger_->info(utl::RES, 368,
+                      "MCTS solution {} is new best (slack={:.4f}).",
+                      idx - nOld + 1, res.slack);
+      } else {
+        logger_->info(utl::RES, 369,
+                      "MCTS solution {} (slack={:.4f}) not better than best ({:.4f}).",
+                      idx - nOld + 1, res.slack, best_slack);
+      }
+      evaluated_count++;
+    }
+
+    logger_->info(utl::RES, 370,
+                 "MCTS evaluation complete: total {} solutions evaluated.",
+                 evaluated_count);
+  } else {
+    logger_->info(utl::RES, 371, "MCTS generated no new solutions.");
+  }
 
   // Step 7: Permanently apply the best solution in the parent process.
   if (pSolutionBest) {
@@ -669,6 +588,148 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
 
   // Step 8: Clean up the mapping manager.
   abc::Abc_NtkMapEnumFreeStore(pMan);
+}
+
+std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
+    abc::Map_Man_t* map_man,
+    abc::Abc_Ntk_t* logic_network,
+    cut::LogicCut& candidate_cut,
+    SeqRemapper& remapper,
+    int iStart,
+    int iEnd)
+{
+  sta::dbSta* sta = remapper.getSta();
+  sta::dbNetwork* network = sta->getDbNetwork();
+
+  struct ChildInfo {
+    pid_t pid;
+    int pipe_fd;
+    int solution_index;
+    abc::Map_MappingSolution_t* pSolution;
+  };
+  std::vector<ChildInfo> children;
+
+  // Fork all children in parallel
+  for (int i = iStart; i < iEnd; ++i) {
+    abc::Map_MappingSolution_t* pSolution =
+        abc::Map_MappingGetSolution(map_man, i);
+    if (pSolution == nullptr) {
+      logger_->warn(utl::RES, 349, "Solution {} is NULL, skipping.", i + 1);
+      continue;
+    }
+
+    int pipefd[2];
+    if (pipe(pipefd) == -1) {
+      logger_->warn(utl::RES, 356, "Solution {} pipe() failed, skipping.", i + 1);
+      continue;
+    }
+
+    pid_t pid = fork();
+    if (pid == -1) {
+      close(pipefd[0]);
+      close(pipefd[1]);
+      logger_->warn(utl::RES, 357, "Solution {} fork() failed, skipping.", i + 1);
+      continue;
+    }
+
+    if (pid == 0) {
+      // === CHILD PROCESS ===
+      close(pipefd[0]);
+      omp_set_num_threads(1);
+      sta->setThreadCount(1);
+      freopen("/dev/null", "w", stdout);
+      freopen("/dev/null", "w", stderr);
+      logger_->redirectStringBegin();
+
+      candidate_cut.InsertAbcMapSolution(
+          pSolution,
+          map_man,
+          logic_network,
+          *remapper.getAbcLibrary(),
+          network,
+          sta,
+          remapper.getNameGenerator(),
+          logger_);
+
+      sta::Slack slack = evaluateSolution(
+          pSolution,
+          map_man,
+          logic_network,
+          candidate_cut,
+          remapper);
+
+      std::string log_output = logger_->redirectStringEnd();
+
+      uint32_t log_len = static_cast<uint32_t>(log_output.size());
+      write(pipefd[1], &slack, sizeof(slack));
+      write(pipefd[1], &log_len, sizeof(log_len));
+      if (log_len > 0)
+        write(pipefd[1], log_output.data(), log_len);
+      close(pipefd[1]);
+      _exit(0);
+    }
+
+    // === PARENT PROCESS ===
+    close(pipefd[1]);
+    children.push_back({pid, pipefd[0], i, pSolution});
+  }
+
+  // Collect results from all children
+  std::vector<SolutionEvalResult> results;
+  results.reserve(children.size());
+
+  for (size_t j = 0; j < children.size(); ++j) {
+    auto& child = children[j];
+    SolutionEvalResult res;
+    res.solution_index = child.solution_index;
+    res.pSolution = child.pSolution;
+    res.success = false;
+
+    sta::Slack slack;
+    uint32_t log_len;
+    ssize_t n;
+
+    n = read(child.pipe_fd, &slack, sizeof(slack));
+    if (n != static_cast<ssize_t>(sizeof(slack))) {
+      close(child.pipe_fd);
+      results.push_back(std::move(res));
+      continue;
+    }
+
+    n = read(child.pipe_fd, &log_len, sizeof(log_len));
+    if (n != static_cast<ssize_t>(sizeof(log_len))) {
+      close(child.pipe_fd);
+      results.push_back(std::move(res));
+      continue;
+    }
+
+    std::string log(log_len, '\0');
+    size_t total_read = 0;
+    while (total_read < log_len) {
+      n = read(child.pipe_fd, log.data() + total_read, log_len - total_read);
+      if (n <= 0) break;
+      total_read += n;
+    }
+    close(child.pipe_fd);
+
+    if (total_read == log_len) {
+      res.slack = slack;
+      res.log = std::move(log);
+      res.success = true;
+    }
+    results.push_back(std::move(res));
+  }
+
+  // Reap all children
+  for (size_t j = 0; j < children.size(); ++j) {
+    int status;
+    waitpid(children[j].pid, &status, 0);
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+      results[j].success = false;
+    }
+  }
+
+  return results;
 }
 
 sta::Slack PositionDrivenStrategy::evaluateSolution(
