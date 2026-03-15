@@ -70,6 +70,8 @@ public:
                             const DcalcAnalysisPt *dcalc_ap);
   // Reduce parasitic networks into PtGraph-local PtPiElmore objects.
   void recomputePtParasitics(PtGraph *pt_graph);
+  // Rebuild PtPiElmore for a single driver vertex from the original parasitic network.
+  void recomputeSinglePtParasitic(PtGraph *pt_graph, sta::VertexId drvr_vid);
   // Parasitic *
 
 protected:

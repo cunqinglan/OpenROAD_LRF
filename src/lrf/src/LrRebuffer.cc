@@ -4,8 +4,10 @@
 
 #include "LrRebuffer.hh"
 #include "PtGraph.hh"
+#include "PtPiElmore.hh"
 #include "rsz/Resizer.hh"
 #include "LocalSta.hh"
+#include "LocalReduceParasitic.hh"
 #include "ParallelVisitor.hh"
 #include "sta/FuncExpr.hh"
 #include "sta/Fuzzy.hh"
@@ -13,6 +15,7 @@
 #include "sta/PortDirection.hh"
 #include "search/TagGroup.hh"
 #include "sta/Search.hh"
+#include "parasitics/ConcreteParasiticsPvt.hh"
 
 
 namespace {
@@ -667,15 +670,22 @@ LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
   }
 
   pt_graph->topoSortVertices();
-  buildVirtualParasitics(pt_vertex_id, option, vinfo);
+  buildSyntheticParasitics(pt_vertex_id, option, vinfo);
   auto result = local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
   float delay_lm_sum = result.delay_lm_sum;
   float slack_after = local_sta_->localSlackOnSinks(pt_graph);
+
+  printf("[EVAL] drvr=%u orig_slack=%.3f after_slack=%.3f delta=%.3f cost=%.3e\n",
+         pt_vertex_id, original_slack * 1e12, slack_after * 1e12,
+         (slack_after - original_slack) * 1e12, delay_lm_sum);
+  fflush(stdout);
+
   if (slack_after > original_slack * 0.95) {
     total_cost = visitor_->swapCost(delay_lm_sum, option->leakage());
   }
 
   removeVirtualBuffer(vinfo);
+  local_sta_->recomputeSinglePtParasitic(pt_graph, pt_vertex_id);
   return total_cost;
 }
 
@@ -1723,6 +1733,235 @@ LrRebuffer::buildVirtualParasitics(VertexId drvr_vertex_id,
   };
 
   walk(option, drvr_vertex_id, 0.0f);
+}
+
+// Info collected per leaf node when building a synthetic parasitic network.
+struct SyntheticLoadInfo {
+  VertexId vertex_id;
+  const sta::Pin *pin;    // nullptr for virtual loads (buffer input)
+  unsigned node_id;       // ConcreteParasiticNode id in the synthetic network
+};
+
+// Build a synthetic ConcreteParasiticNetwork from BnetPtr wire/via RC segments
+// for a single driver's sub-tree (from driver to its immediate buffer/load leaves).
+// Caller must delete the returned network.
+static sta::ConcreteParasiticNetwork*
+buildSyntheticRCNetwork(const BufferedNetPtr& bnet,
+                        PtGraph *pt_graph,
+                        VertexId drvr_vid,
+                        const sta::Net *fallback_net,
+                        const sta::Corner *corner,
+                        const sta::RiseFall *rf,
+                        const sta::MinMax *min_max,
+                        rsz::Resizer *resizer,
+                        est::EstimateParasitics *estimate_parasitics,
+                        sta::Graph *sta_graph,
+                        const sta::Network *network,
+                        const std::vector<VertexId> &vinfo_vids,
+                        int &vi_ref,
+                        sta::ConcreteParasiticNode *&out_drvr_node,
+                        std::vector<SyntheticLoadInfo> &out_loads)
+{
+  const sta::Pin *drvr_pin = pt_graph->ptVertex(drvr_vid).pin();
+  const sta::Net *net = drvr_pin ? network->net(drvr_pin) : fallback_net;
+
+  auto *syn_net = new sta::ConcreteParasiticNetwork(net, false, network);
+  int node_id = 0;
+  size_t res_id = 0;
+  out_drvr_node = syn_net->ensureParasiticNode(net, node_id++, network);
+
+  using RCWalker = std::function<void(const BufferedNetPtr&,
+                                      sta::ConcreteParasiticNode*)>;
+  RCWalker rc_walk = [&](const BufferedNetPtr& node,
+                         sta::ConcreteParasiticNode* cur_node) {
+    switch (node->type()) {
+      case BufferedNetType::wire: {
+        double res, cap;
+        const_cast<BufferedNet*>(node.get())->wireRC(
+            corner, resizer, estimate_parasitics, res, cap);
+        auto *next = syn_net->ensureParasiticNode(net, node_id++, network);
+        syn_net->addResistor(
+            new sta::ConcreteParasiticResistor(res_id++, res, cur_node, next));
+        next->incrCapacitance(cap);
+        rc_walk(node->ref(), next);
+        break;
+      }
+      case BufferedNetType::via: {
+        double via_res = const_cast<BufferedNet*>(node.get())->viaResistance(
+            corner, resizer, estimate_parasitics);
+        auto *next = syn_net->ensureParasiticNode(net, node_id++, network);
+        syn_net->addResistor(
+            new sta::ConcreteParasiticResistor(res_id++, via_res, cur_node, next));
+        rc_walk(node->ref(), next);
+        break;
+      }
+      case BufferedNetType::junction:
+        rc_walk(node->ref(), cur_node);
+        rc_walk(node->ref2(), cur_node);
+        break;
+      case BufferedNetType::buffer: {
+        if (vi_ref + 1 >= (int)vinfo_vids.size()) break;
+        VertexId buf_in_id = vinfo_vids[vi_ref];  // peek, don't advance
+        sta::LibertyCell *buf_cell = node->bufferCell();
+        sta::LibertyPort *in_port, *out_port;
+        buf_cell->bufferPorts(in_port, out_port);
+        float buf_in_cap = in_port ? in_port->capacitance(rf, min_max) : 0.0f;
+        auto *leaf = syn_net->ensureParasiticNode(net, node_id++, network);
+        leaf->incrCapacitance(buf_in_cap);
+        // Connect leaf to cur_node so reducePiDfs can reach it
+        syn_net->addResistor(
+            new sta::ConcreteParasiticResistor(res_id++, 0.0f, cur_node, leaf));
+        out_loads.push_back({buf_in_id, nullptr, leaf->id()});
+        break;
+      }
+      case BufferedNetType::load: {
+        const sta::Pin *load_pin = node->loadPin();
+        sta::LibertyPort *lp = load_pin ? network->libertyPort(load_pin) : nullptr;
+        float pin_cap = lp ? lp->capacitance(rf, min_max) : 0.0f;
+        auto *leaf = syn_net->ensureParasiticNode(net, node_id++, network);
+        leaf->incrCapacitance(pin_cap);
+        // Connect leaf to cur_node so reducePiDfs can reach it
+        syn_net->addResistor(
+            new sta::ConcreteParasiticResistor(res_id++, 0.0f, cur_node, leaf));
+        sta::Vertex *lv = sta_graph->pinLoadVertex(load_pin);
+        PtVertex *pt_lv = lv ? pt_graph->ptVertex(lv) : nullptr;
+        VertexId load_vid = pt_lv ? pt_lv->objectIdx() : pt_vertex_id_null;
+        out_loads.push_back({load_vid, load_pin, leaf->id()});
+        break;
+      }
+      default:
+        break;
+    }
+  };
+  rc_walk(bnet, out_drvr_node);
+  return syn_net;
+}
+
+void
+LrRebuffer::buildSyntheticParasitics(VertexId drvr_vertex_id,
+                                      const BufferedNetPtr& option,
+                                      const VirtualBufferInfo &vinfo)
+{
+  PtGraph *pt_graph = visitor_->ptGraph();
+  int vi = 0;
+
+  // Get the original driver's net as fallback for virtual drivers
+  const sta::Pin *orig_drvr_pin = pt_graph->ptVertex(drvr_vertex_id).pin();
+  const sta::Net *orig_net = orig_drvr_pin ? network_->net(orig_drvr_pin) : nullptr;
+
+  using Walker = std::function<void(const BufferedNetPtr&, VertexId)>;
+  Walker walk = [&](const BufferedNetPtr& bnet, VertexId current_drvr_id) {
+    pt_graph->clearPtParasitics(current_drvr_id);
+
+    for (auto *corner : *corners_) {
+      sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(sta::MinMax::max());
+      const sta::MinMax *min_max = dcalc_ap->constraintMinMax();
+      const sta::ParasiticAnalysisPt *ap = dcalc_ap->parasiticAnalysisPt();
+      float coupling_cap_factor = ap->couplingCapFactor();
+
+      for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+        int saved_vi = vi;
+        sta::ConcreteParasiticNode *drvr_node = nullptr;
+        std::vector<SyntheticLoadInfo> loads;
+
+        auto *syn_net = buildSyntheticRCNetwork(
+            bnet, pt_graph, current_drvr_id, orig_net,
+            corner, rf, min_max, resizer_, estimate_parasitics_,
+            graph_, network_, vinfo.vertex_ids, saved_vi,
+            drvr_node, loads);
+        vi = saved_vi;
+
+        if (!syn_net || !drvr_node) {
+          delete syn_net;
+          continue;
+        }
+
+        // Reduce Pi model
+        LocalReduceToPiElmore reducer(this, pt_graph);
+        float c2, rpi, c1;
+        reducer.reduceToPi(syn_net, nullptr, drvr_node, coupling_cap_factor,
+                           rf, corner, min_max, ap, c2, rpi, c1);
+
+        PtPiElmore &pt_pi = pt_graph->makePtParasitic(
+            current_drvr_id, rf, dcalc_ap->index());
+        pt_pi.setPiModel(c2, rpi, c1);
+
+        if (rf == sta::RiseFall::rise()) {
+          printf("[SYNTH_PI] drvr=%u c2=%.4e rpi=%.4e c1=%.4e cap=%.4e loads=%zu\n",
+                 current_drvr_id, c2, rpi, c1, c2+c1, loads.size());
+          fflush(stdout);
+        }
+
+        // Elmore DFS using downstream caps from reduceToPi
+        auto resistor_map = parasitics_->parasiticNodeResistorMap(syn_net);
+        std::set<sta::ParasiticNode*> visited;
+        std::unordered_map<unsigned, float> node_elmore;
+
+        std::function<void(sta::ParasiticNode*, sta::ParasiticResistor*, double)>
+        elmoreDfs = [&](sta::ParasiticNode *node,
+                        sta::ParasiticResistor *from_res,
+                        double elmore) {
+          visited.insert(node);
+          auto *cn = static_cast<sta::ConcreteParasiticNode*>(node);
+          node_elmore[cn->id()] = elmore;
+          auto it = resistor_map.find(node);
+          if (it != resistor_map.end()) {
+            for (sta::ParasiticResistor *res : it->second) {
+              sta::ParasiticNode *onode = parasitics_->otherNode(res, node);
+              if (res != from_res && visited.find(onode) == visited.end()) {
+                float r = parasitics_->value(res);
+                double dwn_cap = reducer.downstreamCap(onode);
+                elmoreDfs(onode, res, elmore + r * dwn_cap);
+              }
+            }
+          }
+        };
+        elmoreDfs(drvr_node, nullptr, 0.0);
+
+        for (const auto &load : loads) {
+          auto it = node_elmore.find(load.node_id);
+          float elmore = (it != node_elmore.end()) ? it->second : 0.0f;
+          pt_pi.addLoad(load.vertex_id, load.pin, elmore);
+          if (rf == sta::RiseFall::rise()) {
+            printf("[SYNTH_ELMORE] drvr=%u load=%u pin=%s elmore=%.4e\n",
+                   current_drvr_id, load.vertex_id,
+                   load.pin ? network_->name(load.pin) : "virtual",
+                   elmore);
+          }
+        }
+        fflush(stdout);
+        delete syn_net;
+      }
+    }
+
+    // Advance vi and recurse into buffer output downstream sub-trees
+    std::function<void(const BufferedNetPtr&)> advanceAndRecurse;
+    advanceAndRecurse = [&](const BufferedNetPtr& node) {
+      switch (node->type()) {
+        case BufferedNetType::wire:
+        case BufferedNetType::via:
+          advanceAndRecurse(node->ref());
+          break;
+        case BufferedNetType::junction:
+          advanceAndRecurse(node->ref());
+          advanceAndRecurse(node->ref2());
+          break;
+        case BufferedNetType::buffer: {
+          if (vi + 1 >= (int)vinfo.vertex_ids.size()) break;
+          vi++;  // skip buf_in_id
+          VertexId buf_out_id = vinfo.vertex_ids[vi++];
+          walk(node->ref(), buf_out_id);
+          break;
+        }
+        case BufferedNetType::load:
+        default:
+          break;
+      }
+    };
+    advanceAndRecurse(bnet);
+  };
+
+  walk(option, drvr_vertex_id);
 }
 
 void
