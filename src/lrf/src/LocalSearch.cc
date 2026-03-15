@@ -448,10 +448,41 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
     fflush(stdout);
     return true;
   } else if (from_tag->isClock()) {
-    // clk to ff/dl/comb
-    printf("Skipping clock to ff/dl/comb path in local arrival analysis.\n");
-    fflush(stdout);
-    return true;
+    // clk to ff/dl/comb: replicate original STA logic to preserve tag group.
+    // Skipping this path drops tags from the tag group, causing ptCopyPaths
+    // to fail when the rebuilt tag set doesn't match prev_tag_group.
+    // Thread-safe: thruClkTag uses same locked findClkInfo/findTag as thruTag.
+    ClockSet *clks = sdc_->findLeafPinClocks(from_pin);
+    if (!(role == TimingRole::wire()
+          && sdc_->clkDisabledByHpinThru(clk, from_pin, to_pin))
+        && !(clks
+             && !clks->hasKey(const_cast<Clock*>(from_tag->clock())))) {
+      bool to_propagates_clk =
+        !sdc_->clkStopPropagation(clk, from_pin, from_rf, to_pin, to_rf)
+        && (variables_->clkThruTristateEnabled()
+            || !(role == TimingRole::tristateEnable()
+                 || role == TimingRole::tristateDisable()));
+      arc_delay = pt_graph_->arcDelay(pt_edge, arc,
+                                      path_ap->dcalcAnalysisPt()->index());
+      float derate = search_->timingDerate(from_pt_vertex.vertex(), arc,
+                                           edge, to_propagates_clk, path_ap);
+      arc_delay *= derate;
+      const PathAnalysisPt *path_ap_opp =
+        path_ap->corner()->findPathAnalysisPt(min_max->opposite());
+      ArcDelay arc_delay_opp = pt_graph_->arcDelay(
+        pt_edge, arc, path_ap_opp->dcalcAnalysisPt()->index());
+      float derate_opp = search_->timingDerate(from_pt_vertex.vertex(), arc,
+                                               edge, to_propagates_clk,
+                                               path_ap_opp);
+      arc_delay_opp *= derate_opp;
+      bool arc_delay_min_max_eq =
+        fuzzyEqual(delayAsFloat(arc_delay), delayAsFloat(arc_delay_opp));
+      to_tag = search_->thruClkTag(from_path, from_pt_vertex.vertex(),
+                                   from_tag, to_propagates_clk, edge,
+                                   to_rf, arc_delay_min_max_eq,
+                                   min_max, path_ap);
+      to_arrival = from_arrival + arc_delay;
+    }
   }
     else {
     // This is a data path (unclocked or after clock capture)
@@ -579,6 +610,9 @@ LocalArrivalVisitor::localSetVertexArrivals(PtVertex &pt_vertex, TagGroupBldr *t
         pt_vertex.setTagGroupIndex(tag_group->index());
       }
     } else {
+      // VertexSet-based graph may omit some instance pins, so not all
+      // fanin edges exist. tag_bldr has fewer tags (subset of prev).
+      // Update only recomputable arrivals; keep the rest unchanged.
       tag_bldr->ptCopyPaths(prev_tag_group, prev_paths);
     }
   }
