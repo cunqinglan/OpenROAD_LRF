@@ -229,6 +229,38 @@ LocalParasitics::recomputePtParasitics(PtGraph *pt_graph)
   }
 }
 
+void
+LocalParasitics::recomputeSinglePtParasitic(PtGraph *pt_graph, VertexId drvr_vid)
+{
+  pt_graph->clearPtParasitics(drvr_vid);
+  const PtVertex &pt_vertex = pt_graph->ptVertex(drvr_vid);
+  if (!pt_vertex.vertex() || !pt_vertex.vertex()->pin())
+    return;
+  const Pin *drvr_pin = pt_vertex.vertex()->pin();
+  const Net *net = findParasiticNet(drvr_pin);
+  for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
+    ParasiticAnalysisPt *ap = dcalc_ap->parasiticAnalysisPt();
+    Parasitic *parasitic_network = findLocalParasiticNetwork(net, ap);
+    if (!parasitic_network)
+      continue;
+    ParasiticNode *drvr_node =
+        parasitics_->findParasiticNode(parasitic_network, drvr_pin);
+    if (!drvr_node)
+      continue;
+    for (const RiseFall *rf : RiseFall::range()) {
+      PtPiElmore &pt_pi = pt_graph->makePtParasitic(
+          drvr_vid, rf, dcalc_ap->index());
+      pt_pi.clear();
+      LocalReduceToPiElmore reducer(this, pt_graph);
+      reducer.makePtPiElmore(parasitic_network, drvr_pin, drvr_node,
+                             ap->couplingCapFactor(), rf,
+                             dcalc_ap->corner(),
+                             dcalc_ap->constraintMinMax(), ap,
+                             pt_pi);
+    }
+  }
+}
+
 Parasitic *
 LocalParasitics::findLocalParasiticNetwork(const Net *net, const ParasiticAnalysisPt *ap) const
 {

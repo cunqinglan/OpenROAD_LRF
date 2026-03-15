@@ -94,6 +94,13 @@ protected:
   void buildVirtualParasitics(VertexId drvr_vertex_id,
                               const rsz::BufferedNetPtr& option,
                               const VirtualBufferInfo &vinfo);
+  // New: build synthetic ConcreteParasiticNetwork from BnetPtr wireRC and
+  // reduce to PtPiElmore.  Replaces driver's PtPiElmore with one that
+  // reflects the modified topology (driver sees only buffer input cap,
+  // not all original loads).  Parallel to buildVirtualParasitics for testing.
+  void buildSyntheticParasitics(VertexId drvr_vertex_id,
+                                const rsz::BufferedNetPtr& option,
+                                const VirtualBufferInfo &vinfo);
 private:
   LocalSta *local_sta_;
   ParallelLrVisitor* visitor_;

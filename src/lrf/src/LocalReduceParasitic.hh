@@ -45,6 +45,7 @@ public:
 		  float &rpi,
 		  float &c1);
   bool pinCapsOneValue() { return pin_caps_one_value_; }
+  float downstreamCap(ParasiticNode *node);
 
 protected:
   void reducePiDfs(const Pin *drvr_pin,
@@ -61,7 +62,6 @@ protected:
   void leave(ParasiticNode *node);
   void setDownstreamCap(ParasiticNode *node,
 			float cap);
-  float downstreamCap(ParasiticNode *node);
   float pinCapacitance(ParasiticNode *node);
   bool isLoopResistor(ParasiticResistor *resistor);
   void markLoopResistor(ParasiticResistor *resistor);

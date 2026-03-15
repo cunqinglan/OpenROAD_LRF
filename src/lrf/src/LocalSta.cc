@@ -1424,6 +1424,12 @@ LocalSta::recomputeLocalParasitics(PtGraph *pt_graph)
   local_parasitics_->recomputePtParasitics(pt_graph);
 }
 
+void
+LocalSta::recomputeSinglePtParasitic(PtGraph *pt_graph, VertexId drvr_vid)
+{
+  local_parasitics_->recomputeSinglePtParasitic(pt_graph, drvr_vid);
+}
+
 Slack
 LocalSta::localSlackAroundRef(PtGraph *pt_graph)
 {

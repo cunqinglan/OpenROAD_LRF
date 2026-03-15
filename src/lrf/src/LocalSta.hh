@@ -403,6 +403,7 @@ protected:
   // will change largely. So the parasitic network and its
   // reduced pi model need to be recomputed.
   void recomputeLocalParasitics(PtGraph *pt_graph);
+  void recomputeSinglePtParasitic(PtGraph *pt_graph, sta::VertexId drvr_vid);
 
   ////////////////////////////////////////////////////////
   // Swapping cells virtually
