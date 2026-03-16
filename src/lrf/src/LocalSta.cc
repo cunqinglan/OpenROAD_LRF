@@ -811,15 +811,15 @@ LocalSta::findDriverDelays1(PtVertex &drvr_pt_vertex,
   while (in_edge_iter.hasNext()) {
     PtEdge &pt_edge = in_edge_iter.next();
 
+    // PtGraph edges already passed searchThru at construction time.
+    // Avoid dereferencing pt_edge.edge() here because the underlying
+    // sta::Edge* may have been invalidated by a concurrent replaceCell.
     bool pass_predicates;
     if (pt_edge.hasBase()) {
-      Edge *edge = pt_edge.edge();
       Vertex *from_vertex = pt_graph->ptVertex(pt_edge.ptFromId()).vertex();
       pass_predicates = search_pred_->searchFrom(from_vertex)
-                        && search_pred_->searchThru(edge)
-                        && !edge->role()->isLatchDtoQ();
+                        && !pt_edge.role()->isLatchDtoQ();
     } else {
-      // Virtual edge: skip search predicates, always process
       pass_predicates = !pt_edge.role()->isLatchDtoQ();
     }
 
