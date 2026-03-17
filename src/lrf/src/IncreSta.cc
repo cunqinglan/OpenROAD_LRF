@@ -742,8 +742,9 @@ IncreSta::parallelResizeAdaptive(rsz::Resizer *resizer, float avg_delay, float a
 
   if (isPowerOptimizationMode()) {
     ParallelLrVisitor *critical_path_visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
-    critical_path_visitor->init(avg_delay, avg_power, wns_after_resize, 
+    critical_path_visitor->init(avg_delay, avg_power, wns_after_resize,
         PT_tradeoff, &swappable_cells_cache_, &inst_info_map_);
+    critical_path_visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
     critical_path_visitor->setMoveType(MoveType::Resizing);
 
     // Time the critical-path sizing phase
@@ -802,8 +803,9 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
 
   if (isPowerOptimizationMode()) {
     ParallelLrVisitor *critical_path_visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
-    critical_path_visitor->init(avg_delay, avg_power, wns_after_resize, 
+    critical_path_visitor->init(avg_delay, avg_power, wns_after_resize,
         PT_tradeoff, &swappable_cells_cache_, &inst_info_map_);
+    critical_path_visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
     critical_path_visitor->setMoveType(MoveType::Resizing);
 
     // Time the critical-path sizing phase
@@ -951,6 +953,7 @@ IncreSta::parallelResizeByArrayWithPrecheck(
     ParallelLrVisitor *cp_visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
     cp_visitor->init(avg_delay, avg_power, wns_after,
         PT_tradeoff, &swappable_cells_cache_, &inst_info_map_);
+    cp_visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
     cp_visitor->setMoveType(MoveType::Resizing);
     auto start_cps = std::chrono::high_resolution_clock::now();
     LrSizer lr_sizer(sta_, lr_helper_, cp_visitor);
