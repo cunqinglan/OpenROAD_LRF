@@ -88,7 +88,7 @@ void
 TaskArranger::init()
 {
   if (vertices_.empty()) {
-    printf("TaskArranger::init making graph...\n");
+    // printf("TaskArranger::init making graph...\n");
     makeGraph();
     initVertexRefCounts(true);
     ensureGraphVertices();
@@ -98,7 +98,7 @@ TaskArranger::init()
 void 
 TaskArranger::reinit()
 {
-  printf("TaskArranger::reinit checking graph consistency...\n");
+  // printf("TaskArranger::reinit checking graph consistency...\n");
   // This number is completely wrong, need to double check
   // if (network_->instanceCount() != vertices_.size() + 1) { // +1 for TOP instance
   //   init();
@@ -114,8 +114,8 @@ TaskArranger::ensureGraphVertices()
   // Pre-warm the graph by accessing all relevant vertices.
   // This forces OpenSTA to allocate vertices in the graph, preventing
   // reallocation/pointer invalidation during parallel execution.
-  printf("TaskArranger::ensureGraphVertices pre-warming graph...\n");
-  fflush(stdout);
+  // printf("TaskArranger::ensureGraphVertices pre-warming graph...\n");
+  // fflush(stdout);
   
   sta::Graph *graph = graph_;
   sta::Network *network = network_;
@@ -165,8 +165,8 @@ TaskArranger::ensureGraphVertices()
       }
     }
   }
-  printf("TaskArranger::ensureGraphVertices done.\n");
-  fflush(stdout);
+  // printf("TaskArranger::ensureGraphVertices done.\n");
+  // fflush(stdout);
 }
 
 VertexId
@@ -241,8 +241,8 @@ TaskArranger::makeGraph()
 void 
 TaskArranger::checkGraph() const
 {
-  printf("Checking all vertices in the graph...\n");
-  fflush(stdout);
+  // printf("Checking all vertices in the graph...\n");
+  // fflush(stdout);
   for (size_t vid = 0; vid < vertices_.size(); vid++) {
     const InstVertex &inst_vertex = vertices_[vid];
     if (inst_vertex.type() == VertexType::NONE) {
@@ -257,11 +257,11 @@ TaskArranger::checkGraph() const
       throw std::runtime_error("Instance to VertexId mapping incorrect in checkGraph.");
     }
   }
-  printf("All vertices checked successfully in checkGraph.\n");
-  fflush(stdout);
+  // printf("All vertices checked successfully in checkGraph.\n");
+  // fflush(stdout);
 
-  printf("Checking all edges in the graph...\n");
-  fflush(stdout);
+  // printf("Checking all edges in the graph...\n");
+  // fflush(stdout);
   for (size_t eid = 0; eid < edges_.size(); eid++) {
     const InstEdge &inst_edge = edges_[eid];
     if (inst_edge.objectIdx() == object_idx_null) {
@@ -280,10 +280,10 @@ TaskArranger::checkGraph() const
       }
     }
   }
-  printf("All edges checked successfully in checkGraph.\n");
-  fflush(stdout);
+  // printf("All edges checked successfully in checkGraph.\n");
+  // fflush(stdout);
 
-  printf("Checking ref counts of vertices in the graph...\n");
+  // printf("Checking ref counts of vertices in the graph...\n");
   for (size_t vid = 0; vid < vertices_.size(); vid++) {
     const InstVertex &inst_vertex = vertices_[vid];
     if (inst_vertex.tempRefNum() == 0) {
@@ -330,9 +330,9 @@ TaskArranger::makeVertices()
   // Pre-reserve mapping capacity to keep unordered_map lookups O(1) without rehash.
   inst_to_vid_.reserve(vertices_.size());
   num_com_ = num_com_insts;
-  printf("Making vertices: %d combinational, %d sequential, %zu numcom\n", 
-         num_com_insts, num_root_insts, num_com_);
-  fflush(stdout);
+  // printf("Making vertices: %d combinational, %d sequential, %zu numcom\n",
+  //        num_com_insts, num_root_insts, num_com_);
+  // fflush(stdout);
   sta::LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
   num_com_insts = 0;
   num_root_insts = 0;
@@ -370,9 +370,9 @@ TaskArranger::makeVertices()
     }
   }
   delete inst_iter;
-  printf("Double check size: num_root_insts=%d, num_com_insts=%d\n", 
-         num_root_insts, num_com_insts);
-  fflush(stdout);
+  // printf("Double check size: num_root_insts=%d, num_com_insts=%d\n",
+  //        num_root_insts, num_com_insts);
+  // fflush(stdout);
 
   // Create vertex for top instance
   {
@@ -385,10 +385,10 @@ TaskArranger::makeVertices()
     vertex.setObjectIdx(vid);  
     setInstanceId1(top_inst, vid);
     vertex.setType(VertexType::TOP);
-    const char *inst_name = network_->name(top_inst);
-    printf("  Initialized top instance vertex %d: inst=%p, name=%s\n", 
-           vid, (void*)top_inst, inst_name);
-    fflush(stdout);
+    // const char *inst_name = network_->name(top_inst);
+    // printf("  Initialized top instance vertex %d: inst=%p, name=%s\n",
+    //        vid, (void*)top_inst, inst_name);
+    // fflush(stdout);
   }
   
   edges_.reserve(4 * vertices_.size()); // rough estimate
@@ -405,16 +405,16 @@ void
 TaskArranger::makeEdges()
 {
   // ✅ 先验证所有 vertices 的 inst_ 指针
-  printf("Verifying all vertices before makeEdges...\n");
-  fflush(stdout);
+  // printf("Verifying all vertices before makeEdges...\n");
+  // fflush(stdout);
   for (size_t vid = 0; vid < vertices_.size(); vid++) {
     InstVertex &inst_vertex = vertices_[vid];
     if (!inst_vertex.inst()) {
       throw std::runtime_error("Vertex has null inst_ before makeEdges.");
     }
   }
-  printf("Verification complete. Starting makeEdges...\n");
-  fflush(stdout);
+  // printf("Verification complete. Starting makeEdges...\n");
+  // fflush(stdout);
   
   for (size_t vid = 0; vid < vertices_.size(); vid++) {
     InstVertex &inst_vertex = vertices_[vid];
@@ -825,8 +825,8 @@ TaskArranger::visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *
   
   visitors_.reserve(thread_count_);
   visitors_.push_back(visitor);
-  printf("Visit with %u threads\n", thread_count_);
-  fflush(stdout);
+  // printf("Visit with %u threads\n", thread_count_);
+  // fflush(stdout);
   for (size_t i = 1; i < thread_count_; i++) {
     visitors_.emplace_back(visitor->copy());
   }
@@ -867,9 +867,9 @@ TaskArranger::visitParallelPrecheck(sta::dbSta *sta, LocalSta *local_sta,
   for (auto v : visitors_) delete v;
   visitors_.clear();
 
-  printf("Precheck: %zu combinational instances out of %zu total, %u threads\n",
-         num_com_, vertices_.size(), thread_count_);
-  fflush(stdout);
+  // printf("Precheck: %zu combinational instances out of %zu total, %u threads\n",
+  //        num_com_, vertices_.size(), thread_count_);
+  // fflush(stdout);
 
   // Pre-allocate results with 1:1 mapping to vertices_.
   // Non-combinational slots are left with cost_change=0.

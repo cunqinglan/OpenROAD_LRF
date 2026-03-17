@@ -561,15 +561,15 @@ ParallelLrVisitor::getLegalEquivCells(
 void 
 ParallelLrVisitor::printRuntimeProfile() const
 {
-  printf("ParallelLrVisitor Runtime Profile:\n");
-  for (const auto &entry : runtime_map_) {
-    printf("  %s: %.6f seconds\n", entry.first.c_str(), entry.second);
-  }
-  double equiv_cell_count = runtime_map_.at("equiv_cell_count");
-  double equiv_cell_check_time = runtime_map_.at("equiv_cell_check");
-  if (equiv_cell_count > 0) {
-    printf("  Average equiv cell check time: %.9f seconds\n", equiv_cell_check_time / equiv_cell_count);
-  }
+  // printf("ParallelLrVisitor Runtime Profile:\n");
+  // for (const auto &entry : runtime_map_) {
+  //   printf("  %s: %.6f seconds\n", entry.first.c_str(), entry.second);
+  // }
+  // double equiv_cell_count = runtime_map_.at("equiv_cell_count");
+  // double equiv_cell_check_time = runtime_map_.at("equiv_cell_check");
+  // if (equiv_cell_count > 0) {
+  //   printf("  Average equiv cell check time: %.9f seconds\n", equiv_cell_check_time / equiv_cell_count);
+  // }
 }
 
 bool 
@@ -920,11 +920,11 @@ ParallelLrVisitor::applyResizeChangesToDb(rsz::Resizer *resizer)
                 db_sta_->network()->libertyCell(pt_graph_->refInstance());
     if (!sta::equivCellsArcs(from_lib_cell, best_cell_)) {
       // No change needed
-      printf("ParallelLrVisitor::applyChangesToDb skipping instance %s swap from cell %s to cell %s due to arc mismatch\n",
-              db_sta_->network()->pathName(pt_graph_->refInstance()),
-              from_lib_cell->name(),
-              best_cell_->name());
-      fflush(stdout);
+      // printf("ParallelLrVisitor::applyChangesToDb skipping instance %s swap from cell %s to cell %s due to arc mismatch\n",
+      //         db_sta_->network()->pathName(pt_graph_->refInstance()),
+      //         from_lib_cell->name(),
+      //         best_cell_->name());
+      // fflush(stdout);
       return;
     }
     // printf("ParallelLrVisitor::applyChangesToDb swapping instance %s from cell %s to cell %s\n",
@@ -1097,8 +1097,8 @@ ParallelLrVisitor::init(float average_delay, float average_power, float wns,
   } else
     slack_margin_ = std::max((-std::min(wns, 0.0f) / clock_period + 1.0f), 1.05f);
   PT_tradeoff_ = PT_tradeoff;
-  printf("slack_margin: %f\n", slack_margin_);
-  fflush(stdout);
+  // printf("slack_margin: %f\n", slack_margin_);
+  // fflush(stdout);
   swappable_cells_cache_ = cache;
   inst_info_map_ = inst_info_map;
 }
@@ -1119,8 +1119,8 @@ ParallelLrVisitor::init(float averge_delay, float average_power, float wns,
   clock_period_ = clock_period;
   slack_margin_ = std::max((-std::min(wns, 0.0f) / clock_period + 1.0f), 1.05f);
   PT_tradeoff_ = PT_tradeoff;
-  printf("slack_margin: %f\n", slack_margin_);
-  fflush(stdout);
+  // printf("slack_margin: %f\n", slack_margin_);
+  // fflush(stdout);
   parallel_lib_data_ = parallel_lib_data;
 }
 
