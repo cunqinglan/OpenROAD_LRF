@@ -72,7 +72,7 @@ LrRebuffer::initGlobalPreamble(sta::dbSta *sta, rsz::Resizer *resizer)
   sta->checkCapacitanceLimitPreamble();
   sta->checkSlewLimitPreamble();
   sta->checkFanoutLimitPreamble();
-  resizer->findFastBuffers();
+  resizer->resizePreamble();
 }
 
 void
