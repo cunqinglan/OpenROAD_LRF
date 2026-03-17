@@ -148,8 +148,8 @@ LRHelper::BFSSort() {
 // KKTProjection performs the Karush-Kuhn-Tucker projection step.
 bool
 LRHelper::KKTProjection(Sta *sta) {
-  printf("LRHelper::KKTProjection()\n");
-  fflush(stdout);
+  // printf("LRHelper::KKTProjection()\n");
+  // fflush(stdout);
   // Ensure vertices are sorted in topological order
   const VertexSeq &sorted_vertices = ensureSorted(sta);
 
@@ -175,19 +175,19 @@ LRHelper::KKTProjection(Sta *sta) {
   }
   bool kkt_satisfied = checkKKTForAllVertices();
   if (kkt_satisfied) {
-    printf("LRHelper::KKTProjection(): KKT conditions satisfied\n");
+    // printf("LRHelper::KKTProjection(): KKT conditions satisfied\n");
   } else {
-    printf("LRHelper::KKTProjection(): KKT conditions NOT satisfied\n");
+    // printf("LRHelper::KKTProjection(): KKT conditions NOT satisfied\n");
   }
-  fflush(stdout);
+  // fflush(stdout);
 
   return kkt_satisfied;
 }
 
 bool
 LRHelper::checkKKTForAllVertices() {
-  printf("LRHelper::checkKKTForAllVertices()\n");
-  fflush(stdout);
+  // printf("LRHelper::checkKKTForAllVertices()\n");
+  // fflush(stdout);
   bool all_satisfied = true;
   const VertexSeq &ordered = sorted_lm_vertices_;
   LMValue max_lm = MIN_LM_VALUE;
@@ -232,11 +232,11 @@ LRHelper::checkKKTForAllVertices() {
             min_lm = arc_lm;
             min_lm_edge = out_edge;
             if (min_lm <= 0.0) {
-              printf("LRHelper::checkKKTForAllVertices(): encountered zero LM value on vertex %s, edge %s, arc %s\n",
-                     (*vertex_it)->to_string(graph_).c_str(),
-                     out_edge->to_string(graph_).c_str(),
-                     arc->to_string().c_str());
-              fflush(stdout);
+              // printf("LRHelper::checkKKTForAllVertices(): encountered zero LM value on vertex %s, edge %s, arc %s\n",
+              //        (*vertex_it)->to_string(graph_).c_str(),
+              //        out_edge->to_string(graph_).c_str(),
+              //        arc->to_string().c_str());
+              // fflush(stdout);
             }
           }
           ///////////////////
@@ -278,11 +278,11 @@ LRHelper::checkKKTForAllVertices() {
             min_lm = arc_lm;
             min_lm_edge = in_edge;
             if (min_lm <= 0.0) {
-              printf("LRHelper::checkKKTForAllVertices(): encountered zero LM value on vertex %s, edge %s, arc %s\n",
-                     (*vertex_it)->to_string(graph_).c_str(),
-                     in_edge->to_string(graph_).c_str(),
-                     arc->to_string().c_str());
-              fflush(stdout);
+              // printf("LRHelper::checkKKTForAllVertices(): encountered zero LM value on vertex %s, edge %s, arc %s\n",
+              //        (*vertex_it)->to_string(graph_).c_str(),
+              //        in_edge->to_string(graph_).c_str(),
+              //        arc->to_string().c_str());
+              // fflush(stdout);
             }
           }
           ///////////////////
@@ -298,20 +298,20 @@ LRHelper::checkKKTForAllVertices() {
             && !(in_edge_count == 0)
             && !(out_lm_sum == -1.0)) {
         all_satisfied = false;
-        printf("LRHelper::checkKKTForAllVertices: vertex %s KKT not satisfied for AP corner %s, delay min/max %s, slew min/max %s: out LM sum %e != in LM sum %e\n",
-                (*vertex_it)->to_string(graph_).c_str(),
-                dcalc_ap->corner()->name(),
-                dcalc_ap->delayMinMax()->to_string().c_str(),
-                dcalc_ap->slewMinMax()->to_string().c_str(),
-                out_lm_sum, in_lm_sum);
-        fflush(stdout);
+        // printf("LRHelper::checkKKTForAllVertices: vertex %s KKT not satisfied for AP corner %s, delay min/max %s, slew min/max %s: out LM sum %e != in LM sum %e\n",
+        //         (*vertex_it)->to_string(graph_).c_str(),
+        //         dcalc_ap->corner()->name(),
+        //         dcalc_ap->delayMinMax()->to_string().c_str(),
+        //         dcalc_ap->slewMinMax()->to_string().c_str(),
+        //         out_lm_sum, in_lm_sum);
+        // fflush(stdout);
       }
     }
   }
-  printf("LRHelper::checkKKTForAllVertices(): max LM (%s) & min LM (%s) value encountered: %.6f, %.6f\n", 
-         max_lm_edge ? max_lm_edge->to_string(graph_).c_str() : "N/A",
-         min_lm_edge ? min_lm_edge->to_string(graph_).c_str() : "N/A",
-         max_lm, min_lm);
+  // printf("LRHelper::checkKKTForAllVertices(): max LM (%s) & min LM (%s) value encountered: %.6f, %.6f\n",
+  //        max_lm_edge ? max_lm_edge->to_string(graph_).c_str() : "N/A",
+  //        min_lm_edge ? min_lm_edge->to_string(graph_).c_str() : "N/A",
+  //        max_lm, min_lm);
   return all_satisfied;
 }
 
@@ -454,9 +454,9 @@ LRHelper::clearLms(Edge *edge) {
 
 void
 LRHelper::updateAllEdgeLms(Sta *sta) {
-  printf("Size of sorted_lm_vertices_: %zu\n", sorted_lm_vertices_.size());
-  printf("Using LRHelper strategy: %s\n", strategyName().c_str());
-  fflush(stdout);
+  // printf("Size of sorted_lm_vertices_: %zu\n", sorted_lm_vertices_.size());
+  // printf("Using LRHelper strategy: %s\n", strategyName().c_str());
+  // fflush(stdout);
   sta->findRequireds();
   copyState(sta);
   for (auto vertex_it = sorted_lm_vertices_.begin(); 
