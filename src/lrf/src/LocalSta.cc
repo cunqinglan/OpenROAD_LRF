@@ -56,8 +56,8 @@ LocalSta::LocalSta(sta::dbSta *sta) :
   pred_(new SearchMEEPred(sta)),
   search_pred_(new SearchPredNonLatch2(sta))
 {
-  printf("LocalSta::LocalSta created\n");
-  fflush(stdout);
+  // printf("LocalSta::LocalSta created\n");
+  // fflush(stdout);
   parasitics_set_ = false;
 }
 

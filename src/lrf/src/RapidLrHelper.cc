@@ -36,8 +36,8 @@ RapidLrHelper::getMultiplier(Slack arc_slack) {
     }
   }
   if (clock_period == 0) {
-    printf("RapidLrHelper::getMultiplier: ERROR: found zero clock period\n");
-    fflush(stdout);
+    // printf("RapidLrHelper::getMultiplier: ERROR: found zero clock period\n");
+    // fflush(stdout);
     throw std::runtime_error("RapidLrHelper::updateArcLms: found zero clock period");
   }
   if (arc_slack >= clock_period) {

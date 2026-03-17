@@ -206,8 +206,8 @@ IncreSta::getSortedInstances()
   InstanceSet instance_visited(network_);
   
   VertexSeq &vertices = lr_helper_->ensureSorted(sta_);
-  printf("Size of sorted vertices: %zu\n", vertices.size());
-  fflush(stdout);
+  // printf("Size of sorted vertices: %zu\n", vertices.size());
+  // fflush(stdout);
   for (Vertex *vertex : vertices) {
     Instance *inst = network_->instance(vertex->pin());
     if (instance_visited.find(inst) == instance_visited.end()) {
@@ -243,29 +243,29 @@ IncreSta::lmUpdate()
   sta::Slack wns = sta_->worstSlack(sta::MinMax::max());
   if (wns >= 0.0) {
     lr_helper_->setMode("power");
-    printf("All timing constraints are met (WNS %e), switching to power optimization mode\n", wns);
+    // printf("All timing constraints are met (WNS %e), switching to power optimization mode\n", wns);
   }
   
   if (projected_) {
-    printf("DEBUG: IncreSta::lmUpdate calling updateAllEdgeLms\n");
-    fflush(stdout);
+    // printf("DEBUG: IncreSta::lmUpdate calling updateAllEdgeLms\n");
+    // fflush(stdout);
     lr_helper_->updateAllEdgeLms(sta_);
-    printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (projected_)\n");
-    fflush(stdout);
+    // printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (projected_)\n");
+    // fflush(stdout);
     lr_helper_->KKTProjection(sta_);
   } else {
-    printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (else)\n");
-    fflush(stdout);
+    // printf("DEBUG: IncreSta::lmUpdate calling KKTProjection (else)\n");
+    // fflush(stdout);
     bool kkt_satisfied = lr_helper_->KKTProjection(sta_);
     if (kkt_satisfied)
       projected_ = true;
     else {
-      printf("IncreSta::lmUpdate: Warning: KKT not satisfied, should be checked\n");
-      fflush(stdout);
+      // printf("IncreSta::lmUpdate: Warning: KKT not satisfied, should be checked\n");
+      // fflush(stdout);
     }
   }
-  printf("DEBUG: IncreSta::lmUpdate end\n");
-  fflush(stdout);
+  // printf("DEBUG: IncreSta::lmUpdate end\n");
+  // fflush(stdout);
 }
 
 bool
@@ -830,7 +830,7 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
                                float avg_power, float PT_tradeoff,
                                float top_ratio)
 {
-  printf("IncreSta::precedingResizeCheck start\n");
+  // printf("IncreSta::precedingResizeCheck start\n");
   auto start_total = std::chrono::high_resolution_clock::now();
 
   // Ensure prerequisites
@@ -868,8 +868,8 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
     if (r.cost_change > 0.0f)
       positive_count++;
   }
-  printf("Precheck: %zu/%zu instances have positive benefit\n",
-         positive_count, results.size());
+  // printf("Precheck: %zu/%zu instances have positive benefit\n",
+  //        positive_count, results.size());
 
   // Filter: keep top_ratio fraction, remove non-positive
   size_t top_n = static_cast<size_t>(results.size() * top_ratio);
@@ -884,15 +884,15 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
 
   // Print top results (cap at 20 for display)
   size_t print_n = std::min(results.size(), static_cast<size_t>(20));
-  printf("Selected %zu instances (top_ratio=%.2f), top %zu:\n",
-         results.size(), top_ratio, print_n);
+  // printf("Selected %zu instances (top_ratio=%.2f), top %zu:\n",
+  //        results.size(), top_ratio, print_n);
   for (size_t i = 0; i < print_n; i++) {
-    printf("  [%zu] %s  cost_change=%.6f  vertex_idx=%zu\n", i,
-           network_->pathName(results[i].inst),
-           results[i].cost_change, results[i].vertex_idx);
+    // printf("  [%zu] %s  cost_change=%.6f  vertex_idx=%zu\n", i,
+    //        network_->pathName(results[i].inst),
+    //        results[i].cost_change, results[i].vertex_idx);
   }
-  printf("precedingResizeCheck total time: %f s\n", diff_total.count());
-  fflush(stdout);
+  // printf("precedingResizeCheck total time: %f s\n", diff_total.count());
+  // fflush(stdout);
 
   return results;
 }
@@ -931,10 +931,10 @@ IncreSta::parallelResizeByArrayWithPrecheck(
   sta_->findRequireds();
   double tns = sta_->totalNegativeSlack(MinMax::max());
   double wns_after = sta_->worstSlack(MinMax::max());
-  printf("After parallel LR resize with precheck, TNS: %e, WNS: %e\n", tns, wns_after);
-  printf("  precheck time: %.3f s, resize time: %.3f s, ratio: %.2f\n",
-         precheck_sec, resize_sec,
-         resize_sec > 0 ? precheck_sec / resize_sec : 0.0);
+  // printf("After parallel LR resize with precheck, TNS: %e, WNS: %e\n", tns, wns_after);
+  // printf("  precheck time: %.3f s, resize time: %.3f s, ratio: %.2f\n",
+  //        precheck_sec, resize_sec,
+  //        resize_sec > 0 ? precheck_sec / resize_sec : 0.0);
 
   if (isPowerOptimizationMode()) {
     ParallelLrVisitor *cp_visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
@@ -945,17 +945,17 @@ IncreSta::parallelResizeByArrayWithPrecheck(
     LrSizer lr_sizer(sta_, lr_helper_, cp_visitor);
     lr_sizer.criticalPathSizing();
     auto end_cps = std::chrono::high_resolution_clock::now();
-    printf("After critical path sizing, TNS: %e, WNS: %e\n",
-           sta_->totalNegativeSlack(MinMax::max()),
-           (double)sta_->worstSlack(MinMax::max()));
-    printf("critical path sizing time: %f s\n",
-           std::chrono::duration<double>(end_cps - start_cps).count());
+    // printf("After critical path sizing, TNS: %e, WNS: %e\n",
+    //        sta_->totalNegativeSlack(MinMax::max()),
+    //        (double)sta_->worstSlack(MinMax::max()));
+    // printf("critical path sizing time: %f s\n",
+    //        std::chrono::duration<double>(end_cps - start_cps).count());
     delete cp_visitor;
   }
 
   auto end_total = std::chrono::high_resolution_clock::now();
-  printf("parallelResizeByArrayWithPrecheck total time %.3f s\n",
-         std::chrono::duration<double>(end_total - start_total).count());
+  // printf("parallelResizeByArrayWithPrecheck total time %.3f s\n",
+  //        std::chrono::duration<double>(end_total - start_total).count());
 }
 
 void

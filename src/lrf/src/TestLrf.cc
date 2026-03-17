@@ -778,10 +778,10 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
     auto eval_end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed_eval = eval_end - eval_start;
     printf("Evaluation took %f seconds\n", elapsed_eval.count());
-    printf("Worst Negative Slack: %f\n", wns * 1e12);
-    printf("Total Negative Slack: %f\n", tns * 1e12);
-    printf("Total Leakage Power: %f\n", leakage * 1e10);
-    fflush(stdout);
+    // printf("Worst Negative Slack: %f\n", wns * 1e12);
+    // printf("Total Negative Slack: %f\n", tns * 1e12);
+    // printf("Total Leakage Power: %f\n", leakage * 1e10);
+    // fflush(stdout);
 
     // Measure LM update time
     auto lm_start = std::chrono::high_resolution_clock::now();
@@ -818,7 +818,7 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
       break;
     }
     else {
-      printf("Reverting to previous design.\n");
+      // printf("Reverting to previous design.\n");
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
       odb::dbDatabase::beginEco(block);
@@ -829,11 +829,11 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
   wns = sta->worstSlack(sta::MinMax::max());
   if (wns > best_wns) {
     odb::dbDatabase::endEco(block);
-    printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
+    // printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
   } else {
     odb::dbDatabase::endEco(block);
     odb::dbDatabase::undoEco(block);
-    printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+    // printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
   }
 }
 
@@ -917,10 +917,10 @@ TestLrf::testParallelLrResizingBuffering(sta::dbSta* sta,
     auto eval_end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed_eval = eval_end - eval_start;
     printf("Evaluation took %f seconds\n", elapsed_eval.count());
-    printf("Worst Negative Slack: %f\n", wns * 1e12);
-    printf("Total Negative Slack: %f\n", tns * 1e12);
-    printf("Total Leakage Power: %f\n", leakage * 1e10);
-    fflush(stdout);
+    // printf("Worst Negative Slack: %f\n", wns * 1e12);
+    // printf("Total Negative Slack: %f\n", tns * 1e12);
+    // printf("Total Leakage Power: %f\n", leakage * 1e10);
+    // fflush(stdout);
 
     // Measure LM update time
     auto lm_start = std::chrono::high_resolution_clock::now();
@@ -957,7 +957,7 @@ TestLrf::testParallelLrResizingBuffering(sta::dbSta* sta,
       break;
     }
     else {
-      printf("Reverting to previous design.\n");
+      // printf("Reverting to previous design.\n");
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
       odb::dbDatabase::beginEco(block);
@@ -968,11 +968,11 @@ TestLrf::testParallelLrResizingBuffering(sta::dbSta* sta,
   wns = sta->worstSlack(sta::MinMax::max());
   if (wns > best_wns) {
     odb::dbDatabase::endEco(block);
-    printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
+    // printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
   } else {
     odb::dbDatabase::endEco(block);
     odb::dbDatabase::undoEco(block);
-    printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+    // printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
   }
   if (wns < 0) {
     sta->findRequireds();
@@ -1001,10 +1001,10 @@ TestLrf::testParallelLrResizingBuffering(sta::dbSta* sta,
     auto eval_end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed_eval = eval_end - eval_start;
     printf("Evaluation took %f seconds\n", elapsed_eval.count());
-    printf("Worst Negative Slack: %f\n", wns * 1e12);
-    printf("Total Negative Slack: %f\n", tns * 1e12);
-    printf("Total Leakage Power: %f\n", leakage * 1e10);
-    fflush(stdout);
+    // printf("Worst Negative Slack: %f\n", wns * 1e12);
+    // printf("Total Negative Slack: %f\n", tns * 1e12);
+    // printf("Total Leakage Power: %f\n", leakage * 1e10);
+    // fflush(stdout);
   }
 }
 
@@ -1041,7 +1041,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
   sta::Slack best_tns = sta->totalNegativeSlack(sta::MinMax::max());
   sta::Slack tns, wns;
-  printf("Initial WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  // printf("Initial WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
   float avg_delay = incre_sta->averageDelayOnCritPath();
   float avg_leakage = incre_sta->averageLeakage();
   local_sta->initParallel();
@@ -1071,10 +1071,10 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
 
     printf("Evaluation took %f seconds\n",
            std::chrono::duration<double>(end - start).count());
-    printf("Worst Negative Slack: %f\n", wns * 1e12);
-    printf("Total Negative Slack: %f\n", tns * 1e12);
-    printf("Total Leakage Power: %f\n", leakage * 1e10);
-    fflush(stdout);
+    // printf("Worst Negative Slack: %f\n", wns * 1e12);
+    // printf("Total Negative Slack: %f\n", tns * 1e12);
+    // printf("Total Leakage Power: %f\n", leakage * 1e10);
+    // fflush(stdout);
     incre_sta->lmUpdate();
 
     if (wns > best_wns && wns < 0) {
@@ -1083,7 +1083,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
       best_leakage = leakage;
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::beginEco(block);
-      printf("Improvement in WNS, accepting.\n");
+      // printf("Improvement in WNS, accepting.\n");
       no_improve_count_ = 0;
     } else if (wns >= 0.0 && (wns > best_wns || leakage < best_leakage)) {
       best_wns = wns;
@@ -1091,16 +1091,16 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
       best_leakage = leakage;
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::beginEco(block);
-      printf("WNS positive, WNS or leakage improved, accepting.\n");
+      // printf("WNS positive, WNS or leakage improved, accepting.\n");
       no_improve_count_ = 0;
     } else if (no_improve_count_ < num_no_improve_tolerance) {
       no_improve_count_++;
       continue;
     } else if (eco_iter > 2) {
-      printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
+      // printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
       break;
     } else {
-      printf("Reverting to previous design.\n");
+      // printf("Reverting to previous design.\n");
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
       odb::dbDatabase::beginEco(block);
@@ -1111,11 +1111,11 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   wns = sta->worstSlack(sta::MinMax::max());
   if (wns > best_wns) {
     odb::dbDatabase::endEco(block);
-    printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
+    // printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
   } else {
     odb::dbDatabase::endEco(block);
     odb::dbDatabase::undoEco(block);
-    printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+    // printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
   }
   delete incre_sta;
 }
@@ -1153,7 +1153,7 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
   sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
   sta::Slack best_tns = sta->totalNegativeSlack(sta::MinMax::max());
   sta::Slack tns, wns;
-  printf("Initial WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  // printf("Initial WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
   float avg_delay = incre_sta->averageDelayOnCritPath();
   float avg_leakage = incre_sta->averageLeakage();
   local_sta->initParallel();
@@ -1181,10 +1181,10 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
       leakage += power_result.leakage();
     }
 
-    printf("Worst Negative Slack: %f\n", wns * 1e12);
-    printf("Total Negative Slack: %f\n", tns * 1e12);
-    printf("Total Leakage Power: %f\n", leakage * 1e10);
-    fflush(stdout);
+    // printf("Worst Negative Slack: %f\n", wns * 1e12);
+    // printf("Total Negative Slack: %f\n", tns * 1e12);
+    // printf("Total Leakage Power: %f\n", leakage * 1e10);
+    // fflush(stdout);
     incre_sta->lmUpdate();
 
     if (wns > best_wns && wns < 0) {
@@ -1193,7 +1193,7 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
       best_leakage = leakage;
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::beginEco(block);
-      printf("Improvement in WNS, accepting.\n");
+      // printf("Improvement in WNS, accepting.\n");
       no_improve_count_ = 0;
     } else if (wns >= 0.0 && (wns > best_wns || leakage < best_leakage)) {
       best_wns = wns;
@@ -1201,16 +1201,16 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
       best_leakage = leakage;
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::beginEco(block);
-      printf("WNS positive, WNS or leakage improved, accepting.\n");
+      // printf("WNS positive, WNS or leakage improved, accepting.\n");
       no_improve_count_ = 0;
     } else if (no_improve_count_ < num_no_improve_tolerance) {
       no_improve_count_++;
       continue;
     } else if (eco_iter > 2) {
-      printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
+      // printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
       break;
     } else {
-      printf("Reverting to previous design.\n");
+      // printf("Reverting to previous design.\n");
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
       odb::dbDatabase::beginEco(block);
@@ -1221,11 +1221,11 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
   wns = sta->worstSlack(sta::MinMax::max());
   if (wns > best_wns) {
     odb::dbDatabase::endEco(block);
-    printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
+    // printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
   } else {
     odb::dbDatabase::endEco(block);
     odb::dbDatabase::undoEco(block);
-    printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+    // printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
   }
 
   // If WNS is still negative after resizing, attempt parallel buffering
@@ -1250,10 +1250,10 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
       sta::PowerResult power_result = sta->power(sta_inst, corner);
       leakage += power_result.leakage();
     }
-    printf("Worst Negative Slack: %f\n", wns * 1e12);
-    printf("Total Negative Slack: %f\n", tns * 1e12);
-    printf("Total Leakage Power: %f\n", leakage * 1e10);
-    fflush(stdout);
+    // printf("Worst Negative Slack: %f\n", wns * 1e12);
+    // printf("Total Negative Slack: %f\n", tns * 1e12);
+    // printf("Total Leakage Power: %f\n", leakage * 1e10);
+    // fflush(stdout);
   }
   delete incre_sta;
 }
@@ -1271,7 +1271,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
                             std::string lr_helper_method,
                             float top_ratio)
 {
-  printf("----- Testing Parallel LR Resize By Array With Precheck -----\n");
+  // printf("----- Testing Parallel LR Resize By Array With Precheck -----\n");
   sta::Corner *corner = sta->corners()->findCorner("default");
   est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
   sta->findRequireds();
@@ -1292,20 +1292,20 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
   sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
   sta::Slack best_tns = sta->totalNegativeSlack(sta::MinMax::max());
   sta::Slack tns, wns;
-  printf("Initial WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  // printf("Initial WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
   float avg_delay = incre_sta->averageDelayOnCritPath();
   float avg_leakage = incre_sta->averageLeakage();
   local_sta->initParallel();
 
   for (size_t i = 0; i < iterations; ++i) {
     sta->findRequireds();
-    printf("----- LR ResizeByArrayWithPrecheck Iteration %zu -----\n", i+1);
+    // printf("----- LR ResizeByArrayWithPrecheck Iteration %zu -----\n", i+1);
     auto start = std::chrono::high_resolution_clock::now();
     incre_sta->parallelResizeByArrayWithPrecheck(resizer, avg_delay, avg_leakage,
                                                   PT_tradeoff, top_ratio);
     auto end = std::chrono::high_resolution_clock::now();
-    printf("Iteration %zu took %f seconds\n", i+1,
-           std::chrono::duration<double>(end - start).count());
+    // printf("Iteration %zu took %f seconds\n", i+1,
+    //        std::chrono::duration<double>(end - start).count());
 
     est_parasitics->updateWireParasiticsNoDeleteNetwork();
     sta->delaysInvalid();
@@ -1321,10 +1321,10 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
       leakage += power_result.leakage();
     }
 
-    printf("Worst Negative Slack: %f\n", wns * 1e12);
-    printf("Total Negative Slack: %f\n", tns * 1e12);
-    printf("Total Leakage Power: %f\n", leakage * 1e10);
-    fflush(stdout);
+    // printf("Worst Negative Slack: %f\n", wns * 1e12);
+    // printf("Total Negative Slack: %f\n", tns * 1e12);
+    // printf("Total Leakage Power: %f\n", leakage * 1e10);
+    // fflush(stdout);
     incre_sta->lmUpdate();
 
     if (wns > best_wns && wns < 0) {
@@ -1333,7 +1333,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
       best_leakage = leakage;
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::beginEco(block);
-      printf("Improvement in WNS, accepting.\n");
+      // printf("Improvement in WNS, accepting.\n");
       no_improve_count_ = 0;
     } else if (wns >= 0.0 && (wns > best_wns || leakage < best_leakage)) {
       best_wns = wns;
@@ -1341,16 +1341,16 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
       best_leakage = leakage;
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::beginEco(block);
-      printf("WNS positive, WNS or leakage improved, accepting.\n");
+      // printf("WNS positive, WNS or leakage improved, accepting.\n");
       no_improve_count_ = 0;
     } else if (no_improve_count_ < num_no_improve_tolerance) {
       no_improve_count_++;
       continue;
     } else if (eco_iter > 2) {
-      printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
+      // printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
       break;
     } else {
-      printf("Reverting to previous design.\n");
+      // printf("Reverting to previous design.\n");
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
       odb::dbDatabase::beginEco(block);
@@ -1361,11 +1361,11 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
   wns = sta->worstSlack(sta::MinMax::max());
   if (wns > best_wns) {
     odb::dbDatabase::endEco(block);
-    printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
+    // printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
   } else {
     odb::dbDatabase::endEco(block);
     odb::dbDatabase::undoEco(block);
-    printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+    // printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
   }
   delete incre_sta;
 }
