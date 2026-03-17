@@ -218,11 +218,11 @@ LocalPathVisitor::localVisitFaninPaths(PtVertex &to_pt_vertex)
       PtEdge &pt_edge = pt_edge_iter.next();
       PtVertex &from_pt_vertex = pt_graph_->ptVertex(pt_edge.ptFromId());
       bool pass;
+      // PtGraph edges already passed searchThru at construction time.
+      // Skip searchThru to avoid dereferencing potentially stale sta::Edge*.
       if (pt_edge.hasBase()) {
-        pass = pred_->searchFrom(from_pt_vertex.vertex())
-               && pred_->searchThru(pt_edge.edge());
+        pass = pred_->searchFrom(from_pt_vertex.vertex());
       } else {
-        // Virtual edge: always pass predicates
         pass = true;
       }
       if (pass) {
@@ -245,8 +245,7 @@ LocalPathVisitor::localVisitFanoutPaths(PtVertex &from_pt_vertex)
       PtVertex &to_pt_vertex = pt_graph_->ptVertex(pt_edge.ptToId());
       bool pass;
       if (pt_edge.hasBase()) {
-        pass = pred_->searchTo(to_pt_vertex.vertex())
-               && pred_->searchThru(pt_edge.edge());
+        pass = pred_->searchTo(to_pt_vertex.vertex());
       } else {
         pass = true;
       }
@@ -392,12 +391,13 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
 	     || !gclk->combinational())
 	    && fanins->hasKey(to_pt_vertex.vertex())
 	    && !(fdbk_edges && fdbk_edges->hasKey(edge))) {
-          arc_delay = search_->deratedDelay(from_pt_vertex.vertex(), arc, edge,
-                                            true, path_ap);
+          // No derate in local timing; use arc delay directly.
+          arc_delay = pt_graph_->arcDelay(pt_edge, arc,
+                                          path_ap->dcalcAnalysisPt()->index());
           const PathAnalysisPt *path_ap_opp =
             path_ap->corner()->findPathAnalysisPt(min_max->opposite());
-          Delay arc_delay_opp = search_->deratedDelay(from_pt_vertex.vertex(), arc, edge,
-                                                      true, path_ap_opp);
+          Delay arc_delay_opp = pt_graph_->arcDelay(pt_edge, arc,
+                                                    path_ap_opp->dcalcAnalysisPt()->index());
           bool arc_delay_min_max_eq =
             fuzzyEqual(delayAsFloat(arc_delay), delayAsFloat(arc_delay_opp));
 	  to_tag = search_->thruClkTag(from_path, from_pt_vertex.vertex(), from_tag, true,
@@ -443,7 +443,7 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
   to_tag = nullptr;
     }
   } 
-  else if (edge->role() == TimingRole::latchDtoQ()) {
+  else if (role == TimingRole::latchDtoQ()) {
     printf("ERROR: Local arrival analysis does not support latch clk to q paths yet.\n");
     fflush(stdout);
     return true;
@@ -462,19 +462,13 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
         && (variables_->clkThruTristateEnabled()
             || !(role == TimingRole::tristateEnable()
                  || role == TimingRole::tristateDisable()));
+      // No derate in local timing; use arc delay directly.
       arc_delay = pt_graph_->arcDelay(pt_edge, arc,
                                       path_ap->dcalcAnalysisPt()->index());
-      float derate = search_->timingDerate(from_pt_vertex.vertex(), arc,
-                                           edge, to_propagates_clk, path_ap);
-      arc_delay *= derate;
       const PathAnalysisPt *path_ap_opp =
         path_ap->corner()->findPathAnalysisPt(min_max->opposite());
       ArcDelay arc_delay_opp = pt_graph_->arcDelay(
         pt_edge, arc, path_ap_opp->dcalcAnalysisPt()->index());
-      float derate_opp = search_->timingDerate(from_pt_vertex.vertex(), arc,
-                                               edge, to_propagates_clk,
-                                               path_ap_opp);
-      arc_delay_opp *= derate_opp;
       bool arc_delay_min_max_eq =
         fuzzyEqual(delayAsFloat(arc_delay), delayAsFloat(arc_delay_opp));
       to_tag = search_->thruClkTag(from_path, from_pt_vertex.vertex(),
@@ -489,10 +483,8 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
     if (!(sdc_->isPathDelayInternalFromBreak(to_pin)
           || sdc_->isPathDelayInternalToBreak(from_pin))) {
       to_tag = search_->thruTag(from_tag, edge, to_rf, min_max, path_ap, tag_cache_);
-      // Derate delay with search
+      // No derate in local timing; use arc delay directly.
       arc_delay = pt_graph_->arcDelay(pt_edge, arc, path_ap->dcalcAnalysisPt()->index());
-      float derate = search_->timingDerate(from_pt_vertex.vertex(), arc, pt_edge.edge(), false, path_ap);
-      arc_delay *= derate;
 
       if (!delayInf(arc_delay)) {
         to_arrival = from_arrival + arc_delay;

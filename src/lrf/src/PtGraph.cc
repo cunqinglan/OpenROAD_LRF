@@ -1347,8 +1347,9 @@ PtEdge::initVirtual(VertexId pt_from, VertexId pt_to,
 const sta::TimingRole *
 PtEdge::role() const
 {
-  if (edge_)
-    return edge_->role();
+  // Use cached timing_arc_set_ instead of edge_->role() to avoid
+  // dereferencing a potentially dangling sta::Edge* during parallel
+  // resize (replaceCell on another thread may delete/recreate edges).
   if (timing_arc_set_)
     return timing_arc_set_->role();
   return sta::TimingRole::combinational();
