@@ -218,11 +218,11 @@ LocalPathVisitor::localVisitFaninPaths(PtVertex &to_pt_vertex)
       PtEdge &pt_edge = pt_edge_iter.next();
       PtVertex &from_pt_vertex = pt_graph_->ptVertex(pt_edge.ptFromId());
       bool pass;
+      // PtGraph edges already passed searchThru at construction time.
+      // Skip searchThru to avoid dereferencing potentially stale sta::Edge*.
       if (pt_edge.hasBase()) {
-        pass = pred_->searchFrom(from_pt_vertex.vertex())
-               && pred_->searchThru(pt_edge.edge());
+        pass = pred_->searchFrom(from_pt_vertex.vertex());
       } else {
-        // Virtual edge: always pass predicates
         pass = true;
       }
       if (pass) {
@@ -245,8 +245,7 @@ LocalPathVisitor::localVisitFanoutPaths(PtVertex &from_pt_vertex)
       PtVertex &to_pt_vertex = pt_graph_->ptVertex(pt_edge.ptToId());
       bool pass;
       if (pt_edge.hasBase()) {
-        pass = pred_->searchTo(to_pt_vertex.vertex())
-               && pred_->searchThru(pt_edge.edge());
+        pass = pred_->searchTo(to_pt_vertex.vertex());
       } else {
         pass = true;
       }
