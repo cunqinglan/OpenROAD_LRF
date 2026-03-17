@@ -784,6 +784,8 @@ void Restructure::positionDrivenRemap(sta::Corner* corner,
                                       float max_percentage,
                                       float slack_threshold)
 {
+  time_t start_time, end_time;
+  time(&start_time);
   if (!replace_ || !opendp_) {
     logger_->error(RMP, 12,
                    "Position-driven remap requires GPL and DPL to be initialized.");
@@ -797,6 +799,9 @@ void Restructure::positionDrivenRemap(sta::Corner* corner,
   // Create and run the position-driven strategy
   PositionDrivenStrategy strategy(logger_);
   strategy.remap(remapper, percentage, max_percentage, slack_threshold);
+  time(&end_time);
+  double elapsed_time = difftime(end_time, start_time);
+  logger_->report("Position-driven remap completed in {:.2f} seconds.", elapsed_time);
 }
 }  // namespace rmp
 

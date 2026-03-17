@@ -4,6 +4,7 @@
 #include <utility>        // std::pair, tuple interface
 #include <cmath>          // std::ceil, std::floor
 #include <cstdint>        // uint32_t
+#include <csignal>        // strsignal
 #include <cstdio>         // freopen
 #include <limits>         // std::numeric_limits
 #include <string>
@@ -481,7 +482,7 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
     if (!res.log.empty())
       logger_->reportLiteral(res.log);
 
-    // Store evaluation result back into the solution for MCTS
+    // Store evaluation result back into the solution for UCT
     abc::Map_MappingSolutionSetEvalResult(
         res.pSolution, static_cast<float>(res.slack));
 
@@ -489,10 +490,10 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
       best_slack = res.slack;
       pSolutionBest = res.pSolution;
       best_solution_index = idx;
-      logger_->info(utl::RES, 362, "Solution {} is new best (slack={:.4f}).",
+      logger_->info(utl::RES, 362, "Solution {} is new best (slack={:.4e}).",
                     idx + 1, res.slack);
     } else {
-      logger_->info(utl::RES, 363, "Solution {} (slack={:.4f}) not better than best ({:.4f}).",
+      logger_->info(utl::RES, 363, "Solution {} (slack={:.4e}) not better than best ({:.4e}).",
                     idx + 1, res.slack, best_slack);
     }
     evaluated_count++;
@@ -502,63 +503,85 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
                "Enumeration evaluation complete: {} solutions evaluated.",
                evaluated_count);
 
-  // --- MCTS phase: generate new solutions guided by evaluation results ---
-  int nMctsIterations = 50;
-  double mctsC = 1.414;  // sqrt(2)
-  int nNewSolutions = abc::Map_MctsEnumerate(map_man, nMctsIterations, mctsC);
+  // --- UCT iterative phase: generate → evaluate → update rewards → repeat ---
+  const int nBatchSize = 20;
+  const int nRounds = 5;
+  const double uctC = 1.414;  // sqrt(2)
 
-  if (nNewSolutions > 0) {
-    logger_->info(utl::RES, 365,
-                  "MCTS generated {} new candidate solutions.", nNewSolutions);
+  abc::Map_ManSetMaxSolutions(map_man, nMaxSolutions + nBatchSize * nRounds);
+  abc::Map_UctMan_t* pUct = abc::Map_UctBegin(map_man, uctC);
 
-    int nTotal = abc::Map_ManReadNumSolutions(map_man);
-    int nOld = num_solutions;
+  if (pUct != nullptr) {
+    for (int round = 0; round < nRounds; round++) {
+      int nBefore = abc::Map_ManReadNumSolutions(map_man);
 
-    auto mcts_results = forkEvaluateSolutions(
-        map_man, logic_network.get(), candidate_cut, remapper,
-        nOld, nTotal);
-
-    for (auto& res : mcts_results) {
-      int idx = res.solution_index;
-      logger_->info(utl::RES, 366, "--- MCTS Solution {}/{} ---",
-                    idx - nOld + 1, nNewSolutions);
-
-      if (!res.success) {
-        logger_->warn(utl::RES, 367, "MCTS solution {} child failed.",
-                      idx - nOld + 1);
-        continue;
+      int nNew = abc::Map_UctGenerateBatch(pUct, nBatchSize);
+      if (nNew == 0) {
+        logger_->info(utl::RES, 371,
+                      "UCT round {}/{}: no new unique solutions, stopping.",
+                      round + 1, nRounds);
+        break;
       }
 
-      if (!res.log.empty())
-        logger_->reportLiteral(res.log);
+      int nAfter = abc::Map_ManReadNumSolutions(map_man);
+      logger_->info(utl::RES, 373,
+                    "UCT round {}/{}: generated {} new solutions.",
+                    round + 1, nRounds, nNew);
 
-      if (res.slack > best_slack) {
-        best_slack = res.slack;
-        pSolutionBest = res.pSolution;
-        best_solution_index = idx;
-        logger_->info(utl::RES, 368,
-                      "MCTS solution {} is new best (slack={:.4f}).",
-                      idx - nOld + 1, res.slack);
-      } else {
-        logger_->info(utl::RES, 369,
-                      "MCTS solution {} (slack={:.4f}) not better than best ({:.4f}).",
-                      idx - nOld + 1, res.slack, best_slack);
+      // Evaluate the new batch via fork (parallel)
+      auto round_results = forkEvaluateSolutions(
+          map_man, logic_network.get(), candidate_cut, remapper,
+          nBefore, nAfter);
+
+      for (auto& res : round_results) {
+        int idx = res.solution_index;
+
+        if (!res.success) {
+          logger_->warn(utl::RES, 372,
+                        "UCT solution {} child failed.", idx + 1);
+          continue;
+        }
+
+        if (!res.log.empty())
+          logger_->reportLiteral(res.log);
+
+        // Store result back for reward update
+        abc::Map_MappingSolutionSetEvalResult(
+            res.pSolution, static_cast<float>(res.slack));
+
+        if (res.slack > best_slack) {
+          best_slack = res.slack;
+          pSolutionBest = res.pSolution;
+          best_solution_index = idx;
+          logger_->info(utl::RES, 368,
+                        "UCT solution {} is new best (slack={:.4e}).",
+                        idx + 1, res.slack);
+        } else {
+          logger_->info(utl::RES, 369,
+                        "UCT solution {} (slack={:.4e}) not better than best ({:.4e}).",
+                        idx + 1, res.slack, best_slack);
+        }
+        evaluated_count++;
       }
-      evaluated_count++;
+
+      // Feed results back into UCT reward stats for next round
+      abc::Map_UctUpdateRewards(pUct, nBefore, nAfter);
     }
 
     logger_->info(utl::RES, 370,
-                 "MCTS evaluation complete: total {} solutions evaluated.",
+                 "UCT evaluation complete: total {} solutions evaluated.",
                  evaluated_count);
+
+    abc::Map_UctEnd(pUct);
   } else {
-    logger_->info(utl::RES, 371, "MCTS generated no new solutions.");
+    logger_->info(utl::RES, 374, "UCT initialization failed, skipping.");
   }
 
   // Step 7: Permanently apply the best solution in the parent process.
   if (pSolutionBest) {
     remapper.getLogger()->info(
         utl::RES, 346,
-        "Best solution found (index {}) with worst slack = {:.4f}",
+        "Best solution found (index {}) with worst slack = {:.4e}",
         best_solution_index + 1, best_slack);
 
     candidate_cut.InsertAbcMapSolution(
@@ -638,33 +661,49 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
       omp_set_num_threads(1);
       sta->setThreadCount(1);
       freopen("/dev/null", "w", stdout);
-      freopen("/dev/null", "w", stderr);
+      // Keep stderr visible for crash diagnostics (e.g. assertion failures)
+      // freopen("/dev/null", "w", stderr);
       logger_->redirectStringBegin();
 
-      candidate_cut.InsertAbcMapSolution(
-          pSolution,
-          map_man,
-          logic_network,
-          *remapper.getAbcLibrary(),
-          network,
-          sta,
-          remapper.getNameGenerator(),
-          logger_);
+      try {
+        candidate_cut.InsertAbcMapSolution(
+            pSolution,
+            map_man,
+            logic_network,
+            *remapper.getAbcLibrary(),
+            network,
+            sta,
+            remapper.getNameGenerator(),
+            logger_);
 
-      sta::Slack slack = evaluateSolution(
-          pSolution,
-          map_man,
-          logic_network,
-          candidate_cut,
-          remapper);
+        sta::Slack slack = evaluateSolution(
+            pSolution,
+            map_man,
+            logic_network,
+            candidate_cut,
+            remapper);
 
-      std::string log_output = logger_->redirectStringEnd();
+        std::string log_output = logger_->redirectStringEnd();
 
-      uint32_t log_len = static_cast<uint32_t>(log_output.size());
-      write(pipefd[1], &slack, sizeof(slack));
-      write(pipefd[1], &log_len, sizeof(log_len));
-      if (log_len > 0)
-        write(pipefd[1], log_output.data(), log_len);
+        uint32_t log_len = static_cast<uint32_t>(log_output.size());
+        write(pipefd[1], &slack, sizeof(slack));
+        write(pipefd[1], &log_len, sizeof(log_len));
+        if (log_len > 0)
+          write(pipefd[1], log_output.data(), log_len);
+      } catch (const std::exception& e) {
+        // Write error info back through the pipe so parent can report it.
+        // Use a sentinel slack value to indicate failure, then send the
+        // exception message as the log.
+        std::string log_output = logger_->redirectStringEnd();
+        std::string err_msg = log_output
+            + "\n[CHILD EXCEPTION] " + e.what() + "\n";
+        sta::Slack sentinel = std::numeric_limits<sta::Slack>::lowest();
+        uint32_t log_len = static_cast<uint32_t>(err_msg.size());
+        write(pipefd[1], &sentinel, sizeof(sentinel));
+        write(pipefd[1], &log_len, sizeof(log_len));
+        if (log_len > 0)
+          write(pipefd[1], err_msg.data(), log_len);
+      }
       close(pipefd[1]);
       _exit(0);
     }
@@ -691,6 +730,10 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
 
     n = read(child.pipe_fd, &slack, sizeof(slack));
     if (n != static_cast<ssize_t>(sizeof(slack))) {
+      logger_->warn(utl::RES, 383,
+                    "Solution {} pipe read for slack returned {} bytes (expected {}).",
+                    child.solution_index + 1, static_cast<long>(n),
+                    sizeof(slack));
       close(child.pipe_fd);
       results.push_back(std::move(res));
       continue;
@@ -698,6 +741,10 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
 
     n = read(child.pipe_fd, &log_len, sizeof(log_len));
     if (n != static_cast<ssize_t>(sizeof(log_len))) {
+      logger_->warn(utl::RES, 384,
+                    "Solution {} pipe read for log_len returned {} bytes (expected {}).",
+                    child.solution_index + 1, static_cast<long>(n),
+                    sizeof(log_len));
       close(child.pipe_fd);
       results.push_back(std::move(res));
       continue;
@@ -724,7 +771,24 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
   for (size_t j = 0; j < children.size(); ++j) {
     int status;
     waitpid(children[j].pid, &status, 0);
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+    if (WIFEXITED(status)) {
+      int exit_code = WEXITSTATUS(status);
+      if (exit_code != 0) {
+        logger_->warn(utl::RES, 380,
+                      "Solution {} child exited with code {}.",
+                      children[j].solution_index + 1, exit_code);
+        results[j].success = false;
+      }
+    } else if (WIFSIGNALED(status)) {
+      int sig = WTERMSIG(status);
+      logger_->warn(utl::RES, 381,
+                    "Solution {} child killed by signal {} ({}).",
+                    children[j].solution_index + 1, sig, strsignal(sig));
+      results[j].success = false;
+    } else {
+      logger_->warn(utl::RES, 382,
+                    "Solution {} child ended with unknown status 0x{:x}.",
+                    children[j].solution_index + 1, status);
       results[j].success = false;
     }
   }
@@ -761,23 +825,50 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
   remapper.performIncreDpl(candidate_cut, remapper.getDpl());
 
   // Recompute timing from the current network state.
+  // updateTiming(false) does an incremental update: arrivals + required times.
+  // findDelays() alone only computes gate delays, not required times/slack.
   sta->networkChanged();
-  sta->findDelays();
-  
-  // Find worst slack and worst endpoint vertex
+  sta->updateTiming(false);
+
+  // Collect output pins of the cut to find affected endpoints
+  sta::dbNetwork* network = sta->getDbNetwork();
+  sta::PinSeq cut_output_pins;
+  for (sta::Net* output_net : candidate_cut.primary_outputs()) {
+    sta::NetPinIterator* pin_iter = network->pinIterator(output_net);
+    while (pin_iter->hasNext()) {
+      const sta::Pin* pin = pin_iter->next();
+      if (network->direction(pin)->isAnyOutput()) {
+        cut_output_pins.push_back(const_cast<sta::Pin*>(pin));
+        break;
+      }
+    }
+    delete pin_iter;
+  }
+
+  // Find endpoints reachable from the cut outputs
+  sta::PinSet fanout_endpoints = sta->findFanoutPins(
+      &cut_output_pins,
+      /*flat=*/true,
+      /*endpoints_only=*/true,
+      /*inst_levels=*/-1,
+      /*pin_levels=*/-1,
+      /*thru_disabled=*/false,
+      /*thru_constants=*/false);
+
+  // Find worst slack among cut-affected endpoints only
   sta::Slack worst_slack = std::numeric_limits<sta::Slack>::infinity();
   sta::Vertex* worst_vertex = nullptr;
+  int endpoint_count = fanout_endpoints.size();
 
-  sta::VertexSet* endpoints = sta->search()->endpoints();
-  int endpoint_count = 0;
-  if (endpoints) {
-    endpoint_count = endpoints->size();
-    for (sta::Vertex* endpoint : *endpoints) {
-      sta::Slack slack = sta->vertexSlack(endpoint, sta::MinMax::max());
-      if (slack < worst_slack) {
-        worst_slack = slack;
-        worst_vertex = endpoint;
-      }
+  sta::Graph* graph = sta->graph();
+  for (const sta::Pin* pin : fanout_endpoints) {
+    sta::Vertex* vertex = graph->pinDrvrVertex(pin);
+    if (!vertex)
+      continue;
+    sta::Slack slack = sta->vertexSlack(vertex, sta::MinMax::max());
+    if (slack < worst_slack) {
+      worst_slack = slack;
+      worst_vertex = vertex;
     }
   }
 
@@ -791,10 +882,13 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
     resizer->setSizeUpInstanceFilter(nullptr);
     // Recompute timing after size-up
     sta->networkChanged();
-    sta->findDelays();
+    sta->updateTiming(false);
     worst_slack = std::numeric_limits<sta::Slack>::infinity();
-    for (sta::Vertex* endpoint : *endpoints) {
-      sta::Slack slack = sta->vertexSlack(endpoint, sta::MinMax::max());
+    for (const sta::Pin* pin : fanout_endpoints) {
+      sta::Vertex* vertex = graph->pinDrvrVertex(pin);
+      if (!vertex)
+        continue;
+      sta::Slack slack = sta->vertexSlack(vertex, sta::MinMax::max());
       if (slack < worst_slack) {
         worst_slack = slack;
       }
@@ -803,7 +897,7 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
 
   // Log the evaluation result
   logger->info(utl::RES, 345,
-               "Solution evaluated: {} endpoints, Worst Slack = {:.4f}",
+               "Solution evaluated: {} endpoints, Worst Slack = {:.4e}",
                endpoint_count, worst_slack);
 
   return worst_slack;
