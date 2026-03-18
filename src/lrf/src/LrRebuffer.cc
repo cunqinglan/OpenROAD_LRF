@@ -675,23 +675,10 @@ LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
   float delay_lm_sum = result.delay_lm_sum;
   float slack_after = local_sta_->localSlackOnSinks(pt_graph);
 
-  printf("[EVAL] drvr=%u orig_slack=%.3f after_slack=%.3f delta=%.3f cost=%.3e\n",
-         pt_vertex_id, original_slack * 1e12, slack_after * 1e12,
-         (slack_after - original_slack) * 1e12, delay_lm_sum);
-  fflush(stdout);
-
   float thresh = original_slack;
   if (slack_after > thresh) {
     total_cost = visitor_->swapCost(delay_lm_sum, option->leakage());
-    printf("[SLACK] orig=%.3f ps, after=%.3f ps, delta=%.3f ps, thresh=%.3f ps, ACCEPT\n",
-           original_slack * 1e12, slack_after * 1e12,
-           (slack_after - original_slack) * 1e12, thresh * 1e12);
-  } else {
-    printf("[SLACK] orig=%.3f ps, after=%.3f ps, delta=%.3f ps, thresh=%.3f ps, REJECT\n",
-           original_slack * 1e12, slack_after * 1e12,
-           (slack_after - original_slack) * 1e12, thresh * 1e12);
   }
-  fflush(stdout);
 
   removeVirtualBuffer(vinfo);
   local_sta_->recomputeSinglePtParasitic(pt_graph, pt_vertex_id);
@@ -1899,12 +1886,6 @@ LrRebuffer::buildSyntheticParasitics(VertexId drvr_vertex_id,
         PtPiElmore &pt_pi = pt_graph->makePtParasitic(
             current_drvr_id, rf, dcalc_ap->index());
         pt_pi.setPiModel(c2, rpi, c1);
-
-        if (rf == sta::RiseFall::rise()) {
-          printf("[SYNTH_PI] drvr=%u c2=%.4e rpi=%.4e c1=%.4e cap=%.4e loads=%zu\n",
-                 current_drvr_id, c2, rpi, c1, c2+c1, loads.size());
-          fflush(stdout);
-        }
 
         // Elmore DFS using downstream caps from reduceToPi
         auto resistor_map = parasitics_->parasiticNodeResistorMap(syn_net);

@@ -957,18 +957,6 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
                           dcalc_pin, arc, in_slew, load_cap, parasitic,
                           load_pin_index_map, dcalc_ap);
 
-      {
-        float gate_d = dcalc_result.gateDelay();
-        if (!std::isfinite(gate_d) || std::abs(gate_d) > 1e-6) {
-          printf("[VDEBUG] drvr=%u hasBase=%d type=%d in_slew=%.4e load_cap=%.4e parasitic=%p gate_delay=%.4e edge_from=%u edge_to=%u\n",
-                 drvr_pt_vertex.objectIdx(), (int)drvr_pt_vertex.hasBase(),
-                 (int)drvr_pt_vertex.type(),
-                 (float)in_slew, load_cap, (const void*)parasitic, gate_d,
-                 pt_edge.ptFromId(), pt_edge.ptToId());
-          fflush(stdout);
-        }
-      }
-
       annotateDelaysSlews(pt_edge, arc, dcalc_result,
                           load_pin_index_map, dcalc_ap, pt_graph);
     } else {
