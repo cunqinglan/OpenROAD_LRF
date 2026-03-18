@@ -855,7 +855,7 @@ odb::dbTechLayer* EstimateParasitics::getPinLayer(const sta::Pin* pin)
   if (iterm) {
     int min_layer_idx = std::numeric_limits<int>::max();
     for (const auto& [layer, rect] : iterm->getGeometries()) {
-      if (layer->getRoutingLevel() < min_layer_idx) {
+      if (layer && layer->getRoutingLevel() < min_layer_idx) {
         min_layer_idx = layer->getRoutingLevel();
         pin_layer = layer;
       }
@@ -937,17 +937,24 @@ void EstimateParasitics::parasiticNodeConnectPins(
       } else {
         if (tree_layer != nullptr && !layer_res_.empty()) {
           odb::dbTechLayer* pin_layer = getPinLayer(pin);
-          for (int layer_number = pin_layer->getNumber();
-               layer_number < tree_layer->getNumber();
-               layer_number++) {
-            odb::dbTechLayer* cut_layer
-                = db_->getTech()->findLayer(layer_number);
-            if (cut_layer->getType() == odb::dbTechLayerType::CUT) {
-              double cut_res
-                  = std::max(layer_res_[layer_number][corner->index()], 1.0e-3);
-              parasitics_->makeResistor(
-                  parasitic, resistor_id++, cut_res, node, pin_node);
+          if (pin_layer != nullptr) {
+            for (int layer_number = pin_layer->getNumber();
+                 layer_number < tree_layer->getNumber();
+                 layer_number++) {
+              odb::dbTechLayer* cut_layer
+                  = db_->getTech()->findLayer(layer_number);
+              if (cut_layer->getType() == odb::dbTechLayerType::CUT) {
+                double cut_res
+                    = std::max(layer_res_[layer_number][corner->index()], 1.0e-3);
+                parasitics_->makeResistor(
+                    parasitic, resistor_id++, cut_res, node, pin_node);
+              }
             }
+          } else {
+            double cut_res
+                = std::max(computeAverageCutResistance(corner), 1.0e-3);
+            parasitics_->makeResistor(
+                parasitic, resistor_id++, cut_res, node, pin_node);
           }
         } else {
           double cut_res
