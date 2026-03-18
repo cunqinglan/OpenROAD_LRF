@@ -1041,7 +1041,14 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
         continue;
       }
       LMValue arc_lm = lms[lm_index];
-      delay_lambda_sum += arc_delay * arc_lm;
+      float product = arc_delay * arc_lm;
+      if (!std::isfinite(product) || std::abs(product) > 1e10) {
+        printf("[LM_DBG] edge=%u type=%d virtual=%d from=%u to=%u delay=%.4e lm=%.4e product=%.4e\n",
+               pt_edge.objectIdx(), (int)pt_edge.type(), (int)pt_edge.isVirtual(),
+               pt_edge.ptFromId(), pt_edge.ptToId(),
+               (float)arc_delay, arc_lm, product);
+      }
+      delay_lambda_sum += product;
     }
   }
 }
@@ -1078,7 +1085,14 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
         continue;
       }
       LMValue arc_lm = lms[lm_index];
-      result->delay_lm_sum += arc_delay * arc_lm;
+      float product = arc_delay * arc_lm;
+      if (!std::isfinite(product) || std::abs(product) > 1e10) {
+        printf("[LM_DBG] edge=%u type=%d virtual=%d from=%u to=%u delay=%.4e lm=%.4e product=%.4e\n",
+               pt_edge.objectIdx(), (int)pt_edge.type(), (int)pt_edge.isVirtual(),
+               pt_edge.ptFromId(), pt_edge.ptToId(),
+               (float)arc_delay, arc_lm, product);
+      }
+      result->delay_lm_sum += product;
       if (collect_vecs) {
         result->vec_lms.push_back(arc_lm);
         result->vec_delays.push_back(arc_delay);

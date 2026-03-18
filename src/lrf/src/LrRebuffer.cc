@@ -1936,14 +1936,7 @@ LrRebuffer::buildSyntheticParasitics(VertexId drvr_vertex_id,
           auto it = node_elmore.find(load.node_id);
           float elmore = (it != node_elmore.end()) ? it->second : 0.0f;
           pt_pi.addLoad(load.vertex_id, load.pin, elmore);
-          if (rf == sta::RiseFall::rise()) {
-            printf("[SYNTH_ELMORE] drvr=%u load=%u pin=%s elmore=%.4e\n",
-                   current_drvr_id, load.vertex_id,
-                   load.pin ? network_->name(load.pin) : "virtual",
-                   elmore);
-          }
         }
-        fflush(stdout);
         delete syn_net;
       }
     }
