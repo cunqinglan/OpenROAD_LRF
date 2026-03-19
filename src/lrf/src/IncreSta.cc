@@ -1074,6 +1074,70 @@ IncreSta::bufferingVerticesCandidate(int top_n)
   return selected;
 }
 
+// Sensitivity-based buffering candidate screening (parallel).
+// Uses the unified sensitivity formula on each net's buffer tree.
+std::vector<size_t>
+IncreSta::bufferingVerticesCandidateBySensitivity(
+    rsz::Resizer *resizer, float avg_delay, float avg_leakage, int top_n)
+{
+  printf("IncreSta::bufferingVerticesCandidateBySensitivity start\n");
+  auto start_total = std::chrono::high_resolution_clock::now();
+
+  local_sta_->initParallel();
+  Slack wns = sta_->worstSlack(MinMax::max());
+  TaskArranger *task_arranger = local_sta_->taskArranger();
+
+  // Initialize LrRebuffer via BufferInsertion move type
+  LrRebuffer::initGlobalPreamble(sta_, resizer);
+
+  // Pre-allocate results
+  std::vector<ResizeBenefit> results(task_arranger->vertexCount());
+  for (size_t i = 0; i < results.size(); i++)
+    results[i] = {nullptr, -std::numeric_limits<float>::infinity(), i};
+
+  // Create BufferSensitivityVisitor and dispatch via visitAll
+  BufferSensitivityVisitor *visitor = new BufferSensitivityVisitor(
+      sta_, local_sta_, resizer, &results, task_arranger->instToVidMap());
+  visitor->init(avg_delay, avg_leakage, wns, 100.0f, nullptr, nullptr);
+  visitor->setMoveType(MoveType::BufferInsertion);
+  task_arranger->visitAll(visitor);
+
+  // Sort by sensitivity descending
+  std::sort(results.begin(), results.end(),
+            [](const ResizeBenefit &a, const ResizeBenefit &b) {
+              return a.cost_change > b.cost_change;
+            });
+
+  // Filter non-positive sensitivity
+  results.erase(
+      std::remove_if(results.begin(), results.end(),
+                     [](const ResizeBenefit &b) { return b.cost_change <= 0.0f; }),
+      results.end());
+
+  // Take top_n
+  size_t keep = std::min(static_cast<size_t>(top_n), results.size());
+  results.resize(keep);
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  double total_sec = std::chrono::duration<double>(end_total - start_total).count();
+
+  std::vector<size_t> selected_ids;
+  selected_ids.reserve(keep);
+  size_t print_n = std::min(keep, static_cast<size_t>(20));
+  printf("Sensitivity screening: %zu instances with positive sensitivity, "
+         "selected top %zu (%.3f s)\n", results.size(), keep, total_sec);
+  for (size_t i = 0; i < keep; i++) {
+    selected_ids.push_back(results[i].vertex_idx);
+    if (i < print_n) {
+      printf("  [%zu] %s  sensitivity=%.6e  vertex_idx=%zu\n", i,
+             network_->pathName(results[i].inst),
+             results[i].cost_change, results[i].vertex_idx);
+    }
+  }
+
+  return selected_ids;
+}
+
 // Apply buffering to the top_n most critical vertices (by Cout/Cin ratio
 // among negative-slack gates) in parallel.
 void

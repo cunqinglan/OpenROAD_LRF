@@ -1184,4 +1184,68 @@ PrecheckVisitor::copy() const
   return v;
 }
 
+////////////////////////////////////////////////////////////////
+// BufferSensitivityVisitor
+////////////////////////////////////////////////////////////////
+
+BufferSensitivityVisitor::BufferSensitivityVisitor(
+    sta::dbSta *db_sta, LocalSta *local_sta, rsz::Resizer *resizer,
+    std::vector<ResizeBenefit> *results,
+    const std::unordered_map<const sta::Instance*, sta::VertexId> *inst_to_vid)
+  : ParallelLrVisitor(db_sta, local_sta, resizer),
+    results_(results),
+    inst_to_vid_(inst_to_vid)
+{
+}
+
+bool
+BufferSensitivityVisitor::visit(sta::Instance *inst)
+{
+  pt_graph_ = local_sta_->makePtGraph(inst, false);
+  if (rebuffer_ == nullptr) {
+    throw std::runtime_error(
+        "BufferSensitivityVisitor::visit: rebuffer_ is null; "
+        "setMoveType(BufferInsertion) must be called before visiting");
+  }
+
+  // Find the driver output pin (same pattern as tryBuffering)
+  struct DrvrInfo { sta::Pin *pin; VertexId vid; };
+  std::vector<DrvrInfo> drvr_infos;
+  for (size_t i = 0; i < pt_graph_->vertexCount(); i++) {
+    PtVertex &pt_vertex = pt_graph_->ptVertex(i);
+    if (pt_vertex.vertex() && pt_vertex.type() == PtVertexType::RefOutput) {
+      drvr_infos.push_back({pt_vertex.vertex()->pin(), pt_vertex.objectIdx()});
+    }
+  }
+
+  float score = -std::numeric_limits<float>::infinity();
+  if (!drvr_infos.empty() && drvr_infos.size() <= 1) {
+    auto &di = drvr_infos[0];
+    score = rebuffer_->computeNetSensitivity(
+        di.pin, pt_graph_->ptVertex(di.vid), 0.0f, 0.0f);
+  }
+
+  auto it = inst_to_vid_->find(inst);
+  if (it != inst_to_vid_->end()) {
+    size_t idx = it->second;
+    (*results_)[idx] = {inst, score, idx};
+  } else {
+    throw std::runtime_error("BufferSensitivityVisitor::visit instance not found in inst_to_vid_");
+  }
+  return false;
+}
+
+ParallelLrVisitor *
+BufferSensitivityVisitor::copy() const
+{
+  BufferSensitivityVisitor *v = new BufferSensitivityVisitor(
+      db_sta_, local_sta_, resizer_, results_, inst_to_vid_);
+  v->setAverageDelay(average_delay_);
+  v->setAverageLeakage(average_leakage_);
+  v->setPTTradeoff(PT_tradeoff_);
+  v->setClockPeriod(clock_period_);
+  v->setMoveType(MoveType::BufferInsertion);
+  return v;
+}
+
 } // namespace lrf
