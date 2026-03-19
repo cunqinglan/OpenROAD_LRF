@@ -2051,7 +2051,7 @@ void
 LocalSta::runResize(rsz::Resizer *resizer, ParallelLrVisitor *visitor)
 {
   // task_arranger_->enableTopologyCheck(true);
-  task_arranger_->visitParallel(sta_, this, resizer, visitor);
+  task_arranger_->visitOrdered(sta_, this, resizer, visitor);
 }
 
 sta::Path *

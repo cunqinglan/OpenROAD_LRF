@@ -133,14 +133,13 @@ public:
 
   // Functions of parallelization
   void reduceEdgeFromRoots();
-  void visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer,
+  // Dependency-ordered traversal: visits instances in topological order,
+  // calling visitor->visit() + visitor->applyChangesToDb() per instance.
+  void visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer,
                     ParallelLrVisitor *visitor);
-  // Precheck: dispatch all combinational vertices in parallel (no dependency graph).
-  // Collects resize benefit for each instance into results.
-  void visitParallelPrecheck(sta::dbSta *sta, LocalSta *local_sta,
-                             rsz::Resizer *resizer,
-                             ParallelLrVisitor *visitor,
-                             std::vector<ResizeBenefit> &results);
+  // Embarrassingly parallel: dispatches all combinational instances to
+  // visitor->visit() with no dependency graph. The visitor defines what to do.
+  void visitAll(ParallelLrVisitor *visitor);
   std::set<VertexId> decreOutRefCount(InstVertex *inst_vertex);
   std::set<VertexId> decreOutRefCount(InstVertex &inst_vertex);
   size_t decreRefCount(VertexId vid);
@@ -221,7 +220,7 @@ protected:
   std::vector<ParallelLrVisitor *> visitors_;
   // Maximum resize number allowed in one iteration
   size_t max_resize_num_ = 1000000;
-  // Flag of if the first time visitParallel
+  // Flag of if the first time visitOrdered
   bool incremental_ = false;
   // Flag set after netlist-modifying operations (e.g. buffer insertion)
   bool dirty_ = false;

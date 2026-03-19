@@ -25,6 +25,7 @@
 #include <unordered_map>
 #include <chrono>
 #include <algorithm>
+#include <limits>
 #include <vector>
 
 namespace lrf {
@@ -789,7 +790,7 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
       &swappable_cells_cache_, &inst_info_map_);
   visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
   visitor->setMoveType(MoveType::Resizing);
-  // visitor ownership is transferred to TaskArranger::visitParallel.
+  // visitor ownership is transferred to TaskArranger::visitOrdered.
   local_sta_->runResize(resizer, visitor);
   auto end_resize = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_resize = end_resize - start_resize;
@@ -843,16 +844,20 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
   Slack wns = sta_->worstSlack(MinMax::max());
   TaskArranger *task_arranger = local_sta_->taskArranger();
 
-  // Create visitor template
-  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
+  // Pre-allocate results with 1:1 mapping to TaskArranger vertices.
+  std::vector<ResizeBenefit> results(task_arranger->vertexCount());
+  for (size_t i = 0; i < results.size(); i++)
+    results[i] = {nullptr, -std::numeric_limits<float>::infinity(), i};
+
+  // Create PrecheckVisitor — stores results via visitor->visit(), no DB changes.
+  PrecheckVisitor *visitor = new PrecheckVisitor(
+      sta_, local_sta_, resizer, &results, task_arranger->instToVidMap());
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff,
                 &swappable_cells_cache_, &inst_info_map_);
   visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
-  visitor->setMoveType(MoveType::Resizing);
 
-  // Run parallel precheck (no conflict graph)
-  std::vector<ResizeBenefit> results;
-  task_arranger->visitParallelPrecheck(sta_, local_sta_, resizer, visitor, results);
+  // Run embarrassingly parallel precheck (no conflict graph)
+  task_arranger->visitAll(visitor);
 
   // Sort by cost_change descending
   std::sort(results.begin(), results.end(),
@@ -1113,9 +1118,9 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
   ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
   visitor->init(avg_delay, avg_leakage, wns, PT_tradeoff, nullptr, nullptr);
   visitor->setMoveType(MoveType::BufferInsertion);
-  task_arranger->visitParallel(sta_, local_sta_, resizer, visitor);
+  task_arranger->visitOrdered(sta_, local_sta_, resizer, visitor);
   // Buffer insertion changed the netlist; mark dirty so next
-  // visitParallel() rebuilds the graph from updated netlist.
+  // visitOrdered() rebuilds the graph from updated netlist.
   task_arranger->markDirty();
   auto end_buffer = std::chrono::high_resolution_clock::now();
   double buffer_sec = std::chrono::duration<double>(end_buffer - start_buffer).count();

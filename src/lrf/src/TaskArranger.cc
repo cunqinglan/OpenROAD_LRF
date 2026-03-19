@@ -819,8 +819,8 @@ TaskArranger::finishTasks()
 }
 
 void 
-TaskArranger::visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer, 
-                            ParallelLrVisitor *visitor) 
+TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer,
+                           ParallelLrVisitor *visitor)
 {
   if (incremental_)
     reinit();
@@ -874,27 +874,15 @@ TaskArranger::visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *
 }
 
 void
-TaskArranger::visitParallelPrecheck(sta::dbSta *sta, LocalSta *local_sta,
-                                    rsz::Resizer *resizer,
-                                    ParallelLrVisitor *visitor,
-                                    std::vector<ResizeBenefit> &results)
+TaskArranger::visitAll(ParallelLrVisitor *visitor)
 {
-  resizer_ = resizer;
-
   // Clean up old visitors if any
   for (auto v : visitors_) delete v;
   visitors_.clear();
 
-  printf("Precheck: %zu combinational instances out of %zu total, %u threads\n",
+  printf("visitAll: %zu combinational instances out of %zu total, %u threads\n",
          num_com_, vertices_.size(), thread_count_);
   fflush(stdout);
-
-  // Pre-allocate results with 1:1 mapping to vertices_.
-  // Non-combinational slots are left with cost_change=0.
-  const size_t total = vertices_.size();
-  results.resize(total);
-  for (size_t i = 0; i < total; i++)
-    results[i] = {vertices_[i].inst_, -std::numeric_limits<float>::infinity(), i};
 
   // Create visitor copies for each thread
   visitors_.reserve(thread_count_);
@@ -903,18 +891,17 @@ TaskArranger::visitParallelPrecheck(sta::dbSta *sta, LocalSta *local_sta,
     visitors_.emplace_back(visitor->copy());
   }
 
-  // Dispatch only combinational vertices (no conflict graph)
+  // Dispatch all combinational instances (no dependency graph)
+  const size_t total = vertices_.size();
   for (size_t i = 0; i < total; i++) {
     if (vertices_[i].type() != VertexType::COMBINATIONAL)
       continue;
     InstVertex *iv = &vertices_[i];
     if (!dispatch_queue_) {
-      float cost_change = visitors_[0]->trySwapPrecheck(iv->inst());
-      results[i] = {iv->inst(), cost_change, i};
+      visitors_[0]->visit(iv->inst());
     } else {
-      dispatch_queue_->dispatch([this, iv, &results, i](int thread_id) {
-        float cost_change = visitors_[thread_id]->trySwapPrecheck(iv->inst());
-        results[i] = {iv->inst(), cost_change, i};
+      dispatch_queue_->dispatch([this, iv](int tid) {
+        visitors_[tid]->visit(iv->inst());
       });
     }
   }
@@ -1131,7 +1118,7 @@ TaskArranger::printTopologyViolations() const
   if (topology_checker_) {
     topology_checker_->printViolations();
   } else {
-    printf("Topology checker not initialized. Call enableTopologyCheck(true) before visitParallel().\n");
+    printf("Topology checker not initialized. Call enableTopologyCheck(true) before visitOrdered().\n");
   }
 }
 
