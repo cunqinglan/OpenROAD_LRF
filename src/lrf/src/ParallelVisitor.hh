@@ -151,9 +151,24 @@ private:
   friend class TestLrf;
 };
 
+// Visitor for embarrassingly-parallel precheck: evaluates resize benefit
+// per instance without modifying the database. Stores results in an
+// externally-owned vector indexed by TaskArranger vertex ID.
+class PrecheckVisitor : public ParallelLrVisitor
+{
+public:
+  PrecheckVisitor(sta::dbSta *db_sta, LocalSta *local_sta, rsz::Resizer *resizer,
+                  std::vector<ResizeBenefit> *results,
+                  const std::unordered_map<const sta::Instance*, sta::VertexId> *inst_to_vid);
 
+  bool visit(sta::Instance *inst) override;
+  void applyChangesToDb(rsz::Resizer *resizer) override {}
+  ParallelLrVisitor *copy() const override;
 
-
+private:
+  std::vector<ResizeBenefit> *results_;
+  const std::unordered_map<const sta::Instance*, sta::VertexId> *inst_to_vid_;
+};
 
 }  // namespace lrf
 

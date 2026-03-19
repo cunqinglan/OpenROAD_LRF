@@ -1141,6 +1141,47 @@ ParallelLrVisitor::tryBuffering(sta::Instance *inst)
   return true;
 }
 
+////////////////////////////////////////////////////////////////
+// PrecheckVisitor
+////////////////////////////////////////////////////////////////
+
+PrecheckVisitor::PrecheckVisitor(sta::dbSta *db_sta, LocalSta *local_sta,
+                                 rsz::Resizer *resizer,
+                                 std::vector<ResizeBenefit> *results,
+                                 const std::unordered_map<const sta::Instance*, sta::VertexId> *inst_to_vid)
+  : ParallelLrVisitor(db_sta, local_sta, resizer),
+    results_(results),
+    inst_to_vid_(inst_to_vid)
+{
+}
+
+bool
+PrecheckVisitor::visit(sta::Instance *inst)
+{
+  float cost_change = trySwapPrecheck(inst);
+  auto it = inst_to_vid_->find(inst);
+  if (it != inst_to_vid_->end()) {
+    size_t idx = it->second;
+    (*results_)[idx] = {inst, cost_change, idx};
+  }
+  return false;
+}
+
+ParallelLrVisitor *
+PrecheckVisitor::copy() const
+{
+  PrecheckVisitor *v = new PrecheckVisitor(db_sta_, local_sta_, resizer_,
+                                           results_, inst_to_vid_);
+  v->setAverageDelay(average_delay_);
+  v->setAverageLeakage(average_leakage_);
+  v->setSwappableCellsCache(swappable_cells_cache_);
+  v->setInstInfoMap(inst_info_map_);
+  v->setSlackMargin(slack_margin_);
+  v->setPTTradeoff(PT_tradeoff_);
+  v->setParallelLibData(parallel_lib_data_);
+  v->setEquivCellArray(equiv_cell_array_, equiv_cell_pos_map_);
+  v->setClockPeriod(clock_period_);
+  return v;
+}
+
 } // namespace lrf
-
-
