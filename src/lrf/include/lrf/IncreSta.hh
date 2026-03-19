@@ -78,6 +78,11 @@ public:
   // sort by output_cap / input_cap ratio descending, return top_n vertex ids.
   std::vector<size_t> bufferingVerticesCandidate(int top_n);
 
+  // Sensitivity-based buffering candidate screening (parallel).
+  // Uses the unified sensitivity formula on each net's buffer tree.
+  std::vector<size_t> bufferingVerticesCandidateBySensitivity(
+      rsz::Resizer *resizer, float avg_delay, float avg_leakage, int top_n);
+
   // Preceding resize check: evaluate resize benefit for all instances
   // in parallel (no conflict graph). Returns vertex indices of
   // selected top instances (sorted by benefit, filtered by top_ratio).

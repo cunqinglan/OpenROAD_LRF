@@ -25,6 +25,7 @@
 #include <unordered_map>
 #include <chrono>
 #include <algorithm>
+#include <limits>
 #include <vector>
 
 namespace lrf {
@@ -789,7 +790,7 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
       &swappable_cells_cache_, &inst_info_map_);
   visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
   visitor->setMoveType(MoveType::Resizing);
-  // visitor ownership is transferred to TaskArranger::visitParallel.
+  // visitor ownership is transferred to TaskArranger::visitOrdered.
   local_sta_->runResize(resizer, visitor);
   auto end_resize = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_resize = end_resize - start_resize;
@@ -843,16 +844,20 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
   Slack wns = sta_->worstSlack(MinMax::max());
   TaskArranger *task_arranger = local_sta_->taskArranger();
 
-  // Create visitor template
-  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
+  // Pre-allocate results with 1:1 mapping to TaskArranger vertices.
+  std::vector<ResizeBenefit> results(task_arranger->vertexCount());
+  for (size_t i = 0; i < results.size(); i++)
+    results[i] = {nullptr, -std::numeric_limits<float>::infinity(), i};
+
+  // Create PrecheckVisitor — stores results via visitor->visit(), no DB changes.
+  PrecheckVisitor *visitor = new PrecheckVisitor(
+      sta_, local_sta_, resizer, &results, task_arranger->instToVidMap());
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff,
                 &swappable_cells_cache_, &inst_info_map_);
   visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
-  visitor->setMoveType(MoveType::Resizing);
 
-  // Run parallel precheck (no conflict graph)
-  std::vector<ResizeBenefit> results;
-  task_arranger->visitParallelPrecheck(sta_, local_sta_, resizer, visitor, results);
+  // Run embarrassingly parallel precheck (no conflict graph)
+  task_arranger->visitAll(visitor);
 
   // Sort by cost_change descending
   std::sort(results.begin(), results.end(),
@@ -1069,6 +1074,70 @@ IncreSta::bufferingVerticesCandidate(int top_n)
   return selected;
 }
 
+// Sensitivity-based buffering candidate screening (parallel).
+// Uses the unified sensitivity formula on each net's buffer tree.
+std::vector<size_t>
+IncreSta::bufferingVerticesCandidateBySensitivity(
+    rsz::Resizer *resizer, float avg_delay, float avg_leakage, int top_n)
+{
+  printf("IncreSta::bufferingVerticesCandidateBySensitivity start\n");
+  auto start_total = std::chrono::high_resolution_clock::now();
+
+  local_sta_->initParallel();
+  Slack wns = sta_->worstSlack(MinMax::max());
+  TaskArranger *task_arranger = local_sta_->taskArranger();
+
+  // Initialize LrRebuffer via BufferInsertion move type
+  LrRebuffer::initGlobalPreamble(sta_, resizer);
+
+  // Pre-allocate results
+  std::vector<ResizeBenefit> results(task_arranger->vertexCount());
+  for (size_t i = 0; i < results.size(); i++)
+    results[i] = {nullptr, -std::numeric_limits<float>::infinity(), i};
+
+  // Create BufferSensitivityVisitor and dispatch via visitAll
+  BufferSensitivityVisitor *visitor = new BufferSensitivityVisitor(
+      sta_, local_sta_, resizer, &results, task_arranger->instToVidMap());
+  visitor->init(avg_delay, avg_leakage, wns, 100.0f, nullptr, nullptr);
+  visitor->setMoveType(MoveType::BufferInsertion);
+  task_arranger->visitAll(visitor);
+
+  // Sort by sensitivity descending
+  std::sort(results.begin(), results.end(),
+            [](const ResizeBenefit &a, const ResizeBenefit &b) {
+              return a.cost_change > b.cost_change;
+            });
+
+  // Filter non-positive sensitivity
+  results.erase(
+      std::remove_if(results.begin(), results.end(),
+                     [](const ResizeBenefit &b) { return b.cost_change <= 0.0f; }),
+      results.end());
+
+  // Take top_n
+  size_t keep = std::min(static_cast<size_t>(top_n), results.size());
+  results.resize(keep);
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  double total_sec = std::chrono::duration<double>(end_total - start_total).count();
+
+  std::vector<size_t> selected_ids;
+  selected_ids.reserve(keep);
+  size_t print_n = std::min(keep, static_cast<size_t>(20));
+  printf("Sensitivity screening: %zu instances with positive sensitivity, "
+         "selected top %zu (%.3f s)\n", results.size(), keep, total_sec);
+  for (size_t i = 0; i < keep; i++) {
+    selected_ids.push_back(results[i].vertex_idx);
+    if (i < print_n) {
+      printf("  [%zu] %s  sensitivity=%.6e  vertex_idx=%zu\n", i,
+             network_->pathName(results[i].inst),
+             results[i].cost_change, results[i].vertex_idx);
+    }
+  }
+
+  return selected_ids;
+}
+
 // Apply buffering to the top_n most critical vertices (by Cout/Cin ratio
 // among negative-slack gates) in parallel.
 void
@@ -1113,9 +1182,9 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
   ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
   visitor->init(avg_delay, avg_leakage, wns, PT_tradeoff, nullptr, nullptr);
   visitor->setMoveType(MoveType::BufferInsertion);
-  task_arranger->visitParallel(sta_, local_sta_, resizer, visitor);
+  task_arranger->visitOrdered(sta_, local_sta_, resizer, visitor);
   // Buffer insertion changed the netlist; mark dirty so next
-  // visitParallel() rebuilds the graph from updated netlist.
+  // visitOrdered() rebuilds the graph from updated netlist.
   task_arranger->markDirty();
   auto end_buffer = std::chrono::high_resolution_clock::now();
   double buffer_sec = std::chrono::duration<double>(end_buffer - start_buffer).count();

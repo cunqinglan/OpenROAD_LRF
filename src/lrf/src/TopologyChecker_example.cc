@@ -25,7 +25,7 @@ void example_basic_usage(sta::dbSta* sta,
   arranger->enableTopologyCheck(true);
   
   // 并行访问 - 违规会自动打印
-  arranger->visitParallel(sta, local_sta, resizer, visitor);
+  arranger->visitOrdered(sta, local_sta, resizer, visitor);
   
   // 访问结束后会自动打印违规汇总
   
@@ -52,7 +52,7 @@ void example_conditional_enable(sta::dbSta* sta,
     printf("Production mode: Topology checking disabled\n");
   }
   
-  arranger->visitParallel(sta, local_sta, resizer, visitor);
+  arranger->visitOrdered(sta, local_sta, resizer, visitor);
   
   delete arranger;
 }
@@ -69,9 +69,9 @@ void example_manual_check(sta::dbSta* sta,
   arranger->makeLevelGraph(sta->network(), resizer);
   arranger->enableTopologyCheck(true);
   
-  arranger->visitParallel(sta, local_sta, resizer, visitor);
+  arranger->visitOrdered(sta, local_sta, resizer, visitor);
   
-  // 手动查看违规（可选，因为 visitParallel 结束时已经打印过）
+  // 手动查看违规（可选，因为 visitOrdered 结束时已经打印过）
   printf("\n--- Manual violation check ---\n");
   arranger->printTopologyViolations();
   
@@ -98,7 +98,7 @@ void example_env_control(sta::dbSta* sta,
     arranger->enableTopologyCheck(true);
   }
   
-  arranger->visitParallel(sta, local_sta, resizer, visitor);
+  arranger->visitOrdered(sta, local_sta, resizer, visitor);
   
   delete arranger;
 }
@@ -117,4 +117,4 @@ void example_env_control(sta::dbSta* sta,
 //
 // 在 C++ 代码中:
 // arranger->enableTopologyCheck(true);
-// arranger->visitParallel(...);
+// arranger->visitOrdered(...);

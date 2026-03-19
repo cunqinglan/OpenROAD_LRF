@@ -144,16 +144,54 @@ protected:
     {"single_gate_sizing", 0.0},
     {"buffer_insertion", 0.0},
     {"buffer_count", 0.0},
-    {"precheck", 0.0}
+    {"precheck", 0.0},
+    {"rebuffer_total", 0.0},
+    {"rebuffer_setup", 0.0},
+    {"rebuffer_coarse", 0.0},
+    {"rebuffer_precise", 0.0},
+    {"rebuffer_pin_count", 0.0}
   };
 private:
   friend class LrRebuffer;
   friend class TestLrf;
 };
 
+// Visitor for embarrassingly-parallel precheck: evaluates resize benefit
+// per instance without modifying the database. Stores results in an
+// externally-owned vector indexed by TaskArranger vertex ID.
+class PrecheckVisitor : public ParallelLrVisitor
+{
+public:
+  PrecheckVisitor(sta::dbSta *db_sta, LocalSta *local_sta, rsz::Resizer *resizer,
+                  std::vector<ResizeBenefit> *results,
+                  const std::unordered_map<const sta::Instance*, sta::VertexId> *inst_to_vid);
 
+  bool visit(sta::Instance *inst) override;
+  void applyChangesToDb(rsz::Resizer *resizer) override {}
+  ParallelLrVisitor *copy() const override;
 
+private:
+  std::vector<ResizeBenefit> *results_;
+  const std::unordered_map<const sta::Instance*, sta::VertexId> *inst_to_vid_;
+};
 
+// Visitor for embarrassingly-parallel buffer sensitivity precheck:
+// evaluates buffer insertion benefit per instance without modifying the database.
+class BufferSensitivityVisitor : public ParallelLrVisitor
+{
+public:
+  BufferSensitivityVisitor(sta::dbSta *db_sta, LocalSta *local_sta, rsz::Resizer *resizer,
+                           std::vector<ResizeBenefit> *results,
+                           const std::unordered_map<const sta::Instance*, sta::VertexId> *inst_to_vid);
+
+  bool visit(sta::Instance *inst) override;
+  void applyChangesToDb(rsz::Resizer *resizer) override {}
+  ParallelLrVisitor *copy() const override;
+
+private:
+  std::vector<ResizeBenefit> *results_;
+  const std::unordered_map<const sta::Instance*, sta::VertexId> *inst_to_vid_;
+};
 
 }  // namespace lrf
 
