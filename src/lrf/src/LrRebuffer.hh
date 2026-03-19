@@ -42,7 +42,7 @@ public:
   // Compute the best buffering option and save it at best_bnet_.
   void rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex);
   // void annoataLoadSlacks();
-  rsz::BufferedNetPtr bufferForTiming(sta::VertexId drvr_vertex_id, const rsz::BufferedNetPtr& tree, bool allow_topology_rewrite);
+  rsz::BufferedNetPtr bufferForTiming(sta::VertexId drvr_vertex_id, const rsz::BufferedNetPtr& tree, bool allow_topology_rewrite, bool last_iteration);
   void annotateLoadLMs(PtVertex &drvr_pt_vertex, const rsz::BufferedNetPtr& tree);
   void insertBufferOptions(rsz::BufferedNetSeq& opts,
                            int level,
@@ -55,6 +55,13 @@ public:
   const sta::Pin *drvrPin() const { return drvr_pin_; }
   const rsz::BufferedNetPtr& bestBnet() const { return best_bnet_; }
 
+  // Sensitivity-based precheck: compute max S(v,e) over all buffer points
+  // on the driving net. Does NOT insert any buffers.
+  // Returns the maximum sensitivity score (positive = buffering is beneficial).
+  float computeNetSensitivity(const sta::Pin *drvr_pin,
+                              PtVertex &drvr_pt_vertex,
+                              float avg_delay, float avg_leakage);
+
 protected:
   void localAnnotateLoadSlacks(const rsz::BufferedNetPtr& tree, PtVertex &drvr_pt_vertex);
 
@@ -66,6 +73,7 @@ protected:
                                  const rsz::BufferedNetPtr& load_opt);
   std::vector<float> mergeLmVectors(const std::vector<float>& lm1,
                                     const std::vector<float>& lm2);
+  LMValue evaluateOptionCoarse(sta::VertexId pt_vertex_id, const rsz::BufferedNetPtr& option);
   LMValue evaluateOption(sta::VertexId pt_vertex_id, const rsz::BufferedNetPtr& option,
                        float original_slack);
   float cellDelayLmSum(sta::VertexId pt_vertex_id,
