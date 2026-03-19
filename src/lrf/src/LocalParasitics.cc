@@ -315,14 +315,14 @@ LocalParasitics::findLocalParasitic(const Pin *drvr_pin, const RiseFall *rf, con
     }
     ConcreteParasitic *parasitic = parasitic_array[ap_rf_index];
     if (!parasitic) {
-      printf("Error: LocalParasitics::findLocalParasitic: No parasitic found for driver pin %s\n",
-             network_->name(drvr_pin));
+    //   printf("Error: LocalParasitics::findLocalParasitic: No parasitic found for driver pin %s\n",
+    //          network_->name(drvr_pin));
       fflush(stdout);
       return nullptr;
     }
     if (!parasitic->isPiElmore()) {
-      printf("Error: LocalParasitics::findLocalParasitic: Parasitic is not PiElmore for driver pin %s\n",
-             network_->name(drvr_pin));
+    //   printf("Error: LocalParasitics::findLocalParasitic: Parasitic is not PiElmore for driver pin %s\n",
+    //          network_->name(drvr_pin));
       fflush(stdout);
       return nullptr;
     }
