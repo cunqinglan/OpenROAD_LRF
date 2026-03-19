@@ -763,8 +763,8 @@ LocalSta::findVertexDelays(VertexId pt_vertex_id,
                          load_pin_index_map, pt_graph);
       }
     } else {
-      // Virtual driver vertex: compute delays without pin/network lookups
-      LoadPinIndexMap load_pin_index_map(network_);
+      // Virtual driver vertex
+      LoadPinIndexMap load_pin_index_map = makeLoadPinIndexMap(pt_vertex, pt_graph);
       findDriverDelays(pt_vertex, arc_delay_calc,
                        load_pin_index_map, pt_graph);
     }
@@ -2051,7 +2051,7 @@ void
 LocalSta::runResize(rsz::Resizer *resizer, ParallelLrVisitor *visitor)
 {
   // task_arranger_->enableTopologyCheck(true);
-  task_arranger_->visitParallel(sta_, this, resizer, visitor);
+  task_arranger_->visitOrdered(sta_, this, resizer, visitor);
 }
 
 sta::Path *
