@@ -543,7 +543,7 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
 
   if (!found_valid_cut) {
     remapper.getLogger()->warn(
-        utl::RES, 366,
+        utl::RES, 375,
         "All candidate vertices produced cuts with <= 1 instance, nothing to remap.");
     return;
   }
