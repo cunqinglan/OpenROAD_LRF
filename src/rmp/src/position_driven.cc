@@ -7,6 +7,7 @@
 #include <csignal>        // strsignal
 #include <cstdio>         // freopen
 #include <limits>         // std::numeric_limits
+#include <set>
 #include <string>
 #include <vector>
 #include <unistd.h>       // fork, pipe, _exit, read, write, close
@@ -221,13 +222,14 @@ static std::vector<sta::Vertex*> selectCandidateEndpoints(
   return {endpoint_slacks[0].first};
 }
 
-sta::Vertex* PositionDrivenStrategy::getWorstVertex(
+std::vector<sta::Vertex*> PositionDrivenStrategy::getWorstVertices(
     SeqRemapper& remapper,
     float percentage,
     float max_percentage,
     float slack_threshold) {
-  // Return the vertex on the most critical path (within the cut outputs)
-  // that has the largest load-dependent delay (arc delay - intrinsic delay).
+  // Return vertices on the most critical path sorted by load-dependent delay
+  // (largest first). If the top candidate yields a single-instance cut,
+  // the caller can fall back to the next candidate.
   sta::dbSta* sta = remapper.getSta();
   sta::dbNetwork* network = sta->getDbNetwork();
   sta::Graph* graph = sta->graph();
@@ -245,7 +247,7 @@ sta::Vertex* PositionDrivenStrategy::getWorstVertex(
     logic_extractor.AppendEndpoint(negative_endpoint);
   }
   abc_library_ = remapper.getAbcLibrary();
-  cut::LogicCut bad_cut = logic_extractor.BuildLogicCut(*abc_library_);  
+  cut::LogicCut bad_cut = logic_extractor.BuildLogicCut(*abc_library_);
 
   // 1) Find the worst (most negative slack) endpoint vertex among cut outputs.
   sta::Vertex* worst_end_vertex = nullptr;
@@ -255,7 +257,6 @@ sta::Vertex* PositionDrivenStrategy::getWorstVertex(
     sta::Vertex* output_vertex = nullptr;
     sta::Vertex* bidirect_vertex = nullptr;
 
-    // Find a load pin on the net (an input pin) and map to a graph vertex.
     sta::NetPinIterator* pin_iter = network->pinIterator(output_net);
     while (pin_iter->hasNext()) {
       const sta::Pin* pin = pin_iter->next();
@@ -283,7 +284,7 @@ sta::Vertex* PositionDrivenStrategy::getWorstVertex(
   if (worst_end_vertex == nullptr) {
     remapper.getLogger()->error(
         utl::RES, 332, "No valid endpoint vertex found in bottleneck cut outputs.");
-    return nullptr;
+    return {};
   }
 
   // 2) Get the worst-slack path to that endpoint and expand it.
@@ -292,15 +293,14 @@ sta::Vertex* PositionDrivenStrategy::getWorstVertex(
     remapper.getLogger()->warn(
         utl::RES, 333, "No worst-slack path found for endpoint {}.",
         worst_end_vertex->name(network));
-    return nullptr;
+    return {};
   }
 
   sta::PathExpanded expanded(end_path, sta);
 
-  // 3) Walk the path and compute load-dependent delay for each driver vertex,
-  //     pick the maximum (like RepairSetup::repairPath).
-  sta::Vertex* worst_vertex = worst_end_vertex;
-  Delay max_load_delay = -std::numeric_limits<Delay>::infinity();
+  // 3) Walk the path and collect all driver vertices with their load-dependent delay.
+  using VertexDelayPair = std::pair<sta::Vertex*, Delay>;
+  std::vector<VertexDelayPair> vertex_delays;
 
   if (expanded.size() > 1) {
     const int path_length = expanded.size();
@@ -321,7 +321,6 @@ sta::Vertex* PositionDrivenStrategy::getWorstVertex(
         continue;
       }
 
-      // Same conditions as RepairSetup: ignore the first element and top-level ports.
       if (i > 0 && path_vertex->isDriver(network)
           && !network->isTopLevelPort(path_pin)) {
         const sta::TimingArc* prev_arc = path_i->prevArc(sta);
@@ -338,52 +337,216 @@ sta::Vertex* PositionDrivenStrategy::getWorstVertex(
         const Delay arc_delay = graph->arcDelay(prev_edge, prev_arc, dcalc_index);
         const Delay load_delay = arc_delay - corner_arc->intrinsicDelay();
 
-        // Break ties by choosing the more downstream (larger i), matching RSZ logic.
-        if (load_delay > max_load_delay
-            || (load_delay == max_load_delay && i > 0)) {
-          max_load_delay = load_delay;
-          worst_vertex = path_vertex;
-        }
+        vertex_delays.emplace_back(path_vertex, load_delay);
       }
     }
   }
 
-  return worst_vertex;
+  // Sort by load-dependent delay descending (largest first).
+  std::sort(vertex_delays.begin(), vertex_delays.end(),
+    [](const VertexDelayPair& a, const VertexDelayPair& b) {
+      return a.second > b.second;
+    });
+
+  // Build result vector (deduplicated, preserving order).
+  std::vector<sta::Vertex*> result;
+  std::set<sta::Vertex*> seen;
+  const size_t max_candidates = 100;
+  for (auto& [v, d] : vertex_delays) {
+    if (result.size() >= max_candidates) break;
+    if (seen.insert(v).second) {
+      result.push_back(v);
+    }
+  }
+
+  // If no driver vertices were found, fall back to the endpoint vertex itself.
+  if (result.empty()) {
+    result.push_back(worst_end_vertex);
+  }
+
+  return result;
 }
 
 void PositionDrivenStrategy::remap(SeqRemapper& remapper,
                                     float percentage,
                                     float max_percentage,
                                     float slack_threshold) {
-  // Step 1: Get the worst vertex on the most critical path.
-  sta::Vertex* bad_vertex = getWorstVertex(remapper, percentage, max_percentage, slack_threshold);
-  if (bad_vertex == nullptr) {
+  // Step 1: Get worst vertices on the most critical path, sorted by
+  // load-dependent delay (largest first).
+  std::vector<sta::Vertex*> worst_vertices =
+      getWorstVertices(remapper, percentage, max_percentage, slack_threshold);
+  if (worst_vertices.empty()) {
     remapper.getLogger()->warn(
       utl::RES, 334, "No worst-slack path found.");
     return;
   }
+
   sta::dbSta* sta = remapper.getSta();
   sta::dbNetwork* network = sta->getDbNetwork();
-  sta::Instance* bad_instance = network->instance(bad_vertex->pin());
-  if (bad_instance == nullptr) {
-    remapper.getLogger()->error(
-        utl::RES, 350, "Worst vertex {} is not driven by an instance.",
-        bad_vertex->name(network));
-    return;
-  }
-  sta::LibertyCell* bad_cell = network->libertyCell(bad_instance);
-  if (bad_cell == nullptr
-      || !remapper.getAbcLibrary()->IsSupportedCell(bad_cell->name())) {
-    remapper.getLogger()->warn(
-        utl::RES, 365, "Worst vertex {} is a cell type ({}) not supported by ABC, skipping.",
-        bad_vertex->name(network),
-        bad_cell ? bad_cell->name() : "unknown");
-    return;
-  }
-  setRefGate(bad_instance);
 
-  // Step 2: Extract the bottleneck cut around that vertex.
-  cut::LogicCut candidate_cut = extractBottleneck(remapper);
+  // Try each candidate vertex in order of decreasing load-dependent delay.
+  // Skip vertices whose extracted cut contains only 1 instance.
+  sta::Instance* bad_instance = nullptr;
+  cut::LogicCut candidate_cut({}, {}, {});
+  bool found_valid_cut = false;
+
+  for (size_t vi = 0; vi < worst_vertices.size(); ++vi) {
+    sta::Vertex* bad_vertex = worst_vertices[vi];
+    sta::Instance* inst = network->instance(bad_vertex->pin());
+    if (inst == nullptr) {
+      logger_->info(utl::RES, 397,
+                    "[Step1] Candidate {} vertex {} has no instance, skipping.",
+                    vi, bad_vertex->name(network));
+      continue;
+    }
+    sta::LibertyCell* cell = network->libertyCell(inst);
+    if (cell == nullptr
+        || !remapper.getAbcLibrary()->IsSupportedCell(cell->name())) {
+      logger_->info(utl::RES, 398,
+                    "[Step1] Candidate {} vertex {} cell type ({}) not supported by ABC, skipping.",
+                    vi, bad_vertex->name(network),
+                    cell ? cell->name() : "unknown");
+      continue;
+    }
+
+    // Debug: Print bad_instance info
+    logger_->info(utl::RES, 390,
+                  "[Step1] Candidate {}: bad_instance name={}, type={}",
+                  vi, network->name(inst), cell->name());
+
+    // Fanin instances
+    sta::InstancePinIterator* pin_it = network->pinIterator(inst);
+    while (pin_it->hasNext()) {
+      sta::Pin* pin = pin_it->next();
+      sta::PortDirection* dir = network->direction(pin);
+      if (!dir->isInput()) continue;
+      sta::Net* net = network->net(pin);
+      if (!net) continue;
+      sta::NetPinIterator* npi = network->pinIterator(net);
+      while (npi->hasNext()) {
+        const sta::Pin* cp = npi->next();
+        sta::Instance* ci = network->instance(cp);
+        if (ci == inst || network->isTopInstance(ci)) continue;
+        if (network->direction(cp)->isAnyOutput()) {
+          sta::LibertyCell* fc = network->libertyCell(ci);
+          logger_->info(utl::RES, 391,
+                        "[Step1]   fanin: name={}, type={}",
+                        network->name(ci), fc ? fc->name() : "unknown");
+        }
+      }
+      delete npi;
+    }
+    delete pin_it;
+
+    // Fanout instances
+    pin_it = network->pinIterator(inst);
+    while (pin_it->hasNext()) {
+      sta::Pin* pin = pin_it->next();
+      sta::PortDirection* dir = network->direction(pin);
+      if (!dir->isAnyOutput()) continue;
+      sta::Net* net = network->net(pin);
+      if (!net) continue;
+      sta::NetPinIterator* npi = network->pinIterator(net);
+      while (npi->hasNext()) {
+        const sta::Pin* cp = npi->next();
+        sta::Instance* ci = network->instance(cp);
+        if (ci == inst || network->isTopInstance(ci)) continue;
+        if (network->direction(cp)->isInput()) {
+          sta::LibertyCell* fc = network->libertyCell(ci);
+          logger_->info(utl::RES, 392,
+                        "[Step1]   fanout: name={}, type={}",
+                        network->name(ci), fc ? fc->name() : "unknown");
+        }
+      }
+      delete npi;
+    }
+    delete pin_it;
+
+    // Step 2: Extract the bottleneck cut around this vertex.
+    setRefGate(inst);
+    cut::LogicCut trial_cut = extractBottleneck(remapper);
+
+    // Debug: Print cut info
+    logger_->info(utl::RES, 393,
+                  "[Step2] candidate_cut: {} instances, {} PIs, {} POs",
+                  trial_cut.cut_instances().size(),
+                  trial_cut.primary_inputs().size(),
+                  trial_cut.primary_outputs().size());
+
+    for (const sta::Instance* ci : trial_cut.cut_instances()) {
+      if (!ci) continue;
+      sta::LibertyCell* cc = network->libertyCell(ci);
+      logger_->info(utl::RES, 394,
+                    "[Step2]   instance: name={}, type={}",
+                    network->name(ci), cc ? cc->name() : "unknown");
+
+      sta::InstancePinIterator* pi = network->pinIterator(ci);
+      while (pi->hasNext()) {
+        sta::Pin* p = pi->next();
+        sta::PortDirection* d = network->direction(p);
+        if (!d->isInput()) continue;
+        sta::Net* n = network->net(p);
+        if (!n) continue;
+        sta::NetPinIterator* npi = network->pinIterator(n);
+        while (npi->hasNext()) {
+          const sta::Pin* cp = npi->next();
+          sta::Instance* fi = network->instance(cp);
+          if (fi == ci || network->isTopInstance(fi)) continue;
+          if (network->direction(cp)->isAnyOutput()) {
+            sta::LibertyCell* fc = network->libertyCell(fi);
+            logger_->info(utl::RES, 395,
+                          "[Step2]     fanin: name={}, type={}",
+                          network->name(fi), fc ? fc->name() : "unknown");
+          }
+        }
+        delete npi;
+      }
+      delete pi;
+
+      pi = network->pinIterator(ci);
+      while (pi->hasNext()) {
+        sta::Pin* p = pi->next();
+        sta::PortDirection* d = network->direction(p);
+        if (!d->isAnyOutput()) continue;
+        sta::Net* n = network->net(p);
+        if (!n) continue;
+        sta::NetPinIterator* npi = network->pinIterator(n);
+        while (npi->hasNext()) {
+          const sta::Pin* cp = npi->next();
+          sta::Instance* fo = network->instance(cp);
+          if (fo == ci || network->isTopInstance(fo)) continue;
+          if (network->direction(cp)->isInput()) {
+            sta::LibertyCell* fc = network->libertyCell(fo);
+            logger_->info(utl::RES, 396,
+                          "[Step2]     fanout: name={}, type={}",
+                          network->name(fo), fc ? fc->name() : "unknown");
+          }
+        }
+        delete npi;
+      }
+      delete pi;
+    }
+
+    if (trial_cut.cut_instances().size() <= 1) {
+      logger_->info(utl::RES, 399,
+                    "[Step1] Candidate {} cut has only {} instance(s), trying next vertex.",
+                    vi, trial_cut.cut_instances().size());
+      continue;
+    }
+
+    // Found a valid cut with >1 instance.
+    bad_instance = inst;
+    candidate_cut = std::move(trial_cut);
+    found_valid_cut = true;
+    break;
+  }
+
+  if (!found_valid_cut) {
+    remapper.getLogger()->warn(
+        utl::RES, 366,
+        "All candidate vertices produced cuts with <= 1 instance, nothing to remap.");
+    return;
+  }
   setCandidateCut(candidate_cut);
 
   // Step 3: Build the ABC network from the candidate cut.
