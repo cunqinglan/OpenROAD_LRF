@@ -684,7 +684,7 @@ ParallelLrVisitor::trySwapV1(sta::Instance *inst)
 }
 
 bool
-ParallelLrVisitor::visit(sta::Instance *inst)
+ParallelLrVisitor::visit(sta::Instance *inst, sta::VertexId /*vid*/)
 {
   bool success;
   std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
@@ -719,7 +719,7 @@ ParallelLrVisitor::visit(sta::Instance *inst)
 bool
 ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
 {
-  if (visit(inst)) {
+  if (visit(inst, sta::object_id_null)) {
     applyChangesToDb(nullptr);
     return true;
   }
@@ -1147,23 +1147,17 @@ ParallelLrVisitor::tryBuffering(sta::Instance *inst)
 
 PrecheckVisitor::PrecheckVisitor(sta::dbSta *db_sta, LocalSta *local_sta,
                                  rsz::Resizer *resizer,
-                                 std::vector<ResizeBenefit> *results,
-                                 const std::unordered_map<const sta::Instance*, sta::VertexId> *inst_to_vid)
+                                 std::vector<ResizeBenefit> *results)
   : ParallelLrVisitor(db_sta, local_sta, resizer),
-    results_(results),
-    inst_to_vid_(inst_to_vid)
+    results_(results)
 {
 }
 
 bool
-PrecheckVisitor::visit(sta::Instance *inst)
+PrecheckVisitor::visit(sta::Instance *inst, sta::VertexId vid)
 {
   float cost_change = trySwapPrecheck(inst);
-  auto it = inst_to_vid_->find(inst);
-  if (it != inst_to_vid_->end()) {
-    size_t idx = it->second;
-    (*results_)[idx] = {inst, cost_change, idx};
-  }
+  (*results_)[vid] = {inst, cost_change, vid};
   return false;
 }
 
@@ -1171,7 +1165,7 @@ ParallelLrVisitor *
 PrecheckVisitor::copy() const
 {
   PrecheckVisitor *v = new PrecheckVisitor(db_sta_, local_sta_, resizer_,
-                                           results_, inst_to_vid_);
+                                           results_);
   v->setAverageDelay(average_delay_);
   v->setAverageLeakage(average_leakage_);
   v->setSwappableCellsCache(swappable_cells_cache_);
@@ -1190,16 +1184,14 @@ PrecheckVisitor::copy() const
 
 BufferSensitivityVisitor::BufferSensitivityVisitor(
     sta::dbSta *db_sta, LocalSta *local_sta, rsz::Resizer *resizer,
-    std::vector<ResizeBenefit> *results,
-    const std::unordered_map<const sta::Instance*, sta::VertexId> *inst_to_vid)
+    std::vector<ResizeBenefit> *results)
   : ParallelLrVisitor(db_sta, local_sta, resizer),
-    results_(results),
-    inst_to_vid_(inst_to_vid)
+    results_(results)
 {
 }
 
 bool
-BufferSensitivityVisitor::visit(sta::Instance *inst)
+BufferSensitivityVisitor::visit(sta::Instance *inst, sta::VertexId vid)
 {
   pt_graph_ = local_sta_->makePtGraph(inst, false);
   if (rebuffer_ == nullptr) {
@@ -1209,7 +1201,7 @@ BufferSensitivityVisitor::visit(sta::Instance *inst)
   }
 
   // Find the driver output pin (same pattern as tryBuffering)
-  struct DrvrInfo { sta::Pin *pin; VertexId vid; };
+  struct DrvrInfo { sta::Pin *pin; VertexId pt_vid; };
   std::vector<DrvrInfo> drvr_infos;
   for (size_t i = 0; i < pt_graph_->vertexCount(); i++) {
     PtVertex &pt_vertex = pt_graph_->ptVertex(i);
@@ -1222,16 +1214,10 @@ BufferSensitivityVisitor::visit(sta::Instance *inst)
   if (!drvr_infos.empty() && drvr_infos.size() <= 1) {
     auto &di = drvr_infos[0];
     score = rebuffer_->computeNetSensitivity(
-        di.pin, pt_graph_->ptVertex(di.vid), 0.0f, 0.0f);
+        di.pin, pt_graph_->ptVertex(di.pt_vid), 0.0f, 0.0f);
   }
 
-  auto it = inst_to_vid_->find(inst);
-  if (it != inst_to_vid_->end()) {
-    size_t idx = it->second;
-    (*results_)[idx] = {inst, score, idx};
-  } else {
-    throw std::runtime_error("BufferSensitivityVisitor::visit instance not found in inst_to_vid_");
-  }
+  (*results_)[vid] = {inst, score, vid};
   return false;
 }
 
@@ -1239,7 +1225,7 @@ ParallelLrVisitor *
 BufferSensitivityVisitor::copy() const
 {
   BufferSensitivityVisitor *v = new BufferSensitivityVisitor(
-      db_sta_, local_sta_, resizer_, results_, inst_to_vid_);
+      db_sta_, local_sta_, resizer_, results_);
   v->setAverageDelay(average_delay_);
   v->setAverageLeakage(average_leakage_);
   v->setPTTradeoff(PT_tradeoff_);

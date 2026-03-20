@@ -851,7 +851,7 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
 
   // Create PrecheckVisitor — stores results via visitor->visit(), no DB changes.
   PrecheckVisitor *visitor = new PrecheckVisitor(
-      sta_, local_sta_, resizer, &results, task_arranger->instToVidMap());
+      sta_, local_sta_, resizer, &results);
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff,
                 &swappable_cells_cache_, &inst_info_map_);
   visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
@@ -1097,7 +1097,7 @@ IncreSta::bufferingVerticesCandidateBySensitivity(
 
   // Create BufferSensitivityVisitor and dispatch via visitAll
   BufferSensitivityVisitor *visitor = new BufferSensitivityVisitor(
-      sta_, local_sta_, resizer, &results, task_arranger->instToVidMap());
+      sta_, local_sta_, resizer, &results);
   visitor->init(avg_delay, avg_leakage, wns, 100.0f, nullptr, nullptr);
   visitor->setMoveType(MoveType::BufferInsertion);
   task_arranger->visitAll(visitor);

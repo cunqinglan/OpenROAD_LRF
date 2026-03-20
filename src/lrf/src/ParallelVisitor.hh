@@ -33,7 +33,7 @@ class ParallelLrVisitor
 public:
   ParallelLrVisitor(sta::dbSta *db_sta, LocalSta *local_sta, rsz::Resizer *resizer);
   virtual ~ParallelLrVisitor();
-  virtual bool visit(sta::Instance *inst);
+  virtual bool visit(sta::Instance *inst, sta::VertexId vid);
   bool visit(sta::Instance *inst, TimingRecord &timing_record);
   bool singleGateSizing(sta::Instance *inst);
   void setMoveType(MoveType move_type);
@@ -49,7 +49,7 @@ public:
 
   virtual ParallelLrVisitor *copy() const;
   bool checkVisitorStatus() const;
-  void operator()(sta::Instance *inst) { visit(inst); }
+  void operator()(sta::Instance *inst) { visit(inst, sta::object_id_null); }
   void printVisitedInstNames() const;
   PtGraph *ptGraph() const { return pt_graph_; }
   LrRebuffer *rebuffer() const { return rebuffer_; }
@@ -163,16 +163,14 @@ class PrecheckVisitor : public ParallelLrVisitor
 {
 public:
   PrecheckVisitor(sta::dbSta *db_sta, LocalSta *local_sta, rsz::Resizer *resizer,
-                  std::vector<ResizeBenefit> *results,
-                  const std::unordered_map<const sta::Instance*, sta::VertexId> *inst_to_vid);
+                  std::vector<ResizeBenefit> *results);
 
-  bool visit(sta::Instance *inst) override;
+  bool visit(sta::Instance *inst, sta::VertexId vid) override;
   void applyChangesToDb(rsz::Resizer *resizer) override {}
   ParallelLrVisitor *copy() const override;
 
 private:
   std::vector<ResizeBenefit> *results_;
-  const std::unordered_map<const sta::Instance*, sta::VertexId> *inst_to_vid_;
 };
 
 // Visitor for embarrassingly-parallel buffer sensitivity precheck:
@@ -181,16 +179,14 @@ class BufferSensitivityVisitor : public ParallelLrVisitor
 {
 public:
   BufferSensitivityVisitor(sta::dbSta *db_sta, LocalSta *local_sta, rsz::Resizer *resizer,
-                           std::vector<ResizeBenefit> *results,
-                           const std::unordered_map<const sta::Instance*, sta::VertexId> *inst_to_vid);
+                           std::vector<ResizeBenefit> *results);
 
-  bool visit(sta::Instance *inst) override;
+  bool visit(sta::Instance *inst, sta::VertexId vid) override;
   void applyChangesToDb(rsz::Resizer *resizer) override {}
   ParallelLrVisitor *copy() const override;
 
 private:
   std::vector<ResizeBenefit> *results_;
-  const std::unordered_map<const sta::Instance*, sta::VertexId> *inst_to_vid_;
 };
 
 }  // namespace lrf
