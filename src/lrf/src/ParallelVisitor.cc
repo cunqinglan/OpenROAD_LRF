@@ -1068,7 +1068,7 @@ ParallelLrVisitor::init(float average_delay, float average_power, float wns,
     }
   }
   if (wns >= 0.0f) {
-    slack_margin_ = 1.05f;
+    slack_margin_ = 1.0f;
   } else
     slack_margin_ = std::max((-std::min(wns, 0.0f) / clock_period + 1.0f), 1.05f);
   PT_tradeoff_ = PT_tradeoff;
