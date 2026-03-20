@@ -1,4 +1,5 @@
 #include <atomic>
+#include <stdexcept>
 #include <thread>
 
 #include "TaskArranger.hh"
@@ -409,6 +410,24 @@ TaskArranger::makeVertices()
     fflush(stdout);
   }
   
+  // Verify vertex layout invariant: [0, num_com_) must all be COMBINATIONAL,
+  // and [num_com_, end) must all be non-COMBINATIONAL.
+  for (size_t i = 0; i < num_com_; i++) {
+    if (vertices_[i].type() != VertexType::COMBINATIONAL) {
+      throw std::runtime_error(
+          "makeVertices: vertex " + std::to_string(i)
+          + " in combinational range [0, " + std::to_string(num_com_)
+          + ") has non-COMBINATIONAL type");
+    }
+  }
+  for (size_t i = num_com_; i < vertices_.size(); i++) {
+    if (vertices_[i].type() == VertexType::COMBINATIONAL) {
+      throw std::runtime_error(
+          "makeVertices: combinational vertex leaked into sequential range at index "
+          + std::to_string(i));
+    }
+  }
+
   edges_.reserve(4 * vertices_.size()); // rough estimate
 }
 
@@ -897,11 +916,12 @@ TaskArranger::visitAll(ParallelLrVisitor *visitor)
     if (vertices_[i].type() != VertexType::COMBINATIONAL)
       continue;
     InstVertex *iv = &vertices_[i];
+    VertexId vid = static_cast<VertexId>(i);
     if (!dispatch_queue_) {
-      visitors_[0]->visit(iv->inst());
+      visitors_[0]->visit(iv->inst(), vid);
     } else {
-      dispatch_queue_->dispatch([this, iv](int tid) {
-        visitors_[tid]->visit(iv->inst());
+      dispatch_queue_->dispatch([this, iv, vid](int tid) {
+        visitors_[tid]->visit(iv->inst(), vid);
       });
     }
   }
@@ -963,7 +983,7 @@ TaskArranger::runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex)
       topology_checker_->onVisit(inst_vertex, std::this_thread::get_id());
     }
 
-    if (visitor->visit(inst_vertex->inst()))
+    if (visitor->visit(inst_vertex->inst(), inst_vertex->objectIdx()))
     {
       // Topology validation: mark before modification
       if (enable_topology_check_ && topology_checker_) {

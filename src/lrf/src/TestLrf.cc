@@ -665,7 +665,7 @@ TestLrf::testParallelVisitor(const std::vector<odb::dbInst*>& db_insts, sta::dbS
     sta::Instance *sta_inst = insts[i];
     dq.dispatch([visitor_ptrs, sta_inst](int id) {
       if (id >= 0 && id < visitor_ptrs.size()) {
-        visitor_ptrs[id]->visit(sta_inst);
+        visitor_ptrs[id]->visit(sta_inst, sta::object_id_null);
       }
     });
   }
@@ -2044,7 +2044,7 @@ TestLrf::testSingleInstBuffering(char *inst_name, sta::dbSta* sta,
     visitor->init(0, 0, wns, 100.0, nullptr, nullptr);
     visitor->setMoveType(MoveType::BufferInsertion);
 
-    bool success = visitor->visit(inst);
+    bool success = visitor->visit(inst, sta::object_id_null);
     printf("[Round %d] visit() returned: %s\n", round, success ? "true" : "false");
     fflush(stdout);
 
@@ -2060,7 +2060,7 @@ TestLrf::testSingleInstBuffering(char *inst_name, sta::dbSta* sta,
   ParallelLrVisitor *visitor = new ParallelLrVisitor(sta, local_sta, resizer);
   visitor->init(0, 0, wns, 100.0, nullptr, nullptr);
   visitor->setMoveType(MoveType::BufferInsertion);
-  bool success = visitor->visit(inst);
+  bool success = visitor->visit(inst, sta::object_id_null);
 
   printf("visit() returned: %s\n", success ? "true" : "false");
   fflush(stdout);
