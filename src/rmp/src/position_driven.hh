@@ -57,7 +57,7 @@ class PositionDrivenStrategy : public ExtractLocalWindow
   //void positionDrivenRemap (SeqRemapper& remapper);
   sta::Vertex* getFarthestOutputVertex(
       SeqRemapper& remapper);
-  sta::Vertex* getWorstVertex(
+  std::vector<sta::Vertex*> getWorstVertices(
       SeqRemapper& remapper,
       float percentage = -1.0f,
       float max_percentage = -1.0f,
