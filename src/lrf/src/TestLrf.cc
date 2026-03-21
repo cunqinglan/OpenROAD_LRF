@@ -1324,6 +1324,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
   float best_leakage = std::numeric_limits<float>::max();
   size_t no_improve_count_ = 0;
   size_t eco_iter = 0;
+  bool was_converged = false;
   sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
   sta::Slack best_tns = sta->totalNegativeSlack(sta::MinMax::max());
   sta::Slack tns, wns;
@@ -1334,7 +1335,8 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
 
   for (size_t i = 0; i < iterations; ++i) {
     sta->findRequireds();
-    printf("----- LR ResizeByArrayWithPrecheck Iteration %zu -----\n", i+1);
+    printf("----- LR ResizeByArrayWithPrecheck Iteration %zu (top_ratio=%.4f) -----\n",
+           i+1, top_ratio);
     auto start = std::chrono::high_resolution_clock::now();
     incre_sta->parallelResizeByArrayWithPrecheck(resizer, avg_delay, avg_leakage,
                                                   PT_tradeoff, top_ratio);
@@ -1362,6 +1364,23 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
     fflush(stdout);
     incre_sta->lmUpdate();
 
+    // Post-convergence regression: immediate rollback + halve, no tolerance.
+    if (was_converged && wns < 0.0) {
+      printf("Post-convergence regression (WNS %e), immediate rollback.\n", wns);
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
+      odb::dbDatabase::beginEco(block);
+      top_ratio *= 0.5f;
+      printf("Halved top_ratio to %.4f.\n", top_ratio);
+      fflush(stdout);
+      eco_iter++;
+      if (eco_iter > 6) {
+        printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
+        break;
+      }
+      continue;
+    }
+
     if (wns > best_wns && wns < 0) {
       best_wns = wns;
       best_tns = tns;
@@ -1371,6 +1390,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
       printf("Improvement in WNS, accepting.\n");
       no_improve_count_ = 0;
     } else if (wns >= 0.0 && (wns > best_wns || leakage < best_leakage)) {
+      was_converged = true;
       best_wns = wns;
       best_tns = tns;
       best_leakage = leakage;
@@ -1381,7 +1401,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
     } else if (no_improve_count_ < num_no_improve_tolerance) {
       no_improve_count_++;
       continue;
-    } else if (eco_iter > 2) {
+    } else if (eco_iter > 6) {
       printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
       break;
     } else {
@@ -1389,6 +1409,9 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
       odb::dbDatabase::beginEco(block);
+      top_ratio *= 0.5f;
+      printf("Halved top_ratio to %.4f after rollback.\n", top_ratio);
+      fflush(stdout);
       eco_iter++;
     }
   }
