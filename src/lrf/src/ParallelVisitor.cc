@@ -975,13 +975,14 @@ ParallelLrVisitor::updateVertexInfo(sta::VertexId vertex_id)
   PtVertex &pt_vertex = pt_graph_->ptVertex(vertex_id);
   if (!pt_vertex.vertex())
     return;
-  if (pt_vertex.type() != PtVertexType::RefInput
-   && pt_vertex.type() != PtVertexType::RefOutput) {
-    return;
-  }
   sta::Vertex *sta_vertex = pt_vertex.vertex();
-  pt_graph_->writeSlewToGraph(pt_vertex, sta_vertex);
-  pt_graph_->writePathsToGraph(pt_vertex, sta_vertex);
+  PtVertexType type = pt_vertex.type();
+  if (type == PtVertexType::RefInput
+   || type == PtVertexType::RefOutput
+   || type == PtVertexType::SiblingLoad) {
+    pt_graph_->writeSlewToGraph(pt_vertex, sta_vertex);
+    pt_graph_->writePathsToGraph(pt_vertex, sta_vertex);
+  }
 }
 
 void 

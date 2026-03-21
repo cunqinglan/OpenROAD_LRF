@@ -44,8 +44,10 @@ const char *ptVertexTypeName(PtVertexType type)
       return "VirtualInput";
     case PtVertexType::VirtualOutput:
       return "VirtualOutput";
-    case PtVertexType::Sibling:
-      return "Sibling";
+    case PtVertexType::SiblingLoad:
+      return "SiblingLoad";
+    case PtVertexType::SiblingDrvr:
+      return "SiblingDrvr";
     case PtVertexType::None:
       return "None";
   }
@@ -1204,13 +1206,13 @@ PtGraph::annotateVerticesType()
         continue;
 
       // Pure sibling load — mark it and its gate-edge successors
-      to_v.setType(PtVertexType::Sibling);
+      to_v.setType(PtVertexType::SiblingLoad);
       PtVertexOutEdgeIterator sib_out(to_id, this);
       while (sib_out.hasNext()) {
         PtEdge &se = sib_out.next();
         PtVertex &sib_to = pt_vertices_[se.ptToId()];
         if (sib_to.type() == PtVertexType::None)
-          sib_to.setType(PtVertexType::Sibling);
+          sib_to.setType(PtVertexType::SiblingDrvr);
       }
     }
   }
@@ -1227,8 +1229,8 @@ PtGraph::annotateEdgesType()
     if (from_pt_vertex.type() == PtVertexType::RefInput &&
         to_pt_vertex.type() == PtVertexType::RefOutput) {
       pt_edge.setType(PtEdgeType::RefInstEdge);
-    } else if (from_pt_vertex.type() == PtVertexType::Sibling &&
-               to_pt_vertex.type() == PtVertexType::Sibling) {
+    } else if (from_pt_vertex.type() == PtVertexType::SiblingLoad &&
+               to_pt_vertex.type() == PtVertexType::SiblingDrvr) {
       pt_edge.setType(PtEdgeType::SiblingEdge);
     }
   }
