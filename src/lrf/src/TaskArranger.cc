@@ -976,8 +976,11 @@ TaskArranger::createTask(InstVertex* inst_vertex)
 void
 TaskArranger::runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex)
 {
-  // Only visit selected instances; unselected ones just cascade dependencies
-  if (inst_vertex->selected_) {
+  if (!inst_vertex->selected_) {
+    // Non-selected: lightweight slew-only pass to keep timing fresh
+    // for downstream selected instances. No cell evaluation.
+    visitor->visitSlewOnly(inst_vertex->inst());
+  } else {
     // Topology validation: check if this vertex is ready to visit
     if (enable_topology_check_ && topology_checker_) {
       topology_checker_->onVisit(inst_vertex, std::this_thread::get_id());
