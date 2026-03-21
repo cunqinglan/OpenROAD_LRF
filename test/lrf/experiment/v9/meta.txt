@@ -1,0 +1,12 @@
+version: v9
+date: 2026-03-20 19:30:03
+benchmark: mlcad
+tag: lm_rollback_before_eco_plus_discount
+lr_mode: RAPIDLRHELPER
+lr_command: precheck
+thread_count: 10
+max_jobs: 3
+openroad: /home/culan/Desktop/workspace/OpenROAD_lrf_develop/build/bin/openroad
+designs: aes_cipher_top
+git_commit: 932d948
+git_branch: unknown

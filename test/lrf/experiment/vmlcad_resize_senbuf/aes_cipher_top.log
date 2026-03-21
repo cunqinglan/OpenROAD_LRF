@@ -1,0 +1,3225 @@
+OpenROAD HEAD-HASH-NOTFOUND 
+Features included (+) or not (-): +GPU +GUI +Python
+This program is licensed under the BSD-3 license. See the LICENSE file for details.
+Components of this program may be licensed under more restrictive licenses which must be honored.
+[WARNING ORD-0039] .openroad ignored with -python
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SRAM_TT_nldm_211120.lib line 13178, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SRAM_TT_nldm_211120.lib line 13211, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SRAM_TT_nldm_211120.lib line 13244, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SRAM_TT_nldm_211120.lib line 13277, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SRAM_TT_nldm_211120.lib line 13310, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SRAM_TT_nldm_211120.lib line 13343, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SRAM_TT_nldm_211120.lib line 13376, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SRAM_TT_nldm_211120.lib line 14772, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SRAM_TT_nldm_211120.lib line 14805, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SRAM_TT_nldm_211120.lib line 14838, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib line 13178, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib line 13211, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib line 13244, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib line 13277, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib line 13310, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib line 13343, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib line 13376, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib line 14772, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib line 14805, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_LVT_TT_nldm_211120.lib line 14838, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SLVT_TT_nldm_211120.lib line 13178, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SLVT_TT_nldm_211120.lib line 13211, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SLVT_TT_nldm_211120.lib line 13244, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SLVT_TT_nldm_211120.lib line 13277, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SLVT_TT_nldm_211120.lib line 13310, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SLVT_TT_nldm_211120.lib line 13343, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SLVT_TT_nldm_211120.lib line 13376, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SLVT_TT_nldm_211120.lib line 14772, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SLVT_TT_nldm_211120.lib line 14805, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_SLVT_TT_nldm_211120.lib line 14838, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13178, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13211, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13244, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13277, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13310, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13343, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13376, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 14772, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 14805, timing group from output port.
+[WARNING STA-1212] /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 14838, timing group from output port.
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/asap7_tech_1x_201209_tech.lef, created 24 layers, 9 vias
+[WARNING ODB-0217] duplicate VIARULE (Pad_M9) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M9_M8) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M8_M7) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M7_M6) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M6_M5) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M3_M2widePWR0p936) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M4_M3widePWR0p864) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M5_M4widePWR0p864) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M6_M5widePWR1p152) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M7_M6widePWR1p152) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M2_M1) ignoring...
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/asap7_tech_1x_201209.lef
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/asap7sc7p5t_28_R_1x_220121a.lef, created 212 library cells
+[INFO ODB-0394] Duplicate site asap7sc7p5t in asap7sc7p5t_28_L_1x_220121a already seen in asap7sc7p5t_28_R_1x_220121a
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/asap7sc7p5t_28_L_1x_220121a.lef, created 212 library cells
+[WARNING ODB-0176] error: undefined layer (OVERLAP) referenced
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/sram_asap7_64x256_1rw.lef, created 1 library cells
+[WARNING ODB-0176] error: undefined layer (OVERLAP) referenced
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/sram_asap7_16x256_1rw.lef, created 1 library cells
+[WARNING ODB-0176] error: undefined layer (OVERLAP) referenced
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/sram_asap7_64x64_1rw.lef, created 1 library cells
+[WARNING ODB-0176] error: undefined layer (OVERLAP) referenced
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/sram_asap7_32x256_1rw.lef, created 1 library cells
+[WARNING ODB-0217] duplicate VIARULE (Pad_M9) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M9_M8) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M8_M7) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M7_M6) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M6_M5) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M3_M2widePWR0p936) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M4_M3widePWR0p864) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M5_M4widePWR0p864) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M6_M5widePWR1p152) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M7_M6widePWR1p152) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M2_M1) ignoring...
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/asap7_tech_1x_201209_tech.lef
+[INFO ODB-0394] Duplicate site asap7sc7p5t in asap7sc7p5t_28_SL_1x_220121a already seen in asap7sc7p5t_28_R_1x_220121a
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/asap7sc7p5t_28_SL_1x_220121a.lef, created 212 library cells
+[INFO ODB-0394] Duplicate site asap7sc7p5t in asap7sc7p5t_28_SRAM_1x_220121a already seen in asap7sc7p5t_28_R_1x_220121a
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/asap7sc7p5t_28_SRAM_1x_220121a.lef, created 212 library cells
+[WARNING ODB-0217] duplicate VIARULE (Pad_M9) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M9_M8) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M8_M7) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M7_M6) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M6_M5) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M3_M2widePWR0p936) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M4_M3widePWR0p864) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M5_M4widePWR0p864) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M6_M5widePWR1p152) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M7_M6widePWR1p152) ignoring...
+[WARNING ODB-0217] duplicate VIARULE (M2_M1) ignoring...
+[INFO ODB-0227] LEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/platform/ASAP7/lef/asap7_tech_1x_201209.lef
+[INFO ODB-0127] Reading DEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/designs/aes_cipher_top/EDA_files/aes_cipher_top_fp.def.gz
+[INFO ODB-0128] Design: aes_cipher_top
+[WARNING ODB-0247] skipping undefined pin VDD encountered in FLOORPLAN DEF
+[WARNING ODB-0247] skipping undefined pin VSS encountered in FLOORPLAN DEF
+[WARNING ODB-0249] skipping undefined net VDD encountered in FLOORPLAN DEF
+[WARNING ODB-0249] skipping undefined net VSS encountered in FLOORPLAN DEF
+[INFO ODB-0252]     Updated 388 pins.
+[INFO ODB-0134] Finished DEF file: /home/culan/Desktop/workspace/MLCAD25-Contest-Scripts-Benchmarks/designs/aes_cipher_top/EDA_files/aes_cipher_top_fp.def.gz
+[INFO ODB-0403] 0 connections made, 0 conflicts skipped.
+[INFO ORD-0030] Using 10 thread(s).
+[INFO RSZ-0026] Removed 349 buffers.
+[INFO GPL-0001] ---- Initialize GPL Main Data Structures
+[INFO GPL-0002] DBU: 1000
+[INFO GPL-0003] SiteSize: (  0.054  0.270 ) um
+[INFO GPL-0004] CoreBBox: (  1.008  1.008 ) ( 41.886 41.508 ) um
+[INFO GPL-0036] Movable instances area:       1280.838 um^2
+[INFO GPL-0037] Total instances area:         1280.838 um^2
+[INFO GPL-0035] Pin density area adjust:       163.834 um^2
+[INFO GPL-0032] ---- Initialize Region: Top-level
+[INFO GPL-0006] Number of instances:             10616
+[INFO GPL-0007] Movable instances:               10616
+[INFO GPL-0008] Fixed instances:                     0
+[INFO GPL-0009] Dummy instances:                     0
+[INFO GPL-0010] Number of nets:                  10877
+[INFO GPL-0011] Number of pins:                  39143
+[INFO GPL-0012] Die BBox:  (  0.000  0.000 ) ( 42.912 42.516 ) um
+[INFO GPL-0013] Core BBox: (  1.008  1.008 ) ( 41.886 41.508 ) um
+[INFO GPL-0016] Core area:                    1655.559 um^2
+[INFO GPL-0014] Region name: top-level.
+[INFO GPL-0015] Region area:                  1655.559 um^2
+[INFO GPL-0017] Fixed instances area:            0.000 um^2
+[INFO GPL-0018] Movable instances area:       1444.672 um^2
+[INFO GPL-0019] Utilization:                    87.262 %
+[INFO GPL-0020] Standard cells area:          1444.672 um^2
+[INFO GPL-0021] Large instances area:            0.000 um^2
+[INFO GPL-0005] ---- Execute Conjugate Gradient Initial Placement.
+[INFO GPL-0051] Source of initial instance position counters:
+	Odb location = 0	Core center = 10616	Region center = 0
+[InitialPlace]  Iter: 1 conjugate gradient residual: 0.00000075 HPWL: 24896924
+[InitialPlace]  Iter: 2 conjugate gradient residual: 0.00000071 HPWL: 18433636
+[InitialPlace]  Iter: 3 conjugate gradient residual: 0.00000092 HPWL: 18234196
+[InitialPlace]  Iter: 4 conjugate gradient residual: 0.00000098 HPWL: 18292315
+[InitialPlace]  Iter: 5 conjugate gradient residual: 0.00000155 HPWL: 18247744
+[INFO GPL-0033] ---- Initialize Nesterov Region: Top-level
+[WARNING GPL-0302] Target density 0.7000 is too low for the available free area.
+Automatically adjusting to uniform density 0.8800.
+[INFO GPL-0023] Placement target density:       0.8800
+[INFO GPL-0024] Movable insts average area:      0.136 um^2
+[INFO GPL-0025] Ideal bin area:                  0.155 um^2
+[INFO GPL-0026] Ideal bin count:                 10705
+[INFO GPL-0027] Total bin area:               1655.559 um^2
+[INFO GPL-0028] Bin count (X, Y):          64 ,     64
+[INFO GPL-0029] Bin size (W * H):       0.639 *  0.633 um
+[INFO GPL-0030] Number of bins:                   4096
+[INFO GPL-0007] ---- Execute Nesterov Global Placement.
+[INFO GPL-0031] HPWL: Half-Perimeter Wirelength
+Iteration | Overflow |     HPWL (um) |  HPWL(%) |   Penalty | Group
+---------------------------------------------------------------
+        0 |   0.9519 |  1.765709e+04 |   +0.00% |  4.00e-13 |      
+       10 |   0.8701 |  1.613797e+04 |   -8.60% |  6.51e-13 |      
+       20 |   0.8689 |  1.594064e+04 |   -1.22% |  1.06e-12 |      
+       30 |   0.8708 |  1.592821e+04 |   -0.08% |  1.73e-12 |      
+       40 |   0.8705 |  1.592932e+04 |   +0.01% |  2.82e-12 |      
+       50 |   0.8702 |  1.593715e+04 |   +0.05% |  4.59e-12 |      
+       60 |   0.8703 |  1.593767e+04 |   +0.00% |  7.47e-12 |      
+       70 |   0.8702 |  1.594538e+04 |   +0.05% |  1.22e-11 |      
+       80 |   0.8699 |  1.595793e+04 |   +0.08% |  1.98e-11 |      
+       90 |   0.8696 |  1.597664e+04 |   +0.12% |  3.23e-11 |      
+      100 |   0.8690 |  1.600843e+04 |   +0.20% |  5.26e-11 |      
+      110 |   0.8681 |  1.606177e+04 |   +0.33% |  8.57e-11 |      
+      120 |   0.8667 |  1.614844e+04 |   +0.54% |  1.40e-10 |      
+      130 |   0.8648 |  1.628557e+04 |   +0.85% |  2.27e-10 |      
+      140 |   0.8620 |  1.648599e+04 |   +1.23% |  3.70e-10 |      
+      150 |   0.8577 |  1.676748e+04 |   +1.71% |  6.03e-10 |      
+      160 |   0.8494 |  1.716992e+04 |   +2.40% |  9.82e-10 |      
+      170 |   0.8376 |  1.771340e+04 |   +3.17% |  1.60e-09 |      
+      180 |   0.8219 |  1.840773e+04 |   +3.92% |  2.61e-09 |      
+      190 |   0.8020 |  1.927810e+04 |   +4.73% |  4.24e-09 |      
+      200 |   0.7819 |  2.035422e+04 |   +5.58% |  6.91e-09 |      
+      210 |   0.7634 |  2.153293e+04 |   +5.79% |  1.13e-08 |      
+      220 |   0.7439 |  2.287315e+04 |   +6.22% |  1.83e-08 |      
+      230 |   0.7196 |  2.426946e+04 |   +6.10% |  2.99e-08 |      
+      240 |   0.6940 |  2.570222e+04 |   +5.90% |  4.86e-08 |      
+      250 |   0.6671 |  2.703937e+04 |   +5.20% |  7.92e-08 |      
+      260 |   0.6384 |  2.830642e+04 |   +4.69% |  1.29e-07 |      
+[INFO GPL-0100] Timing-driven iteration 1/2, virtual: false.
+[INFO GPL-0101]    Iter: 263, overflow: 0.632, keep resizer changes at: 1, HPWL: 28561367
+Iteration |   Area    | Resized | Buffers | Nets repaired | Remaining
+---------------------------------------------------------------------
+        0 |     +0.0% |       0 |       0 |             0 |     10877
+    final |     +1.0% |       7 |     152 |           242 |         0
+---------------------------------------------------------------------
+[INFO RSZ-0034] Found 141 slew violations.
+[INFO RSZ-0035] Found 104 fanout violations.
+[INFO RSZ-0039] Resized 7 instances.
+[INFO RSZ-0038] Inserted 152 buffers in 242 nets.
+   Iter   |    Area   | Removed | Inserted |   Pins
+          |           | Buffers | Buffers  | Remaining
+-------------------------------------------------------
+        0 |     +0.0% |       0 |        0 |     10618
+     1000 |     +0.9% |       0 |      137 |      9618
+     2000 |     +2.9% |       0 |      439 |      8618
+     3000 |     +3.0% |       0 |      454 |      7618
+     4000 |     +3.1% |       0 |      482 |      6618
+     5000 |     +3.3% |       0 |      516 |      5618
+     6000 |     +4.1% |       0 |      644 |      4618
+     7000 |     +5.8% |       5 |      915 |      3618
+     8000 |     +8.2% |      27 |     1298 |      2618
+     9000 |    +11.3% |      56 |     1781 |      1618
+    10000 |    +13.9% |     130 |     2235 |       618
+    final |    +14.5% |     152 |     2332 |         0
+-------------------------------------------------------
+[INFO GPL-0106] Timing-driven: worst slack -7.42e-12
+[INFO GPL-0107] Timing-driven: repair_design delta area: 224.007 um^2 (+15.51%)
+[INFO GPL-0108] Timing-driven: repair_design, gpl delta gcells: 2332 (+21.97%)
+[INFO GPL-0109] Timing-driven: repair_design, gcells created: 2484, deleted: 152
+[INFO GPL-0110] Timing-driven: new target density: 1.015306
+Iteration | Overflow |     HPWL (um) |  HPWL(%) |   Penalty | Group
+---------------------------------------------------------------
+      270 |   0.5898 |  3.295348e+04 |  +16.42% |  2.10e-07 |      
+      280 |   0.5683 |  3.276292e+04 |   -0.58% |  3.42e-07 |      
+      290 |   0.5281 |  3.407370e+04 |   +4.00% |  5.57e-07 |      
+      300 |   0.4873 |  3.516440e+04 |   +3.20% |  9.07e-07 |      
+      310 |   0.4418 |  3.641239e+04 |   +3.55% |  1.48e-06 |      
+      320 |   0.3937 |  3.760576e+04 |   +3.28% |  2.41e-06 |      
+      330 |   0.3364 |  3.899569e+04 |   +3.70% |  3.88e-06 |      
+      340 |   0.2810 |  4.020697e+04 |   +3.11% |  5.72e-06 |      
+      350 |   0.2212 |  4.144144e+04 |   +3.07% |  8.42e-06 |      
+[INFO GPL-0100] Timing-driven iteration 2/2, virtual: false.
+[INFO GPL-0101]    Iter: 357, overflow: 0.193, keep resizer changes at: 1, HPWL: 42049693
+Iteration |   Area    | Resized | Buffers | Nets repaired | Remaining
+---------------------------------------------------------------------
+        0 |     +0.0% |       0 |       0 |             0 |     13209
+    final |     +0.0% |       0 |       0 |           129 |         0
+---------------------------------------------------------------------
+[INFO RSZ-0034] Found 129 slew violations.
+   Iter   |    Area   | Removed | Inserted |   Pins
+          |           | Buffers | Buffers  | Remaining
+-------------------------------------------------------
+        0 |     +0.0% |       0 |        0 |     10618
+     1000 |     -0.5% |     137 |       40 |      9618
+     2000 |     -1.7% |     439 |      137 |      8618
+     3000 |     -1.8% |     454 |      138 |      7618
+     4000 |     -1.9% |     482 |      143 |      6618
+     5000 |     -2.1% |     516 |      149 |      5618
+     6000 |     -2.6% |     644 |      170 |      4618
+     7000 |     -3.8% |     915 |      230 |      3618
+     8000 |     -5.4% |    1298 |      335 |      2618
+     9000 |     -7.4% |    1781 |      491 |      1618
+    10000 |     -8.7% |    2235 |      710 |       618
+    final |     -8.9% |    2332 |      783 |         0
+-------------------------------------------------------
+[INFO GPL-0106] Timing-driven: worst slack 1.11e-12
+[INFO GPL-0107] Timing-driven: repair_design delta area: -77.361 um^2 (-4.85%)
+[INFO GPL-0108] Timing-driven: repair_design, gpl delta gcells: -1549 (-11.96%)
+[INFO GPL-0109] Timing-driven: repair_design, gcells created: 783, deleted: 2332
+[INFO GPL-0110] Timing-driven: new target density: 0.924826
+Iteration | Overflow |     HPWL (um) |  HPWL(%) |   Penalty | Group
+---------------------------------------------------------------
+      360 |   0.1990 |  4.199968e+04 |   +1.35% |  1.24e-05 |      
+      370 |   0.1593 |  4.264412e+04 |   +1.53% |  1.83e-05 |      
+      380 |   0.1286 |  4.300434e+04 |   +0.84% |  2.69e-05 |      
+      390 |   0.1051 |  4.319958e+04 |   +0.45% |  3.96e-05 |      
+      393 |   0.0991 |  4.325823e+04 |          |  4.63e-05 |      
+---------------------------------------------------------------
+[INFO GPL-1001] Global placement finished at iteration 393
+[INFO GPL-1002] Placed Cell Area             1496.0521
+[INFO GPL-1003] Available Free Area          1655.5590
+[INFO GPL-1004] Minimum Feasible Density        0.8800 (cell_area / free_area)
+[INFO GPL-1006]   Suggested Target Densities:
+[INFO GPL-1007]     - For 90% usage of free space: 1.0041
+[INFO GPL-1008]     - For 80% usage of free space: 1.1296
+[INFO GPL-1011] Original area (um^2): 1444.67
+[INFO GPL-1013] Total timing-driven delta area: 146.65 (+10.15%)
+[INFO GPL-1014] Final placement area: 1496.05 (+3.56%)
+wns max 0.00
+tns max 0.00
+Startpoint: sa32_reg[3] (rising edge-triggered flip-flop clocked by clk)
+Endpoint: sa03_reg[0] (rising edge-triggered flip-flop clocked by clk)
+Path Group: clk
+Path Type: max
+
+   Delay     Time   Description
+-----------------------------------------------------------
+   0.000    0.000   clock clk (rise edge)
+   0.000    0.000   clock network delay (ideal)
+   0.000    0.000 ^ sa32_reg[3]/CLK (SDFHx1_ASAP7_75t_SL)
+  42.875   42.875 ^ sa32_reg[3]/QN (SDFHx1_ASAP7_75t_SL)
+  12.865   55.740 v g219645/Y (INVx2_ASAP7_75t_SL)
+  26.362   82.101 v g219396/Y (AND2x2_ASAP7_75t_SL)
+  13.534   95.635 ^ g219061/Y (INVx3_ASAP7_75t_SL)
+  17.313  112.948 v g217603/Y (NOR2xp33_ASAP7_75t_SL)
+  14.359  127.308 ^ g215557/Y (AOI21xp5_ASAP7_75t_L)
+  12.167  139.474 v g214022/Y (NAND3xp33_ASAP7_75t_SL)
+  14.439  153.914 ^ g213120__1666/Y (AOI221xp5_ASAP7_75t_SL)
+  15.526  169.440 v g212994__1705/Y (O2A1O1Ixp33_ASAP7_75t_SL)
+  19.833  189.273 ^ g212894__8428/Y (OAI21x1_ASAP7_75t_SL)
+  16.059  205.332 v g111123/Y (INVx1_ASAP7_75t_L)
+  22.335  227.667 ^ g111122/Y (INVx1_ASAP7_75t_R)
+  14.730  242.397 ^ g109854/Y (XNOR2xp5_ASAP7_75t_SL)
+   7.115  249.511 v g109834/Y (INVxp67_ASAP7_75t_L)
+  23.787  273.299 ^ g109832/Y (NOR2xp33_ASAP7_75t_R)
+  10.691  283.990 v g109699/Y (AOI22xp5_ASAP7_75t_SL)
+  22.802  306.792 ^ g109569/Y (OAI222xp33_ASAP7_75t_SL)
+   0.351  307.142 ^ sa03_reg[0]/D (DFFHQx4_ASAP7_75t_SL)
+          307.142   data arrival time
+
+ 320.000  320.000   clock clk (rise edge)
+   0.000  320.000   clock network delay (ideal)
+   0.000  320.000   clock reconvergence pessimism
+          320.000 ^ sa03_reg[0]/CLK (DFFHQx4_ASAP7_75t_SL)
+ -11.751  308.249   library setup time
+          308.249   data required time
+-----------------------------------------------------------
+          308.249   data required time
+         -307.142   data arrival time
+-----------------------------------------------------------
+            1.107   slack (MET)
+
+
+Iteration |   Area    | Resized | Buffers | Nets repaired | Remaining
+---------------------------------------------------------------------
+        0 |     +0.0% |       0 |       0 |             0 |     11660
+     1000 |     +0.0% |       0 |       0 |             0 |     10660
+     2000 |     +0.0% |       0 |       0 |             0 |      9660
+     3000 |     +0.0% |       0 |       0 |             0 |      8660
+     4000 |     +0.0% |       0 |       0 |             0 |      7660
+     5000 |     +0.0% |       0 |       0 |             0 |      6660
+     6000 |     +0.0% |       0 |       0 |             0 |      5660
+     7000 |     +0.0% |       0 |       0 |             0 |      4660
+     8000 |     +0.0% |       0 |       0 |             0 |      3660
+     9000 |     +0.0% |       0 |       0 |             0 |      2660
+    10000 |     +0.0% |       0 |       0 |           129 |      1660
+    11000 |     +0.0% |       0 |       0 |           129 |       660
+    final |     +0.0% |       0 |       0 |           129 |         0
+---------------------------------------------------------------------
+[INFO RSZ-0034] Found 129 slew violations.
+wns max -9.22
+tns max -35.82
+Startpoint: sa31_reg[7] (rising edge-triggered flip-flop clocked by clk)
+Endpoint: sa32_reg[4] (rising edge-triggered flip-flop clocked by clk)
+Path Group: clk
+Path Type: max
+
+   Delay     Time   Description
+-----------------------------------------------------------
+   0.000    0.000   clock clk (rise edge)
+   0.000    0.000   clock network delay (ideal)
+   0.000    0.000 ^ sa31_reg[7]/CLK (SDFHx4_ASAP7_75t_SL)
+  33.882   33.882 ^ sa31_reg[7]/QN (SDFHx4_ASAP7_75t_SL)
+  14.075   47.957 v g218621/Y (NAND2xp5_ASAP7_75t_SL)
+  22.092   70.050 v g217363/Y (AND2x2_ASAP7_75t_SL)
+  22.367   92.416 ^ g216206/Y (NOR2xp33_ASAP7_75t_L)
+  43.937  136.353 v g215286/Y (NOR2xp33_ASAP7_75t_R)
+  26.098  162.452 ^ g214111/Y (OAI211xp5_ASAP7_75t_SL)
+  19.293  181.745 v g213128__8428/Y (A2O1A1O1Ixp25_ASAP7_75t_SL)
+  25.872  207.617 v g212829__6131/Y (AO211x2_ASAP7_75t_SL)
+  33.206  240.822 v place2597/Y (HB1xp67_ASAP7_75t_L)
+  15.538  256.360 ^ g110771/Y (AOI22x1_ASAP7_75t_SL)
+   8.549  264.910 v g110498/Y (INVx1_ASAP7_75t_SL)
+  13.211  278.121 ^ g109919/Y (OAI22xp5_ASAP7_75t_SL)
+  30.935  309.056 ^ g109666/Y (XOR2xp5_ASAP7_75t_SL)
+   1.109  310.164 ^ sa32_reg[4]/SI (SDFHx4_ASAP7_75t_SL)
+          310.164   data arrival time
+
+ 320.000  320.000   clock clk (rise edge)
+   0.000  320.000   clock network delay (ideal)
+   0.000  320.000   clock reconvergence pessimism
+          320.000 ^ sa32_reg[4]/CLK (SDFHx4_ASAP7_75t_SL)
+ -19.055  300.945   library setup time
+          300.945   data required time
+-----------------------------------------------------------
+          300.945   data required time
+         -310.164   data arrival time
+-----------------------------------------------------------
+           -9.219   slack (VIOLATED)
+
+
+[INFO ORD-0030] Using 10 thread(s).
+Current thread count: 10
+LR_COMMAND: timing.testParallelResizingBuffering(20000000, 12, 6, True, 10, lr_mode)
+Starting testParallelResizingBuffering with 10 threads
+First compute all parasitic networks...
+Starting testParallelResizingBuffering
+----- Testing Parallel LR Resizing -----
+LocalSta::LocalSta created
+Thread count has set to 10
+LRHelper::parallelKKTProjection() with 10 threads
+LRHelper::parallelCheckKKTForAllVertices()
+LRHelper::parallelCheckKKTForAllVertices(): max LM (ld_r_reg/CLK -> ld_r_reg/QN) & min LM (u0_g62667/A2 -> u0_g62667/Y) value encountered: 123.754303, 0.000007
+LRHelper::parallelKKTProjection(): KKT conditions satisfied
+Initial Worst Negative Slack: -9.219042
+Initial Total Negative Slack: -35.816211
+Initial Average Delay on Critical Path: 11.077294
+Initial Average Leakage: 25.684517
+TaskArranger::init making graph...
+Making vertices: 10869 combinational, 530 sequential, 10869 numcom
+Double check size: num_root_insts=530, num_com_insts=10869
+  Initialized top instance vertex 11399: inst=0x1, name=aes_cipher_top
+Verifying all vertices before makeEdges...
+Verification complete. Starting makeEdges...
+Checking all vertices in the graph...
+All vertices checked successfully in checkGraph.
+Checking all edges in the graph...
+All edges checked successfully in checkGraph.
+Checking ref counts of vertices in the graph...
+TaskArranger::ensureGraphVertices pre-warming graph...
+TaskArranger::ensureGraphVertices done.
+----- LR Resizing Iteration 1 -----
+IncreSta::parallelResizeAdaptive start
+makeSwappableCellsCache took 0.259311 s
+preSaveLibCellLeakage took 12.058255 s
+slack_margin: 1.050000
+Visit with 10 threads
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.058742 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.194005 seconds
+  equiv_cell_count: 35900.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.129878 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.057927 seconds
+  visit: 44.482719 seconds
+  writeTimingToDb: 0.058742 seconds
+  Average equiv cell check time: 0.001203176 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.048325 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.202331 seconds
+  equiv_cell_count: 37048.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.111185 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.047590 seconds
+  visit: 44.475460 seconds
+  writeTimingToDb: 0.048325 seconds
+  Average equiv cell check time: 0.001166118 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.073631 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 44.031256 seconds
+  equiv_cell_count: 36688.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.148942 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.072791 seconds
+  visit: 45.377447 seconds
+  writeTimingToDb: 0.073631 seconds
+  Average equiv cell check time: 0.001200154 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.057717 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.274742 seconds
+  equiv_cell_count: 34748.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.132819 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.056906 seconds
+  visit: 44.554802 seconds
+  writeTimingToDb: 0.057717 seconds
+  Average equiv cell check time: 0.001245388 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.059863 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.004594 seconds
+  equiv_cell_count: 35020.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.141243 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.059089 seconds
+  visit: 44.314718 seconds
+  writeTimingToDb: 0.059863 seconds
+  Average equiv cell check time: 0.001228001 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.053143 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.338454 seconds
+  equiv_cell_count: 36232.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.125331 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.052385 seconds
+  visit: 44.633257 seconds
+  writeTimingToDb: 0.053143 seconds
+  Average equiv cell check time: 0.001196138 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.057276 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.136751 seconds
+  equiv_cell_count: 35252.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.131852 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.056508 seconds
+  visit: 44.420086 seconds
+  writeTimingToDb: 0.057276 seconds
+  Average equiv cell check time: 0.001223668 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.066804 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.992487 seconds
+  equiv_cell_count: 35800.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.133922 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.065983 seconds
+  visit: 44.277833 seconds
+  writeTimingToDb: 0.066804 seconds
+  Average equiv cell check time: 0.001200907 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.063237 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.182383 seconds
+  equiv_cell_count: 34860.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.137946 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.062410 seconds
+  visit: 44.515522 seconds
+  writeTimingToDb: 0.063237 seconds
+  Average equiv cell check time: 0.001238737 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.052301 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.741652 seconds
+  equiv_cell_count: 35408.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.125916 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.051574 seconds
+  visit: 45.023159 seconds
+  writeTimingToDb: 0.052301 seconds
+  Average equiv cell check time: 0.001235361 seconds
+After parallel LR resize, TNS: -1.353763e-10, WNS: -1.589143e-11
+parallel resize time: 47.237770 s
+IncreSta::parallelResize total time 60.215627 s
+Parallel resize took 60.215629 seconds
+Parasitics update took 0.611576 seconds
+Evaluation took 4.438391 seconds
+Worst Negative Slack: -16.191354
+Total Negative Slack: -139.396522
+Total Leakage Power: 532203.666808
+Size of sorted_lm_vertices_: 40709
+Using LRHelper strategy: Rapid LRHelper: LM=path delay/T (parallel, 10 threads)
+LRHelper::parallelKKTProjection() with 10 threads
+LRHelper::parallelCheckKKTForAllVertices()
+LRHelper::parallelCheckKKTForAllVertices(): max LM (ld_r_reg/CLK -> ld_r_reg/QN) & min LM (u0_g62667/A3 -> u0_g62667/Y) value encountered: 81.484184, 0.000004
+LRHelper::parallelKKTProjection(): KKT conditions satisfied
+LM update took 0.665018 seconds
+No improvement in WNS, but within tolerance, accepting new design.
+----- LR Resizing Iteration 2 -----
+IncreSta::parallelResizeAdaptive start
+slack_margin: 1.050598
+TaskArranger::ensureGraphVertices pre-warming graph...
+TaskArranger::ensureGraphVertices done.
+Visit with 10 threads
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.016818 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.697160 seconds
+  equiv_cell_count: 34916.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.128659 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.016574 seconds
+  visit: 44.165930 seconds
+  writeTimingToDb: 0.016818 seconds
+  Average equiv cell check time: 0.001251494 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.016862 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.672853 seconds
+  equiv_cell_count: 35524.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.125024 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.016620 seconds
+  visit: 44.129977 seconds
+  writeTimingToDb: 0.016862 seconds
+  Average equiv cell check time: 0.001229390 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.018438 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.565778 seconds
+  equiv_cell_count: 35464.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.128793 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.018181 seconds
+  visit: 44.060047 seconds
+  writeTimingToDb: 0.018438 seconds
+  Average equiv cell check time: 0.001228451 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.015922 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.217375 seconds
+  equiv_cell_count: 36224.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.115560 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.015696 seconds
+  visit: 43.648377 seconds
+  writeTimingToDb: 0.015922 seconds
+  Average equiv cell check time: 0.001193059 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.016062 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.753252 seconds
+  equiv_cell_count: 36808.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.121610 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.015825 seconds
+  visit: 44.189624 seconds
+  writeTimingToDb: 0.016062 seconds
+  Average equiv cell check time: 0.001188689 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.018543 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.310970 seconds
+  equiv_cell_count: 34932.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.129122 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.018272 seconds
+  visit: 43.823660 seconds
+  writeTimingToDb: 0.018543 seconds
+  Average equiv cell check time: 0.001239865 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.017150 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.353048 seconds
+  equiv_cell_count: 35692.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.122678 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.016911 seconds
+  visit: 43.851392 seconds
+  writeTimingToDb: 0.017150 seconds
+  Average equiv cell check time: 0.001214643 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.017778 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.456988 seconds
+  equiv_cell_count: 35928.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.120722 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.017512 seconds
+  visit: 43.932743 seconds
+  writeTimingToDb: 0.017778 seconds
+  Average equiv cell check time: 0.001209558 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.016903 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.721332 seconds
+  equiv_cell_count: 36252.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.121736 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.016687 seconds
+  visit: 44.156364 seconds
+  writeTimingToDb: 0.016903 seconds
+  Average equiv cell check time: 0.001206039 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.015875 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.161856 seconds
+  equiv_cell_count: 35216.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.126853 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.015644 seconds
+  visit: 43.617920 seconds
+  writeTimingToDb: 0.015875 seconds
+  Average equiv cell check time: 0.001225632 seconds
+After parallel LR resize, TNS: -1.465800e-12, WNS: -7.832901e-13
+parallel resize time: 46.284102 s
+IncreSta::parallelResize total time 46.882499 s
+Parallel resize took 46.882501 seconds
+Parasitics update took 0.619724 seconds
+Evaluation took 4.378506 seconds
+Worst Negative Slack: -0.887429
+Total Negative Slack: -1.569939
+Total Leakage Power: 571668.097109
+Size of sorted_lm_vertices_: 40709
+Using LRHelper strategy: Rapid LRHelper: LM=path delay/T (parallel, 10 threads)
+LRHelper::parallelKKTProjection() with 10 threads
+LRHelper::parallelCheckKKTForAllVertices()
+LRHelper::parallelCheckKKTForAllVertices(): max LM (u0_drc_bufs64519/A -> u0_drc_bufs64519/Y) & min LM (u0_g62667/B1 -> u0_g62667/Y) value encountered: 67.076538, 0.000003
+LRHelper::parallelKKTProjection(): KKT conditions satisfied
+LM update took 0.614819 seconds
+Improvement in WNS, accepting new design.
+----- LR Resizing Iteration 3 -----
+IncreSta::parallelResizeAdaptive start
+slack_margin: 1.050000
+TaskArranger::ensureGraphVertices pre-warming graph...
+TaskArranger::ensureGraphVertices done.
+Visit with 10 threads
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.013492 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.329611 seconds
+  equiv_cell_count: 36880.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.123437 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.013323 seconds
+  visit: 43.688700 seconds
+  writeTimingToDb: 0.013492 seconds
+  Average equiv cell check time: 0.001174881 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.018785 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.431806 seconds
+  equiv_cell_count: 35056.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.119857 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.018585 seconds
+  visit: 42.782545 seconds
+  writeTimingToDb: 0.018785 seconds
+  Average equiv cell check time: 0.001210401 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.011928 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.799124 seconds
+  equiv_cell_count: 35476.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.117711 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.011774 seconds
+  visit: 43.145785 seconds
+  writeTimingToDb: 0.011928 seconds
+  Average equiv cell check time: 0.001206425 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.015971 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.384054 seconds
+  equiv_cell_count: 34752.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.130334 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.015794 seconds
+  visit: 42.754448 seconds
+  writeTimingToDb: 0.015971 seconds
+  Average equiv cell check time: 0.001219615 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.011383 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.562042 seconds
+  equiv_cell_count: 35708.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.120518 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.011224 seconds
+  visit: 42.927261 seconds
+  writeTimingToDb: 0.011383 seconds
+  Average equiv cell check time: 0.001191947 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.010547 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.738495 seconds
+  equiv_cell_count: 35096.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.122812 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.010396 seconds
+  visit: 43.067919 seconds
+  writeTimingToDb: 0.010547 seconds
+  Average equiv cell check time: 0.001217760 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.012421 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.665068 seconds
+  equiv_cell_count: 34920.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.119750 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.012257 seconds
+  visit: 43.048003 seconds
+  writeTimingToDb: 0.012421 seconds
+  Average equiv cell check time: 0.001221795 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.012394 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.109382 seconds
+  equiv_cell_count: 36616.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.120018 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.012211 seconds
+  visit: 43.453035 seconds
+  writeTimingToDb: 0.012394 seconds
+  Average equiv cell check time: 0.001177337 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.014879 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.127471 seconds
+  equiv_cell_count: 36224.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.123171 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.014702 seconds
+  visit: 43.463776 seconds
+  writeTimingToDb: 0.014879 seconds
+  Average equiv cell check time: 0.001190577 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.013115 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.389422 seconds
+  equiv_cell_count: 36228.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.129642 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.012922 seconds
+  visit: 43.765793 seconds
+  writeTimingToDb: 0.013115 seconds
+  Average equiv cell check time: 0.001197676 seconds
+After parallel LR resize, TNS: 0.000000e+00, WNS: 6.314671e-13
+parallel resize time: 45.493137 s
+IncreSta::parallelResize total time 46.109855 s
+Parallel resize took 46.109857 seconds
+Parasitics update took 0.639313 seconds
+Evaluation took 4.461797 seconds
+Worst Negative Slack: 0.631467
+Total Negative Slack: 0.000000
+Total Leakage Power: 590334.348090
+All timing constraints are met (WNS 6.314671e-13), switching to power optimization mode
+Size of sorted_lm_vertices_: 40709
+Using LRHelper strategy: Rapid LRHelper: LM=path delay/T (parallel, 10 threads)
+LRHelper::parallelKKTProjection() with 10 threads
+LRHelper::parallelCheckKKTForAllVertices()
+LRHelper::parallelCheckKKTForAllVertices(): max LM (u0_drc_bufs64519/A -> u0_drc_bufs64519/Y) & min LM (u0_g61981/C1 -> u0_g61981/Y ((((!A1*!A2)*!A3)*!B1)*!B2)*C2) value encountered: 31.381989, 0.000000
+LRHelper::parallelKKTProjection(): KKT conditions satisfied
+LM update took 0.726833 seconds
+WNS is positive and improvement in WNS or leakage, accepting new design.
+----- LR Resizing Iteration 4 -----
+IncreSta::parallelResizeAdaptive start
+slack_margin: 1.000000
+TaskArranger::ensureGraphVertices pre-warming graph...
+TaskArranger::ensureGraphVertices done.
+Visit with 10 threads
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.021567 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.211555 seconds
+  equiv_cell_count: 37376.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.116077 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.021227 seconds
+  visit: 43.848865 seconds
+  writeTimingToDb: 0.021567 seconds
+  Average equiv cell check time: 0.001156131 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.021991 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.308146 seconds
+  equiv_cell_count: 36728.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.113973 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.021664 seconds
+  visit: 43.948794 seconds
+  writeTimingToDb: 0.021991 seconds
+  Average equiv cell check time: 0.001179159 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.032342 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.362609 seconds
+  equiv_cell_count: 35416.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.133378 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.031910 seconds
+  visit: 44.135451 seconds
+  writeTimingToDb: 0.032342 seconds
+  Average equiv cell check time: 0.001224379 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.028613 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.520541 seconds
+  equiv_cell_count: 35900.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.126466 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.028213 seconds
+  visit: 43.250892 seconds
+  writeTimingToDb: 0.028613 seconds
+  Average equiv cell check time: 0.001184416 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.022225 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.688993 seconds
+  equiv_cell_count: 35140.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.120644 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.021889 seconds
+  visit: 43.380593 seconds
+  writeTimingToDb: 0.022225 seconds
+  Average equiv cell check time: 0.001214826 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.026283 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.788639 seconds
+  equiv_cell_count: 35532.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.122840 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.025908 seconds
+  visit: 43.532557 seconds
+  writeTimingToDb: 0.026283 seconds
+  Average equiv cell check time: 0.001204228 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.021252 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.776216 seconds
+  equiv_cell_count: 34688.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.113547 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.020909 seconds
+  visit: 43.430904 seconds
+  writeTimingToDb: 0.021252 seconds
+  Average equiv cell check time: 0.001233170 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.023808 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.664172 seconds
+  equiv_cell_count: 35336.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.120428 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.023481 seconds
+  visit: 43.345079 seconds
+  writeTimingToDb: 0.023808 seconds
+  Average equiv cell check time: 0.001207385 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.024381 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.266840 seconds
+  equiv_cell_count: 35036.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.117938 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.024020 seconds
+  visit: 42.998589 seconds
+  writeTimingToDb: 0.024381 seconds
+  Average equiv cell check time: 0.001206383 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.022155 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.198897 seconds
+  equiv_cell_count: 35804.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.119732 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.021820 seconds
+  visit: 43.867164 seconds
+  writeTimingToDb: 0.022155 seconds
+  Average equiv cell check time: 0.001206538 seconds
+After parallel LR resize, TNS: 0.000000e+00, WNS: 1.418560e-12
+parallel resize time: 46.010098 s
+slack_margin: 1.000000
+No violating endpoints found (all slacks >= 0). WNS met.
+After critical path sizing, TNS: 0.000000e+00, WNS: 1.418560e-12
+critical path sizing time: 0.006461 s
+IncreSta::parallelResize total time 46.652927 s
+Parallel resize took 46.652928 seconds
+Parasitics update took 0.634858 seconds
+Evaluation took 4.416790 seconds
+Worst Negative Slack: 1.404654
+Total Negative Slack: 0.000000
+Total Leakage Power: 493530.205858
+All timing constraints are met (WNS 1.404654e-12), switching to power optimization mode
+Size of sorted_lm_vertices_: 40709
+Using LRHelper strategy: Rapid LRHelper: LM=path delay/T (parallel, 10 threads)
+LRHelper::parallelKKTProjection() with 10 threads
+LRHelper::parallelCheckKKTForAllVertices()
+LRHelper::parallelCheckKKTForAllVertices(): max LM (u0_drc_bufs64519/A -> u0_drc_bufs64519/Y) & min LM (u0_g62084/B1 -> u0_g62084/Y) value encountered: 10.597242, 0.000000
+LRHelper::parallelKKTProjection(): KKT conditions satisfied
+LM update took 0.673565 seconds
+WNS is positive and improvement in WNS or leakage, accepting new design.
+----- LR Resizing Iteration 5 -----
+IncreSta::parallelResizeAdaptive start
+slack_margin: 1.000000
+TaskArranger::ensureGraphVertices pre-warming graph...
+TaskArranger::ensureGraphVertices done.
+Visit with 10 threads
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.027423 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.608140 seconds
+  equiv_cell_count: 35780.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.128230 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.027055 seconds
+  visit: 44.366691 seconds
+  writeTimingToDb: 0.027423 seconds
+  Average equiv cell check time: 0.001218785 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.029158 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.782870 seconds
+  equiv_cell_count: 35192.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.125920 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.028771 seconds
+  visit: 44.528372 seconds
+  writeTimingToDb: 0.029158 seconds
+  Average equiv cell check time: 0.001244114 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.028647 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.333485 seconds
+  equiv_cell_count: 35180.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.130633 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.028249 seconds
+  visit: 44.134880 seconds
+  writeTimingToDb: 0.028647 seconds
+  Average equiv cell check time: 0.001231765 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.026990 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.572908 seconds
+  equiv_cell_count: 35700.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.123421 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.026621 seconds
+  visit: 44.322189 seconds
+  writeTimingToDb: 0.026990 seconds
+  Average equiv cell check time: 0.001220530 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.026840 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.586076 seconds
+  equiv_cell_count: 36836.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.118844 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.026474 seconds
+  visit: 44.297639 seconds
+  writeTimingToDb: 0.026840 seconds
+  Average equiv cell check time: 0.001183247 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.032166 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.723355 seconds
+  equiv_cell_count: 35780.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.129635 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.031771 seconds
+  visit: 44.490984 seconds
+  writeTimingToDb: 0.032166 seconds
+  Average equiv cell check time: 0.001222005 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.029206 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.616169 seconds
+  equiv_cell_count: 36328.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.126972 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.028795 seconds
+  visit: 44.428881 seconds
+  writeTimingToDb: 0.029206 seconds
+  Average equiv cell check time: 0.001200621 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.038754 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.579295 seconds
+  equiv_cell_count: 35596.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.136142 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.038277 seconds
+  visit: 44.475111 seconds
+  writeTimingToDb: 0.038754 seconds
+  Average equiv cell check time: 0.001224275 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.026945 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 44.142930 seconds
+  equiv_cell_count: 36244.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.124927 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.026576 seconds
+  visit: 44.921877 seconds
+  writeTimingToDb: 0.026945 seconds
+  Average equiv cell check time: 0.001217938 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.026917 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.196515 seconds
+  equiv_cell_count: 34320.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.120620 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.026566 seconds
+  visit: 43.940964 seconds
+  writeTimingToDb: 0.026917 seconds
+  Average equiv cell check time: 0.001258640 seconds
+After parallel LR resize, TNS: 0.000000e+00, WNS: 1.094907e-11
+parallel resize time: 46.876532 s
+slack_margin: 1.000000
+No violating endpoints found (all slacks >= 0). WNS met.
+After critical path sizing, TNS: 0.000000e+00, WNS: 1.094907e-11
+critical path sizing time: 0.006677 s
+IncreSta::parallelResize total time 47.531461 s
+Parallel resize took 47.531463 seconds
+Parasitics update took 0.641970 seconds
+Evaluation took 4.519471 seconds
+Worst Negative Slack: 11.061319
+Total Negative Slack: 0.000000
+Total Leakage Power: 379852.899641
+All timing constraints are met (WNS 1.106132e-11), switching to power optimization mode
+Size of sorted_lm_vertices_: 40709
+Using LRHelper strategy: Rapid LRHelper: LM=path delay/T (parallel, 10 threads)
+LRHelper::parallelKKTProjection() with 10 threads
+LRHelper::parallelCheckKKTForAllVertices()
+LRHelper::parallelCheckKKTForAllVertices(): max LM (u0_drc_bufs64519/A -> u0_drc_bufs64519/Y) & min LM (text_in[43] -> g110259/B1) value encountered: 2.053708, 0.000000
+LRHelper::parallelKKTProjection(): KKT conditions satisfied
+LM update took 0.593328 seconds
+WNS is positive and improvement in WNS or leakage, accepting new design.
+----- LR Resizing Iteration 6 -----
+IncreSta::parallelResizeAdaptive start
+slack_margin: 1.000000
+TaskArranger::ensureGraphVertices pre-warming graph...
+TaskArranger::ensureGraphVertices done.
+Visit with 10 threads
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.023748 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.867711 seconds
+  equiv_cell_count: 35328.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.115371 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.023444 seconds
+  visit: 43.496837 seconds
+  writeTimingToDb: 0.023748 seconds
+  Average equiv cell check time: 0.001213420 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.029901 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.096949 seconds
+  equiv_cell_count: 35312.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.124059 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.029551 seconds
+  visit: 43.824550 seconds
+  writeTimingToDb: 0.029901 seconds
+  Average equiv cell check time: 0.001220462 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.020393 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.325110 seconds
+  equiv_cell_count: 36268.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.112249 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.020093 seconds
+  visit: 43.968018 seconds
+  writeTimingToDb: 0.020393 seconds
+  Average equiv cell check time: 0.001194582 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.023840 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.364043 seconds
+  equiv_cell_count: 36472.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.123442 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.023488 seconds
+  visit: 44.045678 seconds
+  writeTimingToDb: 0.023840 seconds
+  Average equiv cell check time: 0.001188968 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.021705 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.714692 seconds
+  equiv_cell_count: 35592.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.131770 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.021390 seconds
+  visit: 44.425696 seconds
+  writeTimingToDb: 0.021705 seconds
+  Average equiv cell check time: 0.001228217 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.025255 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.532689 seconds
+  equiv_cell_count: 36312.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.124122 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.024900 seconds
+  visit: 44.302200 seconds
+  writeTimingToDb: 0.025255 seconds
+  Average equiv cell check time: 0.001198851 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.031922 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.818277 seconds
+  equiv_cell_count: 35296.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.124969 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.031593 seconds
+  visit: 43.536045 seconds
+  writeTimingToDb: 0.031922 seconds
+  Average equiv cell check time: 0.001213120 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.021209 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.886318 seconds
+  equiv_cell_count: 34584.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.126365 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.020899 seconds
+  visit: 43.574234 seconds
+  writeTimingToDb: 0.021209 seconds
+  Average equiv cell check time: 0.001240062 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.020858 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.795075 seconds
+  equiv_cell_count: 36444.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.109152 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.020526 seconds
+  visit: 43.537589 seconds
+  writeTimingToDb: 0.020858 seconds
+  Average equiv cell check time: 0.001174269 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.021027 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.748317 seconds
+  equiv_cell_count: 35348.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.121074 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.020703 seconds
+  visit: 43.433806 seconds
+  writeTimingToDb: 0.021027 seconds
+  Average equiv cell check time: 0.001209356 seconds
+After parallel LR resize, TNS: -2.035899e-12, WNS: -2.035899e-12
+parallel resize time: 46.163158 s
+slack_margin: 1.050000
+criticalPathSizing: 1 violating endpoints, clock_period=3.2000e-10, tsh_TNS=3.2000e-11, per-endpoint tsh=3.2000e-11
+No violating endpoints with slack < -3.2000e-11 after per-endpoint filtering.
+After critical path sizing, TNS: -2.035899e-12, WNS: -2.035899e-12
+critical path sizing time: 0.007031 s
+IncreSta::parallelResize total time 46.895409 s
+Parallel resize took 46.895411 seconds
+Parasitics update took 0.656547 seconds
+Evaluation took 4.405043 seconds
+Worst Negative Slack: -2.188638
+Total Negative Slack: -2.188638
+Total Leakage Power: 289333.293040
+Size of sorted_lm_vertices_: 40709
+Using LRHelper strategy: Rapid LRHelper: LM=path delay/T (parallel, 10 threads)
+LRHelper::parallelKKTProjection() with 10 threads
+LRHelper::parallelCheckKKTForAllVertices()
+LRHelper::parallelCheckKKTForAllVertices(): max LM (u0_w_reg[3][7]/CLK -> u0_w_reg[3][7]/QN) & min LM (u0_g64460/A -> u0_g64460/Y) value encountered: 0.569592, 0.000000
+LRHelper::parallelKKTProjection(): KKT conditions satisfied
+LM update took 0.645215 seconds
+No improvement in WNS, but within tolerance, accepting new design.
+----- LR Resizing Iteration 7 -----
+IncreSta::parallelResizeAdaptive start
+slack_margin: 1.050000
+TaskArranger::ensureGraphVertices pre-warming graph...
+TaskArranger::ensureGraphVertices done.
+Visit with 10 threads
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.023479 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.452731 seconds
+  equiv_cell_count: 34352.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.129925 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.023143 seconds
+  visit: 43.169829 seconds
+  writeTimingToDb: 0.023479 seconds
+  Average equiv cell check time: 0.001235815 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.019060 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.408940 seconds
+  equiv_cell_count: 36832.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.124811 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.018787 seconds
+  visit: 43.993852 seconds
+  writeTimingToDb: 0.019060 seconds
+  Average equiv cell check time: 0.001178566 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.018008 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.570040 seconds
+  equiv_cell_count: 35564.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.112912 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.017741 seconds
+  visit: 43.152227 seconds
+  writeTimingToDb: 0.018008 seconds
+  Average equiv cell check time: 0.001196998 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.018991 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.679596 seconds
+  equiv_cell_count: 36424.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.124553 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.018712 seconds
+  visit: 43.288520 seconds
+  writeTimingToDb: 0.018991 seconds
+  Average equiv cell check time: 0.001171744 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.018910 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.524218 seconds
+  equiv_cell_count: 34804.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.116636 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.018621 seconds
+  visit: 43.141941 seconds
+  writeTimingToDb: 0.018910 seconds
+  Average equiv cell check time: 0.001221820 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.021426 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.939457 seconds
+  equiv_cell_count: 35604.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.113815 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.021138 seconds
+  visit: 43.557876 seconds
+  writeTimingToDb: 0.021426 seconds
+  Average equiv cell check time: 0.001206029 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.019771 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.578652 seconds
+  equiv_cell_count: 35328.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.116427 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.019489 seconds
+  visit: 43.193609 seconds
+  writeTimingToDb: 0.019771 seconds
+  Average equiv cell check time: 0.001205238 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.022818 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.850445 seconds
+  equiv_cell_count: 35388.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.120672 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.022533 seconds
+  visit: 43.479282 seconds
+  writeTimingToDb: 0.022818 seconds
+  Average equiv cell check time: 0.001210875 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.021731 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.343400 seconds
+  equiv_cell_count: 36128.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.116321 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.021413 seconds
+  visit: 44.014887 seconds
+  writeTimingToDb: 0.021731 seconds
+  Average equiv cell check time: 0.001199718 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.018763 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.789418 seconds
+  equiv_cell_count: 36532.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.113883 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.018487 seconds
+  visit: 43.401168 seconds
+  writeTimingToDb: 0.018763 seconds
+  Average equiv cell check time: 0.001171286 seconds
+After parallel LR resize, TNS: -1.958822e-12, WNS: -1.443901e-12
+parallel resize time: 45.820864 s
+slack_margin: 1.050000
+criticalPathSizing: 2 violating endpoints, clock_period=3.2000e-10, tsh_TNS=3.2000e-11, per-endpoint tsh=1.6000e-11
+No violating endpoints with slack < -1.6000e-11 after per-endpoint filtering.
+After critical path sizing, TNS: -1.958822e-12, WNS: -1.443901e-12
+critical path sizing time: 0.006809 s
+IncreSta::parallelResize total time 46.497941 s
+Parallel resize took 46.497942 seconds
+Parasitics update took 0.655628 seconds
+Evaluation took 4.565675 seconds
+Worst Negative Slack: -1.437933
+Total Negative Slack: -1.952327
+Total Leakage Power: 229830.238823
+Size of sorted_lm_vertices_: 40709
+Using LRHelper strategy: Rapid LRHelper: LM=path delay/T (parallel, 10 threads)
+LRHelper::parallelKKTProjection() with 10 threads
+LRHelper::parallelCheckKKTForAllVertices()
+LRHelper::parallelCheckKKTForAllVertices(): max LM (u0_w_reg[3][7]/CLK -> u0_w_reg[3][7]/QN) & min LM (g110636/A -> g110636/Y !B) value encountered: 0.369306, 0.000000
+LRHelper::parallelKKTProjection(): KKT conditions satisfied
+LM update took 0.656222 seconds
+No improvement in WNS, but within tolerance, accepting new design.
+----- LR Resizing Iteration 8 -----
+IncreSta::parallelResizeAdaptive start
+slack_margin: 1.050000
+TaskArranger::ensureGraphVertices pre-warming graph...
+TaskArranger::ensureGraphVertices done.
+Visit with 10 threads
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.023021 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.004684 seconds
+  equiv_cell_count: 35332.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.127334 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.022757 seconds
+  visit: 43.580055 seconds
+  writeTimingToDb: 0.023021 seconds
+  Average equiv cell check time: 0.001217160 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.018185 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.721908 seconds
+  equiv_cell_count: 36176.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.126592 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.017917 seconds
+  visit: 44.329881 seconds
+  writeTimingToDb: 0.018185 seconds
+  Average equiv cell check time: 0.001208589 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.023622 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.973312 seconds
+  equiv_cell_count: 33976.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.125965 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.023347 seconds
+  visit: 43.556715 seconds
+  writeTimingToDb: 0.023622 seconds
+  Average equiv cell check time: 0.001264814 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.018193 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.971411 seconds
+  equiv_cell_count: 36864.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.113237 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.017927 seconds
+  visit: 43.566525 seconds
+  writeTimingToDb: 0.018193 seconds
+  Average equiv cell check time: 0.001165674 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.018777 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.881816 seconds
+  equiv_cell_count: 36140.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.118322 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.018491 seconds
+  visit: 43.481570 seconds
+  writeTimingToDb: 0.018777 seconds
+  Average equiv cell check time: 0.001186547 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.016069 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.128160 seconds
+  equiv_cell_count: 36020.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.115903 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.015831 seconds
+  visit: 43.651762 seconds
+  writeTimingToDb: 0.016069 seconds
+  Average equiv cell check time: 0.001197339 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.016984 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.094836 seconds
+  equiv_cell_count: 35956.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.117338 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.016747 seconds
+  visit: 43.612756 seconds
+  writeTimingToDb: 0.016984 seconds
+  Average equiv cell check time: 0.001198544 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.020412 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.239457 seconds
+  equiv_cell_count: 35032.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.120102 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.020141 seconds
+  visit: 43.833346 seconds
+  writeTimingToDb: 0.020412 seconds
+  Average equiv cell check time: 0.001234285 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.016242 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.438203 seconds
+  equiv_cell_count: 35612.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.120589 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.015992 seconds
+  visit: 44.024650 seconds
+  writeTimingToDb: 0.016242 seconds
+  Average equiv cell check time: 0.001219763 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.018250 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.981087 seconds
+  equiv_cell_count: 35848.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.111565 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.017993 seconds
+  visit: 43.600246 seconds
+  writeTimingToDb: 0.018250 seconds
+  Average equiv cell check time: 0.001198981 seconds
+After parallel LR resize, TNS: -9.284518e-13, WNS: -5.143941e-13
+parallel resize time: 46.111827 s
+slack_margin: 1.050000
+criticalPathSizing: 3 violating endpoints, clock_period=3.2000e-10, tsh_TNS=3.2000e-11, per-endpoint tsh=1.0667e-11
+No violating endpoints with slack < -1.0667e-11 after per-endpoint filtering.
+After critical path sizing, TNS: -9.284518e-13, WNS: -5.143941e-13
+critical path sizing time: 0.006748 s
+IncreSta::parallelResize total time 46.709096 s
+Parallel resize took 46.709097 seconds
+Parasitics update took 0.646343 seconds
+Evaluation took 4.524904 seconds
+Worst Negative Slack: -0.514394
+Total Negative Slack: -0.922817
+Total Leakage Power: 189726.906683
+Size of sorted_lm_vertices_: 40709
+Using LRHelper strategy: Rapid LRHelper: LM=path delay/T (parallel, 10 threads)
+LRHelper::parallelKKTProjection() with 10 threads
+LRHelper::parallelCheckKKTForAllVertices()
+LRHelper::parallelCheckKKTForAllVertices(): max LM (u0_g61970/Y -> u0_w_reg[2][27]/D) & min LM (g110558/A -> g110558/Y !B) value encountered: 0.289163, 0.000000
+LRHelper::parallelKKTProjection(): KKT conditions satisfied
+LM update took 0.649084 seconds
+No improvement in WNS, but within tolerance, accepting new design.
+----- LR Resizing Iteration 9 -----
+IncreSta::parallelResizeAdaptive start
+slack_margin: 1.050000
+TaskArranger::ensureGraphVertices pre-warming graph...
+TaskArranger::ensureGraphVertices done.
+Visit with 10 threads
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.015696 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.435494 seconds
+  equiv_cell_count: 35944.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.127654 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.015461 seconds
+  visit: 43.938348 seconds
+  writeTimingToDb: 0.015696 seconds
+  Average equiv cell check time: 0.001208421 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.014857 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.403521 seconds
+  equiv_cell_count: 35576.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.121075 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.014640 seconds
+  visit: 43.908354 seconds
+  writeTimingToDb: 0.014857 seconds
+  Average equiv cell check time: 0.001220023 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.015242 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.329748 seconds
+  equiv_cell_count: 35636.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.129790 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.015027 seconds
+  visit: 43.840270 seconds
+  writeTimingToDb: 0.015242 seconds
+  Average equiv cell check time: 0.001215898 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.016216 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.761513 seconds
+  equiv_cell_count: 36012.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.124831 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.015981 seconds
+  visit: 44.323989 seconds
+  writeTimingToDb: 0.016216 seconds
+  Average equiv cell check time: 0.001215193 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.019655 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.378448 seconds
+  equiv_cell_count: 34672.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.131398 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.019423 seconds
+  visit: 43.898445 seconds
+  writeTimingToDb: 0.019655 seconds
+  Average equiv cell check time: 0.001251109 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.016461 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.372301 seconds
+  equiv_cell_count: 36092.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.117565 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.016246 seconds
+  visit: 43.887677 seconds
+  writeTimingToDb: 0.016461 seconds
+  Average equiv cell check time: 0.001201715 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.014859 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.361464 seconds
+  equiv_cell_count: 35416.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.119585 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.014651 seconds
+  visit: 43.841289 seconds
+  writeTimingToDb: 0.014859 seconds
+  Average equiv cell check time: 0.001224347 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.013973 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.105003 seconds
+  equiv_cell_count: 35788.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.115644 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.013769 seconds
+  visit: 43.579407 seconds
+  writeTimingToDb: 0.013973 seconds
+  Average equiv cell check time: 0.001204454 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.015928 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.631934 seconds
+  equiv_cell_count: 36728.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.131143 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.015702 seconds
+  visit: 44.166615 seconds
+  writeTimingToDb: 0.015928 seconds
+  Average equiv cell check time: 0.001187975 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.017842 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.313158 seconds
+  equiv_cell_count: 35092.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.135430 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.017616 seconds
+  visit: 43.827156 seconds
+  writeTimingToDb: 0.017842 seconds
+  Average equiv cell check time: 0.001234274 seconds
+After parallel LR resize, TNS: -6.362191e-11, WNS: -1.447500e-11
+parallel resize time: 46.324135 s
+slack_margin: 1.050000
+criticalPathSizing: 13 violating endpoints, clock_period=3.2000e-10, tsh_TNS=3.2000e-11, per-endpoint tsh=2.4615e-12
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa31_reg[7]/SI with slack -1.447500e-11.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa21_reg[7]/SI with slack -1.342898e-11.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa01_reg[0]/SI with slack -1.015349e-11.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint u0_w_reg[2][28]/D with slack -9.425266e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint u0_w_reg[2][27]/D with slack -5.108303e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa32_reg[1]/SI with slack -4.092532e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint u0_w_reg[3][27]/D with slack -2.867512e-12.
+After critical path sizing, TNS: -6.362191e-11, WNS: -1.447500e-11
+critical path sizing time: 0.007116 s
+IncreSta::parallelResize total time 46.979652 s
+Parallel resize took 46.979654 seconds
+Parasitics update took 0.675479 seconds
+Evaluation took 4.517538 seconds
+Worst Negative Slack: -14.640900
+Total Negative Slack: -64.820038
+Total Leakage Power: 166416.193679
+Size of sorted_lm_vertices_: 40709
+Using LRHelper strategy: Rapid LRHelper: LM=path delay/T (parallel, 10 threads)
+LRHelper::parallelKKTProjection() with 10 threads
+LRHelper::parallelCheckKKTForAllVertices()
+LRHelper::parallelCheckKKTForAllVertices(): max LM (sa01_reg[7]/CLK -> sa01_reg[7]/QN) & min LM (u0_g62667/B1 -> u0_g62667/Y) value encountered: 0.247533, 0.000000
+LRHelper::parallelKKTProjection(): KKT conditions satisfied
+LM update took 0.684059 seconds
+No improvement in WNS, but within tolerance, accepting new design.
+----- LR Resizing Iteration 10 -----
+IncreSta::parallelResizeAdaptive start
+slack_margin: 1.050000
+TaskArranger::ensureGraphVertices pre-warming graph...
+TaskArranger::ensureGraphVertices done.
+Visit with 10 threads
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.014005 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.483466 seconds
+  equiv_cell_count: 36248.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.122848 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.013817 seconds
+  visit: 43.939418 seconds
+  writeTimingToDb: 0.014005 seconds
+  Average equiv cell check time: 0.001199610 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.014101 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.435474 seconds
+  equiv_cell_count: 36140.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.123536 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.013915 seconds
+  visit: 43.856886 seconds
+  writeTimingToDb: 0.014101 seconds
+  Average equiv cell check time: 0.001201867 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.015155 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.211697 seconds
+  equiv_cell_count: 36580.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.118513 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.014955 seconds
+  visit: 43.637076 seconds
+  writeTimingToDb: 0.015155 seconds
+  Average equiv cell check time: 0.001181293 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.012636 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.243743 seconds
+  equiv_cell_count: 35020.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.117748 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.012461 seconds
+  visit: 43.639779 seconds
+  writeTimingToDb: 0.012636 seconds
+  Average equiv cell check time: 0.001234830 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.023203 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.145756 seconds
+  equiv_cell_count: 35192.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.130442 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.022937 seconds
+  visit: 43.661108 seconds
+  writeTimingToDb: 0.023203 seconds
+  Average equiv cell check time: 0.001226010 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.016000 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.367657 seconds
+  equiv_cell_count: 35440.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.136665 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.015796 seconds
+  visit: 43.842288 seconds
+  writeTimingToDb: 0.016000 seconds
+  Average equiv cell check time: 0.001223692 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.016783 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.500696 seconds
+  equiv_cell_count: 35736.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.135749 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.016584 seconds
+  visit: 43.936148 seconds
+  writeTimingToDb: 0.016783 seconds
+  Average equiv cell check time: 0.001217279 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.011739 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.377859 seconds
+  equiv_cell_count: 35520.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.132478 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.011563 seconds
+  visit: 43.815675 seconds
+  writeTimingToDb: 0.011739 seconds
+  Average equiv cell check time: 0.001221223 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.014628 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.444833 seconds
+  equiv_cell_count: 35280.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.128067 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.014418 seconds
+  visit: 43.904187 seconds
+  writeTimingToDb: 0.014628 seconds
+  Average equiv cell check time: 0.001231430 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.018521 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.908554 seconds
+  equiv_cell_count: 35800.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.142463 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.018278 seconds
+  visit: 44.428538 seconds
+  writeTimingToDb: 0.018521 seconds
+  Average equiv cell check time: 0.001226496 seconds
+After parallel LR resize, TNS: -2.323497e-11, WNS: -1.168382e-11
+parallel resize time: 46.171323 s
+slack_margin: 1.050000
+criticalPathSizing: 11 violating endpoints, clock_period=3.2000e-10, tsh_TNS=3.2000e-11, per-endpoint tsh=2.9091e-12
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa00_reg[2]/D with slack -1.168382e-11.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint u0_w_reg[2][31]/D with slack -5.161732e-12.
+After critical path sizing, TNS: -2.323497e-11, WNS: -1.168382e-11
+critical path sizing time: 0.006613 s
+IncreSta::parallelResize total time 46.828294 s
+Parallel resize took 46.828296 seconds
+Parasitics update took 0.651236 seconds
+Evaluation took 4.441968 seconds
+Worst Negative Slack: -11.499607
+Total Negative Slack: -23.072738
+Total Leakage Power: 154537.246999
+Size of sorted_lm_vertices_: 40709
+Using LRHelper strategy: Rapid LRHelper: LM=path delay/T (parallel, 10 threads)
+LRHelper::parallelKKTProjection() with 10 threads
+LRHelper::parallelCheckKKTForAllVertices()
+LRHelper::parallelCheckKKTForAllVertices(): max LM (sa01_reg[7]/CLK -> sa01_reg[7]/QN) & min LM (place2746/Y -> u0_g63262/A1) value encountered: 0.201667, 0.000000
+LRHelper::parallelKKTProjection(): KKT conditions satisfied
+LM update took 0.643307 seconds
+No improvement in WNS, but within tolerance, accepting new design.
+----- LR Resizing Iteration 11 -----
+IncreSta::parallelResizeAdaptive start
+slack_margin: 1.050000
+TaskArranger::ensureGraphVertices pre-warming graph...
+TaskArranger::ensureGraphVertices done.
+Visit with 10 threads
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.013719 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.781096 seconds
+  equiv_cell_count: 35732.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.132776 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.013509 seconds
+  visit: 43.206037 seconds
+  writeTimingToDb: 0.013719 seconds
+  Average equiv cell check time: 0.001197277 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.012132 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.878650 seconds
+  equiv_cell_count: 35704.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.121025 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.011923 seconds
+  visit: 43.294627 seconds
+  writeTimingToDb: 0.012132 seconds
+  Average equiv cell check time: 0.001200948 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.011292 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.856870 seconds
+  equiv_cell_count: 36232.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.117184 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.011119 seconds
+  visit: 43.246863 seconds
+  writeTimingToDb: 0.011292 seconds
+  Average equiv cell check time: 0.001182846 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.011341 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.642058 seconds
+  equiv_cell_count: 36352.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.121108 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.011165 seconds
+  visit: 44.003303 seconds
+  writeTimingToDb: 0.011341 seconds
+  Average equiv cell check time: 0.001200541 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.012577 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.868836 seconds
+  equiv_cell_count: 35036.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.120661 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.012406 seconds
+  visit: 43.288071 seconds
+  writeTimingToDb: 0.012577 seconds
+  Average equiv cell check time: 0.001223565 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.012975 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.736072 seconds
+  equiv_cell_count: 35180.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.122114 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.012785 seconds
+  visit: 43.109099 seconds
+  writeTimingToDb: 0.012975 seconds
+  Average equiv cell check time: 0.001214783 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.010175 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.794805 seconds
+  equiv_cell_count: 35848.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.115895 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.010008 seconds
+  visit: 43.152637 seconds
+  writeTimingToDb: 0.010175 seconds
+  Average equiv cell check time: 0.001193785 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.014036 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.172536 seconds
+  equiv_cell_count: 36200.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.114143 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.013826 seconds
+  visit: 43.607446 seconds
+  writeTimingToDb: 0.014036 seconds
+  Average equiv cell check time: 0.001192612 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.012735 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.305201 seconds
+  equiv_cell_count: 34964.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.127134 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.012546 seconds
+  visit: 43.726923 seconds
+  writeTimingToDb: 0.012735 seconds
+  Average equiv cell check time: 0.001238565 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.015194 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.233886 seconds
+  equiv_cell_count: 35708.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.127107 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.014996 seconds
+  visit: 43.676234 seconds
+  writeTimingToDb: 0.015194 seconds
+  Average equiv cell check time: 0.001210762 seconds
+After parallel LR resize, TNS: -9.893716e-11, WNS: -1.774977e-11
+parallel resize time: 45.739525 s
+slack_margin: 1.055468
+criticalPathSizing: 29 violating endpoints, clock_period=3.2000e-10, tsh_TNS=3.2000e-11, per-endpoint tsh=1.1034e-12
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa31_reg[0]/SI with slack -1.774977e-11.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa01_reg[0]/SI with slack -1.183417e-11.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint u0_w_reg[3][0]/D with slack -8.804207e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa12_reg[3]/SI with slack -6.963485e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa00_reg[2]/D with slack -6.241091e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa22_reg[1]/SI with slack -4.469480e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa20_reg[6]/SI with slack -4.399314e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint u0_w_reg[2][18]/D with slack -4.375472e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa03_reg[7]/SI with slack -4.158868e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa03_reg[2]/SI with slack -3.860967e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa31_reg[4]/SI with slack -3.844564e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint u0_w_reg[3][5]/D with slack -3.685774e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa03_reg[5]/SI with slack -2.876865e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa33_reg[5]/SI with slack -2.477657e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint u0_w_reg[3][3]/D with slack -2.347622e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa31_reg[1]/SI with slack -2.340989e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa30_reg[6]/SI with slack -2.186445e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa21_reg[1]/SI with slack -1.729172e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint u0_w_reg[3][8]/D with slack -1.230738e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa21_reg[4]/SI with slack -1.143335e-12.
+After critical path sizing, TNS: -9.893716e-11, WNS: -1.774977e-11
+critical path sizing time: 0.007226 s
+IncreSta::parallelResize total time 46.336662 s
+Parallel resize took 46.336663 seconds
+Parasitics update took 0.659718 seconds
+Evaluation took 4.626287 seconds
+Worst Negative Slack: -17.741503
+Total Negative Slack: -99.138697
+Total Leakage Power: 144864.325193
+Size of sorted_lm_vertices_: 40709
+Using LRHelper strategy: Rapid LRHelper: LM=path delay/T (parallel, 10 threads)
+LRHelper::parallelKKTProjection() with 10 threads
+LRHelper::parallelCheckKKTForAllVertices()
+LRHelper::parallelCheckKKTForAllVertices(): max LM (sa32_reg[7]/CLK -> sa32_reg[7]/QN) & min LM (u0_g62667/A2 -> u0_g62667/Y) value encountered: 0.181427, 0.000000
+LRHelper::parallelKKTProjection(): KKT conditions satisfied
+LM update took 0.665262 seconds
+No improvement in WNS, but within tolerance, accepting new design.
+----- LR Resizing Iteration 12 -----
+IncreSta::parallelResizeAdaptive start
+slack_margin: 1.055442
+TaskArranger::ensureGraphVertices pre-warming graph...
+TaskArranger::ensureGraphVertices done.
+Visit with 10 threads
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.012173 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.607889 seconds
+  equiv_cell_count: 34896.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.139790 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.012013 seconds
+  visit: 42.995421 seconds
+  writeTimingToDb: 0.012173 seconds
+  Average equiv cell check time: 0.001220996 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.010393 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.319391 seconds
+  equiv_cell_count: 35568.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.120105 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.010243 seconds
+  visit: 42.674857 seconds
+  writeTimingToDb: 0.010393 seconds
+  Average equiv cell check time: 0.001189816 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.010434 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.806705 seconds
+  equiv_cell_count: 35476.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.123441 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.010313 seconds
+  visit: 43.128735 seconds
+  writeTimingToDb: 0.010434 seconds
+  Average equiv cell check time: 0.001206638 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.010301 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.892602 seconds
+  equiv_cell_count: 35868.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.121165 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.010157 seconds
+  visit: 43.246269 seconds
+  writeTimingToDb: 0.010301 seconds
+  Average equiv cell check time: 0.001195846 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.009922 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 43.652978 seconds
+  equiv_cell_count: 36724.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.122976 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.009786 seconds
+  visit: 43.993163 seconds
+  writeTimingToDb: 0.009922 seconds
+  Average equiv cell check time: 0.001188677 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.012439 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.450023 seconds
+  equiv_cell_count: 35616.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.118819 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.012283 seconds
+  visit: 42.833715 seconds
+  writeTimingToDb: 0.012439 seconds
+  Average equiv cell check time: 0.001191881 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.009245 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.651245 seconds
+  equiv_cell_count: 36432.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.116735 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.009118 seconds
+  visit: 42.982284 seconds
+  writeTimingToDb: 0.009245 seconds
+  Average equiv cell check time: 0.001170708 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.009762 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.657164 seconds
+  equiv_cell_count: 35628.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.115048 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.009619 seconds
+  visit: 43.002364 seconds
+  writeTimingToDb: 0.009762 seconds
+  Average equiv cell check time: 0.001197293 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.010203 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.682345 seconds
+  equiv_cell_count: 34556.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.126354 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.010060 seconds
+  visit: 43.036963 seconds
+  writeTimingToDb: 0.010203 seconds
+  Average equiv cell check time: 0.001235165 seconds
+ParallelLrVisitor Runtime Profile:
+  applyDb: 0.008962 seconds
+  buffer_count: 0.000000 seconds
+  buffer_insertion: 0.000000 seconds
+  equiv_cell_check: 42.604542 seconds
+  equiv_cell_count: 36192.000000 seconds
+  precheck: 0.000000 seconds
+  pt_graph_construction: 0.122842 seconds
+  rebuffer_coarse: 0.000000 seconds
+  rebuffer_pin_count: 0.000000 seconds
+  rebuffer_precise: 0.000000 seconds
+  rebuffer_setup: 0.000000 seconds
+  rebuffer_total: 0.000000 seconds
+  single_gate_sizing: 0.000000 seconds
+  swap: 0.008836 seconds
+  visit: 42.924179 seconds
+  writeTimingToDb: 0.008962 seconds
+  Average equiv cell check time: 0.001177181 seconds
+After parallel LR resize, TNS: -8.764828e-11, WNS: -7.194856e-12
+parallel resize time: 45.379694 s
+slack_margin: 1.050000
+criticalPathSizing: 40 violating endpoints, clock_period=3.2000e-10, tsh_TNS=3.2000e-11, per-endpoint tsh=8.0000e-13
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint u0_w_reg[3][0]/D with slack -7.194856e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa13_reg[6]/SI with slack -5.556722e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint u0_w_reg[3][20]/D with slack -5.506373e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa32_reg[1]/SI with slack -5.073802e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa33_reg[0]/SI with slack -5.012185e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa02_reg[2]/D with slack -4.995004e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint u0_w_reg[2][18]/D with slack -4.976158e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa02_reg[3]/SI with slack -4.663103e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa22_reg[1]/SI with slack -3.881506e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa11_reg[7]/SI with slack -3.601230e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa21_reg[7]/SI with slack -3.148204e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint u0_w_reg[2][24]/D with slack -3.097300e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint u0_w_reg[3][16]/SI with slack -2.807810e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint u0_w_reg[0][30]/D with slack -2.357531e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa33_reg[4]/SI with slack -2.173511e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa32_reg[7]/SI with slack -2.157691e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa33_reg[5]/SI with slack -2.027239e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint u0_w_reg[2][16]/D with slack -1.853656e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa31_reg[7]/SI with slack -1.636274e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint u0_w_reg[0][25]/D with slack -1.424444e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa23_reg[6]/SI with slack -1.355499e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa02_reg[4]/SI with slack -1.073086e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa33_reg[2]/D with slack -1.052297e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint u0_w_reg[2][10]/D with slack -1.049577e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint u0_w_reg[2][27]/D with slack -1.025402e-12.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint u0_w_reg[3][6]/D with slack -9.371393e-13.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa00_reg[2]/D with slack -9.197088e-13.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa22_reg[3]/SI with slack -8.913426e-13.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa31_reg[0]/SI with slack -8.665846e-13.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa13_reg[1]/SI with slack -8.575640e-13.
+Sized 0 gates on critical path.
+Failed to resize gates on critical path to endpoint sa03_reg[1]/SI with slack -8.009149e-13.
+After critical path sizing, TNS: -8.764828e-11, WNS: -7.194856e-12
+critical path sizing time: 0.007434 s
+IncreSta::parallelResize total time 45.962124 s
+Parallel resize took 45.962126 seconds
+Parasitics update took 0.648018 seconds
+Evaluation took 4.403871 seconds
+Worst Negative Slack: -7.194106
+Total Negative Slack: -87.374386
+Total Leakage Power: 140107.667903
+Size of sorted_lm_vertices_: 40709
+Using LRHelper strategy: Rapid LRHelper: LM=path delay/T (parallel, 10 threads)
+LRHelper::parallelKKTProjection() with 10 threads
+LRHelper::parallelCheckKKTForAllVertices()
+LRHelper::parallelCheckKKTForAllVertices(): max LM (sa32_reg[7]/CLK -> sa32_reg[7]/QN) & min LM (u0_g62667/C2 -> u0_g62667/Y) value encountered: 0.166042, 0.000000
+LRHelper::parallelKKTProjection(): KKT conditions satisfied
+
+[After LR optimization]
+===================================================
+WNS: 0.000000 ps
+TNS: 0.000000 ns
+No slew violation
+No load capacitance violation
+Overflow is zero
+Leakage power difference: 37.985244 uW
+Score: 37.985244
+Require runtime in official score calculation
+===================================================
+LM update took 0.561845 seconds
+Reverting to previous design.
+Reverted to best design with WNS: 11.061319, TNS: 0.000000
+[INFO RSZ-0100] Repair move sequence: SizeUpMove SizeDownMove 
+[INFO RSZ-0098] No setup violations found
+
+[After repair_timing]
+===================================================
+WNS: 0.000000 ps
+TNS: 0.000000 ns
+No slew violation
+No load capacitance violation
+Overflow is zero
+Leakage power difference: 37.985244 uW
+Score: 37.985244
+Require runtime in official score calculation
+===================================================
+[ 11.061,  35.596): ************************** (127)
+[ 35.596,  60.130): ********************* (100)
+[ 60.130,  84.664): ******************************************** (209)
+[ 84.664, 109.199): ******************* (92)
+[109.199, 133.733): **************************** (132)
+[133.733, 158.267): *********************** (109)
+[158.267, 182.802): ************************ (115)
+[182.802, 207.336): ************************************************** (240)
+[207.336, 231.870): ************* (64)
+[231.870, 256.405]: **** (21)
+[INFO GPL-0001] ---- Initialize GPL Main Data Structures
+[INFO GPL-0002] DBU: 1000
+[INFO GPL-0003] SiteSize: (  0.054  0.270 ) um
+[INFO GPL-0004] CoreBBox: (  1.008  1.008 ) ( 41.886 41.508 ) um
+[INFO GPL-0036] Movable instances area:       1452.562 um^2
+[INFO GPL-0037] Total instances area:         1452.562 um^2
+[INFO GPL-0035] Pin density area adjust:       175.759 um^2
+[INFO GPL-0032] ---- Initialize Region: Top-level
+[INFO GPL-0006] Number of instances:             11399
+[INFO GPL-0007] Movable instances:               11399
+[INFO GPL-0008] Fixed instances:                     0
+[INFO GPL-0009] Dummy instances:                     0
+[INFO GPL-0010] Number of nets:                  11660
+[INFO GPL-0011] Number of pins:                  40709
+[INFO GPL-0012] Die BBox:  (  0.000  0.000 ) ( 42.912 42.516 ) um
+[INFO GPL-0013] Core BBox: (  1.008  1.008 ) ( 41.886 41.508 ) um
+[INFO GPL-0016] Core area:                    1655.559 um^2
+[INFO GPL-0014] Region name: top-level.
+[INFO GPL-0015] Region area:                  1655.559 um^2
+[INFO GPL-0017] Fixed instances area:            0.000 um^2
+[INFO GPL-0018] Movable instances area:       1628.321 um^2
+[INFO GPL-0019] Utilization:                    98.355 %
+[INFO GPL-0020] Standard cells area:          1628.321 um^2
+[INFO GPL-0021] Large instances area:            0.000 um^2
+[INFO GPL-0005] ---- Execute Conjugate Gradient Initial Placement.
+[INFO GPL-0051] Source of initial instance position counters:
+	Odb location = 11399	Core center = 0	Region center = 0
+[InitialPlace]  Iter: 1 conjugate gradient residual: 0.00019044 HPWL: 51384537
+[InitialPlace]  Iter: 2 conjugate gradient residual: 0.00000320 HPWL: 21020292
+[InitialPlace]  Iter: 3 conjugate gradient residual: 0.00000227 HPWL: 19678242
+[InitialPlace]  Iter: 4 conjugate gradient residual: 0.00000074 HPWL: 19352769
+[InitialPlace]  Iter: 5 conjugate gradient residual: 0.00000032 HPWL: 19268143
+[INFO GPL-0033] ---- Initialize Nesterov Region: Top-level
+[WARNING GPL-0302] Target density 0.7000 is too low for the available free area.
+Automatically adjusting to uniform density 0.9900.
+[INFO GPL-0023] Placement target density:       0.9900
+[INFO GPL-0024] Movable insts average area:      0.143 um^2
+[INFO GPL-0025] Ideal bin area:                  0.144 um^2
+[INFO GPL-0026] Ideal bin count:                 11473
+[INFO GPL-0027] Total bin area:               1655.559 um^2
+[INFO GPL-0028] Bin count (X, Y):          64 ,     64
+[INFO GPL-0029] Bin size (W * H):       0.639 *  0.633 um
+[INFO GPL-0030] Number of bins:                   4096
+[INFO GPL-0007] ---- Execute Nesterov Global Placement.
+[INFO GPL-0031] HPWL: Half-Perimeter Wirelength
+Iteration | Overflow |     HPWL (um) |  HPWL(%) |   Penalty | Group
+---------------------------------------------------------------
+        0 |   0.9467 |  1.874191e+04 |   +0.00% |  4.09e-13 |      
+       10 |   0.8764 |  1.651484e+04 |  -11.88% |  6.65e-13 |      
+       20 |   0.8776 |  1.635757e+04 |   -0.95% |  1.08e-12 |      
+       30 |   0.8781 |  1.635201e+04 |   -0.03% |  1.77e-12 |      
+       40 |   0.8781 |  1.635078e+04 |   -0.01% |  2.88e-12 |      
+       50 |   0.8777 |  1.636022e+04 |   +0.06% |  4.68e-12 |      
+       60 |   0.8775 |  1.636277e+04 |   +0.02% |  7.63e-12 |      
+       70 |   0.8774 |  1.637340e+04 |   +0.06% |  1.24e-11 |      
+       80 |   0.8772 |  1.639097e+04 |   +0.11% |  2.02e-11 |      
+       90 |   0.8768 |  1.641576e+04 |   +0.15% |  3.30e-11 |      
+      100 |   0.8761 |  1.645756e+04 |   +0.25% |  5.37e-11 |      
+      110 |   0.8750 |  1.652377e+04 |   +0.40% |  8.75e-11 |      
+      120 |   0.8735 |  1.662645e+04 |   +0.62% |  1.43e-10 |      
+      130 |   0.8711 |  1.678307e+04 |   +0.94% |  2.32e-10 |      
+      140 |   0.8676 |  1.702050e+04 |   +1.41% |  3.78e-10 |      
+      150 |   0.8608 |  1.736261e+04 |   +2.01% |  6.16e-10 |      
+      160 |   0.8513 |  1.784073e+04 |   +2.75% |  1.00e-09 |      
+      170 |   0.8371 |  1.848102e+04 |   +3.59% |  1.63e-09 |      
+      180 |   0.8211 |  1.928414e+04 |   +4.35% |  2.66e-09 |      
+      190 |   0.8029 |  2.029370e+04 |   +5.24% |  4.33e-09 |      
+      200 |   0.7823 |  2.143761e+04 |   +5.64% |  7.06e-09 |      
+      210 |   0.7575 |  2.269585e+04 |   +5.87% |  1.15e-08 |      
+      220 |   0.7357 |  2.403509e+04 |   +5.90% |  1.87e-08 |      
+      230 |   0.7110 |  2.543795e+04 |   +5.84% |  3.05e-08 |      
+      240 |   0.6836 |  2.683124e+04 |   +5.48% |  4.97e-08 |      
+      250 |   0.6557 |  2.816739e+04 |   +4.98% |  8.09e-08 |      
+[INFO GPL-0100] Timing-driven iteration 1/2, virtual: false.
+[INFO GPL-0101]    Iter: 258, overflow: 0.635, keep resizer changes at: 1, HPWL: 29066629
+Iteration |   Area    | Resized | Buffers | Nets repaired | Remaining
+---------------------------------------------------------------------
+        0 |     +0.0% |       0 |       0 |             0 |     11660
+    final |     +0.0% |       0 |       0 |           129 |         0
+---------------------------------------------------------------------
+[INFO RSZ-0034] Found 129 slew violations.
+   Iter   |    Area   | Removed | Inserted |   Pins
+          |           | Buffers | Buffers  | Remaining
+-------------------------------------------------------
+        0 |     +0.0% |       0 |        0 |     10618
+     1000 |     -0.3% |      40 |        1 |      9618
+     2000 |     -0.9% |     137 |       10 |      8618
+     3000 |     -0.9% |     138 |       10 |      7618
+     4000 |     -0.9% |     143 |       10 |      6618
+     5000 |     -0.9% |     149 |       10 |      5618
+     6000 |     -1.1% |     170 |       11 |      4618
+     7000 |     -1.5% |     230 |       19 |      3618
+     8000 |     -2.2% |     335 |       42 |      2618
+     9000 |     -3.2% |     491 |       86 |      1618
+    10000 |     -4.7% |     710 |      177 |       618
+    final |     -5.1% |     783 |      205 |         0
+-------------------------------------------------------
+[INFO GPL-0106] Timing-driven: worst slack 1.2e-11
+[INFO GPL-0107] Timing-driven: repair_design delta area: -73.512 um^2 (-4.51%)
+[INFO GPL-0108] Timing-driven: repair_design, gpl delta gcells: -578 (-5.07%)
+[INFO GPL-0109] Timing-driven: repair_design, gcells created: 205, deleted: 783
+[INFO GPL-0110] Timing-driven: new target density: 0.9455967
+Iteration | Overflow |     HPWL (um) |  HPWL(%) |   Penalty | Group
+---------------------------------------------------------------
+      260 |   0.6364 |  2.915083e+04 |   +3.49% |  1.32e-07 |      
+      270 |   0.6004 |  3.079823e+04 |   +5.65% |  2.15e-07 |      
+      280 |   0.5683 |  3.160266e+04 |   +2.61% |  3.49e-07 |      
+      290 |   0.5338 |  3.279725e+04 |   +3.78% |  5.69e-07 |      
+      300 |   0.4929 |  3.391572e+04 |   +3.41% |  9.27e-07 |      
+      310 |   0.4467 |  3.497056e+04 |   +3.11% |  1.51e-06 |      
+      320 |   0.3971 |  3.620965e+04 |   +3.54% |  2.46e-06 |      
+      330 |   0.3372 |  3.761917e+04 |   +3.89% |  4.01e-06 |      
+      340 |   0.2826 |  3.871078e+04 |   +2.90% |  5.90e-06 |      
+      350 |   0.2268 |  3.977528e+04 |   +2.75% |  8.69e-06 |      
+[INFO GPL-0100] Timing-driven iteration 2/2, virtual: false.
+[INFO GPL-0101]    Iter: 359, overflow: 0.193, keep resizer changes at: 1, HPWL: 40414375
+Iteration |   Area    | Resized | Buffers | Nets repaired | Remaining
+---------------------------------------------------------------------
+        0 |     +0.0% |       0 |       0 |             0 |     11082
+    final |     +0.0% |       0 |       0 |           129 |         0
+---------------------------------------------------------------------
+[INFO RSZ-0034] Found 129 slew violations.
+   Iter   |    Area   | Removed | Inserted |   Pins
+          |           | Buffers | Buffers  | Remaining
+-------------------------------------------------------
+        0 |     +0.0% |       0 |        0 |     10618
+     1000 |     +0.0% |       1 |        2 |      9618
+     2000 |     +0.0% |      10 |       15 |      8618
+     3000 |     +0.0% |      10 |       15 |      7618
+     4000 |     +0.0% |      10 |       15 |      6618
+     5000 |     +0.0% |      10 |       15 |      5618
+     6000 |     +0.0% |      11 |       18 |      4618
+     7000 |     +0.1% |      19 |       25 |      3618
+     8000 |     +0.1% |      42 |       59 |      2618
+     9000 |     +0.2% |      86 |      116 |      1618
+    10000 |     +0.3% |     177 |      223 |       618
+    final |     +0.5% |     205 |      268 |         0
+-------------------------------------------------------
+[INFO GPL-0106] Timing-driven: worst slack 1.04e-11
+[INFO GPL-0107] Timing-driven: repair_design delta area: 12.626 um^2 (+0.82%)
+[INFO GPL-0108] Timing-driven: repair_design, gpl delta gcells: 63 (+0.58%)
+[INFO GPL-0109] Timing-driven: repair_design, gcells created: 268, deleted: 205
+[INFO GPL-0110] Timing-driven: new target density: 0.94961256
+Iteration | Overflow |     HPWL (um) |  HPWL(%) |   Penalty | Group
+---------------------------------------------------------------
+      360 |   0.1865 |  4.075753e+04 |   +2.47% |  1.28e-05 |      
+      370 |   0.1524 |  4.144951e+04 |   +1.70% |  1.89e-05 |      
+      380 |   0.1263 |  4.176355e+04 |   +0.76% |  2.78e-05 |      
+      390 |   0.1038 |  4.195750e+04 |   +0.46% |  4.09e-05 |      
+      393 |   0.0978 |  4.200721e+04 |          |  4.78e-05 |      
+---------------------------------------------------------------
+[INFO GPL-1001] Global placement finished at iteration 393
+[INFO GPL-1002] Placed Cell Area             1553.6424
+[INFO GPL-1003] Available Free Area          1655.5590
+[INFO GPL-1004] Minimum Feasible Density        0.9900 (cell_area / free_area)
+[INFO GPL-1006]   Suggested Target Densities:
+[INFO GPL-1007]     - For 90% usage of free space: 1.0427
+[INFO GPL-1008]     - For 80% usage of free space: 1.1730
+[WARNING GPL-1015] High uniform density (>0.99) may cause congestion or legalization issues.
+[INFO GPL-1011] Original area (um^2): 1628.32
+[INFO GPL-1013] Total timing-driven delta area: -60.89 (-3.74%)
+[INFO GPL-1014] Final placement area: 1553.64 (-4.59%)
+
+[After global_placement]
+===================================================
+WNS: 0.000000 ps
+TNS: 0.000000 ns
+No slew violation
+No load capacitance violation
+Overflow is zero
+Leakage power difference: 36.513766 uW
+Score: 36.513766
+Require runtime in official score calculation
+===================================================
+[ 10.356,  34.962): ***************************************** (159)
+[ 34.962,  59.568): ******************** (78)
+[ 59.568,  84.173): ***************************************** (158)
+[ 84.173, 108.779): ********************************************** (179)
+[108.779, 133.385): ************************************ (140)
+[133.385, 157.990): *********** (42)
+[157.990, 182.596): **************************************** (155)
+[182.596, 207.202): ************************************************** (193)
+[207.202, 231.807): ********************** (85)
+[231.807, 256.413]: ***** (20)
+Total time: 676.2 seconds

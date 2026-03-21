@@ -1,0 +1,12 @@
+version: v3
+date: 2026-03-18 10:55:08
+benchmark: mlcad
+tag: topn=10000 fix coarse vbuf crash
+lr_mode: RAPIDLRHELPER
+lr_command: buffering
+thread_count: 10
+max_jobs: 3
+openroad: /home/culan/Desktop/workspace/OpenROAD_lrf_develop/build/bin/openroad
+designs: ac97_top
+git_commit: 68c1fac
+git_branch: unknown

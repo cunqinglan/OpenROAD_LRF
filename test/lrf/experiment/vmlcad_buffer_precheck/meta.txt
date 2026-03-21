@@ -1,0 +1,12 @@
+version: vmlcad_buffer_precheck
+date: 2026-03-19 02:32:19
+benchmark: mlcad
+tag: sensitivity screening
+lr_mode: RAPIDLRHELPER
+lr_command: buffering
+thread_count: 10
+max_jobs: 3
+openroad: /home/culan/Desktop/workspace/OpenROAD_lrf_develop/build/bin/openroad
+designs: ac97_top aes_cipher_top ariane fpu NV_NVDLA_partition_c NV_NVDLA_partition_m NV_NVDLA_partition_p NV_NVDLA_partition_p_mod
+git_commit: 2cde1a8
+git_branch: unknown

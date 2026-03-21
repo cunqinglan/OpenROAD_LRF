@@ -1,0 +1,12 @@
+version: v5
+date: 2026-03-19 18:20:07
+benchmark: mlcad
+tag: chunked_dispatch
+lr_mode: RAPIDLRHELPER
+lr_command: precheck
+thread_count: 10
+max_jobs: 2
+openroad: /home/culan/Desktop/workspace/OpenROAD_lrf_develop/build/bin/openroad
+designs: ac97_top aes_cipher_top
+git_commit: 78b1a95
+git_branch: unknown
