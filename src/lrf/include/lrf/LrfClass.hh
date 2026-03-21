@@ -74,7 +74,8 @@ enum class PtVertexType : uint8_t {
   RefOutput,    // fanout vertices of the reference instance
   VirtualInput, // virtual device input pin (no base sta::Vertex)
   VirtualOutput,// virtual device output pin (no base sta::Vertex)
-  Sibling,      // sibling load/driver on shared fanin net (second-order timing impact)
+  SiblingLoad,  // sibling load pin on shared fanin net (slew set by wire edge from RefDriver)
+  SiblingDrvr,  // sibling driver pin (output of sibling cell, multi-arc merge point)
   None
 };
 
