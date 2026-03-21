@@ -730,7 +730,17 @@ ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
   return false;
 }
 
-bool 
+void
+ParallelLrVisitor::visitSlewOnly(sta::Instance *inst)
+{
+  pt_graph_ = local_sta_->makePtGraph(inst, false);
+  local_sta_->findLocalDelays(pt_graph_, arc_delay_calc_);
+  local_sta_->findLocalArrivals(pt_graph_);
+  local_sta_->findLocalRequireds(pt_graph_);
+  updateTimingFromPtGraph();
+}
+
+bool
 ParallelLrVisitor::visit(sta::Instance *inst,
                              TimingRecord &timing_record)
 {
