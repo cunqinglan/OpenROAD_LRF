@@ -74,6 +74,7 @@ enum class PtVertexType : uint8_t {
   RefOutput,    // fanout vertices of the reference instance
   VirtualInput, // virtual device input pin (no base sta::Vertex)
   VirtualOutput,// virtual device output pin (no base sta::Vertex)
+  Sibling,      // sibling load/driver on shared fanin net (second-order timing impact)
   None
 };
 
@@ -82,6 +83,7 @@ enum class PtEdgeType : uint8_t {
   RefInstEdge,     // edges that belong to the reference instance
   VirtualGateEdge, // virtual device gate edge (no base sta::Edge)
   VirtualWireEdge, // wire edge to/from virtual device (no base sta::Edge)
+  SiblingEdge,     // gate edge between sibling vertices on fanin side
   None
 };
 
