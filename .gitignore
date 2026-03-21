@@ -73,3 +73,5 @@ lrf_api.sh
 log
 precheimprov.md
 VERSION.md
+# LRF test directory (untracked, shared across branches)
+test/lrf/
