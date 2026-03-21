@@ -125,9 +125,10 @@ ParallelLrVisitor::trySwap(sta::Instance *inst)
     // fflush(stdout);
     auto start_pt_graph_construction = std::chrono::high_resolution_clock::now();
     pt_graph_ = local_sta_->makePtGraph(inst, false);
+    pt_graph_->pruneInsignificantSiblings();
     auto end_pt_graph_construction = std::chrono::high_resolution_clock::now();
     runtime_map_["pt_graph_construction"] += std::chrono::duration<double>(end_pt_graph_construction - start_pt_graph_construction).count();
-    
+
     std::chrono::time_point<std::chrono::high_resolution_clock> start_equiv_cell_check = std::chrono::high_resolution_clock::now();
     best_cell_ = ori_cell;
     bool orig_inequiv = false;
@@ -249,6 +250,7 @@ ParallelLrVisitor::trySwapByArray(sta::Instance *inst, int col_padding, int row_
   // Build PtGraph
   auto start_pt = std::chrono::high_resolution_clock::now();
   pt_graph_ = local_sta_->makePtGraph(inst, false);
+  pt_graph_->pruneInsignificantSiblings();
   auto end_pt = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
       std::chrono::duration<double>(end_pt - start_pt).count();
@@ -372,6 +374,7 @@ ParallelLrVisitor::trySwapPrecheck(sta::Instance *inst, int col_padding, int row
   // Build PtGraph
   auto t_pt_start = std::chrono::high_resolution_clock::now();
   PtGraph *pt_graph = local_sta_->makePtGraph(inst, false);
+  pt_graph->pruneInsignificantSiblings();
   auto t_pt_end = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
       std::chrono::duration<double>(t_pt_end - t_pt_start).count();
@@ -622,7 +625,8 @@ ParallelLrVisitor::trySwapV1(sta::Instance *inst)
     // fflush(stdout);
 
     pt_graph_ = local_sta_->makePtGraph(inst, false);
-    
+    pt_graph_->pruneInsignificantSiblings();
+
     best_cell_ = ori_cell;
     float best_cost = std::numeric_limits<float>::max();
     std::vector<float> vec_cost_slack(legal_equiv_cells.size() * 2, std::numeric_limits<float>::max());
@@ -771,6 +775,7 @@ ParallelLrVisitor::visit(sta::Instance *inst,
     fflush(stdout);
 
     pt_graph_ = local_sta_->makePtGraph(inst, false);
+    pt_graph_->pruneInsignificantSiblings();
     // Compute Original delays
     DelayLmSumResult original_result = local_sta_->
                 initAndGetLocalTimingCost(pt_graph_, arc_delay_calc_);
