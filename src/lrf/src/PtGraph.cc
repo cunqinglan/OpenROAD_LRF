@@ -44,6 +44,10 @@ const char *ptVertexTypeName(PtVertexType type)
       return "VirtualInput";
     case PtVertexType::VirtualOutput:
       return "VirtualOutput";
+    case PtVertexType::SiblingLoad:
+      return "SiblingLoad";
+    case PtVertexType::SiblingDrvr:
+      return "SiblingDrvr";
     case PtVertexType::None:
       return "None";
   }
@@ -61,6 +65,8 @@ static const char *ptEdgeTypeName(PtEdgeType type)
       return "VirtualGateEdge";
     case PtEdgeType::VirtualWireEdge:
       return "VirtualWireEdge";
+    case PtEdgeType::SiblingEdge:
+      return "SiblingEdge";
     case PtEdgeType::None:
       return "None";
   }
@@ -985,7 +991,8 @@ PtGraph::delayLmSum(const sta::MinMax *minmax, float &delay_lambda_sum, bool avo
 {
   delay_lambda_sum = 0.0f;
   for (PtEdge &pt_edge : pt_edges_) {
-    if (pt_edge.type() == PtEdgeType::Sentinel)
+    if (pt_edge.type() == PtEdgeType::Sentinel
+        || pt_edge.isSiblingSkipped())
       continue;
     sta::TimingArcSet *arc_set = pt_edge.timingArcSet();
     if (arc_set == nullptr)
@@ -1023,7 +1030,8 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
   delay_lambda_sum = 0.0f;
   for (PtEdge &pt_edge : pt_edges_) {
     if (pt_edge.type() == PtEdgeType::Sentinel
-        || (!pt_edge.hasBase() && !pt_edge.isVirtual()))
+        || (!pt_edge.hasBase() && !pt_edge.isVirtual())
+        || pt_edge.isSiblingSkipped())
       continue;
     sta::TimingArcSet *arc_set = pt_edge.timingArcSet();
     if (arc_set == nullptr)
@@ -1062,7 +1070,8 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
   }
   for (PtEdge &pt_edge : pt_edges_) {
     if (pt_edge.type() == PtEdgeType::Sentinel
-        || (!pt_edge.hasBase() && !pt_edge.isVirtual()))
+        || (!pt_edge.hasBase() && !pt_edge.isVirtual())
+        || pt_edge.isSiblingSkipped())
       continue;
     sta::TimingArcSet *arc_set = pt_edge.timingArcSet();
     if (arc_set == nullptr)
@@ -1166,9 +1175,50 @@ PtGraph::annotateVerticesType()
     }
   }
   delete pin_iter;
+
+  // Mark sibling vertices: trace one hop from each RefDriver.
+  // Out-edge targets with type=None are candidate sibling loads (other
+  // cells sharing the fanin net).  Before marking, verify the cell is
+  // NOT also a fanin instance (i.e. none of its gate-edge successors
+  // is a RefDriver).
+  for (size_t i = 1; i < pt_vertices_.size(); i++) {
+    if (pt_vertices_[i].type() != PtVertexType::RefDriver)
+      continue;
+    PtVertexOutEdgeIterator out_iter(i, this);
+    while (out_iter.hasNext()) {
+      PtEdge &e = out_iter.next();
+      VertexId to_id = e.ptToId();
+      PtVertex &to_v = pt_vertices_[to_id];
+      if (to_v.type() != PtVertexType::None)
+        continue;
+
+      // Check: does this cell also drive a RefInput (fanin instance)?
+      bool is_fanin_cell = false;
+      PtVertexOutEdgeIterator check_iter(to_id, this);
+      while (check_iter.hasNext()) {
+        PtEdge &ce = check_iter.next();
+        if (pt_vertices_[ce.ptToId()].type() == PtVertexType::RefDriver) {
+          is_fanin_cell = true;
+          break;
+        }
+      }
+      if (is_fanin_cell)
+        continue;
+
+      // Pure sibling load — mark it and its gate-edge successors
+      to_v.setType(PtVertexType::SiblingLoad);
+      PtVertexOutEdgeIterator sib_out(to_id, this);
+      while (sib_out.hasNext()) {
+        PtEdge &se = sib_out.next();
+        PtVertex &sib_to = pt_vertices_[se.ptToId()];
+        if (sib_to.type() == PtVertexType::None)
+          sib_to.setType(PtVertexType::SiblingDrvr);
+      }
+    }
+  }
 }
 
-void 
+void
 PtGraph::annotateEdgesType()
 {
   for (PtEdge &pt_edge : pt_edges_) {
@@ -1179,6 +1229,54 @@ PtGraph::annotateEdgesType()
     if (from_pt_vertex.type() == PtVertexType::RefInput &&
         to_pt_vertex.type() == PtVertexType::RefOutput) {
       pt_edge.setType(PtEdgeType::RefInstEdge);
+    } else if (from_pt_vertex.type() == PtVertexType::SiblingLoad &&
+               to_pt_vertex.type() == PtVertexType::SiblingDrvr) {
+      pt_edge.setType(PtEdgeType::SiblingEdge);
+    }
+  }
+}
+
+void
+PtGraph::pruneInsignificantSiblings(float threshold_ratio)
+{
+  if (dcalc_ap_ == nullptr)
+    return;
+  const sta::DcalcAPIndex ap_index = dcalc_ap_->index();
+
+  // ---- Pass 1: compute total absolute LM sum across all arcs ----
+  float total_lm = 0.0f;
+  for (PtEdge &pt_edge : pt_edges_) {
+    if (pt_edge.type() == PtEdgeType::Sentinel
+        || (!pt_edge.hasBase() && !pt_edge.isVirtual()))
+      continue;
+    const LMValue *lms = pt_edge.arcLms();
+    if (!lms) continue;
+    sta::TimingArcSet *arc_set = pt_edge.timingArcSet();
+    if (!arc_set) continue;
+    for (sta::TimingArc *arc : arc_set->arcs()) {
+      total_lm += std::abs(lms[lmIndex(arc, ap_index, ap_count_)]);
+    }
+  }
+  if (total_lm <= 0.0f) return;
+
+  float threshold = total_lm * threshold_ratio;
+
+  // ---- Pass 2: mark insignificant SiblingEdges as skipped ----
+  int pruned_edge_count = 0;
+  for (PtEdge &pt_edge : pt_edges_) {
+    if (pt_edge.type() != PtEdgeType::SiblingEdge)
+      continue;
+    const LMValue *lms = pt_edge.arcLms();
+    if (!lms) continue;
+    sta::TimingArcSet *arc_set = pt_edge.timingArcSet();
+    if (!arc_set) continue;
+    float edge_lm = 0.0f;
+    for (sta::TimingArc *arc : arc_set->arcs()) {
+      edge_lm += std::abs(lms[lmIndex(arc, ap_index, ap_count_)]);
+    }
+    if (edge_lm < threshold) {
+      pt_edge.setSiblingSkipped(true);
+      pruned_edge_count++;
     }
   }
 }

@@ -811,6 +811,11 @@ LocalSta::findDriverDelays1(PtVertex &drvr_pt_vertex,
   while (in_edge_iter.hasNext()) {
     PtEdge &pt_edge = in_edge_iter.next();
 
+    // Skip pruned sibling arcs (LM < threshold) to avoid expensive
+    // liberty table lookups for second-order timing edges.
+    if (pt_edge.isSiblingSkipped())
+      continue;
+
     // PtGraph edges already passed searchThru at construction time.
     // Avoid dereferencing pt_edge.edge() here because the underlying
     // sta::Edge* may have been invalidated by a concurrent replaceCell.

@@ -36,6 +36,10 @@ public:
   virtual bool visit(sta::Instance *inst, sta::VertexId vid);
   bool visit(sta::Instance *inst, TimingRecord &timing_record);
   bool singleGateSizing(sta::Instance *inst);
+  // Lightweight pass: build PtGraph, run delay/arrival/required, write back
+  // slew+paths without cell evaluation. Used for non-selected instances
+  // in precheck mode to keep timing propagation fresh.
+  void visitSlewOnly(sta::Instance *inst);
   void setMoveType(MoveType move_type);
   
   // Apply cell type changes to OpenROAD and OpenSTA, and 

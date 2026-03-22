@@ -137,6 +137,14 @@ public:
   // Output informations of the PtGraph for debug purpose
   std::string to_string();
   void printGraph(bool dot_format = false);
+  // Prune insignificant sibling arcs (LM < threshold_ratio of total)
+  // to reduce cell evaluation runtime.  Sibling arcs are second-order
+  // gate edges between sibling vertices on the fanin side.  Pruned
+  // edges are marked sibling_skipped and excluded from delay computation
+  // (findDriverDelays1), arrival/required propagation (localVisitFanin/
+  // FanoutPaths), and LRS cost computation (delayLmSum).
+  void pruneInsignificantSiblings(float threshold_ratio = 0.01f);
+
   void printGraph(const char *output_path, bool dot_format = false);
   void printDelays();
   void printSlews();
@@ -251,6 +259,11 @@ public:
   const LMValue *arcLms() const;
   void setArcLms(const std::vector<LMValue> &lms);
 
+  // Sibling arc skipping: insignificant sibling arcs can be excluded
+  // from cost computation and delay evaluation to reduce runtime.
+  bool isSiblingSkipped() const { return sibling_skipped_; }
+  void setSiblingSkipped(bool v) { sibling_skipped_ = v; }
+
 protected:
   void setArcDelays(sta::ArcDelay *arc_delay, size_t delay_count);
   void copyInfoFromEdge(size_t ap_count);
@@ -259,6 +272,7 @@ protected:
   std::vector<sta::ArcDelay> arc_delays_;
   std::vector<LMValue> arc_lms_;
   bool is_wire_{false};
+  bool sibling_skipped_{false};
   sta::EdgeId vertex_out_next_{};
   sta::EdgeId vertex_out_prev_{};
   sta::EdgeId vertex_in_link_{};
