@@ -156,6 +156,10 @@ static std::vector<sta::Vertex*> selectCandidateEndpoints(
     if (!direction->isInput()) {
       continue;
     }
+    // Skip clock endpoints — they are not candidates for logic remapping.
+    if (vertex->isRegClk() || vertex->isCheckClk()) {
+      continue;
+    }
     if (resizer != nullptr) {
       if (resizer->dontTouch(pin) || resizer->dontTouch(network->net(pin))
           || resizer->dontTouch(network->instance(pin))) {
@@ -323,7 +327,8 @@ std::vector<sta::Vertex*> PositionDrivenStrategy::getWorstVertices(
       }
 
       if (i > 0 && path_vertex->isDriver(network)
-          && !network->isTopLevelPort(path_pin)) {
+          && !network->isTopLevelPort(path_pin)
+          && !sta->search()->isClock(path_vertex)) {
         const sta::TimingArc* prev_arc = path_i->prevArc(sta);
         sta::Edge* prev_edge = path_i->prevEdge(sta);
         if (prev_arc == nullptr || prev_edge == nullptr) {
