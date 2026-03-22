@@ -62,6 +62,12 @@ class PositionDrivenStrategy : public ExtractLocalWindow
       float percentage = -1.0f,
       float max_percentage = -1.0f,
       float slack_threshold = std::numeric_limits<float>::max());
+  std::vector<sta::Vertex*> getWorstVerticesForEndpoint(
+      SeqRemapper& remapper,
+      sta::Vertex* endpoint);
+  bool remapOneCut(
+      SeqRemapper& remapper,
+      std::vector<sta::Vertex*>& worst_vertices);
   void extractCandidateCutAroundVertex(SeqRemapper& remapper);
   cut::LogicCut getCandidateCut() const {
     return candidate_cut_;
