@@ -524,20 +524,240 @@ std::vector<sta::Vertex*> PositionDrivenStrategy::getWorstVertices(
   return result;
 }
 
-void PositionDrivenStrategy::remap(SeqRemapper& remapper,
-                                    float percentage,
-                                    float max_percentage,
-                                    float slack_threshold) {
-  // Step 1: Get worst vertices on the most critical path, sorted by
-  // load-dependent delay (largest first).
-  std::vector<sta::Vertex*> worst_vertices =
-      getWorstVertices(remapper, percentage, max_percentage, slack_threshold);
-  if (worst_vertices.empty()) {
-    remapper.getLogger()->warn(
-      utl::RES, 334, "No worst-slack path found.");
-    return;
+std::vector<sta::Vertex*> PositionDrivenStrategy::getWorstVerticesForEndpoint(
+    SeqRemapper& remapper,
+    sta::Vertex* endpoint) {
+  sta::dbSta* sta = remapper.getSta();
+  sta::dbNetwork* network = sta->getDbNetwork();
+  sta::Graph* graph = sta->graph();
+
+  abc_library_ = remapper.getAbcLibrary();
+
+  sta::Path* end_path = sta->vertexWorstSlackPath(endpoint, sta::MinMax::max());
+  if (end_path == nullptr) {
+    logger_->warn(utl::RES, 333,
+                  "No worst-slack path found for endpoint {}.",
+                  endpoint->name(network));
+    return {};
   }
 
+  sta::PathExpanded expanded(end_path, sta);
+
+  using VertexDelayPair = std::pair<sta::Vertex*, Delay>;
+  std::vector<VertexDelayPair> vertex_delays;
+
+  if (expanded.size() > 1) {
+    const int path_length = expanded.size();
+    const int start_index = expanded.startIndex();
+    const sta::DcalcAnalysisPt* dcalc_ap = end_path->dcalcAnalysisPt(sta);
+    const int lib_ap = dcalc_ap ? dcalc_ap->libertyIndex() : 0;
+    const int dcalc_index = dcalc_ap ? dcalc_ap->index() : 0;
+
+    for (int i = start_index; i < path_length; i++) {
+      const sta::Path* path_i = expanded.path(i);
+      if (path_i == nullptr) {
+        continue;
+      }
+
+      sta::Vertex* path_vertex = path_i->vertex(sta);
+      const sta::Pin* path_pin = path_i->pin(sta);
+      if (path_vertex == nullptr || path_pin == nullptr) {
+        continue;
+      }
+
+      if (i > 0 && path_vertex->isDriver(network)
+          && !network->isTopLevelPort(path_pin)
+          && !sta->search()->isClock(path_vertex)) {
+        const sta::TimingArc* prev_arc = path_i->prevArc(sta);
+        sta::Edge* prev_edge = path_i->prevEdge(sta);
+        if (prev_arc == nullptr || prev_edge == nullptr) {
+          continue;
+        }
+
+        const sta::TimingArc* corner_arc = prev_arc->cornerArc(lib_ap);
+        if (corner_arc == nullptr) {
+          continue;
+        }
+
+        const Delay arc_delay = graph->arcDelay(prev_edge, prev_arc, dcalc_index);
+        const Delay load_delay = arc_delay - corner_arc->intrinsicDelay();
+
+        vertex_delays.emplace_back(path_vertex, load_delay);
+      }
+    }
+  }
+
+  std::sort(vertex_delays.begin(), vertex_delays.end(),
+    [](const VertexDelayPair& a, const VertexDelayPair& b) {
+      return a.second > b.second;
+    });
+
+  // Debug: print detailed info for each vertex in vertex_delays.
+  {
+    const sta::DcalcAnalysisPt* dbg_dcalc_ap = end_path->dcalcAnalysisPt(sta);
+    const int dcalc_index = dbg_dcalc_ap ? dbg_dcalc_ap->index() : 0;
+    std::set<sta::Vertex*> printed;
+    for (const auto& [vtx, load_delay] : vertex_delays) {
+      if (!printed.insert(vtx).second) {
+        continue;  // skip duplicates
+      }
+      const sta::Pin* vtx_pin = vtx->pin();
+      sta::Instance* vtx_inst = network->instance(vtx_pin);
+      if (vtx_inst == nullptr) {
+        continue;
+      }
+      sta::LibertyCell* lib_cell = network->libertyCell(vtx_inst);
+      const char* cell_type = lib_cell ? lib_cell->name() : "unknown";
+      const char* inst_name = network->name(vtx_inst);
+
+      // Instance position.
+      odb::dbInst* db_inst = network->staToDb(vtx_inst);
+      int inst_x = 0, inst_y = 0;
+      if (db_inst) {
+        db_inst->getLocation(inst_x, inst_y);
+      }
+
+      logger_->info(utl::RES, 380,
+          "[VertexDelayInfo] Instance: {} | Cell: {} | Position: ({}, {}) | LoadDelay: {}",
+          inst_name, cell_type, inst_x, inst_y, sta::delayAsFloat(load_delay));
+
+      // Iterate over all pins of this instance.
+      sta::InstancePinIterator* pin_it = network->pinIterator(vtx_inst);
+      while (pin_it->hasNext()) {
+        sta::Pin* pin = pin_it->next();
+        sta::PortDirection* dir = network->direction(pin);
+        const char* pin_name = network->portName(pin);
+        bool is_input = dir && dir->isAnyInput();
+        bool is_output = dir && dir->isAnyOutput();
+        const char* dir_str = is_input ? "FANIN" : (is_output ? "FANOUT" : "OTHER");
+
+        // Pin slack.
+        sta::Vertex* pin_vertex = nullptr;
+        sta::Vertex* pin_bidir = nullptr;
+        graph->pinVertices(pin, pin_vertex, pin_bidir);
+        Slack pin_slack = std::numeric_limits<Slack>::infinity();
+        if (pin_vertex) {
+          pin_slack = sta->vertexSlack(pin_vertex, sta::MinMax::max());
+        }
+
+        // For input pins: find fanin instance and compute HPWL distance + delay.
+        // For output pins: find fanout instances and compute HPWL distance + delay.
+        sta::Net* pin_net = network->net(pin);
+        if (pin_net == nullptr) {
+          logger_->info(utl::RES, 381,
+              "  Pin: {} | Dir: {} | Slack: {} | (no net)",
+              pin_name, dir_str, sta::delayAsFloat(pin_slack));
+          continue;
+        }
+
+        // Collect connected instances with HPWL distance.
+        std::string connected_info;
+        sta::NetPinIterator* net_pin_it = network->pinIterator(pin_net);
+        while (net_pin_it->hasNext()) {
+          const sta::Pin* connected_pin = net_pin_it->next();
+          sta::Instance* connected_inst = network->instance(connected_pin);
+          if (connected_inst == nullptr || connected_inst == vtx_inst) {
+            continue;
+          }
+          odb::dbInst* conn_db_inst = network->staToDb(connected_inst);
+          int conn_x = 0, conn_y = 0;
+          if (conn_db_inst) {
+            conn_db_inst->getLocation(conn_x, conn_y);
+          }
+          int hpwl = std::abs(conn_x - inst_x) + std::abs(conn_y - inst_y);
+          const char* conn_name = network->name(connected_inst);
+          sta::LibertyCell* conn_cell = network->libertyCell(connected_inst);
+          const char* conn_type = conn_cell ? conn_cell->name() : "unknown";
+          if (!connected_info.empty()) {
+            connected_info += "; ";
+          }
+          connected_info += std::string(conn_name) + "(" + conn_type + ") HPWL=" + std::to_string(hpwl);
+        }
+        delete net_pin_it;
+
+        // Collect delay to fanin/fanout instances via graph edges.
+        auto getEdgeMaxDelay = [&](sta::Edge* edge) -> float {
+          float max_delay = 0.0f;
+          if (edge->isWire()) {
+            for (const auto* rf : sta::RiseFall::range()) {
+              float d = sta::delayAsFloat(graph->wireArcDelay(edge, rf, dcalc_index));
+              if (d > max_delay) max_delay = d;
+            }
+          } else {
+            sta::TimingArcSet* arc_set = edge->timingArcSet();
+            if (arc_set) {
+              for (const sta::TimingArc* arc : arc_set->arcs()) {
+                float d = sta::delayAsFloat(graph->arcDelay(edge, arc, dcalc_index));
+                if (d > max_delay) max_delay = d;
+              }
+            }
+          }
+          return max_delay;
+        };
+
+        std::string delay_info;
+        if (pin_vertex) {
+          if (is_input) {
+            VertexInEdgeIterator in_iter(pin_vertex, graph);
+            while (in_iter.hasNext()) {
+              sta::Edge* edge = in_iter.next();
+              sta::Vertex* from_vtx = edge->from(graph);
+              if (from_vtx == nullptr) continue;
+              sta::Instance* from_inst = network->instance(from_vtx->pin());
+              if (from_inst == nullptr) continue;
+              const char* from_name = network->name(from_inst);
+              float max_delay = getEdgeMaxDelay(edge);
+              if (!delay_info.empty()) delay_info += "; ";
+              delay_info += "from " + std::string(from_name)
+                  + " delay=" + std::to_string(max_delay);
+            }
+          } else if (is_output) {
+            VertexOutEdgeIterator out_iter(pin_vertex, graph);
+            while (out_iter.hasNext()) {
+              sta::Edge* edge = out_iter.next();
+              sta::Vertex* to_vtx = edge->to(graph);
+              if (to_vtx == nullptr) continue;
+              sta::Instance* to_inst = network->instance(to_vtx->pin());
+              if (to_inst == nullptr) continue;
+              const char* to_name = network->name(to_inst);
+              float max_delay = getEdgeMaxDelay(edge);
+              if (!delay_info.empty()) delay_info += "; ";
+              delay_info += "to " + std::string(to_name)
+                  + " delay=" + std::to_string(max_delay);
+            }
+          }
+        }
+
+        logger_->info(utl::RES, 382,
+            "  Pin: {} | Dir: {} | Slack: {} | Connected: [{}] | Delays: [{}]",
+            pin_name, dir_str, sta::delayAsFloat(pin_slack),
+            connected_info.empty() ? "none" : connected_info,
+            delay_info.empty() ? "none" : delay_info);
+      }
+      delete pin_it;
+    }
+  }
+
+  std::vector<sta::Vertex*> result;
+  std::set<sta::Vertex*> seen;
+  const size_t max_candidates = 100;
+  for (auto& [v, d] : vertex_delays) {
+    if (result.size() >= max_candidates) break;
+    if (seen.insert(v).second) {
+      result.push_back(v);
+    }
+  }
+
+  if (result.empty()) {
+    result.push_back(endpoint);
+  }
+
+  return result;
+}
+
+bool PositionDrivenStrategy::remapOneCut(
+    SeqRemapper& remapper,
+    std::vector<sta::Vertex*>& worst_vertices) {
   sta::dbSta* sta = remapper.getSta();
   sta::dbNetwork* network = sta->getDbNetwork();
 
@@ -566,7 +786,6 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
       continue;
     }
 
-    // Debug: Print bad_instance info
     logger_->info(utl::RES, 390,
                   "[Step1] Candidate {}: bad_instance name={}, type={}",
                   vi, network->name(inst), cell->name());
@@ -619,11 +838,10 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
     }
     delete pin_it;
 
-    // Step 2: Extract the bottleneck cut around this vertex.
+    // Extract the bottleneck cut around this vertex.
     setRefGate(inst);
     cut::LogicCut trial_cut = extractBottleneck(remapper);
 
-    // Debug: Print cut info
     logger_->info(utl::RES, 393,
                   "[Step2] candidate_cut: {} instances, {} PIs, {} POs",
                   trial_cut.cut_instances().size(),
@@ -691,7 +909,6 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
       continue;
     }
 
-    // Found a valid cut with >1 instance.
     bad_instance = inst;
     candidate_cut = std::move(trial_cut);
     found_valid_cut = true;
@@ -699,14 +916,13 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
   }
 
   if (!found_valid_cut) {
-    remapper.getLogger()->warn(
-        utl::RES, 375,
+    logger_->warn(utl::RES, 375,
         "All candidate vertices produced cuts with <= 1 instance, nothing to remap.");
-    return;
+    return false;
   }
   setCandidateCut(candidate_cut);
 
-  // Step 3: Build the ABC network from the candidate cut.
+  // Build the ABC network from the candidate cut.
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> mapped_abc_network(
       candidate_cut.BuildMappedAbcNetwork(
           *remapper.getAbcLibrary(),
@@ -715,39 +931,32 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
       &abc::Abc_NtkDelete);
 
   if (mapped_abc_network == nullptr) {
-    remapper.getLogger()->error(
-        utl::RES, 335, "Failed to build ABC network from candidate cut.");
-    return;
+    logger_->error(utl::RES, 335, "Failed to build ABC network from candidate cut.");
+    return false;
   }
 
-  // Must set the global ABC library BEFORE Abc_NtkToLogic, because
-  // Abc_NtkAlloc(ABC_FUNC_MAP) initializes pManFunc = Abc_FrameReadLibGen().
-  // If the global is not set first, the new network gets a NULL/stale pManFunc
-  // which later causes the assertion in Abc_NtkMapToSopUsingLibrary to fail.
   auto library = static_cast<abc::Mio_Library_t*>(mapped_abc_network.get()->pManFunc);
   if (library == nullptr) {
-    remapper.getLogger()->error(
-        utl::RES, 341, "ABC network does not have an associated library.");
-    return;
+    logger_->error(utl::RES, 341, "ABC network does not have an associated library.");
+    return false;
   }
   abc::Abc_FrameSetLibGen(library);
 
-  // Step 4: Convert the mapped network to logic (AIG) form for enumeration.
+  // Convert the mapped network to logic (AIG) form for enumeration.
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> logic_network(
       abc::Abc_NtkToLogic(mapped_abc_network.get()),
       &abc::Abc_NtkDelete);
 
   if (logic_network == nullptr) {
-    remapper.getLogger()->error(
-        utl::RES, 340, "Failed to convert ABC network to logic form.");
-    return;
+    logger_->error(utl::RES, 340, "Failed to convert ABC network to logic form.");
+    return false;
   }
 
-  logger_->info(
-      utl::RES, 351, "After step 4. ABC network converted to logic form with {} nodes.",
+  logger_->info(utl::RES, 351,
+      "After step 4. ABC network converted to logic form with {} nodes.",
       abc::Abc_NtkNodeNum(logic_network.get()));
 
-  // Step 5: Enumerate all possible mapping solutions using ABC.
+  // Enumerate all possible mapping solutions using ABC.
   int nMaxSolutions = 80;
   int fVerbose = 1;
 
@@ -761,21 +970,19 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
       fVerbose);
 
   if (pMan == nullptr) {
-    remapper.getLogger()->warn(
-        utl::RES, 353, "ABC mapping enumeration returned no solutions.");
-    return;
+    logger_->warn(utl::RES, 353, "ABC mapping enumeration returned no solutions.");
+    return false;
   }
 
   logger_->info(utl::RES, 352, "After step 5.");
 
-  // Step 6: Evaluate each solution using fork() for isolation.
+  // Evaluate each solution.
   abc::Map_Man_t* map_man = static_cast<abc::Map_Man_t*>(pMan);
   const int num_solutions = abc::Map_ManReadNumSolutions(map_man);
   if (num_solutions <= 0) {
-    remapper.getLogger()->warn(
-        utl::RES, 354, "ABC mapping enumeration returned no solutions.");
+    logger_->warn(utl::RES, 354, "ABC mapping enumeration returned no solutions.");
     abc::Abc_NtkMapEnumFreeStore(pMan);
-    return;
+    return false;
   }
 
   logger_->info(utl::RES, 359, "Found {} enumerated solutions to evaluate.", num_solutions);
@@ -785,7 +992,6 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
   int best_solution_index = -1;
   int evaluated_count = 0;
 
-  // --- Evaluate enumerated solutions ---
   auto results = forkEvaluateSolutions(
       map_man, logic_network.get(), candidate_cut, remapper,
       0, num_solutions);
@@ -802,7 +1008,6 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
     if (!res.log.empty())
       logger_->reportLiteral(res.log);
 
-    // Store evaluation result back into the solution for UCT
     abc::Map_MappingSolutionSetEvalResult(
         res.pSolution, static_cast<float>(res.slack));
 
@@ -823,10 +1028,10 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
                "Enumeration evaluation complete: {} solutions evaluated.",
                evaluated_count);
 
-  // --- UCT iterative phase: generate → evaluate → update rewards → repeat ---
+  // UCT iterative phase
   const int nBatchSize = 20;
   const int nRounds = 5;
-  const double uctC = 1.414;  // sqrt(2)
+  const double uctC = 1.414;
 
   abc::Map_ManSetMaxSolutions(map_man, nMaxSolutions + nBatchSize * nRounds);
   abc::Map_UctMan_t* pUct = abc::Map_UctBegin(map_man, uctC);
@@ -848,7 +1053,6 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
                     "UCT round {}/{}: generated {} new solutions.",
                     round + 1, nRounds, nNew);
 
-      // Evaluate the new batch via fork (parallel)
       auto round_results = forkEvaluateSolutions(
           map_man, logic_network.get(), candidate_cut, remapper,
           nBefore, nAfter);
@@ -865,7 +1069,6 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
         if (!res.log.empty())
           logger_->reportLiteral(res.log);
 
-        // Store result back for reward update
         abc::Map_MappingSolutionSetEvalResult(
             res.pSolution, static_cast<float>(res.slack));
 
@@ -884,7 +1087,6 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
         evaluated_count++;
       }
 
-      // Feed results back into UCT reward stats for next round
       abc::Map_UctUpdateRewards(pUct, nBefore, nAfter);
     }
 
@@ -897,10 +1099,10 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
     logger_->info(utl::RES, 374, "UCT initialization failed, skipping.");
   }
 
-  // Step 7: Permanently apply the best solution in the parent process.
+  // Apply the best solution.
+  bool applied = false;
   if (pSolutionBest) {
-    remapper.getLogger()->info(
-        utl::RES, 346,
+    logger_->info(utl::RES, 346,
         "Best solution found (index {}) with worst slack = {:.4e}",
         best_solution_index + 1, best_slack);
 
@@ -914,7 +1116,6 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
         remapper.getNameGenerator(),
         logger_);
 
-    // Final placement and timing with GPL in the parent.
     evaluateSolution(
         pSolutionBest,
         map_man,
@@ -923,14 +1124,77 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
         remapper);
 
     logger_->info(utl::RES, 364, "Best solution permanently applied.");
+    applied = true;
   } else {
-    remapper.getLogger()->warn(
-        utl::RES, 361,
-        "No valid solution found to apply.");
+    logger_->warn(utl::RES, 361, "No valid solution found to apply.");
   }
 
-  // Step 8: Clean up the mapping manager.
   abc::Abc_NtkMapEnumFreeStore(pMan);
+  return applied;
+}
+
+void PositionDrivenStrategy::remap(SeqRemapper& remapper,
+                                    float percentage,
+                                    float max_percentage,
+                                    float slack_threshold) {
+  sta::dbSta* sta = remapper.getSta();
+  sta::dbNetwork* network = sta->getDbNetwork();
+
+  // Invalidate timing so selectCandidateEndpoints sees fresh slacks.
+  sta->graphDelayCalc()->delaysInvalid();
+  sta->search()->arrivalsInvalid();
+  sta->search()->endpointsInvalid();
+
+  // Get all candidate endpoints sorted by slack (worst first).
+  auto candidate_endpoints = selectCandidateEndpoints(
+      sta, remapper.getResizer(), percentage, max_percentage, slack_threshold);
+
+  if (candidate_endpoints.empty()) {
+    logger_->warn(utl::RES, 334, "No candidate endpoints found.");
+    return;
+  }
+
+  logger_->info(utl::RES, 400,
+                "Found {} candidate endpoints to process iteratively.",
+                candidate_endpoints.size());
+
+  int remapped_count = 0;
+
+  for (size_t ep_idx = 0; ep_idx < candidate_endpoints.size(); ++ep_idx) {
+    sta::Vertex* endpoint = candidate_endpoints[ep_idx];
+    const Slack ep_slack = sta->vertexSlack(endpoint, sta::MinMax::max());
+
+    logger_->info(utl::RES, 401,
+                  "=== Iteration {}/{}: endpoint {} (slack={:.4e}) ===",
+                  ep_idx + 1, candidate_endpoints.size(),
+                  endpoint->name(network), ep_slack);
+
+    // Get worst vertices along this endpoint's critical path.
+    std::vector<sta::Vertex*> worst_vertices =
+        getWorstVerticesForEndpoint(remapper, endpoint);
+
+    if (worst_vertices.empty()) {
+      logger_->info(utl::RES, 402,
+                    "Iteration {}: no vertices found for endpoint, skipping.",
+                    ep_idx + 1);
+      continue;
+    }
+
+    bool applied = remapOneCut(remapper, worst_vertices);
+
+    if (applied) {
+      remapped_count++;
+
+      // Invalidate timing for next iteration so paths reflect the changes.
+      sta->graphDelayCalc()->delaysInvalid();
+      sta->search()->arrivalsInvalid();
+      sta->search()->endpointsInvalid();
+    }
+  }
+
+  logger_->info(utl::RES, 403,
+                "Iterative remap complete: {}/{} endpoints successfully remapped.",
+                remapped_count, candidate_endpoints.size());
 }
 
 std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
