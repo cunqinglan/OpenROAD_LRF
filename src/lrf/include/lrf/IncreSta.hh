@@ -131,6 +131,7 @@ protected:
   LibertyCellArray equiv_cell_array_;
   PosMap equiv_cell_pos_map_;
   bool equiv_cell_array_built_ = false;
+  PruningControl pruning_control_;
 };
 
 } // namespace lrf

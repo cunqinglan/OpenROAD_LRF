@@ -155,5 +155,24 @@ struct ResizeBenefit {
   size_t vertex_idx;    // index into TaskArranger::vertices_ for direct access
 };
 
+// Per-instance state for history-based adaptive libcell pruning.
+// Stores the cost-ordered candidate list from a previous "reorder" iteration
+// so that subsequent iterations only evaluate the top fraction.
+struct CellPruningState {
+  std::vector<sta::LibertyCell*> ordered_cells;  // slack-filtered candidates sorted by cost (ascending)
+  int M = 3;                    // reorder interval (adapts per-instance)
+  int iters_since_reorder = 0;  // iterations since last ordering
+};
+
+// Global pruning control, lives in IncreSta, persists across all LR iterations.
+struct PruningControl {
+  std::unordered_map<sta::Instance*, CellPruningState> state;
+  int iteration = 0;            // global resize iteration counter
+  int K = -1;                   // iteration where change_rate first < threshold
+  bool enabled = false;         // true after iteration K
+  float P = 0.20f;              // fraction of candidates to keep (min 2)
+  float change_threshold = 0.10f;  // change rate that triggers ordering
+};
+
 } // namespace lrf
 
