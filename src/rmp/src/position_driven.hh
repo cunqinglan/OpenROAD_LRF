@@ -36,7 +36,8 @@ class PositionDrivenStrategy : public ExtractLocalWindow
   void remap(SeqRemapper& remapper,
              float percentage = -1.0f,
              float max_percentage = -1.0f,
-             float slack_threshold = std::numeric_limits<float>::max());
+             float slack_threshold = std::numeric_limits<float>::max(),
+             bool run_detailed_placement = false);
 
   sta::Slack evaluateSolution(abc::Map_MappingSolution_t* pSolution,
                               abc::Map_Man_t* pMan,

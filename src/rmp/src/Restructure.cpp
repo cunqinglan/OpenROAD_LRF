@@ -782,7 +782,8 @@ bool Restructure::readAbcLog(std::string abc_file_name,
 void Restructure::positionDrivenRemap(sta::Corner* corner,
                                       float percentage,
                                       float max_percentage,
-                                      float slack_threshold)
+                                      float slack_threshold,
+                                      bool run_detailed_placement)
 {
   time_t start_time, end_time;
   time(&start_time);
@@ -798,7 +799,8 @@ void Restructure::positionDrivenRemap(sta::Corner* corner,
 
   // Create and run the position-driven strategy
   PositionDrivenStrategy strategy(logger_);
-  strategy.remap(remapper, percentage, max_percentage, slack_threshold);
+  strategy.remap(remapper, percentage, max_percentage, slack_threshold,
+                 run_detailed_placement);
   time(&end_time);
   double elapsed_time = difftime(end_time, start_time);
   logger_->report("Position-driven remap completed in {:.2f} seconds.", elapsed_time);
