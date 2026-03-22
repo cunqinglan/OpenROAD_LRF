@@ -32,6 +32,7 @@
 #include "sta/Search.hh"
 #include "sta/Sta.hh"
 #include "sta/TimingArc.hh"
+#include "sta/Transition.hh"
 #include "sta/Units.hh"
 #include "sta/VerilogWriter.hh"
 
@@ -347,6 +348,157 @@ std::vector<sta::Vertex*> PositionDrivenStrategy::getWorstVertices(
     [](const VertexDelayPair& a, const VertexDelayPair& b) {
       return a.second > b.second;
     });
+
+  // Debug: print detailed info for each vertex in vertex_delays.
+  {
+    const sta::DcalcAnalysisPt* dbg_dcalc_ap = end_path->dcalcAnalysisPt(sta);
+    const int dcalc_index = dbg_dcalc_ap ? dbg_dcalc_ap->index() : 0;
+    std::set<sta::Vertex*> printed;
+    for (const auto& [vtx, load_delay] : vertex_delays) {
+      if (!printed.insert(vtx).second) {
+        continue;  // skip duplicates
+      }
+      const sta::Pin* vtx_pin = vtx->pin();
+      sta::Instance* vtx_inst = network->instance(vtx_pin);
+      if (vtx_inst == nullptr) {
+        continue;
+      }
+      sta::LibertyCell* lib_cell = network->libertyCell(vtx_inst);
+      const char* cell_type = lib_cell ? lib_cell->name() : "unknown";
+      const char* inst_name = network->name(vtx_inst);
+
+      // Instance position.
+      odb::dbInst* db_inst = network->staToDb(vtx_inst);
+      int inst_x = 0, inst_y = 0;
+      if (db_inst) {
+        db_inst->getLocation(inst_x, inst_y);
+      }
+
+      logger_->info(utl::RES, 380,
+          "[VertexDelayInfo] Instance: {} | Cell: {} | Position: ({}, {}) | LoadDelay: {}",
+          inst_name, cell_type, inst_x, inst_y, sta::delayAsFloat(load_delay));
+
+      // Iterate over all pins of this instance.
+      sta::InstancePinIterator* pin_it = network->pinIterator(vtx_inst);
+      while (pin_it->hasNext()) {
+        sta::Pin* pin = pin_it->next();
+        sta::PortDirection* dir = network->direction(pin);
+        const char* pin_name = network->portName(pin);
+        bool is_input = dir && dir->isAnyInput();
+        bool is_output = dir && dir->isAnyOutput();
+        const char* dir_str = is_input ? "FANIN" : (is_output ? "FANOUT" : "OTHER");
+
+        // Pin slack.
+        sta::Vertex* pin_vertex = nullptr;
+        sta::Vertex* pin_bidir = nullptr;
+        graph->pinVertices(pin, pin_vertex, pin_bidir);
+        Slack pin_slack = std::numeric_limits<Slack>::infinity();
+        if (pin_vertex) {
+          pin_slack = sta->vertexSlack(pin_vertex, sta::MinMax::max());
+        }
+
+        // For input pins: find fanin instance and compute HPWL distance + delay.
+        // For output pins: find fanout instances and compute HPWL distance + delay.
+        sta::Net* pin_net = network->net(pin);
+        if (pin_net == nullptr) {
+          logger_->info(utl::RES, 381,
+              "  Pin: {} | Dir: {} | Slack: {} | (no net)",
+              pin_name, dir_str, sta::delayAsFloat(pin_slack));
+          continue;
+        }
+
+        // Collect connected instances with HPWL distance.
+        std::string connected_info;
+        sta::NetPinIterator* net_pin_it = network->pinIterator(pin_net);
+        while (net_pin_it->hasNext()) {
+          const sta::Pin* connected_pin = net_pin_it->next();
+          sta::Instance* connected_inst = network->instance(connected_pin);
+          if (connected_inst == nullptr || connected_inst == vtx_inst) {
+            continue;
+          }
+          odb::dbInst* conn_db_inst = network->staToDb(connected_inst);
+          int conn_x = 0, conn_y = 0;
+          if (conn_db_inst) {
+            conn_db_inst->getLocation(conn_x, conn_y);
+          }
+          int hpwl = std::abs(conn_x - inst_x) + std::abs(conn_y - inst_y);
+          const char* conn_name = network->name(connected_inst);
+          sta::LibertyCell* conn_cell = network->libertyCell(connected_inst);
+          const char* conn_type = conn_cell ? conn_cell->name() : "unknown";
+          if (!connected_info.empty()) {
+            connected_info += "; ";
+          }
+          connected_info += std::string(conn_name) + "(" + conn_type + ") HPWL=" + std::to_string(hpwl);
+        }
+        delete net_pin_it;
+
+        // Collect delay to fanin/fanout instances via graph edges.
+        // Helper lambda: get max delay across all arcs of an edge.
+        auto getEdgeMaxDelay = [&](sta::Edge* edge) -> float {
+          float max_delay = 0.0f;
+          if (edge->isWire()) {
+            // Wire edges use wireArcDelay with rise/fall.
+            for (const auto* rf : sta::RiseFall::range()) {
+              float d = sta::delayAsFloat(graph->wireArcDelay(edge, rf, dcalc_index));
+              if (d > max_delay) max_delay = d;
+            }
+          } else {
+            // Cell edges use arcDelay with timing arcs.
+            sta::TimingArcSet* arc_set = edge->timingArcSet();
+            if (arc_set) {
+              for (const sta::TimingArc* arc : arc_set->arcs()) {
+                float d = sta::delayAsFloat(graph->arcDelay(edge, arc, dcalc_index));
+                if (d > max_delay) max_delay = d;
+              }
+            }
+          }
+          return max_delay;
+        };
+
+        std::string delay_info;
+        if (pin_vertex) {
+          if (is_input) {
+            // Walk incoming edges to find fanin drivers and their delays.
+            VertexInEdgeIterator in_iter(pin_vertex, graph);
+            while (in_iter.hasNext()) {
+              sta::Edge* edge = in_iter.next();
+              sta::Vertex* from_vtx = edge->from(graph);
+              if (from_vtx == nullptr) continue;
+              sta::Instance* from_inst = network->instance(from_vtx->pin());
+              if (from_inst == nullptr) continue;
+              const char* from_name = network->name(from_inst);
+              float max_delay = getEdgeMaxDelay(edge);
+              if (!delay_info.empty()) delay_info += "; ";
+              delay_info += "from " + std::string(from_name)
+                  + " delay=" + std::to_string(max_delay);
+            }
+          } else if (is_output) {
+            // Walk outgoing edges to find fanout sinks and their delays.
+            VertexOutEdgeIterator out_iter(pin_vertex, graph);
+            while (out_iter.hasNext()) {
+              sta::Edge* edge = out_iter.next();
+              sta::Vertex* to_vtx = edge->to(graph);
+              if (to_vtx == nullptr) continue;
+              sta::Instance* to_inst = network->instance(to_vtx->pin());
+              if (to_inst == nullptr) continue;
+              const char* to_name = network->name(to_inst);
+              float max_delay = getEdgeMaxDelay(edge);
+              if (!delay_info.empty()) delay_info += "; ";
+              delay_info += "to " + std::string(to_name)
+                  + " delay=" + std::to_string(max_delay);
+            }
+          }
+        }
+
+        logger_->info(utl::RES, 382,
+            "  Pin: {} | Dir: {} | Slack: {} | Connected: [{}] | Delays: [{}]",
+            pin_name, dir_str, sta::delayAsFloat(pin_slack),
+            connected_info.empty() ? "none" : connected_info,
+            delay_info.empty() ? "none" : delay_info);
+      }
+      delete pin_it;
+    }
+  }
 
   // Build result vector (deduplicated, preserving order).
   std::vector<sta::Vertex*> result;
