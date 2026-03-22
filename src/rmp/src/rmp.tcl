@@ -176,12 +176,13 @@ sta::define_cmd_args "position_driven_remap" {
   [-percentage percentage]
   [-max_percentage max_percentage]
   [-slack_threshold slack_threshold]
+  [-detailed_placement]
 }
 
 proc position_driven_remap { args } {
   sta::parse_key_args "position_driven_remap" args \
     keys {-corner -percentage -max_percentage -slack_threshold} \
-    flags {}
+    flags {-detailed_placement}
   set corner [sta::parse_corner keys]
 
   # Defaults: -1.0 signals "not set" for percentage/max_percentage;
@@ -190,6 +191,7 @@ proc position_driven_remap { args } {
   set max_percentage -1.0
   set slack_threshold 0.0
   set has_threshold   0
+  set run_dpl [info exists flags(-detailed_placement)]
 
   if { [info exists keys(-percentage)] } {
     set percentage $keys(-percentage)
@@ -203,5 +205,5 @@ proc position_driven_remap { args } {
   }
 
   rmp::position_driven_remap_cmd $corner $percentage $max_percentage \
-      $slack_threshold $has_threshold
+      $slack_threshold $has_threshold $run_dpl
 }

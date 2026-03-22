@@ -113,7 +113,8 @@ class Restructure
   void positionDrivenRemap(sta::Corner* corner,
                            float percentage = -1.0f,
                            float max_percentage = -1.0f,
-                           float slack_threshold = std::numeric_limits<float>::max());
+                           float slack_threshold = std::numeric_limits<float>::max(),
+                           bool run_detailed_placement = false);
 
  private:
   void deleteComponents();

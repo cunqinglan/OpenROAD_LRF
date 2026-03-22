@@ -39,6 +39,7 @@
 #include "base/abc/abc.h"
 #include "map/mapper/mapper.h"
 #include "Strategy.hh"
+#include "dpl/Opendp.h"
 #include "rmp/SeqRemapper.hh"
 #include "rsz/Resizer.hh"
 #include "utils.h"
@@ -1136,7 +1137,8 @@ bool PositionDrivenStrategy::remapOneCut(
 void PositionDrivenStrategy::remap(SeqRemapper& remapper,
                                     float percentage,
                                     float max_percentage,
-                                    float slack_threshold) {
+                                    float slack_threshold,
+                                    bool run_detailed_placement) {
   sta::dbSta* sta = remapper.getSta();
   sta::dbNetwork* network = sta->getDbNetwork();
 
@@ -1195,6 +1197,28 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
   logger_->info(utl::RES, 403,
                 "Iterative remap complete: {}/{} endpoints successfully remapped.",
                 remapped_count, candidate_endpoints.size());
+
+  // Optionally run full detailed placement to resolve any overlaps from
+  // iterative cell insertions, then improve wirelength with local optimizations.
+  if (run_detailed_placement && remapped_count > 0) {
+    dpl::Opendp* dpl = remapper.getDpl();
+    if (dpl) {
+      logger_->info(utl::RES, 404,
+                    "Running detailed placement to resolve overlaps...");
+      dpl->detailedPlacement(/*max_displacement_x=*/0,
+                             /*max_displacement_y=*/0);
+      logger_->info(utl::RES, 405,
+                    "Running placement improvement for wirelength optimization...");
+      dpl->improvePlacement(/*seed=*/42,
+                            /*max_displacement_x=*/0,
+                            /*max_displacement_y=*/0);
+
+      // Recompute timing after placement changes.
+      sta->graphDelayCalc()->delaysInvalid();
+      sta->search()->arrivalsInvalid();
+      sta->search()->endpointsInvalid();
+    }
+  }
 }
 
 std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
