@@ -125,9 +125,10 @@ ParallelLrVisitor::trySwap(sta::Instance *inst)
     // fflush(stdout);
     auto start_pt_graph_construction = std::chrono::high_resolution_clock::now();
     pt_graph_ = local_sta_->makePtGraph(inst, false);
+    pt_graph_->pruneInsignificantSiblings();
     auto end_pt_graph_construction = std::chrono::high_resolution_clock::now();
     runtime_map_["pt_graph_construction"] += std::chrono::duration<double>(end_pt_graph_construction - start_pt_graph_construction).count();
-    
+
     std::chrono::time_point<std::chrono::high_resolution_clock> start_equiv_cell_check = std::chrono::high_resolution_clock::now();
     best_cell_ = ori_cell;
     bool orig_inequiv = false;
@@ -249,6 +250,7 @@ ParallelLrVisitor::trySwapByArray(sta::Instance *inst, int col_padding, int row_
   // Build PtGraph
   auto start_pt = std::chrono::high_resolution_clock::now();
   pt_graph_ = local_sta_->makePtGraph(inst, false);
+  pt_graph_->pruneInsignificantSiblings();
   auto end_pt = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
       std::chrono::duration<double>(end_pt - start_pt).count();
@@ -572,6 +574,7 @@ ParallelLrVisitor::trySwapPrecheck(sta::Instance *inst, int col_padding, int row
   // Build PtGraph
   auto t_pt_start = std::chrono::high_resolution_clock::now();
   PtGraph *pt_graph = local_sta_->makePtGraph(inst, false);
+  pt_graph->pruneInsignificantSiblings();
   auto t_pt_end = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
       std::chrono::duration<double>(t_pt_end - t_pt_start).count();
@@ -822,7 +825,8 @@ ParallelLrVisitor::trySwapV1(sta::Instance *inst)
     // fflush(stdout);
 
     pt_graph_ = local_sta_->makePtGraph(inst, false);
-    
+    pt_graph_->pruneInsignificantSiblings();
+
     best_cell_ = ori_cell;
     float best_cost = std::numeric_limits<float>::max();
     std::vector<float> vec_cost_slack(legal_equiv_cells.size() * 2, std::numeric_limits<float>::max());
@@ -928,7 +932,17 @@ ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
   return false;
 }
 
-bool 
+void
+ParallelLrVisitor::visitSlewOnly(sta::Instance *inst)
+{
+  pt_graph_ = local_sta_->makePtGraph(inst, false);
+  local_sta_->findLocalDelays(pt_graph_, arc_delay_calc_);
+  local_sta_->findLocalArrivals(pt_graph_);
+  local_sta_->findLocalRequireds(pt_graph_);
+  updateTimingFromPtGraph();
+}
+
+bool
 ParallelLrVisitor::visit(sta::Instance *inst,
                              TimingRecord &timing_record)
 {
@@ -973,6 +987,7 @@ ParallelLrVisitor::visit(sta::Instance *inst,
     fflush(stdout);
 
     pt_graph_ = local_sta_->makePtGraph(inst, false);
+    pt_graph_->pruneInsignificantSiblings();
     // Compute Original delays
     DelayLmSumResult original_result = local_sta_->
                 initAndGetLocalTimingCost(pt_graph_, arc_delay_calc_);
@@ -1173,13 +1188,14 @@ ParallelLrVisitor::updateVertexInfo(sta::VertexId vertex_id)
   PtVertex &pt_vertex = pt_graph_->ptVertex(vertex_id);
   if (!pt_vertex.vertex())
     return;
-  if (pt_vertex.type() != PtVertexType::RefInput
-   && pt_vertex.type() != PtVertexType::RefOutput) {
-    return;
-  }
   sta::Vertex *sta_vertex = pt_vertex.vertex();
-  pt_graph_->writeSlewToGraph(pt_vertex, sta_vertex);
-  pt_graph_->writePathsToGraph(pt_vertex, sta_vertex);
+  PtVertexType type = pt_vertex.type();
+  if (type == PtVertexType::RefInput
+   || type == PtVertexType::RefOutput
+   || type == PtVertexType::SiblingLoad) {
+    pt_graph_->writeSlewToGraph(pt_vertex, sta_vertex);
+    pt_graph_->writePathsToGraph(pt_vertex, sta_vertex);
+  }
 }
 
 void 
