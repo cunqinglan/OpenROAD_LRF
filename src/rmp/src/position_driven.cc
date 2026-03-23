@@ -1444,9 +1444,9 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
   for (sta::Net* output_net : candidate_cut.primary_outputs()) {
     sta::NetPinIterator* pin_iter = network->pinIterator(output_net);
     while (pin_iter->hasNext()) {
-      const sta::Pin* pin = pin_iter->next();
+      sta::Pin* pin = pin_iter->next();
       if (network->direction(pin)->isAnyOutput()) {
-        cut_output_pins.push_back(const_cast<sta::Pin*>(pin));
+        cut_output_pins.push_back(pin);
         break;
       }
     }
