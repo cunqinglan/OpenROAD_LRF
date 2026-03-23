@@ -10,6 +10,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include <cerrno>         // errno, EINTR
 #include <unistd.h>       // fork, pipe, _exit, read, write, close
 #include <sys/wait.h>     // waitpid
 #include <omp.h>          // omp_set_num_threads
@@ -99,6 +100,44 @@ static bool IsValidMappingSolution(abc::Map_Man_t* pMan, abc::Map_MappingSolutio
   return true;
 }
 */
+// ---------------------------------------------------------------------------
+// Pipe I/O helpers: loop until all bytes are transferred, retrying on EINTR.
+// Returns true on success, false if an error or EOF occurs before completion.
+// ---------------------------------------------------------------------------
+static bool write_all(int fd, const void* buf, size_t count)
+{
+  const char* p = static_cast<const char*>(buf);
+  size_t remaining = count;
+  while (remaining > 0) {
+    ssize_t n = write(fd, p, remaining);
+    if (n <= 0) {
+      if (n < 0 && errno == EINTR)
+        continue;
+      return false;
+    }
+    p += static_cast<size_t>(n);
+    remaining -= static_cast<size_t>(n);
+  }
+  return true;
+}
+
+static bool read_all(int fd, void* buf, size_t count)
+{
+  char* p = static_cast<char*>(buf);
+  size_t remaining = count;
+  while (remaining > 0) {
+    ssize_t n = read(fd, p, remaining);
+    if (n <= 0) {
+      if (n < 0 && errno == EINTR)
+        continue;
+      return false;  // EOF (n==0) or unrecoverable error (n<0)
+    }
+    p += static_cast<size_t>(n);
+    remaining -= static_cast<size_t>(n);
+  }
+  return true;
+}
+
 namespace rmp {
 
 
@@ -1299,10 +1338,10 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
         std::string log_output = logger_->redirectStringEnd();
 
         uint32_t log_len = static_cast<uint32_t>(log_output.size());
-        write(pipefd[1], &slack, sizeof(slack));
-        write(pipefd[1], &log_len, sizeof(log_len));
+        write_all(pipefd[1], &slack, sizeof(slack));
+        write_all(pipefd[1], &log_len, sizeof(log_len));
         if (log_len > 0)
-          write(pipefd[1], log_output.data(), log_len);
+          write_all(pipefd[1], log_output.data(), log_len);
       } catch (const std::exception& e) {
         // Write error info back through the pipe so parent can report it.
         // Use a sentinel slack value to indicate failure, then send the
@@ -1312,10 +1351,10 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
             + "\n[CHILD EXCEPTION] " + e.what() + "\n";
         sta::Slack sentinel = std::numeric_limits<sta::Slack>::lowest();
         uint32_t log_len = static_cast<uint32_t>(err_msg.size());
-        write(pipefd[1], &sentinel, sizeof(sentinel));
-        write(pipefd[1], &log_len, sizeof(log_len));
+        write_all(pipefd[1], &sentinel, sizeof(sentinel));
+        write_all(pipefd[1], &log_len, sizeof(log_len));
         if (log_len > 0)
-          write(pipefd[1], err_msg.data(), log_len);
+          write_all(pipefd[1], err_msg.data(), log_len);
       }
       close(pipefd[1]);
       _exit(0);
@@ -1339,40 +1378,30 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
 
     sta::Slack slack;
     uint32_t log_len;
-    ssize_t n;
 
-    n = read(child.pipe_fd, &slack, sizeof(slack));
-    if (n != static_cast<ssize_t>(sizeof(slack))) {
+    if (!read_all(child.pipe_fd, &slack, sizeof(slack))) {
       logger_->warn(utl::RES, 383,
-                    "Solution {} pipe read for slack returned {} bytes (expected {}).",
-                    child.solution_index + 1, static_cast<long>(n),
-                    sizeof(slack));
+                    "Solution {} pipe read for slack failed.",
+                    child.solution_index + 1);
       close(child.pipe_fd);
       results.push_back(std::move(res));
       continue;
     }
 
-    n = read(child.pipe_fd, &log_len, sizeof(log_len));
-    if (n != static_cast<ssize_t>(sizeof(log_len))) {
+    if (!read_all(child.pipe_fd, &log_len, sizeof(log_len))) {
       logger_->warn(utl::RES, 384,
-                    "Solution {} pipe read for log_len returned {} bytes (expected {}).",
-                    child.solution_index + 1, static_cast<long>(n),
-                    sizeof(log_len));
+                    "Solution {} pipe read for log_len failed.",
+                    child.solution_index + 1);
       close(child.pipe_fd);
       results.push_back(std::move(res));
       continue;
     }
 
     std::string log(log_len, '\0');
-    size_t total_read = 0;
-    while (total_read < log_len) {
-      n = read(child.pipe_fd, log.data() + total_read, log_len - total_read);
-      if (n <= 0) break;
-      total_read += n;
-    }
+    bool log_ok = (log_len == 0) || read_all(child.pipe_fd, log.data(), log_len);
     close(child.pipe_fd);
 
-    if (total_read == log_len) {
+    if (log_ok) {
       res.slack = slack;
       res.log = std::move(log);
       res.success = true;
