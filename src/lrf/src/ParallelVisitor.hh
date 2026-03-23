@@ -193,5 +193,37 @@ private:
   std::vector<ResizeBenefit> *results_;
 };
 
+// Visitor for single-pass resize + buffering: for each instance, decide
+// whether to resize, insert buffers, or do both.  Resize candidates and
+// buffer candidates are determined by external prechecks; the buffer flag
+// is annotated on InstVertex::buffer_candidate_ and propagated to the
+// visitor via setBufferCandidate() before each visit() call in runTask().
+class TaskArranger;
+
+class CombinedVisitor : public ParallelLrVisitor
+{
+public:
+  CombinedVisitor(sta::dbSta *db_sta, LocalSta *local_sta, rsz::Resizer *resizer,
+                  TaskArranger *task_arranger);
+
+  bool visit(sta::Instance *inst, sta::VertexId vid) override;
+  void applyChangesToDb(rsz::Resizer *resizer) override;
+  ParallelLrVisitor *copy() const override;
+
+  enum class Decision : uint8_t {
+    NoChange,
+    ResizeOnly,
+    ResizeAndBuffer
+  };
+
+private:
+  // Resize evaluation, then try buffering on top 2 resized cells.
+  bool tryCombined(sta::Instance *inst, int col_padding = 3, int row_padding = 1);
+
+  TaskArranger *task_arranger_;
+  Decision decision_ = Decision::NoChange;
+  sta::LibertyCell *combined_resize_cell_ = nullptr;
+};
+
 }  // namespace lrf
 

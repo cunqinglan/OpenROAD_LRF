@@ -54,6 +54,7 @@ public:
   int applyBufferingToDb();
   const sta::Pin *drvrPin() const { return drvr_pin_; }
   const rsz::BufferedNetPtr& bestBnet() const { return best_bnet_; }
+  float bestCost() const { return best_cost_; }
 
   // Sensitivity-based precheck: compute max S(v,e) over all buffer points
   // on the driving net. Does NOT insert any buffers.
@@ -114,6 +115,7 @@ private:
   ParallelLrVisitor* visitor_;
   const sta::Pin *drvr_pin_ = nullptr;
   rsz::BufferedNetPtr best_bnet_ = nullptr;
+  float best_cost_ = std::numeric_limits<float>::max();
   VirtualBufferInfo best_vinfo_;
   bool verbose_ = true;
 };

@@ -1207,4 +1207,66 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
          std::chrono::duration<double>(end_total - start_total).count());
 }
 
+void
+IncreSta::parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
+                                     float avg_power, float PT_tradeoff,
+                                     int buffer_top_n)
+{
+  printf("IncreSta::parallelResizeAndBuffering start\n");
+  auto start_total = std::chrono::high_resolution_clock::now();
+
+  local_sta_->initParallel();
+  Slack wns = sta_->worstSlack(MinMax::max());
+
+  if (!swap_cell_presaved_)
+    makeSwappableCellsCache(resizer);
+  if (!swap_cell_leakage_presaved_)
+    preSaveLibCellLeakage();
+  makeEquivCellArray();
+
+  // Screen buffering candidates and annotate on InstVertex
+  TaskArranger *task_arranger = local_sta_->taskArranger();
+  std::vector<size_t> buf_candidates = bufferingVerticesCandidate(buffer_top_n);
+  printf("Buffer candidates: %zu (of %zu total)\n",
+         buf_candidates.size(), task_arranger->vertexCount());
+
+  // Reset all buffer_candidate_ flags, then set selected ones
+  for (size_t i = 0; i < task_arranger->vertexCount(); i++)
+    task_arranger->vertex(i)->buffer_candidate_ = false;
+  for (size_t vid : buf_candidates)
+    task_arranger->vertex(vid)->buffer_candidate_ = true;
+
+  // Initialize global STA/Resizer state for buffering (serial preamble)
+  LrRebuffer::initGlobalPreamble(sta_, resizer);
+
+  // Create CombinedVisitor and run single-pass resize + buffering
+  auto start_resize = std::chrono::high_resolution_clock::now();
+  CombinedVisitor *visitor = new CombinedVisitor(sta_, local_sta_, resizer,
+                                                 task_arranger);
+  visitor->init(avg_delay, avg_power, wns, PT_tradeoff,
+                &swappable_cells_cache_, &inst_info_map_);
+  visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+
+  task_arranger->visitOrdered(sta_, local_sta_, resizer, visitor);
+
+  // If any buffers were inserted, mark graph dirty for next pass
+  task_arranger->markDirty();
+
+  auto end_resize = std::chrono::high_resolution_clock::now();
+  printf("parallelResizeAndBuffering pass time: %.3f s\n",
+         std::chrono::duration<double>(end_resize - start_resize).count());
+
+  sta_->updateTiming(true);
+  sta_->findRequireds();
+
+  double tns_after = sta_->totalNegativeSlack(MinMax::max());
+  double wns_after = sta_->worstSlack(MinMax::max());
+  printf("After parallelResizeAndBuffering, TNS: %e, WNS: %e\n",
+         tns_after, wns_after);
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  printf("IncreSta::parallelResizeAndBuffering total time %.3f s\n",
+         std::chrono::duration<double>(end_total - start_total).count());
+}
+
 } // namespace lrf
