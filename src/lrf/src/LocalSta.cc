@@ -27,6 +27,7 @@
 #include "TaskArranger.hh"
 #include "sta/PortDirection.hh"
 #include "search/Tag.hh"
+#include "search/TagGroup.hh"
 #include "sta/PathAnalysisPt.hh"
 #include "sta/FuncExpr.hh"
 #include "sta/LeakagePower.hh"
@@ -130,8 +131,12 @@ LocalSta::collectLocalVertices(Instance *inst, VertexSet &local_vertices)
     }
     if (network_->isLoad(pin)) {
       sta::Vertex *load_vertex = graph_->pinLoadVertex(pin);
+      if (load_vertex == nullptr)
+        continue;
+      // Always include ref instance's own load pins for complete
+      // RefInput annotation; fanin expansion is still gated by searchFrom.
+      local_vertices.insert(load_vertex);
       if (search_pred_->searchFrom(load_vertex)) {
-        local_vertices.insert(load_vertex);
         collectLocalFaninSiblingVertices(load_vertex, local_vertices);
       }
     }
@@ -157,21 +162,6 @@ LocalSta::collectLocalFanoutVertices(sta::Vertex *drvr_vertex,
     Vertex *load_vertex = out_edge->to(graph_);
     // There might be internal arcs within a cell, still need to collect
     if (!network_->isLoad(load_vertex->pin())) {
-      // const Pin *pin = load_vertex->pin();
-      // const Instance *inst = network_->instance(pin);
-      // PortDirection *dir = network_->direction(pin);
-      // printf("Warning: LocalSta::collectLocalFanoutVertices: vertex %s is not a load\n",
-      //        load_vertex->to_string(graph_).c_str());
-      // printf(" Collect From %s Instance: %s, isLeaf: %d, Pin direction: %s, isAnyInput: %d, isAnyOutput: %d\n",
-      //        drvr_vertex->to_string(graph_).c_str(),
-      //        network_->pathName(inst),
-      //        network_->isLeaf(inst),
-      //        dir->name(),
-      //        dir->isAnyInput(),
-      //        dir->isAnyOutput());
-      // fflush(stdout);
-      // Skip here, since driver will still be collected in collect 
-      // vertices.
       continue;
     }
     if (out_edge->isWire())
@@ -224,16 +214,21 @@ LocalSta::collectLocalFaninSiblingVertices(Vertex *load_vertex,
 
   for (auto drvr_pin : drvrs) {
     Vertex *drvr_vertex = graph_->pinDrvrVertex(drvr_pin);
-    if (drvr_vertex && search_pred_->searchTo(drvr_vertex)) {
+    if (drvr_vertex == nullptr)
+      continue;
+    if (!search_pred_->searchTo(drvr_vertex)) {
+      // Still collect the driver so RefInput won't become a root without RefDriver
       local_vertices.insert(drvr_vertex);
-      VertexInEdgeIterator in_edge_iter(drvr_vertex, graph_);
-      while (in_edge_iter.hasNext()) {
-        Edge *in_edge = in_edge_iter.next();
-        Vertex *pred_vertex = in_edge->from(graph_);
-        if (search_pred_->searchThru(in_edge) && 
-            search_pred_->searchFrom(pred_vertex))
-          local_vertices.insert(pred_vertex);
-      }
+      continue;
+    }
+    local_vertices.insert(drvr_vertex);
+    VertexInEdgeIterator in_edge_iter(drvr_vertex, graph_);
+    while (in_edge_iter.hasNext()) {
+      Edge *in_edge = in_edge_iter.next();
+      Vertex *pred_vertex = in_edge->from(graph_);
+      if (search_pred_->searchThru(in_edge) &&
+          search_pred_->searchFrom(pred_vertex))
+        local_vertices.insert(pred_vertex);
     }
   }
 
@@ -537,16 +532,21 @@ void
 LocalSta::seedRootSlew(PtVertex &pt_vertex, PtGraph *pt_graph, 
                        ArcDelayCalc *arc_delay_calc)
 {
+  if (!pt_vertex.hasBase()) {
+    // Virtual vertex as root: no slew to seed, delays will be
+    // computed when arrival propagation reaches it.
+    if (pt_vertex.type() != PtVertexType::Sentinel)
+      throw std::runtime_error("LocalSta::seedRootSlew: Virtual root vertex type must be Sentinal");
+    return;
+  }
   Vertex *vertex = pt_vertex.vertex();
-  
+
   if (pt_vertex.type() == PtVertexType::RefDriver
       || pt_vertex.type() == PtVertexType::RefInput) {
     if (vertex->isDriver(network_)) {
       seedDrvrSlew(pt_vertex, pt_graph, arc_delay_calc);
     } else {
-      printf("Warning: LocalSta::seedRootSlew: Root vertex %s is not a driver\n",
-             vertex->to_string(graph_).c_str());
-      // seedLoadSlew(pt_vertex, pt_graph, arc_delay_calc);
+      loadSlewFromGraph(pt_vertex, pt_graph);
     }
   } else {
     loadSlewFromGraph(pt_vertex, pt_graph);
@@ -618,7 +618,7 @@ LocalSta::seedNoDrvrCellSlew(PtVertex &pt_drvr_vertex,
   drive->driveResistance(rf, cnst_min_max, drive_res, exists);
   const Parasitic *parasitic;
   float load_cap;
-  localParasiticLoad(drvr_pin, rf, dcalc_ap, nullptr, load_cap, parasitic);
+  localParasiticLoad(pt_drvr_vertex, rf, dcalc_ap, nullptr, load_cap, parasitic, pt_graph);
   if (exists) {
     drive_delay = load_cap * drive_res;
     slew = load_cap * drive_res;
@@ -756,21 +756,21 @@ LocalSta::findVertexDelays(VertexId pt_vertex_id,
                            PtGraph *pt_graph)
 {
   PtVertex &pt_vertex = pt_graph->ptVertex(pt_vertex_id);
-  Vertex *vertex = pt_vertex.vertex();
   if (pt_vertex.isRoot()) {
     seedRootSlew(pt_vertex, pt_graph, arc_delay_calc);
-  } else {
-    Pin *pin = vertex->pin();
-    if (network_->isLeaf(pin)) {
-      if (pt_vertex.isDriver()) {
+  } else if (pt_vertex.isDriver()) {
+    if (pt_vertex.hasBase()) {
+      Pin *pin = pt_vertex.vertex()->pin();
+      if (network_->isLeaf(pin)) {
         LoadPinIndexMap load_pin_index_map = makeLoadPinIndexMap(pt_vertex, pt_graph);
-
-        // For a gate, compute its delay in different 
-        // [arcs, corners, rise/fall].
         findDriverDelays(pt_vertex, arc_delay_calc,
                          load_pin_index_map, pt_graph);
-        
       }
+    } else {
+      // Virtual driver vertex
+      LoadPinIndexMap load_pin_index_map = makeLoadPinIndexMap(pt_vertex, pt_graph);
+      findDriverDelays(pt_vertex, arc_delay_calc,
+                       load_pin_index_map, pt_graph);
     }
   }
 }
@@ -814,15 +814,23 @@ LocalSta::findDriverDelays1(PtVertex &drvr_pt_vertex,
   PtVertexInEdgeIterator in_edge_iter(drvr_pt_vertex.objectIdx(), pt_graph);
   while (in_edge_iter.hasNext()) {
     PtEdge &pt_edge = in_edge_iter.next();
-    Edge *edge = pt_edge.edge();
-    Vertex *from_vertex = pt_graph->ptVertex(pt_edge.ptFromId()).vertex();
 
-    if (search_pred_->searchFrom(from_vertex)
-	&& search_pred_->searchThru(edge)
-        && !edge->role()->isLatchDtoQ())
-    findDriverEdgeDelays(drvr_pt_vertex, multi_drvr_net, pt_edge,
-                         arc_delay_calc, load_pin_index_map,
-                         delay_exists, pt_graph);
+    // PtGraph edges already passed searchThru at construction time.
+    // Avoid dereferencing pt_edge.edge() here because the underlying
+    // sta::Edge* may have been invalidated by a concurrent replaceCell.
+    bool pass_predicates;
+    if (pt_edge.hasBase()) {
+      Vertex *from_vertex = pt_graph->ptVertex(pt_edge.ptFromId()).vertex();
+      pass_predicates = search_pred_->searchFrom(from_vertex)
+                        && !pt_edge.role()->isLatchDtoQ();
+    } else {
+      pass_predicates = !pt_edge.role()->isLatchDtoQ();
+    }
+
+    if (pass_predicates)
+      findDriverEdgeDelays(drvr_pt_vertex, multi_drvr_net, pt_edge,
+                           arc_delay_calc, load_pin_index_map,
+                           delay_exists, pt_graph);
   }
   for (const RiseFall *rf : RiseFall::range()) {
     if (!delay_exists[rf->index()]) {
@@ -841,23 +849,30 @@ LocalSta::zeroSlewAndWireDelays(PtVertex &drvr_pt_vertex,
     DcalcAPIndex ap_index = dcalc_ap->index();
     const MinMax *slew_min_max = dcalc_ap->slewMinMax();
     // Init drvr slew.
-    if (!drvr_vertex->slewAnnotated(rf, slew_min_max)) {
-      DcalcAPIndex ap_index = dcalc_ap->index();
+    bool drvr_slew_annotated = drvr_vertex
+        ? drvr_vertex->slewAnnotated(rf, slew_min_max) : false;
+    if (!drvr_slew_annotated) {
       pt_graph->setSlew(drvr_pt_vertex, rf, ap_index, slew_min_max->initValue());
     }
-    
+
     // Init wire delays and slews.
     PtVertexOutEdgeIterator edge_iter(drvr_pt_vertex.objectIdx(), pt_graph);
     while (edge_iter.hasNext()) {
       PtEdge &pt_edge = edge_iter.next();
-      Edge *wire_edge = pt_edge.edge();
-      if (wire_edge->isWire()) {
+      if (pt_edge.isWire()) {
         PtVertex &load_pt_vertex = pt_graph->ptVertex(pt_edge.ptToId());
         Vertex *load_vertex = load_pt_vertex.vertex();
-        if (!graph_->wireDelayAnnotated(wire_edge, rf, ap_index)) {
+        Edge *wire_edge = pt_edge.edge();
+        // VirtualWireEdge has pre-set delays from buildVirtualBuffer;
+        // treat as annotated to avoid zeroing them.
+        bool wire_annotated = (pt_edge.type() == PtEdgeType::VirtualWireEdge)
+            || (wire_edge && graph_->wireDelayAnnotated(wire_edge, rf, ap_index));
+        if (!wire_annotated) {
           pt_graph->setWireArcDelay(pt_edge, rf, ap_index, delay_zero);
         }
-        if (!load_vertex->slewAnnotated(rf, slew_min_max)) {
+        bool load_slew_annotated = load_vertex
+            ? load_vertex->slewAnnotated(rf, slew_min_max) : false;
+        if (!load_slew_annotated) {
           pt_graph->setSlew(load_pt_vertex, rf, ap_index, 0.0);
         }
       }
@@ -874,22 +889,14 @@ LocalSta::findDriverEdgeDelays(PtVertex &drvr_pt_vertex,
                                std::array<bool, RiseFall::index_count> &delay_exists,
                                PtGraph *pt_graph)
 { 
-  // Diagnostic: check driver pin validity
-  Vertex *drvr_vertex = drvr_pt_vertex.vertex();
-  const Pin *drvr_pin = drvr_vertex ? drvr_vertex->pin() : nullptr;
-  if (drvr_pin == nullptr) {
-    printf("[LRF DIAG findDriverEdgeDelays] NULL driver pin!\n");
-    fflush(stdout);
-    return;
-  }
-  
   // If both vertices belong to ref instance, use ref cell's timing
   TimingArcSet *ref_arc_set = pt_edge.timingArcSet();
   if (ref_arc_set == nullptr){
-    // printf("LocalSta::findDriverEdgeDelays: timingArcSet is nullptr for edge %s\n",
-    //        pt_edge.edge()->to_string(graph_).c_str());
-    //        fflush(stdout);
-    // ref_arc_set = pt_edge.edge()->timingArcSet();
+    printf("ERROR findDriverEdgeDelays: timingArcSet is nullptr for edge %u "
+           "(from %u to %u), type=%d, hasBase=%d, isWire=%d\n",
+           pt_edge.objectIdx(), pt_edge.ptFromId(), pt_edge.ptToId(),
+           (int)pt_edge.type(), (int)pt_edge.hasBase(), (int)pt_edge.isWire());
+    fflush(stdout);
     throw std::runtime_error("LocalSta::findDriverEdgeDelays: timingArcSet is nullptr");
   }
   
@@ -913,7 +920,7 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
                               PtGraph *pt_graph)
 {
   Vertex *drvr_vertex = drvr_pt_vertex.vertex();
-  MultiDrvrNet *multi_drvr = multiDrvrNet(drvr_vertex);
+  MultiDrvrNet *multi_drvr = drvr_vertex ? multiDrvrNet(drvr_vertex) : nullptr;
   LoadPinIndexMap load_pin_index_map = makeLoadPinIndexMap(drvr_pt_vertex, pt_graph);
   findDriverArcDelays(drvr_pt_vertex, multi_drvr, pt_edge, arc, dcalc_ap,
                       arc_delay_calc, load_pin_index_map, pt_graph);
@@ -929,17 +936,21 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
                               LoadPinIndexMap &load_pin_index_map,
                               PtGraph *pt_graph)
 {
-  Instance *drvr_inst = network_->instance(drvr_pt_vertex.vertex()->pin());
-
-  Vertex *drvr_vertex = drvr_pt_vertex.vertex();
   const RiseFall *from_rf = arc->fromEdge()->asRiseFall();
   const RiseFall *drvr_rf = arc->toEdge()->asRiseFall();
   if (from_rf && drvr_rf) {
-    const Pin *drvr_pin = drvr_vertex->pin();
-    const Parasitic *parasitic;
-    float load_cap;
-    localParasiticLoad(drvr_pin, drvr_rf, dcalc_ap, multi_drvr_net, 
-                       load_cap, parasitic);
+    const Pin *drvr_pin = drvr_pt_vertex.pin();
+    // For virtual vertices, fall back to proxy vertex pin for PVT lookup in gateDelay
+    const Pin *dcalc_pin = drvr_pin;
+    if (!dcalc_pin && drvr_pt_vertex.proxyVertex())
+      dcalc_pin = drvr_pt_vertex.proxyVertex()->pin();
+    if (!dcalc_pin)
+      throw std::runtime_error("LocalSta::findDriverArcDelays: virtual vertex has no pin and no proxy vertex");
+    const Parasitic *parasitic = nullptr;
+    float load_cap = 0.0f;
+
+    localParasiticLoad(drvr_pt_vertex, drvr_rf, dcalc_ap, multi_drvr_net,
+                       load_cap, parasitic, pt_graph);
 
     if (multi_drvr_net == nullptr) {
       PtVertex &from_pt_vertex = pt_graph->ptVertex(pt_edge.ptFromId());
@@ -947,10 +958,9 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
                                             dcalc_ap, pt_graph);
       ArcDcalcResult dcalc_result;
       dcalc_result = arc_delay_calc->gateDelay(
-                          drvr_pin, arc, in_slew, load_cap, parasitic,
+                          dcalc_pin, arc, in_slew, load_cap, parasitic,
                           load_pin_index_map, dcalc_ap);
 
-      // Slew prev_drvr_slew = pt_graph->slew(drvr_pt_vertex, drvr_rf, dcalc_ap->index());
       annotateDelaysSlews(pt_edge, arc, dcalc_result,
                           load_pin_index_map, dcalc_ap, pt_graph);
     } else {
@@ -973,11 +983,10 @@ LocalSta::annotateDelaysSlews(PtEdge &pt_edge,
                          const DcalcAnalysisPt *dcalc_ap,
                          PtGraph *pt_graph)
 {
-  bool delay_changed = annotateDelaySlew(pt_edge, arc, 
+  bool delay_changed = annotateDelaySlew(pt_edge, arc,
                   dcalc_result.gateDelay(),
                   dcalc_result.drvrSlew(), dcalc_ap, pt_graph);
-  Edge *edge = pt_edge.edge();
-  if (!edge->role()->isLatchDtoQ()) {
+  if (!pt_edge.role()->isLatchDtoQ()) {
     PtVertex &to_pt_vertex = pt_graph->ptVertex(pt_edge.ptToId());
     delay_changed |= annotateLoadDelays(to_pt_vertex, arc->toEdge()->asRiseFall(),
                        dcalc_result, load_pin_index_map,
@@ -1003,37 +1012,82 @@ LocalSta::annotateLoadDelays(PtVertex &drvr_pt_vertex,
   PtVertexOutEdgeIterator edge_iter(drvr_pt_vertex, pt_graph);
   while (edge_iter.hasNext()) {
     PtEdge &wire_pt_edge = edge_iter.next();
-    Edge *wire_edge = wire_pt_edge.edge();
-    if (wire_edge->isWire()) {
+    if (wire_pt_edge.isWire()) {
       PtVertex &load_pt_vertex = pt_graph->ptVertex(wire_pt_edge.ptToId());
       Vertex *load_vertex = load_pt_vertex.vertex();
-      Pin *load_pin = load_vertex->pin();
-      
-      // Skip load pins not in the map (hierarchical pins)
-      // These were filtered out in makeLoadPinIndexMap
-      if (load_pin_index_map.find(load_pin) == load_pin_index_map.end()) {
+      Pin *load_pin = load_vertex ? load_vertex->pin() : nullptr;
+
+      if (!load_pin) {
+        // Virtual load: try PtPiElmore Elmore delay for wire delay + load slew
+        PtPiElmore *pt_pi = pt_graph->findPtParasitic(
+            drvr_pt_vertex.objectIdx(), to_rf, ap_index);
+        if (pt_pi) {
+          bool exists;
+          float elmore = pt_pi->findElmoreByVertexId(
+              load_pt_vertex.objectIdx(), exists);
+          if (exists && elmore > 0.0f) {
+            Slew drvr_slew = dcalc_result.drvrSlew();
+            // Same formula as DmpCeff::dspfWireDelaySlew
+            LibertyPort *load_port = load_pt_vertex.libertyPort();
+            LibertyLibrary *load_lib = load_port
+                ? load_port->libertyCell()->libertyLibrary() : nullptr;
+            float vth = 0.5f, vl = 0.2f, vh = 0.8f, slew_derate = 1.0f;
+            if (load_lib) {
+              vth = load_lib->inputThreshold(to_rf);
+              vl = load_lib->slewLowerThreshold(to_rf);
+              vh = load_lib->slewUpperThreshold(to_rf);
+              slew_derate = load_lib->slewDerateFromLibrary();
+            }
+            ArcDelay wire_delay = -elmore * log(1.0 - vth);
+            Slew load_slew = drvr_slew
+                + elmore * log((1.0 - vl) / (1.0 - vh)) / slew_derate;
+
+            pt_graph->setWireArcDelay(wire_pt_edge, to_rf, ap_index, wire_delay);
+            const Slew &cur_slew = pt_graph->slew(load_pt_vertex, to_rf, ap_index);
+            if (!merge || delayGreater(load_slew, cur_slew, slew_min_max, this)) {
+              pt_graph->setSlew(load_pt_vertex, to_rf, ap_index, load_slew);
+              load_changed = true;
+            }
+            continue;
+          }
+        }
+        // Fallback: wire delay = 0, load slew = driver slew
+        Slew drvr_slew = dcalc_result.drvrSlew();
+        const Slew &cur_slew = pt_graph->slew(load_pt_vertex, to_rf, ap_index);
+        if (!merge || delayGreater(drvr_slew, cur_slew, slew_min_max, this)) {
+          pt_graph->setSlew(load_pt_vertex, to_rf, ap_index, drvr_slew);
+          load_changed = true;
+        }
         continue;
       }
-      
+
+      // Skip load pins not in the map (hierarchical pins)
+      if (load_pin_index_map.find(load_pin) == load_pin_index_map.end())
+        continue;
       size_t load_idx = load_pin_index_map[load_pin];
+
       ArcDelay wire_delay = dcalc_result.wireDelay(load_idx);
       Slew load_slew = dcalc_result.loadSlew(load_idx);
-      if (!load_vertex->slewAnnotated(to_rf, slew_min_max)) {
-    if (drvr_vertex->slewAnnotated(to_rf, slew_min_max)) {
-      // Should take annotated slew from the underlying graph, 
-      // as pt_graph might not hold the annotated value.
-      Slew drvr_slew = graph_->slew(drvr_vertex, to_rf, ap_index);
-      pt_graph->setSlew(load_pt_vertex, to_rf, ap_index, drvr_slew);
-      load_changed = true;
-    } else {
-      const Slew &slew = pt_graph->slew(load_pt_vertex, to_rf, ap_index);
-      if (!merge || delayGreater(load_slew, slew, slew_min_max, this)) {
-        pt_graph->setSlew(load_pt_vertex, to_rf, ap_index, load_slew);
-        load_changed = true;
+      bool load_slew_annotated = load_vertex->slewAnnotated(to_rf, slew_min_max);
+      bool drvr_slew_annotated = drvr_vertex
+          ? drvr_vertex->slewAnnotated(to_rf, slew_min_max) : false;
+      if (!load_slew_annotated) {
+        if (drvr_slew_annotated) {
+          Slew drvr_slew = graph_->slew(drvr_vertex, to_rf, ap_index);
+          pt_graph->setSlew(load_pt_vertex, to_rf, ap_index, drvr_slew);
+          load_changed = true;
+        } else {
+          const Slew &slew = pt_graph->slew(load_pt_vertex, to_rf, ap_index);
+          if (!merge || delayGreater(load_slew, slew, slew_min_max, this)) {
+            pt_graph->setSlew(load_pt_vertex, to_rf, ap_index, load_slew);
+            load_changed = true;
+          }
+        }
       }
-    }
-      }
-      if (!graph_->wireDelayAnnotated(wire_edge, to_rf, ap_index)) {
+      Edge *wire_edge = wire_pt_edge.edge();
+      bool wire_annotated = wire_edge
+          ? graph_->wireDelayAnnotated(wire_edge, to_rf, ap_index) : false;
+      if (!wire_annotated) {
         const ArcDelay &delay = pt_graph->wireArcDelay(wire_pt_edge, to_rf, ap_index);
         ArcDelay wire_delay_extra = wire_delay + extra_delay;
         const MinMax *delay_min_max = dcalc_ap->delayMinMax();
@@ -1056,18 +1110,20 @@ LocalSta::annotateDelaySlew(PtEdge &pt_edge,
                          PtGraph *pt_graph)
 {
   bool delay_changed = false;
-  Edge *edge = pt_edge.edge();
   DcalcAPIndex ap_index = dcalc_ap->index();
   PtVertex &drvr_pt_vertex = pt_graph->ptVertex(pt_edge.ptToId());
   Vertex *drvr_vertex = drvr_pt_vertex.vertex();
   const RiseFall *drvr_rf = arc->toEdge()->asRiseFall();
   const Slew drvr_slew = pt_graph->slew(drvr_pt_vertex, drvr_rf, ap_index);
   const MinMax *slew_min_max = dcalc_ap->slewMinMax();
+  bool slew_annotated = drvr_vertex ? drvr_vertex->slewAnnotated(drvr_rf, slew_min_max) : false;
   if (delayGreater(gate_slew, drvr_slew, slew_min_max, this)
-      && !drvr_vertex->slewAnnotated(drvr_rf, slew_min_max)
-      && !edge->role()->isLatchDtoQ()) 
+      && !slew_annotated
+      && !pt_edge.role()->isLatchDtoQ())
     pt_graph->setSlew(drvr_pt_vertex, drvr_rf, ap_index, gate_slew);
-  if (!graph_->arcDelayAnnotated(pt_edge.edge(), arc, ap_index)) {
+  bool delay_annotated = pt_edge.hasBase()
+      ? graph_->arcDelayAnnotated(pt_edge.edge(), arc, ap_index) : false;
+  if (!delay_annotated) {
     const ArcDelay &prev_gate_delay = 
                               pt_graph->arcDelay(pt_edge, arc, ap_index);
     float prev_gate_delay1 = delayAsFloat(prev_gate_delay);
@@ -1092,6 +1148,70 @@ LocalSta::annotateDelaySlew(PtEdge &pt_edge,
 //   // Make arc dcalc args for all parallel drivers on multi-driver net.
 //   return ArcDcalcArgSeq();
 // }
+
+float
+LocalSta::computeVirtualLoadCap(PtVertex &drvr_pt_vertex,
+                                const RiseFall *drvr_rf,
+                                const DcalcAnalysisPt *dcalc_ap,
+                                PtGraph *pt_graph)
+{
+  float load_cap = 0.0f;
+  const Corner *corner = dcalc_ap->corner();
+  const MinMax *min_max = dcalc_ap->constraintMinMax();
+
+  // Driver output pin capacitance (self-cap of the output port)
+  LibertyPort *drvr_port = nullptr;
+  const Pin *drvr_pin = drvr_pt_vertex.pin();
+  if (drvr_pin) {
+    drvr_port = network_->libertyPort(drvr_pin);
+  } else {
+    drvr_port = drvr_pt_vertex.libertyPort();
+  }
+  if (drvr_port) {
+    float dcap = drvr_port->capacitance();
+    load_cap += dcap;
+    // printf("[DEBUG computeVirtualLoadCap] drvr_port=%s self_cap=%.6f pF\n",
+    //        drvr_port->name(), dcap * 1e12);
+  } else {
+    printf("[WARINING computeVirtualLoadCap] drvr_port=NULL (pin=%p)\n",
+           (void*)drvr_pin);
+  }
+
+  // Downstream load pin capacitances
+  PtVertexOutEdgeIterator edge_iter(drvr_pt_vertex.objectIdx(), pt_graph);
+  int load_count = 0;
+  while (edge_iter.hasNext()) {
+    PtEdge &pt_edge = edge_iter.next();
+    if (pt_edge.isWire()) {
+      PtVertex &load_pt_vertex = pt_graph->ptVertex(pt_edge.ptToId());
+      LibertyPort *load_port = nullptr;
+      std::string load_name;
+
+      if (load_pt_vertex.hasBase()) {
+        // Real load: use network->libertyPort
+        if (const Pin *load_pin = load_pt_vertex.pin()) {
+          load_port = network_->libertyPort(load_pin);
+          load_name = network_->name(load_pin);
+        }
+      } else {
+        // Virtual load: use libertyPort directly
+        load_port = load_pt_vertex.libertyPort();
+        load_name = load_port ? load_port->name() : "?";
+      }
+
+      if (load_port) {
+        float pin_cap = load_port->capacitance(drvr_rf, min_max);
+        load_cap += pin_cap;
+        // printf("[DEBUG computeVirtualLoadCap] load=%s cap=%.6f\n",
+        //        load_name.c_str(), pin_cap * 1e12);
+        load_count++;
+      }
+    }
+  }
+  // printf("[DEBUG computeVirtualLoadCap] total_cap=%.6f (loads=%d)\n",
+  //        load_cap * 1e12, load_count);
+  return load_cap;
+}
 
 void
 LocalSta::initWireDelays(PtVertex &drvr_pt_vertex, PtGraph *pt_graph)
@@ -1135,28 +1255,22 @@ LocalSta::makeLoadPinIndexMap(PtVertex &drvr_pt_vertex, PtGraph *pt_graph)
 {
   LoadPinIndexMap load_pin_index_map(network_);
   size_t load_idx = 0;
-  const Pin *drvr_pin = drvr_pt_vertex.vertex()->pin();
   PtVertexOutEdgeIterator edge_iter(drvr_pt_vertex.objectIdx(), pt_graph);
   while (edge_iter.hasNext()) {
     PtEdge &pt_edge = edge_iter.next();
-    Edge *wire_edge = pt_edge.edge();
-    if (wire_edge->isWire()) {
+    if (pt_edge.isWire()) {
       PtVertex &load_pt_vertex = pt_graph->ptVertex(pt_edge.ptToId());
-      Vertex *load_vertex = load_pt_vertex.vertex();
-      const Pin *load_pin = load_vertex->pin();
-      
+      const Pin *load_pin = load_pt_vertex.pin();
+
       if (load_pin == nullptr) {
+        // Virtual load: no pin to map, skip (will use index directly)
         continue;
       }
-      
-      // Only skip hierarchical (dbModITerm) pins - tag=2 in tagged pointer.
-      // Top-level ports (dbBTerm, tag=1) are safe: thresholdLibrary()
-      // handles them via isTopLevelPort() -> defaultLibertyLibrary().
-      // Regular ITerm pins (tag=0) are always safe.
+
       if (network_->isHierarchical(load_pin)) {
         continue;
       }
-      
+
       load_pin_index_map[load_pin] = load_idx;
       load_idx++;
     }
@@ -1171,8 +1285,7 @@ LocalSta::edgeFromLocalSlew(const PtVertex &from_pt_vertex,
                        const DcalcAnalysisPt *dcalc_ap,
                        PtGraph *pt_graph)
 {
-  const Edge *edge = pt_edge.edge();
-  return edgeFromLocalSlew(from_pt_vertex, from_rf, edge->role(), 
+  return edgeFromLocalSlew(from_pt_vertex, from_rf, pt_edge.role(),
                       dcalc_ap, pt_graph);
 }
 
@@ -1184,9 +1297,10 @@ LocalSta::edgeFromLocalSlew(const PtVertex &from_pt_vertex,
                        PtGraph *pt_graph)
 {
   Vertex *from_vertex = from_pt_vertex.vertex();
-  if (role->genericRole() == TimingRole::regClkToQ()
+  if (from_vertex
+      && role->genericRole() == TimingRole::regClkToQ()
       && clk_network_->isIdealClock(from_vertex->pin())) {
-    return clk_network_->idealClkSlew(from_vertex->pin(), from_rf, 
+    return clk_network_->idealClkSlew(from_vertex->pin(), from_rf,
                                       dcalc_ap->slewMinMax());
   } else {
     return pt_graph->slew(from_pt_vertex, from_rf, dcalc_ap->index());
@@ -1283,7 +1397,7 @@ LocalSta::initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_c
 }
 
 DelayLmSumResult
-LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph, 
+LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph,
                                      ArcDelayCalc *arc_delay_calc,
                                      LibertyCell *equiv_cell)
 {
@@ -1296,6 +1410,14 @@ LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph,
   return delayLmSum(pt_graph, dcalc_ap, false);
 }
 
+void
+LocalSta::updateLocalTiming(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc)
+{
+  findLocalDelays(pt_graph, arc_delay_calc);
+  findLocalArrivals(pt_graph);
+  findLocalRequireds(pt_graph);
+}
+
 // Recompute local parasitics after cell swap
 void 
 LocalSta::recomputeLocalParasitics(PtGraph *pt_graph)
@@ -1303,6 +1425,13 @@ LocalSta::recomputeLocalParasitics(PtGraph *pt_graph)
   // printf("LocalSta::recomputeLocalParasitics recomputing local parasitics\n");
   // fflush(stdout);
   local_parasitics_->recomputeLocalParasitics(pt_graph);
+  local_parasitics_->recomputePtParasitics(pt_graph);
+}
+
+void
+LocalSta::recomputeSinglePtParasitic(PtGraph *pt_graph, VertexId drvr_vid)
+{
+  local_parasitics_->recomputeSinglePtParasitic(pt_graph, drvr_vid);
 }
 
 Slack
@@ -1310,7 +1439,7 @@ LocalSta::localSlackAroundRef(PtGraph *pt_graph)
 {
   Slack local_slack = 0.0;
   for (auto& pt_vertex : pt_graph->ptVertices()) {
-    if (pt_vertex.vertex() == nullptr)
+    if (pt_vertex.type() == PtVertexType::Sentinel)
       continue;
     // We offer two options for local slack calculation:
     if (pt_vertex.type() == PtVertexType::RefDriver
@@ -1346,25 +1475,106 @@ LocalSta::localSlackAtEndpoints(PtGraph *pt_graph)
   return local_slack;
 }
 
-void 
-LocalSta::localParasiticLoad(const Pin *drvr_pin,
+Slack
+LocalSta::localSlackOnSinks(PtGraph *pt_graph)
+{
+  // Collect actual sink PtVertices: load pins on nets driven by RefOutput.
+  // Walk RefOutput → wire out edges in sta graph → to vertex → ptVertex.
+  std::vector<PtVertex*> sink_vertices;
+  for (auto& pv : pt_graph->ptVertices()) {
+    if (pv.type() != PtVertexType::RefOutput || !pv.vertex())
+      continue;
+    sta::VertexOutEdgeIterator out_iter(pv.vertex(), graph_);
+    while (out_iter.hasNext()) {
+      sta::Edge *edge = out_iter.next();
+      if (!edge->isWire())
+        continue;
+      sta::Vertex *load_vertex = edge->to(graph_);
+      PtVertex *load_pv = pt_graph->ptVertex(load_vertex);
+      if (load_pv && load_pv->hasBase())
+        sink_vertices.push_back(load_pv);
+    }
+  }
+
+  Slack local_slack = 0.0;
+  for (PtVertex *pt_vp : sink_vertices) {
+    PtVertex &pt_vertex = *pt_vp;
+
+    sta::Path *pt_paths = pt_vertex.paths();
+    if (!pt_paths)
+      continue;
+
+    sta::Vertex *sta_vertex = pt_vertex.vertex();
+    sta::Path *sta_paths = sta_vertex->paths();
+    if (!sta_paths)
+      continue;
+
+    // Verify tag group match
+    sta::TagGroup *pt_tg = search_->tagGroup(pt_vertex.tagGroupIndex());
+    sta::TagGroup *sta_tg = search_->tagGroup(sta_vertex);
+    if (!pt_tg || !sta_tg || pt_tg->index() != sta_tg->index()) {
+      printf("Warning: localSlackOnSinks: tag group mismatch on vertex %s "
+             "(pt_tg=%p idx=%d, sta_tg=%p idx=%d)\n",
+             sta_vertex->to_string(graph_).c_str(),
+             pt_tg, pt_tg ? (int)pt_tg->index() : -1,
+             sta_tg, sta_tg ? (int)sta_tg->index() : -1);
+      fflush(stdout);
+      continue;
+    }
+
+    size_t path_count = pt_tg->pathCount();
+    for (size_t i = 0; i < path_count; i++) {
+      if (pt_paths[i].dcalcAnalysisPt(this) != pt_graph->dcalcAnalysisPt())
+        continue;
+      sta::Slack slack = sta_paths[i].required() - pt_paths[i].arrival();
+      if (sta::delayInf(slack))
+        continue;
+      if (slack > 0.0)
+        continue;
+      local_slack += slack;
+    }
+  }
+  return local_slack;
+}
+
+void
+LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
                           const RiseFall *rf,
                           const DcalcAnalysisPt *dcalc_ap,
                           const MultiDrvrNet *multi_drvr_net,
                           // Return values
                           float &load_cap,
-                          const Parasitic *&parasitic) const
+                          const Parasitic *&parasitic,
+                          PtGraph *pt_graph)
 {
-  bool has_net_load;
-  float fanout;
-  float pin_cap, wire_cap;
+  parasitic = nullptr;
+  load_cap = 0.0f;
 
+  // PtGraph-local PiElmore parasitic (highest priority)
+  PtPiElmore *pt_pi = pt_graph->findPtParasitic(
+      drvr_pt_vertex.objectIdx(), rf, dcalc_ap->index());
+  if (pt_pi && pt_pi->capacitance() > 0.0f) {
+    parasitic = pt_pi;
+    load_cap = pt_pi->capacitance();
+    return;
+  }
+
+  // Original logic (fallback)
+  const Pin *drvr_pin = drvr_pt_vertex.pin();
+
+  // Virtual driver or driver with virtual buffer downstream:
+  // original parasitic is invalid, compute load_cap from PtGraph topology
+  if (!drvr_pin || drvr_pt_vertex.hasVirtualBuffer()) {
+    load_cap = computeVirtualLoadCap(drvr_pt_vertex, rf, dcalc_ap, pt_graph);
+    return;
+  }
+
+  // Real driver without virtual buffer: use original parasitic
   parasitic = local_parasitics_->findLocalParasitic(drvr_pin, rf, dcalc_ap);
   if (parasitic != nullptr) {
     if (!local_parasitics_->isPiModel(parasitic)) {
       printf("LocalSta::localParasiticLoad: Non-PI model parasitic found for pin %s\n",
              network_->name(drvr_pin));
-      // fflush(stdout);
       return;
     }
     load_cap = local_parasitics_->capacitance(parasitic);
@@ -1372,27 +1582,47 @@ LocalSta::localParasiticLoad(const Pin *drvr_pin,
     load_cap = 0.0;
   }
   else {
-    // This should be revised since output cap will be changed
+    bool has_net_load;
+    float fanout;
+    float pin_cap, wire_cap;
     netCaps(drvr_pin, rf, dcalc_ap, multi_drvr_net,
           pin_cap, wire_cap, fanout, has_net_load);
     load_cap = pin_cap + wire_cap;
-    // if (has_net_load)
-    const char *exclude_pin_name = "CON";
-    if (strstr(network_->name(drvr_pin), exclude_pin_name) == nullptr) {
-      // Skip printing for CON pins
-      // printf("LocalSta::localParasiticLoad failed at pin %s: has_net_load=%d, pin_cap=%f fF, wire_cap=%f fF\n",
-      //     network_->name(drvr_pin),
-      //     has_net_load,
-      //     pin_cap * 1.0e15,
-      //     wire_cap * 1.0e15);
-      return;
-    }
-    // fflush(stdout);
-    // throw std::runtime_error("LocalSta::localParasiticLoad: Net load not supported yet");
   }
 }
 
-void 
+void
+LocalSta::localParasiticLoad(const Pin *drvr_pin,
+                          const RiseFall *rf,
+                          const DcalcAnalysisPt *dcalc_ap,
+                          const MultiDrvrNet *multi_drvr_net,
+                          float &load_cap,
+                          const Parasitic *&parasitic) const
+{
+  parasitic = nullptr;
+  load_cap = 0.0f;
+
+  parasitic = local_parasitics_->findLocalParasitic(drvr_pin, rf, dcalc_ap);
+  if (parasitic != nullptr) {
+    if (!local_parasitics_->isPiModel(parasitic)) {
+      printf("LocalSta::localParasiticLoad: Non-PI model parasitic found for pin %s\n",
+             network_->name(drvr_pin));
+      return;
+    }
+    load_cap = local_parasitics_->capacitance(parasitic);
+  } else if (network_->net(drvr_pin) == nullptr) {
+    load_cap = 0.0;
+  } else {
+    bool has_net_load;
+    float fanout;
+    float pin_cap, wire_cap;
+    netCaps(drvr_pin, rf, dcalc_ap, multi_drvr_net,
+          pin_cap, wire_cap, fanout, has_net_load);
+    load_cap = pin_cap + wire_cap;
+  }
+}
+
+void
 LocalSta::printLocalParasitics(PtGraph *pt_graph) const
 {
   for (auto& pt_vertex : pt_graph->ptVertices()) {
@@ -1455,7 +1685,7 @@ void
 LocalSta::printLocalArrivals(PtGraph *pt_graph) const
 {
   for (auto& pt_vertex : pt_graph->ptVertices()) {
-    if (pt_vertex.vertex() == nullptr)
+    if (pt_vertex.type() == PtVertexType::Sentinel)
       continue;
     PtVertexPathIterator path_iter(pt_vertex, this);
     while (path_iter.hasNext()) {
@@ -1474,7 +1704,7 @@ void
 LocalSta::printLocalRequireds(PtGraph *pt_graph) const
 {
   for (auto& pt_vertex : pt_graph->ptVertices()) {
-    if (pt_vertex.vertex() == nullptr)
+    if (pt_vertex.type() == PtVertexType::Sentinel)
       continue;
     PtVertexPathIterator path_iter(pt_vertex, this);
     while (path_iter.hasNext()) {
@@ -1493,11 +1723,14 @@ void
 LocalSta::printLocalTiming(PtGraph *pt_graph) const
 {
   for (auto& pt_vertex : pt_graph->ptVertices()) {
-    if (pt_vertex.vertex() == nullptr)
+    if (pt_vertex.type() == PtVertexType::Sentinel)
       continue;
+    std::string vname = pt_vertex.vertex()
+        ? pt_vertex.vertex()->to_string(graph_)
+        : ("virtual_" + std::to_string(pt_vertex.objectIdx()));
     printf("%s::printLocalTiming: Vertex %s\n",
            debug_label_.c_str(),
-           pt_vertex.vertex()->to_string(graph_).c_str());
+           vname.c_str());
     PtVertexPathIterator path_iter(pt_vertex, this);
     while (path_iter.hasNext()) {
       Path *path = path_iter.next();
@@ -1515,13 +1748,16 @@ LocalSta::printLocalSlews(PtGraph *pt_graph) const
 {
   printf("LocalSta::printLocalSlews: \n");
   for (auto& pt_vertex : pt_graph->ptVertices()) {
-    if (pt_vertex.vertex() == nullptr)
+    if (pt_vertex.type() == PtVertexType::Sentinel)
       continue;
+    std::string vname = pt_vertex.vertex()
+        ? pt_vertex.vertex()->to_string(graph_)
+        : ("virtual_" + std::to_string(pt_vertex.objectIdx()));
     for (const RiseFall *rf : RiseFall::range()) {
       for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
         Slew slew = pt_graph->slew(pt_vertex, rf, dcalc_ap->index());
         printf("Vertex %s, RF %s, AP %u, slew = %f\n",
-               pt_vertex.vertex()->to_string(graph_).c_str(),
+               vname.c_str(),
                rf->to_string().c_str(),
                dcalc_ap->index(),
                slew * 1.0e12);
@@ -1776,8 +2012,13 @@ LocalSta::virtualReplaceCell(PtGraph *pt_graph, LibertyCell *new_cell)
 {
   // If it's nullptr, we use original ref lib cell of pt graph
   if (new_cell) {
-    if (!equivCellsArcs(pt_graph->refGate(), new_cell)) {
-      // printf("This cell: %s replacement needs more processing\n", new_cell->name());
+    // Relax check: only require port and function equivalence.
+    // Timing arc set differences (e.g. different conditional arc
+    // granularity between drive strengths in ASAP7) are handled
+    // by the fallback logic in PtGraph::updateTimingArcSets().
+    if (!equivCellPorts(pt_graph->refGate(), new_cell)
+        || !equivCellFuncs(pt_graph->refGate(), new_cell)) {
+      // printf("This cell: %s (orig: %s) replacement needs more processing\n", new_cell->name(), pt_graph->refGate()->name());
       return;
     }
     pt_graph->setRefGate(new_cell);
@@ -1814,7 +2055,7 @@ void
 LocalSta::runResize(rsz::Resizer *resizer, ParallelLrVisitor *visitor)
 {
   // task_arranger_->enableTopologyCheck(true);
-  task_arranger_->visitParallel(sta_, this, resizer, visitor);
+  task_arranger_->visitOrdered(sta_, this, resizer, visitor);
 }
 
 sta::Path *

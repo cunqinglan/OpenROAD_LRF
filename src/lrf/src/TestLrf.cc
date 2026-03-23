@@ -1,3 +1,5 @@
+#include <map>
+#include <tuple>
 #include "db_sta/dbSta.hh"
 #include "sta/ArcDelayCalc.hh"
 #include "rsz/Resizer.hh"
@@ -10,12 +12,15 @@
 #include "odb/db.h"
 #include "sta/Liberty.hh"
 #include "sta/Corner.hh"
+#include "sta/FuncExpr.hh"
 #include "LocalSearch.hh"
 #include "PtGraph.hh"
 #include "ParallelVisitor.hh"
 #include "sta/DispatchQueue.hh"
 #include "TaskArranger.hh"
+#include "sta/TimingRole.hh"
 #include "sta/PowerClass.hh"
+#include "sta/PathAnalysisPt.hh"
 #include "sta/Delay.hh"
 #include "est/EstimateParasitics.h"
 #include "sta/EquivCells.hh"
@@ -660,7 +665,7 @@ TestLrf::testParallelVisitor(const std::vector<odb::dbInst*>& db_insts, sta::dbS
     sta::Instance *sta_inst = insts[i];
     dq.dispatch([visitor_ptrs, sta_inst](int id) {
       if (id >= 0 && id < visitor_ptrs.size()) {
-        visitor_ptrs[id]->visit(sta_inst);
+        visitor_ptrs[id]->visit(sta_inst, sta::object_id_null);
       }
     });
   }
@@ -1159,13 +1164,14 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
   local_sta->initParallel();
 
   for (size_t i = 0; i < iterations; ++i) {
+    // Perform parallel resize by array
     sta->findRequireds();
     printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
     auto start = std::chrono::high_resolution_clock::now();
     incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
     auto end = std::chrono::high_resolution_clock::now();
     printf("parallelResizeByArray took %f seconds\n",
-           std::chrono::duration<double>(end - start).count());
+          std::chrono::duration<double>(end - start).count());
 
     est_parasitics->updateWireParasiticsNoDeleteNetwork();
     sta->delaysInvalid();
@@ -1181,9 +1187,9 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
       leakage += power_result.leakage();
     }
 
-    printf("Worst Negative Slack: %f\n", wns * 1e12);
-    printf("Total Negative Slack: %f\n", tns * 1e12);
-    printf("Total Leakage Power: %f\n", leakage * 1e10);
+    printf("Worst Negative Slack after RSZ: %f\n", wns * 1e12);
+    printf("Total Negative Slack after RSZ: %f\n", tns * 1e12);
+    printf("Total Leakage Power after RSZ: %f\n", leakage * 1e10);
     fflush(stdout);
     incre_sta->lmUpdate();
 
@@ -1205,7 +1211,6 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
       no_improve_count_ = 0;
     } else if (no_improve_count_ < num_no_improve_tolerance) {
       no_improve_count_++;
-      continue;
     } else if (eco_iter > 2) {
       printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
       break;
@@ -1215,6 +1220,64 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
       odb::dbDatabase::undoEco(block);
       odb::dbDatabase::beginEco(block);
       eco_iter++;
+    }
+
+    // Perform parallel buffering if WNS is negative after resize
+    if (wns < 0 && i > 3) {
+      printf("----- WNS negative, performing parallel buffering -----\n");
+      double wns_before_buf = wns * 1e12;
+      double tns_before_buf = tns * 1e12;
+      sta->findRequireds();
+      est_parasitics->updateWireParasiticsNoDeleteNetwork();
+      incre_sta->parallelBuffering(resizer, PT_tradeoff);
+      sta->delaysInvalid();
+      sta->updateTiming(true);
+      sta->findRequireds();
+      tns = sta->totalNegativeSlack(sta::MinMax::max());
+      wns = sta->worstSlack(sta::MinMax::max());
+      printf("Buffering diff: WNS %.3f -> %.3f ps (delta=%.3f), TNS %.3f -> %.3f ps (delta=%.3f)\n",
+             wns_before_buf, wns * 1e12, wns * 1e12 - wns_before_buf,
+             tns_before_buf, tns * 1e12, tns * 1e12 - tns_before_buf);
+      fflush(stdout);
+      float buf_leakage = 0;
+      for (odb::dbInst *inst : block->getInsts()) {
+        sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(inst);
+        if (!sta_inst) continue;
+        sta::PowerResult power_result = sta->power(sta_inst, corner);
+        buf_leakage += power_result.leakage();
+      }
+      printf("Worst Negative Slack after buffering: %f\n", wns * 1e12);
+      printf("Total Negative Slack after buffering: %f\n", tns * 1e12);
+      printf("Total Leakage Power after buffering: %f\n", buf_leakage * 1e10);
+      fflush(stdout);
+      incre_sta->lmUpdate();
+
+      if (wns > best_wns && wns < 0) {
+        best_wns = wns;
+        best_tns = tns;
+        best_leakage = buf_leakage;
+        odb::dbDatabase::endEco(block);
+        odb::dbDatabase::beginEco(block);
+        printf("Buffering improved WNS, accepting.\n");
+        no_improve_count_ = 0;
+      } else if (wns >= 0.0 && (wns > best_wns || buf_leakage < best_leakage)) {
+        best_wns = wns;
+        best_tns = tns;
+        best_leakage = buf_leakage;
+        odb::dbDatabase::endEco(block);
+        odb::dbDatabase::beginEco(block);
+        printf("Buffering: WNS positive, accepting.\n");
+        no_improve_count_ = 0;
+      } else if (no_improve_count_ < num_no_improve_tolerance) {
+        no_improve_count_++;
+        printf("Buffering did not improve (tolerance %zu/%zu), keeping.\n",
+               no_improve_count_, num_no_improve_tolerance);
+      } else {
+        printf("Buffering did not improve, reverting.\n");
+        odb::dbDatabase::endEco(block);
+        odb::dbDatabase::undoEco(block);
+        odb::dbDatabase::beginEco(block);
+      }
     }
   }
   tns = sta->totalNegativeSlack(sta::MinMax::max());
@@ -1226,34 +1289,6 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
     odb::dbDatabase::endEco(block);
     odb::dbDatabase::undoEco(block);
     printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
-  }
-
-  // If WNS is still negative after resizing, attempt parallel buffering
-  if (wns < 0) {
-    printf("----- WNS still negative, running parallel buffering -----\n");
-    sta->findRequireds();
-    est_parasitics->updateWireParasiticsNoDeleteNetwork();
-    auto start = std::chrono::high_resolution_clock::now();
-    incre_sta->parallelBuffering(resizer, PT_tradeoff);
-    auto end = std::chrono::high_resolution_clock::now();
-    printf("Parallel buffering took %f seconds\n",
-           std::chrono::duration<double>(end - start).count());
-
-    sta->delaysInvalid();
-    sta->updateTiming(true);
-    tns = sta->totalNegativeSlack(sta::MinMax::max());
-    wns = sta->worstSlack(sta::MinMax::max());
-    float leakage = 0;
-    for (odb::dbInst *inst : block->getInsts()) {
-      sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(inst);
-      if (!sta_inst) continue;
-      sta::PowerResult power_result = sta->power(sta_inst, corner);
-      leakage += power_result.leakage();
-    }
-    printf("Worst Negative Slack: %f\n", wns * 1e12);
-    printf("Total Negative Slack: %f\n", tns * 1e12);
-    printf("Total Leakage Power: %f\n", leakage * 1e10);
-    fflush(stdout);
   }
   delete incre_sta;
 }
@@ -1355,6 +1390,175 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
       odb::dbDatabase::undoEco(block);
       odb::dbDatabase::beginEco(block);
       eco_iter++;
+    }
+  }
+  tns = sta->totalNegativeSlack(sta::MinMax::max());
+  wns = sta->worstSlack(sta::MinMax::max());
+  if (wns > best_wns) {
+    odb::dbDatabase::endEco(block);
+    printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
+  } else {
+    odb::dbDatabase::endEco(block);
+    odb::dbDatabase::undoEco(block);
+    printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  }
+  delete incre_sta;
+}
+
+void
+TestLrf::testParallelLrResizeByArrayWithPrecheckBuffering(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons,
+                            float PT_tradeoff,
+                            std::string lr_helper_method,
+                            float top_ratio)
+{
+  printf("----- Testing Parallel LR Resize By Array With Precheck + Buffering -----\n");
+  sta::Corner *corner = sta->corners()->findCorner("default");
+  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+  sta->findRequireds();
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+
+  incre_sta->makeLRHelper(lr_helper_method);
+  lrf::LRHelper *lr_helper = incre_sta->lrHelper();
+  lr_helper->setRatcons(ratcons);
+
+  incre_sta->setMaxResizeNum(max_resize_num);
+  incre_sta->lmUpdate();
+
+  odb::dbDatabase::beginEco(block);
+  float best_leakage = std::numeric_limits<float>::max();
+  size_t no_improve_count_ = 0;
+  size_t eco_iter = 0;
+  sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
+  sta::Slack best_tns = sta->totalNegativeSlack(sta::MinMax::max());
+  sta::Slack tns, wns;
+  printf("Initial WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+  local_sta->initParallel();
+
+  for (size_t i = 0; i < iterations; ++i) {
+    sta->findRequireds();
+    printf("----- LR ResizeByArrayWithPrecheckBuffering Iteration %zu -----\n", i+1);
+    auto start = std::chrono::high_resolution_clock::now();
+    incre_sta->parallelResizeByArrayWithPrecheck(resizer, avg_delay, avg_leakage,
+                                                  PT_tradeoff, top_ratio);
+    auto end = std::chrono::high_resolution_clock::now();
+    printf("Iteration %zu took %f seconds\n", i+1,
+           std::chrono::duration<double>(end - start).count());
+
+    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+    tns = sta->totalNegativeSlack(sta::MinMax::max());
+    wns = sta->worstSlack(sta::MinMax::max());
+
+    float leakage = 0;
+    for (odb::dbInst *inst : block->getInsts()) {
+      sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(inst);
+      if (!sta_inst) continue;
+      sta::PowerResult power_result = sta->power(sta_inst, corner);
+      leakage += power_result.leakage();
+    }
+
+    printf("Worst Negative Slack after RSZ: %f\n", wns * 1e12);
+    printf("Total Negative Slack after RSZ: %f\n", tns * 1e12);
+    printf("Total Leakage Power after RSZ: %f\n", leakage * 1e10);
+    fflush(stdout);
+    incre_sta->lmUpdate();
+
+    if (wns > best_wns && wns < 0) {
+      best_wns = wns;
+      best_tns = tns;
+      best_leakage = leakage;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      printf("Improvement in WNS, accepting.\n");
+      no_improve_count_ = 0;
+    } else if (wns >= 0.0 && (wns > best_wns || leakage < best_leakage)) {
+      best_wns = wns;
+      best_tns = tns;
+      best_leakage = leakage;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      printf("WNS positive, WNS or leakage improved, accepting.\n");
+      no_improve_count_ = 0;
+    } else if (no_improve_count_ < num_no_improve_tolerance) {
+      no_improve_count_++;
+    } else if (eco_iter > 2) {
+      printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
+      break;
+    } else {
+      printf("Reverting to previous design.\n");
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
+      odb::dbDatabase::beginEco(block);
+      eco_iter++;
+    }
+
+    // Perform parallel buffering if WNS is negative after resize
+    if (wns < 0 && i > 3) {
+      printf("----- WNS negative, performing parallel buffering -----\n");
+      double wns_before_buf = wns * 1e12;
+      double tns_before_buf = tns * 1e12;
+      sta->findRequireds();
+      est_parasitics->updateWireParasiticsNoDeleteNetwork();
+      incre_sta->parallelBuffering(resizer, PT_tradeoff);
+      sta->delaysInvalid();
+      sta->updateTiming(true);
+      sta->findRequireds();
+      tns = sta->totalNegativeSlack(sta::MinMax::max());
+      wns = sta->worstSlack(sta::MinMax::max());
+      printf("Buffering diff: WNS %.3f -> %.3f ps (delta=%.3f), TNS %.3f -> %.3f ps (delta=%.3f)\n",
+             wns_before_buf, wns * 1e12, wns * 1e12 - wns_before_buf,
+             tns_before_buf, tns * 1e12, tns * 1e12 - tns_before_buf);
+      fflush(stdout);
+      float buf_leakage = 0;
+      for (odb::dbInst *inst : block->getInsts()) {
+        sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(inst);
+        if (!sta_inst) continue;
+        sta::PowerResult power_result = sta->power(sta_inst, corner);
+        buf_leakage += power_result.leakage();
+      }
+      printf("Worst Negative Slack after buffering: %f\n", wns * 1e12);
+      printf("Total Negative Slack after buffering: %f\n", tns * 1e12);
+      printf("Total Leakage Power after buffering: %f\n", buf_leakage * 1e10);
+      fflush(stdout);
+      incre_sta->lmUpdate();
+
+      if (wns > best_wns && wns < 0) {
+        best_wns = wns;
+        best_tns = tns;
+        best_leakage = buf_leakage;
+        odb::dbDatabase::endEco(block);
+        odb::dbDatabase::beginEco(block);
+        printf("Buffering improved WNS, accepting.\n");
+        no_improve_count_ = 0;
+      } else if (wns >= 0.0 && (wns > best_wns || buf_leakage < best_leakage)) {
+        best_wns = wns;
+        best_tns = tns;
+        best_leakage = buf_leakage;
+        odb::dbDatabase::endEco(block);
+        odb::dbDatabase::beginEco(block);
+        printf("Buffering: WNS positive, accepting.\n");
+        no_improve_count_ = 0;
+      } else if (no_improve_count_ < num_no_improve_tolerance) {
+        no_improve_count_++;
+        printf("Buffering did not improve (tolerance %zu/%zu), keeping.\n",
+               no_improve_count_, num_no_improve_tolerance);
+      } else {
+        printf("Buffering did not improve, reverting.\n");
+        odb::dbDatabase::endEco(block);
+        odb::dbDatabase::undoEco(block);
+        odb::dbDatabase::beginEco(block);
+      }
     }
   }
   tns = sta->totalNegativeSlack(sta::MinMax::max());
@@ -1599,7 +1803,7 @@ recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &gr
   fflush(stdout);
   // First copy slews and paths from pt_graph's vertex to graph_timing
   for (PtVertex &pt_vertex : pt_graph->ptVertices()) {
-    if (pt_vertex.vertex() == nullptr) 
+    if (pt_vertex.type() == PtVertexType::Sentinel)
       continue;
     // if (!pt_vertex.vertex() || (pt_vertex.type() != PtVertexType::RefInput
     //  && pt_vertex.type() != PtVertexType::RefOutput)) 
@@ -1959,5 +2163,700 @@ TestLrf::printAllCellsInfo(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock 
   fflush(stdout);
 }
 
+
+void
+TestLrf::testSingleInstBuffering(char *inst_name, sta::dbSta* sta,
+                                  rsz::Resizer *resizer, odb::dbBlock *block)
+{
+  printf("----- Test Single Instance Buffering: %s -----\n", inst_name);
+  fflush(stdout);
+
+  sta::dbNetwork *db_network = sta->getDbNetwork();
+  odb::dbInst *db_inst = block->findInst(inst_name);
+  if (!db_inst) {
+    printf("Error: instance '%s' not found\n", inst_name);
+    return;
+  }
+
+  sta::Instance *inst = db_network->dbToSta(db_inst);
+  if (!inst) {
+    printf("Error: failed to convert dbInst to sta::Instance\n");
+    return;
+  }
+
+  // Setup: IncreSta for LM values, resizer preamble
+  IncreSta *incre_sta = new IncreSta(sta);
+  LocalSta *local_sta = incre_sta->localSta();
+  sta->findRequireds();
+  for (int i = 0; i < 5; i++) {
+    incre_sta->lmUpdate();
+  }
+  resizer->resizePreamble();
+  resizer->makeEquivCells();
+  LrRebuffer::initGlobalPreamble(sta, resizer);
+
+  // Report initial timing
+  sta::Slack wns = sta->worstSlack(sta::MinMax::max());
+  sta::Slack tns = sta->totalNegativeSlack(sta::MinMax::max());
+  printf("Initial WNS: %.3f ps, TNS: %.3f ps\n", wns * 1e12, tns * 1e12);
+  fflush(stdout);
+
+  // [Layer 3] Run visit() twice WITHOUT applying changes; results must be identical
+  printf("===== [Layer 3] Stability: calling visit() twice =====\n");
+  fflush(stdout);
+
+  for (int round = 1; round <= 2; round++) {
+    printf("----- Round %d -----\n", round);
+    fflush(stdout);
+
+    ParallelLrVisitor *visitor = new ParallelLrVisitor(sta, local_sta, resizer);
+    visitor->init(0, 0, wns, 100.0, nullptr, nullptr);
+    visitor->setMoveType(MoveType::BufferInsertion);
+
+    bool success = visitor->visit(inst, sta::object_id_null);
+    printf("[Round %d] visit() returned: %s\n", round, success ? "true" : "false");
+    fflush(stdout);
+
+    // Do NOT apply changes — discard visitor to restore state
+    delete visitor;
+  }
+
+  printf("===== [Layer 3] If Round 1 and Round 2 outputs match, graph restore is correct =====\n");
+  fflush(stdout);
+
+  // Now apply the real buffering
+  printf("===== Applying buffering =====\n");
+  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta, local_sta, resizer);
+  visitor->init(0, 0, wns, 100.0, nullptr, nullptr);
+  visitor->setMoveType(MoveType::BufferInsertion);
+  bool success = visitor->visit(inst, sta::object_id_null);
+
+  printf("visit() returned: %s\n", success ? "true" : "false");
+  fflush(stdout);
+
+  if (success) {
+    // ===== BEFORE apply: report OpenSTA timing on driver output net =====
+    const sta::Pin *drvr_pin = visitor->rebuffer()->drvrPin();
+    sta::Graph *graph = sta->graph();
+    sta::dbNetwork *network = sta->getDbNetwork();
+
+    printf("===== [TIMING CMP] Before Apply: OpenSTA per-pin timing =====\n");
+    {
+      sta::Vertex *drvr_vertex = graph->pinDrvrVertex(drvr_pin);
+      if (drvr_vertex) {
+        sta::Slack drvr_slack = sta->vertexSlack(drvr_vertex, sta::MinMax::max());
+        sta::Arrival drvr_arr = sta->vertexArrival(drvr_vertex, sta::MinMax::max());
+        printf("  [BEFORE] driver %s  arr=%.3f ps  slack=%.3f ps\n",
+               drvr_vertex->to_string(sta).c_str(),
+               drvr_arr * 1e12, drvr_slack * 1e12);
+      }
+      // Report load pins
+      sta::Net *net = network->net(drvr_pin);
+      if (net) {
+        sta::NetPinIterator *pin_iter = network->pinIterator(net);
+        while (pin_iter->hasNext()) {
+          const sta::Pin *pin = pin_iter->next();
+          if (pin == drvr_pin) continue;
+          sta::Vertex *load_vertex = graph->pinLoadVertex(pin);
+          if (load_vertex) {
+            sta::Slack load_slack = sta->vertexSlack(load_vertex, sta::MinMax::max());
+            sta::Arrival load_arr = sta->vertexArrival(load_vertex, sta::MinMax::max());
+            printf("  [BEFORE] load   %s  arr=%.3f ps  slack=%.3f ps\n",
+                   load_vertex->to_string(sta).c_str(),
+                   load_arr * 1e12, load_slack * 1e12);
+          }
+        }
+        delete pin_iter;
+      }
+    }
+    fflush(stdout);
+
+    // ===== Apply buffering =====
+    visitor->applyChangesToDb(resizer);
+    printf("Buffering changes applied to DB\n");
+
+    sta->updateTiming(true);
+    sta->findRequireds();
+    sta::Slack wns_after = sta->worstSlack(sta::MinMax::max());
+    sta::Slack tns_after = sta->totalNegativeSlack(sta::MinMax::max());
+    printf("After buffering WNS: %.3f ps, TNS: %.3f ps\n",
+           wns_after * 1e12, tns_after * 1e12);
+    printf("WNS delta: %.3f ps, TNS delta: %.3f ps\n",
+           (wns_after - wns) * 1e12, (tns_after - tns) * 1e12);
+
+    // ===== AFTER apply: Compare LOCAL vs OPENSTA arc delays =====
+    // Rebuild virtual buffer on PtGraph to collect LOCAL timing, then compare with OPENSTA.
+    printf("===== [ARC DELAY COMPARE] LOCAL vs OPENSTA =====\n");
+    {
+      struct ArcDelayRecord {
+        std::string from_port, to_port, edge_label, cond;
+        bool is_wire;
+        uintptr_t arc_set_id;
+        float delay_ps;
+      };
+
+      // Helper: get "when" condition string from TimingArcSet
+      auto arcSetCond = [](sta::TimingArcSet *aset) -> std::string {
+        if (!aset) return "";
+        auto *cond = aset->cond();
+        return cond ? cond->to_string() : "";
+      };
+
+      // Helper: get "inst/port" for PtVertex (real pin -> pathName, virtual -> cell/port)
+      auto ptQualifiedName = [&](PtVertex &v) -> std::string {
+        if (v.pin()) return network->pathName(v.pin());
+        sta::LibertyPort *lp = v.libertyPort();
+        if (lp) {
+          sta::LibertyCell *cell = lp->libertyCell();
+          return std::string(cell ? cell->name() : "?") + "/" + lp->name();
+        }
+        return "?";
+      };
+
+      sta::DcalcAPIndex ap = sta->corners()->dcalcAnalysisPts()[0]->index();
+      LrRebuffer *rebuffer = visitor->rebuffer();
+      PtGraph *pt_graph = visitor->ptGraph();
+      LocalSta *local_sta = rebuffer->local_sta_;
+      sta::ArcDelayCalc *arc_delay_calc = visitor->arcDelayCalc();
+
+      // --- Collect LOCAL arc delays by rebuilding virtual buffer ---
+      std::vector<ArcDelayRecord> local_arcs;
+
+      // Find driver PtVertex id from driver pin
+      sta::Vertex *drvr_sta_vertex = graph->pinDrvrVertex(drvr_pin);
+      PtVertex *drvr_ptv = pt_graph->ptVertex(drvr_sta_vertex);
+      sta::VertexId drvr_vertex_id = drvr_ptv ? drvr_ptv->objectIdx() : sta::VertexId(0);
+      const rsz::BufferedNetPtr &best_bnet = rebuffer->bestBnet();
+
+      if (drvr_ptv && best_bnet) {
+        VirtualBufferInfo vinfo = rebuffer->buildVirtualBuffer(drvr_vertex_id, best_bnet);
+        if (!vinfo.failed) {
+          pt_graph->topoSortVertices();
+          local_sta->updateLocalTiming(pt_graph, arc_delay_calc);
+
+          // === Report LMs on all edges ===
+          printf("\n  === Edge LM Report ===\n");
+          printf("  %-8s %-40s %-6s %12s %12s\n",
+                 "type", "from->to", "edge", "delay(ps)", "LM");
+          printf("  %-8s %-40s %-6s %12s %12s\n",
+                 "----", "--------", "----", "--------", "--------");
+          for (const PtEdge &e : pt_graph->ptEdges()) {
+            if (e.type() == PtEdgeType::Sentinel) continue;
+            if (!e.hasBase() && !e.isVirtual()) continue;
+            PtVertex &from_v = pt_graph->ptVertex(e.ptFromId());
+            PtVertex &to_v = pt_graph->ptVertex(e.ptToId());
+            std::string from_name = ptQualifiedName(from_v);
+            std::string to_name = ptQualifiedName(to_v);
+            std::string from_to = from_name + "->" + to_name;
+            const LMValue *lms = e.arcLms();
+            sta::TimingArcSet *arc_set = e.timingArcSet();
+            if (!arc_set) continue;
+            const char *etype = e.isVirtual()
+                ? (e.isWire() ? "v_wire" : "v_gate")
+                : (e.isWire() ? "wire" : "gate");
+            if (e.isWire()) {
+              for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+                sta::ArcDelay d = pt_graph->wireArcDelay(e, rf, ap);
+                int lm_index = rf->index() * sta->graph()->apCount() + ap;
+                float lm_val = (lms != nullptr) ? lms[lm_index] : 0.0f;
+                printf("  %-8s %-40s %-6s %12.3f %12.6f%s\n",
+                       etype, from_to.c_str(), rf->shortName(),
+                       (float)(sta::delayAsFloat(d) * 1e12), lm_val,
+                       lms ? "" : " (NULL)");
+              }
+            } else {
+              for (sta::TimingArc *arc : arc_set->arcs()) {
+                sta::ArcDelay d = pt_graph->arcDelay(e, arc, ap);
+                size_t lm_index = lmIndex(arc, ap, sta->graph()->apCount());
+                float lm_val = (lms != nullptr) ? lms[lm_index] : 0.0f;
+                std::string label = std::string(arc->fromEdge()->to_string())
+                                    + "->" + arc->toEdge()->to_string();
+                printf("  %-8s %-40s %-6s %12.3f %12.6f%s\n",
+                       etype, from_to.c_str(), label.c_str(),
+                       (float)(sta::delayAsFloat(d) * 1e12), lm_val,
+                       lms ? "" : " (NULL)");
+              }
+            }
+          }
+          printf("  === End Edge LM Report ===\n\n");
+          fflush(stdout);
+
+          // 1. Driver instance gate arcs (RefInstEdge)
+          PtVertexInEdgeIterator in_iter(drvr_vertex_id, pt_graph);
+          while (in_iter.hasNext()) {
+            PtEdge &e = in_iter.next();
+            if (e.type() != PtEdgeType::RefInstEdge) continue;
+            PtVertex &from_v = pt_graph->ptVertex(e.ptFromId());
+            PtVertex &to_v = pt_graph->ptVertex(drvr_vertex_id);
+            std::string from_name = ptQualifiedName(from_v);
+            std::string to_name = ptQualifiedName(to_v);
+            sta::TimingArcSet *arc_set = e.timingArcSet();
+            if (arc_set) {
+              std::string cond = arcSetCond(arc_set);
+              for (sta::TimingArc *arc : arc_set->arcs()) {
+                sta::ArcDelay d = pt_graph->arcDelay(e, arc, ap);
+                std::string label = std::string(arc->fromEdge()->to_string())
+                                    + "->" + arc->toEdge()->to_string();
+                local_arcs.push_back({from_name, to_name, label, cond, false,
+                                      (uintptr_t)arc_set,
+                                      (float)(sta::delayAsFloat(d) * 1e12)});
+              }
+            }
+          }
+
+          // 2. Virtual buffer tree arcs (wire + gate)
+          for (EdgeId eid : vinfo.edge_ids) {
+            PtEdge &e = pt_graph->edge(eid);
+            PtVertex &from_v = pt_graph->ptVertex(e.ptFromId());
+            PtVertex &to_v = pt_graph->ptVertex(e.ptToId());
+            std::string from_name = ptQualifiedName(from_v);
+            std::string to_name = ptQualifiedName(to_v);
+            if (e.isWire()) {
+              for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+                sta::ArcDelay d = pt_graph->wireArcDelay(e, rf, ap);
+                local_arcs.push_back({from_name, to_name,
+                                      rf->shortName(), "", true, 0,
+                                      (float)(sta::delayAsFloat(d) * 1e12)});
+              }
+            } else {
+              sta::TimingArcSet *arc_set = e.timingArcSet();
+              if (arc_set) {
+                std::string cond = arcSetCond(arc_set);
+                for (sta::TimingArc *arc : arc_set->arcs()) {
+                  sta::ArcDelay d = pt_graph->arcDelay(e, arc, ap);
+                  std::string label = std::string(arc->fromEdge()->to_string())
+                                      + "->" + arc->toEdge()->to_string();
+                  local_arcs.push_back({from_name, to_name, label, cond, false,
+                                        (uintptr_t)arc_set,
+                                        (float)(sta::delayAsFloat(d) * 1e12)});
+                }
+              }
+            }
+          }
+
+          // 3. Collect LOCAL worst arrival/slack per vertex
+          // Only collect driver instance + virtual buffer + direct load vertices
+          struct VtRecord { std::string name; float arr_ps; float slk_ps; };
+          std::vector<VtRecord> local_vt;
+          // Driver instance pins
+          for (size_t vid = 0; vid < pt_graph->vertexCount(); vid++) {
+            PtVertex &ptv = pt_graph->ptVertex(sta::VertexId(vid));
+            if (ptv.type() == PtVertexType::Sentinel) continue;
+            // Include: driver instance pins (RefInput/RefOutput) and virtual vertices
+            if (ptv.type() != PtVertexType::RefInput
+                && ptv.type() != PtVertexType::RefOutput
+                && ptv.type() != PtVertexType::VirtualInput
+                && ptv.type() != PtVertexType::VirtualOutput) continue;
+            sta::Path *worst = local_sta->ptVertexWorstSlackPath(ptv, sta::MinMax::max());
+            if (worst) {
+              local_vt.push_back({ptQualifiedName(ptv),
+                                  (float)(worst->arrival() * 1e12),
+                                  (float)(worst->slack(local_sta) * 1e12)});
+            }
+          }
+          // Also include direct load pins (RefDriver that are wire targets)
+          for (EdgeId eid : vinfo.edge_ids) {
+            PtEdge &e = pt_graph->edge(eid);
+            if (!e.isWire()) continue;
+            PtVertex &to_v = pt_graph->ptVertex(e.ptToId());
+            if (to_v.type() == PtVertexType::RefDriver
+                || to_v.type() == PtVertexType::RefInput) {
+              sta::Path *worst = local_sta->ptVertexWorstSlackPath(to_v, sta::MinMax::max());
+              if (worst) {
+                local_vt.push_back({ptQualifiedName(to_v),
+                                    (float)(worst->arrival() * 1e12),
+                                    (float)(worst->slack(local_sta) * 1e12)});
+              }
+            }
+          }
+
+          rebuffer->removeVirtualBuffer(vinfo);
+
+          // --- Collect OPENSTA arc delays ---
+          std::vector<ArcDelayRecord> opensta_arcs;
+          sta::Vertex *drvr_vertex = graph->pinDrvrVertex(drvr_pin);
+
+          // OPENSTA driver gate arcs
+          if (drvr_vertex) {
+            sta::VertexInEdgeIterator oin_iter(drvr_vertex, graph);
+            while (oin_iter.hasNext()) {
+              sta::Edge *edge = oin_iter.next();
+              if (edge->role()->isWire()) continue;
+              sta::Vertex *from_v = edge->from(graph);
+              const sta::Pin *from_pin = from_v->pin();
+              std::string from_port = from_pin ? network->pathName(from_pin) : "?";
+              const sta::Pin *to_pin_v = drvr_vertex->pin();
+              std::string to_port = to_pin_v ? network->pathName(to_pin_v) : "?";
+              sta::TimingArcSet *aset = edge->timingArcSet();
+              std::string cond = arcSetCond(aset);
+              for (sta::TimingArc *arc : aset->arcs()) {
+                sta::ArcDelay d = graph->arcDelay(edge, arc, ap);
+                std::string label = std::string(arc->fromEdge()->to_string())
+                                    + "->" + arc->toEdge()->to_string();
+                opensta_arcs.push_back({from_port, to_port, label, cond, false,
+                                        (uintptr_t)aset, (float)(d * 1e12)});
+              }
+            }
+          }
+
+          // OPENSTA BFS: buffer tree wire + gate arcs
+          // Helper: get qualified name for OPENSTA pins (buffer pins -> cell/port)
+          auto openStaQualName = [&](const sta::Pin *pin) -> std::string {
+            if (!pin) return "?";
+            sta::Instance *inst = network->instance(pin);
+            sta::LibertyCell *cell = network->libertyCell(inst);
+            if (cell && cell->isBuffer())
+              return std::string(cell->name()) + "/" + network->portName(pin);
+            return network->pathName(pin);
+          };
+
+          std::vector<sta::Vertex*> queue;
+          if (drvr_vertex) queue.push_back(drvr_vertex);
+          while (!queue.empty()) {
+            sta::Vertex *cur = queue.back();
+            queue.pop_back();
+            std::string cur_port = openStaQualName(cur->pin());
+            sta::VertexOutEdgeIterator out_iter(cur, graph);
+            while (out_iter.hasNext()) {
+              sta::Edge *edge = out_iter.next();
+              sta::Vertex *to_v = edge->to(graph);
+              if (!edge->role()->isWire()) continue;
+              const sta::Pin *to_pin = to_v->pin();
+              std::string to_full = openStaQualName(to_pin);
+              for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+                sta::ArcDelay wd = graph->wireArcDelay(edge, rf, ap);
+                opensta_arcs.push_back({cur_port, to_full, rf->shortName(), "", true,
+                                        0, (float)(wd * 1e12)});
+              }
+              // BFS through buffers
+              if (to_pin && network->isLeaf(to_pin)) {
+                sta::Instance *to_inst = network->instance(to_pin);
+                sta::LibertyCell *to_cell = network->libertyCell(to_inst);
+                if (to_cell && to_cell->isBuffer()) {
+                  sta::InstancePinIterator *ipin_iter = network->pinIterator(to_inst);
+                  while (ipin_iter->hasNext()) {
+                    const sta::Pin *ipin = ipin_iter->next();
+                    if (network->direction(ipin)->isOutput()) {
+                      sta::Vertex *out_v = graph->pinDrvrVertex(ipin);
+                      if (out_v) {
+                        // Buffer gate arcs
+                        sta::VertexInEdgeIterator buf_in_iter(out_v, graph);
+                        while (buf_in_iter.hasNext()) {
+                          sta::Edge *gate_edge = buf_in_iter.next();
+                          if (gate_edge->role()->isWire()) continue;
+                          std::string gf_port = openStaQualName(gate_edge->from(graph)->pin());
+                          std::string gt_port = openStaQualName(out_v->pin());
+                          sta::TimingArcSet *gaset = gate_edge->timingArcSet();
+                          std::string gcond = arcSetCond(gaset);
+                          for (sta::TimingArc *arc : gaset->arcs()) {
+                            sta::ArcDelay gd = graph->arcDelay(gate_edge, arc, ap);
+                            std::string label = std::string(arc->fromEdge()->to_string())
+                                                + "->" + arc->toEdge()->to_string();
+                            opensta_arcs.push_back({gf_port, gt_port, label, gcond, false,
+                                                    (uintptr_t)gaset, (float)(gd * 1e12)});
+                          }
+                        }
+                        queue.push_back(out_v);
+                      }
+                    }
+                  }
+                  delete ipin_iter;
+                }
+              }
+            }
+          }
+
+          // --- Key-based matching ---
+          using ArcKey = std::tuple<std::string, std::string, std::string, bool, uintptr_t>;
+          struct ArcVal { float delay_ps; std::string cond; };
+          std::map<ArcKey, ArcVal> opensta_map;
+          for (const auto &o : opensta_arcs) {
+            opensta_map[{o.from_port, o.to_port, o.edge_label, o.is_wire, o.arc_set_id}]
+                = {o.delay_ps, o.cond};
+          }
+
+          float max_err = 0, sum_err = 0;
+          size_t matched = 0, unmatched_local = 0;
+          printf("  %-8s %-30s %-6s %-20s %10s %10s %10s\n",
+                 "type", "from->to", "edge", "when", "LOCAL", "OPENSTA", "err");
+          printf("  %-8s %-30s %-6s %-20s %10s %10s %10s\n",
+                 "----", "--------", "----", "----", "-----", "-------", "---");
+
+          for (const auto &l : local_arcs) {
+            ArcKey key = {l.from_port, l.to_port, l.edge_label, l.is_wire, l.arc_set_id};
+            std::string from_to = l.from_port + "->" + l.to_port;
+            std::string cond_disp = l.cond.empty() ? "-" : l.cond;
+            auto it = opensta_map.find(key);
+            if (it != opensta_map.end()) {
+              float err = l.delay_ps - it->second.delay_ps;
+              if (std::abs(err) > max_err) max_err = std::abs(err);
+              sum_err += std::abs(err);
+              matched++;
+              printf("  %-8s %-30s %-6s %-20s %10.3f %10.3f %10.3f\n",
+                     l.is_wire ? "wire" : "gate", from_to.c_str(),
+                     l.edge_label.c_str(), cond_disp.c_str(),
+                     l.delay_ps, it->second.delay_ps, err);
+              opensta_map.erase(it);
+            } else {
+              unmatched_local++;
+              printf("  %-8s %-30s %-6s %-20s %10.3f %10s %10s\n",
+                     l.is_wire ? "wire" : "gate", from_to.c_str(),
+                     l.edge_label.c_str(), cond_disp.c_str(),
+                     l.delay_ps, "N/A", "---");
+            }
+          }
+          for (const auto &[key, val] : opensta_map) {
+            const auto &[fp, tp, el, iw, asid] = key;
+            std::string cd = val.cond.empty() ? "-" : val.cond;
+            printf("  %-8s %-30s %-6s %-20s %10s %10.3f %10s\n",
+                   iw ? "wire" : "gate", (fp + "->" + tp).c_str(),
+                   el.c_str(), cd.c_str(), "N/A", val.delay_ps, "---");
+          }
+          printf("  --- Arc Delay Summary: %zu matched, %zu LOCAL-only, %zu OPENSTA-only, "
+                 "max_err=%.3f ps, avg_err=%.3f ps ---\n",
+                 matched, unmatched_local, opensta_map.size(),
+                 max_err, matched > 0 ? sum_err / matched : 0.0f);
+
+          // --- Worst arrival/slack comparison ---
+          printf("\n  === Worst Arrival / Slack Comparison (max) ===\n");
+          printf("  %-30s %12s %12s %12s %12s %12s %12s\n",
+                 "pin", "L_arr(ps)", "O_arr(ps)", "arr_err", "L_slk(ps)", "O_slk(ps)", "slk_err");
+          printf("  %-30s %12s %12s %12s %12s %12s %12s\n",
+                 "---", "--------", "--------", "-------", "--------", "--------", "-------");
+
+          // Collect OPENSTA worst arrival/slack
+          auto getOpenStaWorst = [&](sta::Vertex *v) -> std::pair<float, float> {
+            float worst_arr = -1e30, worst_slk = 1e30;
+            bool found = false;
+            sta::VertexPathIterator path_iter(v, sta);
+            while (path_iter.hasNext()) {
+              sta::Path *path = path_iter.next();
+              if (path->pathAnalysisPt(sta)->pathMinMax() != sta::MinMax::max()) continue;
+              float arr = path->arrival() * 1e12;
+              float slk = path->slack(sta) * 1e12;
+              if (!found || slk < worst_slk) { worst_arr = arr; worst_slk = slk; found = true; }
+            }
+            return {worst_arr, worst_slk};
+          };
+
+          std::map<std::string, std::pair<float, float>> opensta_vt;
+          // Driver instance pins
+          sta::Instance *drv_inst = network->instance(drvr_pin);
+          sta::InstancePinIterator *dpin_iter = network->pinIterator(drv_inst);
+          while (dpin_iter->hasNext()) {
+            const sta::Pin *pin = dpin_iter->next();
+            sta::Vertex *v = graph->pinDrvrVertex(pin);
+            if (!v) v = graph->pinLoadVertex(pin);
+            if (v) opensta_vt[network->pathName(pin)] = getOpenStaWorst(v);
+          }
+          delete dpin_iter;
+          // Buffer tree + load pins via BFS
+          std::vector<sta::Vertex*> vtq;
+          if (drvr_vertex) vtq.push_back(drvr_vertex);
+          while (!vtq.empty()) {
+            sta::Vertex *cur = vtq.back(); vtq.pop_back();
+            sta::VertexOutEdgeIterator oe(cur, graph);
+            while (oe.hasNext()) {
+              sta::Edge *edge = oe.next();
+              sta::Vertex *to_v = edge->to(graph);
+              const sta::Pin *tp = to_v->pin();
+              if (!edge->role()->isWire() || !tp || !network->isLeaf(tp)) continue;
+              sta::Instance *ti = network->instance(tp);
+              sta::LibertyCell *tc = network->libertyCell(ti);
+              if (tc && tc->isBuffer()) {
+                opensta_vt[openStaQualName(tp)] = getOpenStaWorst(to_v);
+                sta::InstancePinIterator *bpi = network->pinIterator(ti);
+                while (bpi->hasNext()) {
+                  const sta::Pin *bp = bpi->next();
+                  if (network->direction(bp)->isOutput()) {
+                    sta::Vertex *bov = graph->pinDrvrVertex(bp);
+                    if (bov) {
+                      opensta_vt[openStaQualName(bp)] = getOpenStaWorst(bov);
+                      vtq.push_back(bov);
+                    }
+                  }
+                }
+                delete bpi;
+              } else {
+                opensta_vt[network->pathName(tp)] = getOpenStaWorst(to_v);
+              }
+            }
+          }
+
+          for (const auto &lv : local_vt) {
+            auto it = opensta_vt.find(lv.name);
+            if (it != opensta_vt.end()) {
+              printf("  %-30s %12.3f %12.3f %12.3f %12.3f %12.3f %12.3f\n",
+                     lv.name.c_str(),
+                     lv.arr_ps, it->second.first, lv.arr_ps - it->second.first,
+                     lv.slk_ps, it->second.second, lv.slk_ps - it->second.second);
+            } else {
+              printf("  %-30s %12.3f %12s %12s %12.3f %12s %12s\n",
+                     lv.name.c_str(), lv.arr_ps, "N/A", "---", lv.slk_ps, "N/A", "---");
+            }
+          }
+          fflush(stdout);
+        } else {
+          printf("  buildVirtualBuffer failed for best option\n");
+          rebuffer->removeVirtualBuffer(vinfo);
+        }
+      } else {
+        printf("  No driver PtVertex or best option found\n");
+      }
+    }
+    printf("===== [ARC DELAY COMPARE] End =====\n");
+  } else {
+    printf("No buffering applied (visit returned false)\n");
+  }
+  fflush(stdout);
+
+  delete visitor;
+  delete incre_sta;
+
+  printf("----- End Test Single Instance Buffering -----\n");
+  fflush(stdout);
+}
+
+void
+TestLrf::testParallelKKTProjection(sta::dbSta* sta,
+                                    rsz::Resizer *resizer,
+                                    odb::dbBlock *block,
+                                    size_t thread_num,
+                                    std::string lr_helper_method)
+{
+  printf("----- Testing Parallel KKT Projection (serial vs %zu threads) -----\n",
+         thread_num);
+  fflush(stdout);
+
+  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+  sta->findRequireds();
+
+  // Create IncreSta with thread_num threads
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  incre_sta->makeLRHelper(lr_helper_method);
+  lrf::LRHelper *lr_helper = incre_sta->lrHelper();
+
+  // Initialize LM values via one round of updateAllEdgeLms
+  lr_helper->ensureSorted(sta);
+  lr_helper->updateAllEdgeLms(sta);
+
+  // Record LM state before serial KKT
+  int pre_serial_frame = lr_helper->recordLM();
+
+  // --- Serial KKT ---
+  auto serial_start = std::chrono::high_resolution_clock::now();
+  bool serial_result = lr_helper->KKTProjection(sta);
+  auto serial_end = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> serial_elapsed = serial_end - serial_start;
+  printf("Serial KKT: %s, took %f seconds\n",
+         serial_result ? "satisfied" : "NOT satisfied", serial_elapsed.count());
+
+  // Record LM state after serial KKT
+  int post_serial_frame = lr_helper->recordLM();
+
+  // Restore to pre-serial state for parallel run
+  lr_helper->restoreLM(pre_serial_frame);
+
+  // --- Parallel KKT ---
+  auto parallel_start = std::chrono::high_resolution_clock::now();
+  bool parallel_result = lr_helper->parallelKKTProjection(sta);
+  auto parallel_end = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> parallel_elapsed = parallel_end - parallel_start;
+  printf("Parallel KKT (%zu threads): %s, took %f seconds\n",
+         thread_num,
+         parallel_result ? "satisfied" : "NOT satisfied",
+         parallel_elapsed.count());
+  printf("Speedup: %.2fx\n",
+         serial_elapsed.count() / std::max(parallel_elapsed.count(), 1e-9));
+
+  // Record LM state after parallel KKT
+  int post_parallel_frame = lr_helper->recordLM();
+
+  // --- Compare arc LMs between serial and parallel results ---
+  // Restore serial result, snapshot it, then restore parallel and compare
+  lr_helper->restoreLM(post_serial_frame);
+  // Collect serial arc LMs
+  sta::Graph *graph = sta->graph();
+  size_t total_arcs = 0;
+  size_t mismatch_count = 0;
+  double max_rel_error = 0.0;
+
+  // First pass: count arcs
+  sta::VertexIterator vert_iter(graph);
+  while (vert_iter.hasNext()) {
+    sta::Vertex *v = vert_iter.next();
+    sta::VertexOutEdgeIterator edge_iter(v, graph);
+    while (edge_iter.hasNext()) {
+      sta::Edge *edge = edge_iter.next();
+      for (sta::TimingArc *arc : edge->timingArcSet()->arcs()) {
+        for (size_t ap = 0; ap < graph->apCount(); ap++) {
+          total_arcs++;
+        }
+      }
+    }
+  }
+
+  // Snapshot serial LMs
+  std::vector<LMValue> serial_lms(total_arcs);
+  size_t idx = 0;
+  sta::VertexIterator vert_iter2(graph);
+  while (vert_iter2.hasNext()) {
+    sta::Vertex *v = vert_iter2.next();
+    sta::VertexOutEdgeIterator edge_iter(v, graph);
+    while (edge_iter.hasNext()) {
+      sta::Edge *edge = edge_iter.next();
+      LMValue const *lms = edge->arcLms();
+      for (sta::TimingArc *arc : edge->timingArcSet()->arcs()) {
+        for (size_t ap = 0; ap < graph->apCount(); ap++) {
+          size_t lm_idx = arc->index() * graph->apCount() + ap;
+          serial_lms[idx++] = lms[lm_idx];
+        }
+      }
+    }
+  }
+
+  // Restore parallel result and compare
+  lr_helper->restoreLM(post_parallel_frame);
+  idx = 0;
+  sta::VertexIterator vert_iter3(graph);
+  while (vert_iter3.hasNext()) {
+    sta::Vertex *v = vert_iter3.next();
+    sta::VertexOutEdgeIterator edge_iter(v, graph);
+    while (edge_iter.hasNext()) {
+      sta::Edge *edge = edge_iter.next();
+      LMValue const *lms = edge->arcLms();
+      for (sta::TimingArc *arc : edge->timingArcSet()->arcs()) {
+        for (size_t ap = 0; ap < graph->apCount(); ap++) {
+          size_t lm_idx = arc->index() * graph->apCount() + ap;
+          LMValue parallel_val = lms[lm_idx];
+          LMValue serial_val = serial_lms[idx++];
+          if (serial_val != 0.0) {
+            double rel_error = std::abs(parallel_val - serial_val) / std::abs(serial_val);
+            if (rel_error > 1e-6) {
+              mismatch_count++;
+              if (rel_error > max_rel_error)
+                max_rel_error = rel_error;
+            }
+          } else if (parallel_val != 0.0) {
+            mismatch_count++;
+          }
+        }
+      }
+    }
+  }
+
+  printf("Arc LM comparison: %zu total arcs, %zu mismatches, max relative error: %e\n",
+         total_arcs, mismatch_count, max_rel_error);
+  if (mismatch_count == 0) {
+    printf("PASS: Serial and parallel KKT produce identical results.\n");
+  } else {
+    printf("FAIL: Serial and parallel KKT produce different results!\n");
+  }
+  fflush(stdout);
+
+  delete incre_sta;
+  printf("----- End Test Parallel KKT Projection -----\n");
+  fflush(stdout);
+}
 
 }  // namespace lrf

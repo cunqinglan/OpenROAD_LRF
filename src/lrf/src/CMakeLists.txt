@@ -16,6 +16,7 @@ add_library(lrf_lib
     LrfMgr.cc
     LrSizer.cc
     PtGraph.cc
+    PtPiElmore.cc
     LocalSta.cc
     LocalParasitics.cc
     LocalReduceParasitic.cc

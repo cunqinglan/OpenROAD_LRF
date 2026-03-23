@@ -33,6 +33,7 @@
 #include "sta/Corner.hh"
 #include "sta/Parasitics.hh"
 #include "PtGraph.hh"
+#include "PtPiElmore.hh"
 
 namespace lrf {
 
@@ -319,5 +320,60 @@ LocalReduceToPiElmore::reduceElmoreDfs(const Pin *drvr_pin,
 
 ////////////////////////////////////////////////////////////////
 
+void
+LocalReduceToPiElmore::makePtPiElmore(const Parasitic *parasitic_network,
+                                      const Pin *drvr_pin,
+                                      ParasiticNode *drvr_node,
+                                      float coupling_cap_factor,
+                                      const RiseFall *rf,
+                                      const Corner *corner,
+                                      const MinMax *min_max,
+                                      const ParasiticAnalysisPt *ap,
+                                      PtPiElmore &result)
+{
+  float c2, rpi, c1;
+  reduceToPi(parasitic_network, drvr_pin, drvr_node, coupling_cap_factor,
+             rf, corner, min_max, ap, c2, rpi, c1);
+  result.setPiModel(c2, rpi, c1);
+  reduceElmoreDfsToPt(drvr_pin, drvr_node, nullptr, 0.0, result);
+}
+
+void
+LocalReduceToPiElmore::reduceElmoreDfsToPt(const Pin *drvr_pin,
+                                           ParasiticNode *node,
+                                           ParasiticResistor *from_res,
+                                           double elmore,
+                                           PtPiElmore &result)
+{
+  const Pin *pin = parasitics_->pin(node);
+  if (from_res && pin) {
+    if (network_->isLoad(pin)) {
+      // Look up the PtVertex for this load pin
+      sta::Vertex *load_vertex = graph_->pinLoadVertex(pin);
+      const PtVertex *pt_v = load_vertex
+          ? pt_graph_->ptVertex(load_vertex) : nullptr;
+      if (!pt_v) {
+        printf("Warning: reduceElmoreDfsToPt: load pin %s not found in PtGraph\n",
+               network_->pathName(pin));
+        fflush(stdout);
+      }
+      VertexId vid = pt_v ? pt_v->objectIdx() : sta::object_id_null;
+      result.addLoad(vid, pin, elmore);
+    }
+  }
+  visit(node);
+  ParasiticResistorSeq &resistors = resistor_map_[node];
+  for (ParasiticResistor *resistor : resistors) {
+    ParasiticNode *onode = parasitics_->otherNode(resistor, node);
+    if (resistor != from_res
+        && !isVisited(onode)
+        && !isLoopResistor(resistor)) {
+      float r = parasitics_->value(resistor);
+      double onode_elmore = elmore + r * downstreamCap(onode);
+      reduceElmoreDfsToPt(drvr_pin, onode, resistor, onode_elmore, result);
+    }
+  }
+  leave(node);
+}
 
 } // namespace
