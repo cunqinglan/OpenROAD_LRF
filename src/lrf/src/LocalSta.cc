@@ -131,8 +131,12 @@ LocalSta::collectLocalVertices(Instance *inst, VertexSet &local_vertices)
     }
     if (network_->isLoad(pin)) {
       sta::Vertex *load_vertex = graph_->pinLoadVertex(pin);
+      if (load_vertex == nullptr)
+        continue;
+      // Always include ref instance's own load pins for complete
+      // RefInput annotation; fanin expansion is still gated by searchFrom.
+      local_vertices.insert(load_vertex);
       if (search_pred_->searchFrom(load_vertex)) {
-        local_vertices.insert(load_vertex);
         collectLocalFaninSiblingVertices(load_vertex, local_vertices);
       }
     }
