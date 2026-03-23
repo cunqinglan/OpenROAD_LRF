@@ -85,8 +85,18 @@ struct InstVertex {
   EdgeId out_edges_ = edge_id_null;
   ObjectIdx object_idx_ = object_idx_null;
   VertexType type_ = VertexType::NONE;
-  bool selected_ = true;  // default true: all instances participate in resize
-  bool buffer_candidate_ = false;  // true: also evaluate buffering (set by precheck)
+
+  // Bitmask controlling which operations to evaluate for this instance.
+  //   bit 0 (kMoveResize):  gate resizing
+  //   bit 1 (kMoveBuffer):  buffer insertion
+  // Default: resize only (0b01).  Set to 0 to skip entirely.
+  static constexpr uint8_t kMoveResize = 0x1;
+  static constexpr uint8_t kMoveBuffer = 0x2;
+  uint8_t move_mask_ = kMoveResize;
+
+  bool doResize()  const { return move_mask_ & kMoveResize; }
+  bool doBuffer()  const { return move_mask_ & kMoveBuffer; }
+
   std::vector<sta::PwrActivity> activities_;
 };
 

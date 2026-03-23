@@ -1273,7 +1273,7 @@ CombinedVisitor::visit(sta::Instance *inst, sta::VertexId vid)
   combined_resize_cell_ = nullptr;
 
   bool is_buffer = (vid != sta::object_id_null)
-                   && task_arranger_->vertex(vid)->buffer_candidate_;
+                   && task_arranger_->vertex(vid)->doBuffer();
   bool success;
   if (is_buffer) {
     success = tryCombined(inst);
