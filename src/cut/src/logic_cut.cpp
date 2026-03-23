@@ -820,15 +820,27 @@ void LogicCut::InsertAbcMapSolution(abc::Map_MappingSolution_t* pSolution,
     logger->error(utl::CUT,
                   50,
                   "Failed to create mapped ABC network from solution.");
+    return;
+  }
+
+  // Convert to netlist form (required by InsertMappedAbcNetwork)
+  abc::Abc_Ntk_t* abc_netlist = abc::Abc_NtkToNetlist(abc_mapped_network);
+  abc::Abc_NtkDelete(abc_mapped_network);
+
+  if (!abc_netlist) {
+    logger->error(utl::CUT,
+                  54,
+                  "Failed to convert mapped ABC network to netlist.");
+    return;
   }
 
   // Wrap the network in a unique pointer for automatic cleanup
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> abc_network_ptr(
-      abc_mapped_network, &abc::Abc_NtkDelete);
+      abc_netlist, &abc::Abc_NtkDelete);
 
   // Insert the mapped network into the OpenROAD network
   // This will replace the current cut instances with the new mapped instances
-  InsertMappedAbcNetwork(abc_mapped_network,
+  InsertMappedAbcNetwork(abc_netlist,
                         abc_library,
                         network,
                         sta,
