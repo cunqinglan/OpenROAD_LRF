@@ -67,14 +67,14 @@ ParallelLrVisitor::visit(sta::Instance *inst)
   if (ori_cell) {
     sta::LibertyCellSeq *equiv_cells = swappable_cells_cache_->at(ori_cell);
     if (equiv_cells == nullptr) {
-      printf("Warning: ParallelLrVisitor::visit no equiv cells cached for %s, regenerating\n",
-             ori_cell->name());
+      // printf("Warning: ParallelLrVisitor::visit no equiv cells cached for %s, regenerating\n",
+             // ori_cell->name());
       fflush(stdout);
       db_sta_->equivCells(ori_cell);
     }
     if (equiv_cells == nullptr) {
-      printf("ParallelLrVisitor::visit no equiv cells for %s\n",
-             ori_cell->name());
+      // printf("ParallelLrVisitor::visit no equiv cells for %s\n",
+             // ori_cell->name());
       fflush(stdout);
       return false;
     } 
@@ -86,8 +86,8 @@ ParallelLrVisitor::visit(sta::Instance *inst)
       }
     }
     if (legal_equiv_cells.size() < 2) {
-      printf("ParallelLrVisitor::visit no legal equiv cells for %s\n",
-             ori_cell->name());
+      // printf("ParallelLrVisitor::visit no legal equiv cells for %s\n",
+             // ori_cell->name());
       fflush(stdout);
       return false;
     }
@@ -144,8 +144,8 @@ ParallelLrVisitor::visit(sta::Instance *inst)
     local_sta_->increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, best_cell_);
     return true;
   } 
-  printf("ParallelLrVisitor::visit no liberty cell for instance %s\n",
-         db_sta_->network()->pathName(inst));
+  // printf("ParallelLrVisitor::visit no liberty cell for instance %s\n",
+         // db_sta_->network()->pathName(inst));
   fflush(stdout);
   return false;
 }
@@ -168,8 +168,8 @@ ParallelLrVisitor::visit(sta::Instance *inst,
     timing_record.orig_cell = ori_cell;
     sta::LibertyCellSeq *equiv_cells = db_sta_->equivCells(ori_cell);
     if (equiv_cells == nullptr) {
-      printf("ParallelLrVisitor::visit no equiv cells for %s\n",
-             ori_cell->name());
+      // printf("ParallelLrVisitor::visit no equiv cells for %s\n",
+             // ori_cell->name());
       fflush(stdout);
       return false;
     } 
@@ -181,16 +181,16 @@ ParallelLrVisitor::visit(sta::Instance *inst,
       }
     }
     if (legal_equiv_cells.size() < 2) {
-      printf("ParallelLrVisitor::visit no legal equiv cells for %s\n",
-             ori_cell->name());
+      // printf("ParallelLrVisitor::visit no legal equiv cells for %s\n",
+             // ori_cell->name());
       fflush(stdout);
       return false;
     }
 
-    printf("ParallelLrVisitor::visit instance %s of type %s with %lu legal equivalent cells\n",
-         db_sta_->network()->pathName(inst),
-         db_sta_->network()->libertyCell(inst)->name(),
-         legal_equiv_cells.size());
+    // printf("ParallelLrVisitor::visit instance %s of type %s with %lu legal equivalent cells\n",
+         // db_sta_->network()->pathName(inst),
+         // db_sta_->network()->libertyCell(inst)->name(),
+         // legal_equiv_cells.size());
     fflush(stdout);
 
     pt_graph_ = local_sta_->makePtGraph(inst, false);
@@ -214,9 +214,9 @@ ParallelLrVisitor::visit(sta::Instance *inst,
       if (cnt > 2) break; // Only test first 1 equiv cells
       // This first virtual swap the cell in pt graph,
       // then recompute local delays, arrivals, requireds.
-      printf("ParallelLrVisitor::visit testing equiv cell %s for instance %s\n",
-             equiv_cell->name(),
-             db_sta_->network()->pathName(inst));
+      // printf("ParallelLrVisitor::visit testing equiv cell %s for instance %s\n",
+             // equiv_cell->name(),
+             // db_sta_->network()->pathName(inst));
 
       DelayLmSumResult swapped_result = local_sta_->
         increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, equiv_cell);
@@ -232,12 +232,12 @@ ParallelLrVisitor::visit(sta::Instance *inst,
       timing_record.liberty_timing_map[std::string(equiv_cell->name())] = cell_type_timing;
 
       // Do local slack check
-      printf("from delay_lm_sum %f to %f for cell %s, slack before swap %f, after swap %f\n",
-             best_result.delay_lm_sum * 1e12,
-             swapped_cost * 1e12,
-             equiv_cell->name(),
-             slack_before_swap_ * 1e12,
-             swapped_slack * 1e12);
+      // printf("from delay_lm_sum %f to %f for cell %s, slack before swap %f, after swap %f\n",
+             // best_result.delay_lm_sum * 1e12,
+             // swapped_cost * 1e12,
+             // equiv_cell->name(),
+             // slack_before_swap_ * 1e12,
+             // swapped_slack * 1e12);
       fflush(stdout);
       if (swapped_cost < best_result.delay_lm_sum
           && swapped_slack >= slack_before_swap_ * 1.1 ) {
@@ -255,8 +255,8 @@ ParallelLrVisitor::visit(sta::Instance *inst,
     }
     return true;
   } 
-  printf("Warning: ParallelLrVisitor::visit no liberty cell for instance %s\n",
-         db_sta_->network()->pathName(inst));
+  // printf("Warning: ParallelLrVisitor::visit no liberty cell for instance %s\n",
+         // db_sta_->network()->pathName(inst));
   fflush(stdout);
   return false;
 }
@@ -276,7 +276,7 @@ void
 ParallelLrVisitor::printVisitedInstNames() const
 {
   for (const std::string &inst_name : visited_instances_) {
-    printf("Visited instance: %s\n", inst_name.c_str());
+    // printf("Visited instance: %s\n", inst_name.c_str());
   }
 }
 
@@ -289,10 +289,10 @@ ParallelLrVisitor::applyChangesToDb(rsz::Resizer *resizer)
                 db_sta_->network()->libertyCell(pt_graph_->refInstance());
     if (!sta::equivCellsArcs(from_lib_cell, best_cell_)) {
       // No change needed
-      printf("ParallelLrVisitor::applyChangesToDb skipping instance %s swap from cell %s to cell %s due to arc mismatch\n",
-              db_sta_->network()->pathName(pt_graph_->refInstance()),
-              from_lib_cell->name(),
-              best_cell_->name());
+      // printf("ParallelLrVisitor::applyChangesToDb skipping instance %s swap from cell %s to cell %s due to arc mismatch\n",
+              // db_sta_->network()->pathName(pt_graph_->refInstance()),
+              // from_lib_cell->name(),
+              // best_cell_->name());
       fflush(stdout);
       return;
     }
@@ -348,10 +348,10 @@ ParallelLrVisitor::updateVertexInfo(sta::VertexId vertex_id)
     sta::TagGroup *pt_tag_group = pt_graph_->tagGroup(pt_vertex);
     sta::TagGroup *sta_tag_group = db_sta_->search()->tagGroup(sta_vertex);
     if (pt_tag_group->index() != sta_tag_group->index()) {
-      printf("TagGroup mismatch for vertex %s: PtTagGroup index %u, StaTagGroup index %u\n",
-             sta_vertex->to_string(db_sta_).c_str(),
-             pt_tag_group->index(),
-             sta_tag_group->index());
+      // printf("TagGroup mismatch for vertex %s: PtTagGroup index %u, StaTagGroup index %u\n",
+             // sta_vertex->to_string(db_sta_).c_str(),
+             // pt_tag_group->index(),
+             // sta_tag_group->index());
       // We neglect many cases here for simplicity.
       // So when tag groups do not match, we skip 
       // updating paths, and just keep the existing ones.
@@ -388,8 +388,8 @@ ParallelLrVisitor::updateEdgeInfo(sta::EdgeId edge_id)
 void 
 ParallelLrVisitor::recordGraphTimingFromPtGraphPara(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &graph_timing)
 {
-  printf("LocalSta::Recording Graph Timing from PtGraph for cell %s\n", 
-          graph_timing.cell ? graph_timing.cell->name() : "nullptr");
+  // printf("LocalSta::Recording Graph Timing from PtGraph for cell %s\n", 
+          // graph_timing.cell ? graph_timing.cell->name() : "nullptr");
   fflush(stdout);
   // First copy slews and paths from pt_graph's vertex to graph_timing
   for (PtVertex &pt_vertex : pt_graph->ptVertices()) {

@@ -924,11 +924,11 @@ ParallelLrVisitor::applyResizeChangesToDb(rsz::Resizer *resizer)
     // by PtGraph::updateTimingArcSets() during virtual replacement.
     if (!sta::equivCellPorts(from_lib_cell, best_cell_)
         || !sta::equivCellFuncs(from_lib_cell, best_cell_)) {
-      printf("ParallelLrVisitor::applyChangesToDb skipping instance %s swap from cell %s to cell %s due to port/function mismatch\n",
-              db_sta_->network()->pathName(pt_graph_->refInstance()),
-              from_lib_cell->name(),
-              best_cell_->name());
-      fflush(stdout);
+      // printf("ParallelLrVisitor::applyChangesToDb skipping instance %s swap from cell %s to cell %s due to port/function mismatch\n",
+      //         db_sta_->network()->pathName(pt_graph_->refInstance()),
+      //         from_lib_cell->name(),
+      //         best_cell_->name());
+      // fflush(stdout);
       return;
     }
     // printf("ParallelLrVisitor::applyChangesToDb swapping instance %s from cell %s to cell %s\n",
@@ -1125,9 +1125,9 @@ ParallelLrVisitor::tryBuffering(sta::Instance *inst)
     }
   }
   if (drvr_infos.size() > 1) {
-    printf("Warning: ParallelLrVisitor::tryBuffering instance %s has more than 1 driver pins, buffering may not be correct\n",
-           db_sta_->network()->pathName(inst));
-    fflush(stdout);
+    // printf("Warning: ParallelLrVisitor::tryBuffering instance %s has more than 1 driver pins, buffering may not be correct\n",
+    //        db_sta_->network()->pathName(inst));
+    // fflush(stdout);
     return false;
   }
   for (auto &di : drvr_infos) {

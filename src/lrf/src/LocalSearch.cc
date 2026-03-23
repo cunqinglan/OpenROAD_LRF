@@ -444,8 +444,8 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
     }
   } 
   else if (role == TimingRole::latchDtoQ()) {
-    printf("ERROR: Local arrival analysis does not support latch clk to q paths yet.\n");
-    fflush(stdout);
+    // printf("ERROR: Local arrival analysis does not support latch clk to q paths yet.\n");
+    // fflush(stdout);
     return true;
   } else if (from_tag->isClock()) {
     // clk to ff/dl/comb: replicate original STA logic to preserve tag group.
@@ -779,11 +779,11 @@ bool LocalRequiredVisitor::localVisitFromToPath(
     if (to_pt_vertex.tagGroupIndex() == sta::tag_group_index_max) {
       const char *to_name = to_pt_vertex.pin() ? network_->name(to_pt_vertex.pin()) : "virtual";
       const char *from_name = from_pt_vertex.pin() ? network_->name(from_pt_vertex.pin()) : "virtual";
-      printf("WARNING: localVisitFromToPath skipping to_vertex %s with no tag group "
-             "(from_vertex: %s, edge role: %s)\n",
-             to_name, from_name,
-             pt_edge.role()->to_string().c_str());
-      fflush(stdout);
+      // printf("WARNING: localVisitFromToPath skipping to_vertex %s with no tag group "
+      //        "(from_vertex: %s, edge role: %s)\n",
+      //        to_name, from_name,
+      //        pt_edge.role()->to_string().c_str());
+      // fflush(stdout);
       return true;
     }
     size_t path_index = ptPathIndex(from_pt_vertex, from_path);
@@ -801,8 +801,8 @@ bool LocalRequiredVisitor::localVisitFromToPath(
       throw std::runtime_error("Local required analysis found to vertex without tag");
     }
   } else {
-    printf("WARNING: Local required analysis does not propagate through latch D->Q edges.\n");
-    fflush(stdout);
+    // printf("WARNING: Local required analysis does not propagate through latch D->Q edges.\n");
+    // fflush(stdout);
   }
   return true;
 }

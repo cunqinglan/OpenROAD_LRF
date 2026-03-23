@@ -167,7 +167,7 @@ LocalSta::localFindSlewLimit(const sta::Pin *pin,
   sta::Network *network = network_;
   LibertyPort *lib_port = lib_cell->findLibertyPort(network_->portName(pin));
   if (!lib_port) {
-    printf("ERROR: no port found for pin %s\n", network_->pathName(pin));
+    // printf("ERROR: no port found for pin %s\n", network_->pathName(pin));
     throw std::runtime_error("no port found for pin");
   }
   localFindSlewLimit(lib_port, corner, min_max, limit, exists);
@@ -343,7 +343,7 @@ LocalSta::localFindCapLimit(const sta::Pin *pin,
   if (network->isTopLevelPort(pin)) {
     sta::Port *port = reinterpret_cast<Port*>(lib_cell->findPort(network_->portName(pin)));
     if (!port) {
-      printf("ERROR: no port found for pin %s\n", network_->pathName(pin));
+      // printf("ERROR: no port found for pin %s\n", network_->pathName(pin));
       throw std::runtime_error("no port found for pin");
     }
     sdc_->capacitanceLimit(port, min_max, limit1, exists1);

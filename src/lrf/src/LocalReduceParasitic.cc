@@ -93,9 +93,9 @@ LocalReduceToPi::reduceToPi(const Parasitic *parasitic_network,
     c2 = y1 - y2 * y2 / y3;
     rpi = -y3 * y3 / (y2 * y2 * y2);
   }
-  debugPrint(debug_, "parasitic_reduce", 2,
-             " Pi model c2=%.3g rpi=%.3g c1=%.3g max_r=%.3g",
-             c2, rpi, c1, max_resistance);
+  // debugPrint(debug_, "parasitic_reduce", 2,
+             // " Pi model c2=%.3g rpi=%.3g c1=%.3g max_r=%.3g",
+             // c2, rpi, c1, max_resistance);
 }
 
 // Find admittance moments.
@@ -132,8 +132,8 @@ LocalReduceToPi::reducePiDfs(const Pin *drvr_pin,
           && resistor != from_res) {
         if (isVisited(onode)) {
           // Resistor loop.
-          debugPrint(debug_, "parasitic_reduce", 2, " loop detected thru resistor %zu",
-                     parasitics_->id(resistor));
+          // debugPrint(debug_, "parasitic_reduce", 2, " loop detected thru resistor %zu",
+                     // parasitics_->id(resistor));
           markLoopResistor(resistor);
         }
         else {
@@ -154,9 +154,9 @@ LocalReduceToPi::reducePiDfs(const Pin *drvr_pin,
 
   setDownstreamCap(node, dwn_cap);
   leave(node);
-  debugPrint(debug_, "parasitic_reduce", 3,
-             " node %s y1=%.3g y2=%.3g y3=%.3g cap=%.3g",
-             parasitics_->name(node), y1, y2, y3, dwn_cap);
+  // debugPrint(debug_, "parasitic_reduce", 3,
+             // " node %s y1=%.3g y2=%.3g y3=%.3g cap=%.3g",
+             // parasitics_->name(node), y1, y2, y3, dwn_cap);
 }
 
 float
@@ -297,9 +297,9 @@ LocalReduceToPiElmore::reduceElmoreDfs(const Pin *drvr_pin,
   const Pin *pin = parasitics_->pin(node);
   if (from_res && pin) {
     if (network_->isLoad(pin)) {
-      debugPrint(debug_, "parasitic_reduce", 2, " Load %s elmore=%.3g",
-                 network_->pathName(pin),
-                 elmore);
+      // debugPrint(debug_, "parasitic_reduce", 2, " Load %s elmore=%.3g",
+                 // network_->pathName(pin),
+                 // elmore);
       parasitics_->setElmore(pi_elmore, pin, elmore);
     }
   }

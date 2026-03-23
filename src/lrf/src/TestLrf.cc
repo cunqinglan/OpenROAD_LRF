@@ -1170,8 +1170,8 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
     auto start = std::chrono::high_resolution_clock::now();
     incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
     auto end = std::chrono::high_resolution_clock::now();
-    printf("parallelResizeByArray took %f seconds\n",
-          std::chrono::duration<double>(end - start).count());
+    // printf("parallelResizeByArray took %f seconds\n",
+    //       std::chrono::duration<double>(end - start).count());
 
     est_parasitics->updateWireParasiticsNoDeleteNetwork();
     sta->delaysInvalid();
@@ -1187,10 +1187,10 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
       leakage += power_result.leakage();
     }
 
-    printf("Worst Negative Slack after RSZ: %f\n", wns * 1e12);
-    printf("Total Negative Slack after RSZ: %f\n", tns * 1e12);
-    printf("Total Leakage Power after RSZ: %f\n", leakage * 1e10);
-    fflush(stdout);
+    // printf("Worst Negative Slack after RSZ: %f\n", wns * 1e12);
+    // printf("Total Negative Slack after RSZ: %f\n", tns * 1e12);
+    // printf("Total Leakage Power after RSZ: %f\n", leakage * 1e10);
+    // fflush(stdout);
     incre_sta->lmUpdate();
 
     if (wns > best_wns && wns < 0) {
@@ -1446,13 +1446,13 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBuffering(sta::dbSta* sta,
 
   for (size_t i = 0; i < iterations; ++i) {
     sta->findRequireds();
-    printf("----- LR ResizeByArrayWithPrecheckBuffering Iteration %zu -----\n", i+1);
+    // printf("----- LR ResizeByArrayWithPrecheckBuffering Iteration %zu -----\n", i+1);
     auto start = std::chrono::high_resolution_clock::now();
     incre_sta->parallelResizeByArrayWithPrecheck(resizer, avg_delay, avg_leakage,
                                                   PT_tradeoff, top_ratio);
     auto end = std::chrono::high_resolution_clock::now();
-    printf("Iteration %zu took %f seconds\n", i+1,
-           std::chrono::duration<double>(end - start).count());
+    // printf("Iteration %zu took %f seconds\n", i+1,
+    //        std::chrono::duration<double>(end - start).count());
 
     est_parasitics->updateWireParasiticsNoDeleteNetwork();
     sta->delaysInvalid();
@@ -1468,10 +1468,10 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBuffering(sta::dbSta* sta,
       leakage += power_result.leakage();
     }
 
-    printf("Worst Negative Slack after RSZ: %f\n", wns * 1e12);
-    printf("Total Negative Slack after RSZ: %f\n", tns * 1e12);
-    printf("Total Leakage Power after RSZ: %f\n", leakage * 1e10);
-    fflush(stdout);
+    // printf("Worst Negative Slack after RSZ: %f\n", wns * 1e12);
+    // printf("Total Negative Slack after RSZ: %f\n", tns * 1e12);
+    // printf("Total Leakage Power after RSZ: %f\n", leakage * 1e10);
+    // fflush(stdout);
     incre_sta->lmUpdate();
 
     if (wns > best_wns && wns < 0) {
