@@ -152,9 +152,6 @@ LocalArrivalVisitor::findVertexArrival(PtVertex &pt_vertex)
   // If error occurs, we don't rewrite the arrival.
   bool arrival_changed = true;
 
-  // Debug for g42937/Y: track pathCount changes
-  bool is_debug_pin = (strcmp(network_->name(pin), "g42937/Y") == 0);
-  
   tag_bldr_->init(vertex);
   has_fanin_one_ = graph_->hasFaninOne(vertex);
   
@@ -191,14 +188,6 @@ LocalArrivalVisitor::findVertexArrival(PtVertex &pt_vertex)
   if (vertex->isRegClk() && !is_clk) {
     search_->makeUnclkedPaths(vertex, true, false, tag_bldr_);
   }
-
-  // Debug: Print tag_bldr contents before calling localSetVertexArrivals
-  const char *ref_cell_name = (pt_graph_->refGate()->name());
-  // if (is_debug_pin) {
-  //   printf("\n[DEBUG] tag_bldr for %s: pathCount = %zu, ref_cell = %s\n", 
-  //          network_->name(pin), tag_bldr_->pathCount(), ref_cell_name);
-  //   fflush(stdout);
-  // }
 
   // We don't do arrival change judgement, cause it will definitely
   // change in along with gate sizing.
@@ -261,8 +250,8 @@ LocalPathVisitor::localVisitEdge(PtVertex &from_pt_vertex,
       // Check if the path has a valid tag index before accessing it
       TagIndex tag_idx = from_path->tagIndex(this);
       if (tag_idx == sta::tag_group_index_max || tag_idx >= search_->tagCount()) {
-        printf("Warning: LocalPathVisitor::localVisitEdge: Skipping invalid path on vertex %s that may have been corrupted by copyPaths.\n",
-               network_->name(from_pt_vertex.pin()));
+        // printf("Warning: LocalPathVisitor::localVisitEdge: Skipping invalid path on vertex %s that may have been corrupted by copyPaths.\n",
+               // network_->name(from_pt_vertex.pin()));
         fflush(stdout);
         continue;
       }
@@ -342,7 +331,7 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
   Arrival to_arrival;
 
   if (from_clk_info->isGenClkSrcPath()) {
-    printf("Local arrival analysis supports gen clk src paths.\n");
+    // printf("Local arrival analysis supports gen clk src paths.\n");
     if (!sdc_->clkStopPropagation(clk,from_pin,from_rf,to_pin,to_rf)
 	&& (variables_->clkThruTristateEnabled()
 	    || !(role == TimingRole::tristateEnable()
@@ -412,12 +401,12 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
     }
   } 
   else if (edge->role() == TimingRole::latchDtoQ()) {
-    printf("ERROR: Local arrival analysis does not support latch clk to q paths yet.\n");
+    // printf("ERROR: Local arrival analysis does not support latch clk to q paths yet.\n");
     fflush(stdout);
     return true;
   } else if (from_tag->isClock()) {
     // clk to ff/dl/comb
-    printf("Skipping clock to ff/dl/comb path in local arrival analysis.\n");
+    // printf("Skipping clock to ff/dl/comb path in local arrival analysis.\n");
     fflush(stdout);
     return true;
   }
@@ -524,9 +513,6 @@ LocalArrivalVisitor::localSetVertexArrivals(PtVertex &pt_vertex, TagGroupBldr *t
   if (tag_group == prev_tag_group) {
     // Even if tag_group is the same, we need to ensure prev_paths is not null
     if (prev_paths == nullptr) {
-      printf("LocalArrivalVisitor::localSetVertexArrivals: prev_paths == nullptr for %s.\n",
-             network_->name(pt_vertex.pin()));
-      fflush(stdout);
       size_t path_count = tag_bldr->pathCount();
       Path *paths = pt_graph_->makePaths(pt_vertex.objectIdx(), path_count);
       // Since prev_paths is nullptr, we can't preserve required, just copy arrivals
@@ -540,24 +526,6 @@ LocalArrivalVisitor::localSetVertexArrivals(PtVertex &pt_vertex, TagGroupBldr *t
     // printf("Warning: LocalArrivalVisitor::localSetVertexArrivals: TagGroup changed for %s (may lose requireds).\n",
     //        network_->name(pt_vertex.pin()));
 
-    const char *pin_name = network_->name(pt_vertex.pin());
-    // 只为特定的 pin 输出详细信息
-    bool is_debug_pin = (strcmp(pin_name, "g42937/Y") == 0);
-    
-    // if (is_debug_pin) {
-    //   printf("\n=== NEW TagGroup for %s ===\n", pin_name);
-      
-    //   if (prev_tag_group && tag_group) {
-    //     printf("Previous: index=%u, paths=%zu\n",
-    //             prev_tag_group->index(), prev_tag_group->pathCount());
-    //     printf("New: index=%u, paths=%zu\n",
-    //             tag_group->index(), tag_group->pathCount());
-    //   }
-    //   fflush(stdout);
-    // }
-    
-    // Save required values before deleting old paths
-    
     tag_bldr->ptCopyPaths(prev_tag_group, prev_paths);
   }
   // We don't consider filtered paths since we don't consider
@@ -574,10 +542,10 @@ LocalArrivalVisitor::printArrivals()
     while (path_iter.hasNext()) {
       Path *path = path_iter.next();
       Arrival arrival = path->arrival();
-      printf("Vertex %s Path %zu Arrival: %f\n",
-             network_->name(pt_vertex.pin()),
-             path_num,
-             arrival);
+      // printf("Vertex %s Path %zu Arrival: %f\n",
+             // network_->name(pt_vertex.pin()),
+             // path_num,
+             // arrival);
       path_num++;
     }
   }
@@ -730,11 +698,11 @@ bool LocalRequiredVisitor::localVisitFromToPath(
     // Guard: to_pt_vertex may not have been assigned a tag group during
     // arrival analysis (e.g. null vertex skipped in findLocalArrivals).
     if (to_pt_vertex.tagGroupIndex() == sta::tag_group_index_max) {
-      printf("WARNING: localVisitFromToPath skipping to_vertex %s with no tag group "
-             "(from_vertex: %s, edge role: %s)\n",
-             network_->name(to_pt_vertex.pin()),
-             network_->name(from_pt_vertex.pin()),
-             pt_edge.role()->to_string().c_str());
+      // printf("WARNING: localVisitFromToPath skipping to_vertex %s with no tag group "
+             // "(from_vertex: %s, edge role: %s)\n",
+             // network_->name(to_pt_vertex.pin()),
+             // network_->name(from_pt_vertex.pin()),
+             // pt_edge.role()->to_string().c_str());
       fflush(stdout);
       return true;
     }
@@ -753,7 +721,7 @@ bool LocalRequiredVisitor::localVisitFromToPath(
       throw std::runtime_error("Local required analysis found to vertex without tag");
     }
   } else {
-    printf("WARNING: Local required analysis does not propagate through latch D->Q edges.\n");
+    // printf("WARNING: Local required analysis does not propagate through latch D->Q edges.\n");
     fflush(stdout);
   }
   return true;
@@ -768,10 +736,10 @@ LocalRequiredVisitor::printRequireds()
     while (path_iter.hasNext()) {
       Path *path = path_iter.next();
       Required required = path->required();
-      printf("Vertex %s Path %zu Required: %f\n",
-             network_->name(pt_vertex.pin()),
-             path_num,
-             required);
+      // printf("Vertex %s Path %zu Required: %f\n",
+             // network_->name(pt_vertex.pin()),
+             // path_num,
+             // required);
       path_num++;
     }
   }

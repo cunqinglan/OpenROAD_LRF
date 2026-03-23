@@ -13,7 +13,7 @@ void example_basic_usage(sta::dbSta* sta,
                         rsz::Resizer* resizer,
                         ParallelLrVisitor* visitor)
 {
-  printf("=== Example 1: Basic Usage ===\n");
+  // printf("=== Example 1: Basic Usage ===\n");
   
   // 创建 TaskArranger
   TaskArranger* arranger = new TaskArranger(sta);
@@ -39,17 +39,17 @@ void example_conditional_enable(sta::dbSta* sta,
                                ParallelLrVisitor* visitor,
                                bool debug_mode)
 {
-  printf("=== Example 2: Conditional Enable ===\n");
+  // printf("=== Example 2: Conditional Enable ===\n");
   
   TaskArranger* arranger = new TaskArranger(sta);
   arranger->makeLevelGraph(sta->network(), resizer);
   
   // 仅在调试模式下启用检查
   if (debug_mode) {
-    printf("Debug mode: Topology checking enabled\n");
+    // printf("Debug mode: Topology checking enabled\n");
     arranger->enableTopologyCheck(true);
   } else {
-    printf("Production mode: Topology checking disabled\n");
+    // printf("Production mode: Topology checking disabled\n");
   }
   
   arranger->visitParallel(sta, local_sta, resizer, visitor);
@@ -63,7 +63,7 @@ void example_manual_check(sta::dbSta* sta,
                          rsz::Resizer* resizer, 
                          ParallelLrVisitor* visitor)
 {
-  printf("=== Example 3: Manual Violation Check ===\n");
+  // printf("=== Example 3: Manual Violation Check ===\n");
   
   TaskArranger* arranger = new TaskArranger(sta);
   arranger->makeLevelGraph(sta->network(), resizer);
@@ -72,7 +72,7 @@ void example_manual_check(sta::dbSta* sta,
   arranger->visitParallel(sta, local_sta, resizer, visitor);
   
   // 手动查看违规（可选，因为 visitParallel 结束时已经打印过）
-  printf("\n--- Manual violation check ---\n");
+  // printf("\n--- Manual violation check ---\n");
   arranger->printTopologyViolations();
   
   delete arranger;
@@ -84,7 +84,7 @@ void example_env_control(sta::dbSta* sta,
                         rsz::Resizer* resizer,
                         ParallelLrVisitor* visitor)
 {
-  printf("=== Example 4: Environment Variable Control ===\n");
+  // printf("=== Example 4: Environment Variable Control ===\n");
   
   TaskArranger* arranger = new TaskArranger(sta);
   arranger->makeLevelGraph(sta->network(), resizer);
@@ -94,7 +94,7 @@ void example_env_control(sta::dbSta* sta,
   bool enable_check = (check_env && std::string(check_env) == "1");
   
   if (enable_check) {
-    printf("LRF_CHECK_TOPOLOGY=1: Enabling topology check\n");
+    // printf("LRF_CHECK_TOPOLOGY=1: Enabling topology check\n");
     arranger->enableTopologyCheck(true);
   }
   

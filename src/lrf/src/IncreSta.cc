@@ -132,7 +132,7 @@ IncreSta::IncreSta(dbSta *db_sta, size_t thread_count)
 {
   dbStaState::init(db_sta);
   if (thread_count != threadCount()) {
-    printf("IncreSta: setting STA thread count to %zu\n", thread_count);
+    // printf("IncreSta: setting STA thread count to %zu\n", thread_count);
     sta_->setThreadCount(thread_count);
   }
   makeLocalSta();
@@ -510,11 +510,11 @@ IncreSta::makeEquivCellArray(bool verbose)
           const double cy = cell_incap[y];
           if (verbose) {
             if (rx < ry && cx > cy) {
-              printf("  [Warning: unexpected ranking] %s vs %s: cap wins (%.2e vs %.2e)",
-                x->name(), y->name(), cx, cy);
+              // printf("  [Warning: unexpected ranking] %s vs %s: cap wins (%.2e vs %.2e)",
+                // x->name(), y->name(), cx, cy);
             } else if (rx > ry && cx < cy) {
-              printf("  [Warning: unexpected ranking] %s vs %s: cap wins (%.2e vs %.2e)",
-                x->name(), y->name(), cx, cy);
+              // printf("  [Warning: unexpected ranking] %s vs %s: cap wins (%.2e vs %.2e)",
+                // x->name(), y->name(), cx, cy);
             }
           }
           if (rx != ry)
@@ -553,18 +553,18 @@ IncreSta::makeEquivCellArray(bool verbose)
 
       // Log one group matrix.
       if (verbose) {
-        printf("EquivCellArrayGroup: %s (%zu cells, %zu cols, %zu rows)\n",
-          group->front() ? group->front()->name() : "<null>",
-          group->size(),
-          prefixes.size(),
-          max_rows);
+        // printf("EquivCellArrayGroup: %s (%zu cells, %zu cols, %zu rows)\n",
+          // group->front() ? group->front()->name() : "<null>",
+          // group->size(),
+          // prefixes.size(),
+          // max_rows);
         // Print header row (prefixes)
         std::string header = "  col:";
         for (size_t c = 0; c < prefixes.size(); c++) {
           header += (c == 0 ? " " : " | ");
           header += prefixes[c];
         }
-        printf("%s\n", header.c_str());
+        // printf("%s\n", header.c_str());
         for (size_t r = 0; r < max_rows; r++) {
           std::string line = fmt::format("  row{:>2d}:", static_cast<int>(r));
           for (size_t c = 0; c < prefixes.size(); c++) {
@@ -576,17 +576,17 @@ IncreSta::makeEquivCellArray(bool verbose)
               line += "<null>";
             }
           }
-          printf("%s\n", line.c_str());
+          // printf("%s\n", line.c_str());
         }
-        printf("  --\n");
+        // printf("  --\n");
       }
     }
   }
   delete lib_iter;
   equiv_cell_array_built_ = true;
   if (verbose) {
-    printf("makeEquivCellArray: %zu rows, %zu cells in pos_map\n",
-           equiv_cell_array_.size(), equiv_cell_pos_map_.size());
+    // printf("makeEquivCellArray: %zu rows, %zu cells in pos_map\n",
+           // equiv_cell_array_.size(), equiv_cell_pos_map_.size());
     fflush(stdout);
   }
 }
@@ -627,19 +627,19 @@ IncreSta::parallelResize(rsz::Resizer *resizer, float avg_delay, float avg_power
     makeSwappableCellsCache(resizer);
     auto end_cache = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff_cache = end_cache - start_cache;
-    printf("makeSwappableCellsCache took %f s\n", diff_cache.count());
+    // printf("makeSwappableCellsCache took %f s\n", diff_cache.count());
   }
   if (!swap_cell_leakage_presaved_) {
     auto start_presave = std::chrono::high_resolution_clock::now();
     preSaveLibCellLeakage();
     auto end_presave = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff_presave = end_presave - start_presave;
-    printf("preSaveLibCellLeakage took %f s\n", diff_presave.count());
+    // printf("preSaveLibCellLeakage took %f s\n", diff_presave.count());
   }
 
   // float average_delay = averageDelayOnCritPath();
   // float average_power = averageLeakage();
-  printf("Average delay: %f, average power: %f\n", avg_delay * 1e12, avg_power * 1e9);
+  // printf("Average delay: %f, average power: %f\n", avg_delay * 1e12, avg_power * 1e9);
   ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &swappable_cells_cache_, &inst_info_map_);
 
@@ -647,11 +647,11 @@ IncreSta::parallelResize(rsz::Resizer *resizer, float avg_delay, float avg_power
   local_sta_->runResize(resizer, visitor);
   auto end_resize = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_resize = end_resize - start_resize;
-  printf("local_sta_->runResize took %f s\n", diff_resize.count());
+  // printf("local_sta_->runResize took %f s\n", diff_resize.count());
 
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_total = end_total - start_total;
-  printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
+  // printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
 }
 
 void 
@@ -670,12 +670,12 @@ IncreSta::parallelResizeV1(rsz::Resizer *resizer, float avg_delay, float avg_pow
     makeParallelLibData(resizer, task_arranger);
     auto end_pld = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff_pld = end_pld - start_pld;
-    printf("makeParallelLibData took %f s\n", diff_pld.count());
+    // printf("makeParallelLibData took %f s\n", diff_pld.count());
   }
 
   // float average_delay = averageDelayOnCritPath();
   // float average_power = averageLeakage();
-  printf("Average delay: %f, average power: %f\n", avg_delay * 1e12, avg_power * 1e9);
+  // printf("Average delay: %f, average power: %f\n", avg_delay * 1e12, avg_power * 1e9);
   ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff, parallel_lib_data_);
 
@@ -683,11 +683,11 @@ IncreSta::parallelResizeV1(rsz::Resizer *resizer, float avg_delay, float avg_pow
   local_sta_->runResize(resizer, visitor);
   auto end_resize = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_resize = end_resize - start_resize;
-  printf("local_sta_->runResize took %f s\n", diff_resize.count());
+  // printf("local_sta_->runResize took %f s\n", diff_resize.count());
 
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_total = end_total - start_total;
-  printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
+  // printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
 }
 
 void
@@ -700,7 +700,7 @@ void
 IncreSta::parallelResizeAdaptive(rsz::Resizer *resizer, float avg_delay, float avg_power,
                       float PT_tradeoff)
 {
-  printf("IncreSta::parallelResizeAdaptive start\n");
+  // printf("IncreSta::parallelResizeAdaptive start\n");
   auto start_total = std::chrono::high_resolution_clock::now();
 
   // We first create a serials of instance visitors
@@ -713,14 +713,14 @@ IncreSta::parallelResizeAdaptive(rsz::Resizer *resizer, float avg_delay, float a
     makeSwappableCellsCache(resizer);
     auto end_cache = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff_cache = end_cache - start_cache;
-    printf("makeSwappableCellsCache took %f s\n", diff_cache.count());
+    // printf("makeSwappableCellsCache took %f s\n", diff_cache.count());
   }
   if (!swap_cell_leakage_presaved_) {
     auto start_presave = std::chrono::high_resolution_clock::now();
     preSaveLibCellLeakage();
     auto end_presave = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff_presave = end_presave - start_presave;
-    printf("preSaveLibCellLeakage took %f s\n", diff_presave.count());
+    // printf("preSaveLibCellLeakage took %f s\n", diff_presave.count());
   }
 
   auto start_resize = std::chrono::high_resolution_clock::now();
@@ -737,8 +737,8 @@ IncreSta::parallelResizeAdaptive(rsz::Resizer *resizer, float avg_delay, float a
   sta_->findRequireds();
   double tns_after_resize = sta_->totalNegativeSlack(MinMax::max());
   double wns_after_resize = sta_->worstSlack(MinMax::max());
-  printf("After parallel LR resize, TNS: %e, WNS: %e\n", tns_after_resize, wns_after_resize);
-  printf("parallel resize time: %f s\n", diff_resize.count());
+  // printf("After parallel LR resize, TNS: %e, WNS: %e\n", tns_after_resize, wns_after_resize);
+  // printf("parallel resize time: %f s\n", diff_resize.count());
 
   if (isPowerOptimizationMode()) {
     ParallelLrVisitor *critical_path_visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
@@ -755,14 +755,14 @@ IncreSta::parallelResizeAdaptive(rsz::Resizer *resizer, float avg_delay, float a
 
     double tns_after_cps = sta_->totalNegativeSlack(MinMax::max());
     double wns_after_cps = sta_->worstSlack(MinMax::max());
-    printf("After critical path sizing, TNS: %e, WNS: %e\n", tns_after_cps, wns_after_cps);
-    printf("critical path sizing time: %f s\n", diff_cps.count());
+    // printf("After critical path sizing, TNS: %e, WNS: %e\n", tns_after_cps, wns_after_cps);
+    // printf("critical path sizing time: %f s\n", diff_cps.count());
     delete critical_path_visitor;
   }
 
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_total = end_total - start_total;
-  printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
+  // printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
 }
 
 void
@@ -797,8 +797,8 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
   sta_->findRequireds();
   double tns_after_resize = sta_->totalNegativeSlack(MinMax::max());
   double wns_after_resize = sta_->worstSlack(MinMax::max());
-  printf("After parallel LR resize, TNS: %e, WNS: %e\n", tns_after_resize, wns_after_resize);
-  printf("parallel resize time: %f s\n", diff_resize.count());
+  // printf("After parallel LR resize, TNS: %e, WNS: %e\n", tns_after_resize, wns_after_resize);
+  // printf("parallel resize time: %f s\n", diff_resize.count());
 
   if (isPowerOptimizationMode()) {
     ParallelLrVisitor *critical_path_visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
@@ -815,14 +815,14 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
 
     double tns_after_cps = sta_->totalNegativeSlack(MinMax::max());
     double wns_after_cps = sta_->worstSlack(MinMax::max());
-    printf("After critical path sizing, TNS: %e, WNS: %e\n", tns_after_cps, wns_after_cps);
-    printf("critical path sizing time: %f s\n", diff_cps.count());
+    // printf("After critical path sizing, TNS: %e, WNS: %e\n", tns_after_cps, wns_after_cps);
+    // printf("critical path sizing time: %f s\n", diff_cps.count());
     delete critical_path_visitor;
   }
 
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_total = end_total - start_total;
-  printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
+  // printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
 }
 
 std::vector<ResizeBenefit>
@@ -961,7 +961,7 @@ IncreSta::parallelResizeByArrayWithPrecheck(
 void
 IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff)
 {
-  printf("IncreSta::parallelBuffering start\n");
+  // printf("IncreSta::parallelBuffering start\n");
   auto start_total = std::chrono::high_resolution_clock::now();
 
   // We first create a serials of instance visitors
@@ -987,12 +987,12 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff)
   sta_->findRequireds();
   double tns_after_resize = sta_->totalNegativeSlack(MinMax::max());
   double wns_after_resize = sta_->worstSlack(MinMax::max());
-  printf("After parallel LR Buffering, TNS: %.6f, WNS: %.6f\n", tns_after_resize * 1e12, wns_after_resize * 1e12);
-  printf("parallel resize time: %f s\n", diff_resize.count());
+  // printf("After parallel LR Buffering, TNS: %.6f, WNS: %.6f\n", tns_after_resize * 1e12, wns_after_resize * 1e12);
+  // printf("parallel resize time: %f s\n", diff_resize.count());
 
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_total = end_total - start_total;
-  printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
+  // printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
 }
 
 } // namespace lrf

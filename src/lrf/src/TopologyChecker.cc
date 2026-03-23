@@ -61,12 +61,12 @@ void TopologyChecker::recordViolation(ViolationType type, InstVertex* vertex,
       break;
   }
   
-  printf("!!! TOPOLOGY VIOLATION !!!\n");
-  printf("Type: %s\n", type_str);
-  printf("Vertex: %s\n", violation.vertex_name.c_str());
-  printf("Thread: %s\n", getThreadIdStr(thread_id).c_str());
-  printf("Detail: %s\n", detail.c_str());
-  printf("\n");
+  // printf("!!! TOPOLOGY VIOLATION !!!\n");
+  // printf("Type: %s\n", type_str);
+  // printf("Vertex: %s\n", violation.vertex_name.c_str());
+  // printf("Thread: %s\n", getThreadIdStr(thread_id).c_str());
+  // printf("Detail: %s\n", detail.c_str());
+  // printf("\n");
   fflush(stdout);
 }
 
@@ -224,10 +224,10 @@ void TopologyChecker::printViolations()
   std::lock_guard<std::mutex> lock(violations_mutex_);
   
   if (violations_.empty()) {
-    printf("\n=== TOPOLOGY CHECK: No violations detected ===\n");
+    // printf("\n=== TOPOLOGY CHECK: No violations detected ===\n");
   } else {
-    printf("\n=== TOPOLOGY VIOLATIONS DETECTED: %zu violations ===\n", 
-           violations_.size());
+    // printf("\n=== TOPOLOGY VIOLATIONS DETECTED: %zu violations ===\n", 
+           // violations_.size());
     
     size_t fanin_count = 0;
     size_t sibling_count = 0;
@@ -247,10 +247,10 @@ void TopologyChecker::printViolations()
       }
     }
     
-    printf("  - Fanin not visited: %zu\n", fanin_count);
-    printf("  - Sibling order violations: %zu\n", sibling_count);
-    printf("  - Concurrent modifications: %zu\n", concurrent_count);
-    printf("\n");
+    // printf("  - Fanin not visited: %zu\n", fanin_count);
+    // printf("  - Sibling order violations: %zu\n", sibling_count);
+    // printf("  - Concurrent modifications: %zu\n", concurrent_count);
+    // printf("\n");
   }
   
   fflush(stdout);
