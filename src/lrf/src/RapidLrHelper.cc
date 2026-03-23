@@ -91,29 +91,10 @@ RapidLrHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta,
     throw std::runtime_error("RapidLrHelper::updateEndPointArcLms: computed non-positive multiplier");
   }
 
-  if (delay_minmax == MinMax::max()) {
-    LMValue original_lms = lms[lm_idx];
-    lms[lm_idx] = lms[lm_idx] * multiplier;
-    // printf("RapidLrHelper::updateEndPointArcLms: edge %s AP corner %s delay min/max %s: original LM %.6f updated LM %.6f with aat %.6f, rat %.6f, delay %.6f, multiplier %.6f\n",
-    //         edge->to_string(graph_).c_str(),
-    //         dcalc_ap->corner()->name(),
-    //         delay_minmax->to_string().c_str(),
-    //         original_lms, lms[lm_idx],
-    //         from_aat * 1.0e12, to_rat * 1.0e12, delay * 1.0e12,
-    //         multiplier);
-    // fflush(stdout);
-  } else {
-    lms[lm_idx] = lms[lm_idx] * multiplier;
-  }
-  if (lms[lm_idx] < 0.0) {
-    printf("RapidLrHelper::updateArcLms ERROR: edge %s AP corner %s delay min/max %s: computed negative LM %.6f from origin %.6f with aat %.6f, rat %.6f, delay %.6f\n",
-            edge->to_string(graph_).c_str(),
-            dcalc_ap->corner()->name(),
-            delay_minmax->to_string().c_str(),
-            lms[lm_idx], lms[lm_idx],
-            from_aat * 1.0e12, to_rat * 1.0e12, delay * 1.0e12);
-    // fflush(stdout);
-    lms[lm_idx] = 0.0;
+  lms[lm_idx] = lms[lm_idx] * multiplier;
+  static constexpr LMValue LM_FLOOR = 1e-16;
+  if (lms[lm_idx] < LM_FLOOR) {
+    lms[lm_idx] = LM_FLOOR;
   }
 }
 
@@ -148,20 +129,13 @@ RapidLrHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta,
 
   // Only consider the first clock now
   float multiplier = getMultiplier(arc_slack);
-  if (delay_minmax == MinMax::max()) {
-    lms[lm_idx] = lms[lm_idx] * multiplier;
-  } else {
-    lms[lm_idx] = lms[lm_idx] * multiplier;
-  }
-  if (lms[lm_idx] < 0.0) {
-    printf("RapidLrHelper::updateArcLms ERROR: edge %s AP corner %s delay min/max %s: computed negative LM %.6f from origin %.6f with aat %.6f, rat %.6f, delay %.6f\n",
-            edge->to_string(graph_).c_str(),
-            dcalc_ap->corner()->name(),
-            delay_minmax->to_string().c_str(),
-            lms[lm_idx], lms[lm_idx],
-            from_aat * 1.0e12, to_rat * 1.0e12, delay * 1.0e12);
-    fflush(stdout);
-    lms[lm_idx] = 0.0;
+  lms[lm_idx] = lms[lm_idx] * multiplier;
+  // Floor: prevent LM from being irreversibly zeroed out.
+  // Once LM=0, multiplicative updates (lm*=x) can never recover it.
+  // A small floor keeps non-disabled arcs recoverable if paths shift.
+  static constexpr LMValue LM_FLOOR = 1e-16;
+  if (lms[lm_idx] < LM_FLOOR) {
+    lms[lm_idx] = LM_FLOOR;
   }
 }
 
@@ -238,15 +212,9 @@ RapidLrHelper::updateCriticalPathLms(sta::Path *path_end)
       }
       size_t lm_idx = lmIndex(arc, dcalc_ap->index(), graph_->apCount());
       lms[lm_idx] += min_delta_lm;
-      if (lms[lm_idx] < 0.0) {
-        printf("RapidLrHelper::updateCriticalPathLms ERROR: edge %s AP corner %s delay min/max %s: computed negative LM %.6f from origin %.6f with path slack %.6f\n",
-              edge->to_string(graph_).c_str(),
-              dcalc_ap->corner()->name(),
-              dcalc_ap->delayMinMax()->to_string().c_str(),
-              lms[lm_idx], lms[lm_idx] - min_delta_lm,
-              path->slack(sta_) * 1.0e12);
-        fflush(stdout);
-        lms[lm_idx] = 0.0;
+      static constexpr LMValue LM_FLOOR = 1e-16;
+      if (lms[lm_idx] < LM_FLOOR) {
+        lms[lm_idx] = LM_FLOOR;
       }
     }
   }

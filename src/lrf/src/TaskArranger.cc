@@ -1,4 +1,5 @@
 #include <atomic>
+#include <stdexcept>
 #include <thread>
 
 #include "TaskArranger.hh"
@@ -95,17 +96,35 @@ TaskArranger::init()
   }
 }
 
-void 
+void
 TaskArranger::reinit()
 {
-  printf("TaskArranger::reinit checking graph consistency...\n");
-  // This number is completely wrong, need to double check
-  // if (network_->instanceCount() != vertices_.size() + 1) { // +1 for TOP instance
-  //   init();
-  // } else {
+  if (dirty_) {
+    printf("TaskArranger::reinit graph marked dirty, rebuilding...\n");
+    rebuild();
+  } else {
     initVertexRefCounts(false);
     ensureGraphVertices();
-  // }
+  }
+}
+
+void
+TaskArranger::rebuild()
+{
+  printf("TaskArranger::rebuild clearing and rebuilding graph...\n");
+  vertices_.clear();
+  edges_.clear();
+  inst_to_vid_.clear();
+  vertex_ref_counts_.reset();
+  num_com_ = 0;
+  incremental_ = false;
+  dirty_ = false;
+
+  makeGraph();
+  initVertexRefCounts(true);
+  ensureGraphVertices();
+  printf("TaskArranger::rebuild done. %zu vertices, %zu edges\n",
+         vertices_.size(), edges_.size());
 }
 
 void
@@ -391,6 +410,24 @@ TaskArranger::makeVertices()
     fflush(stdout);
   }
   
+  // Verify vertex layout invariant: [0, num_com_) must all be COMBINATIONAL,
+  // and [num_com_, end) must all be non-COMBINATIONAL.
+  for (size_t i = 0; i < num_com_; i++) {
+    if (vertices_[i].type() != VertexType::COMBINATIONAL) {
+      throw std::runtime_error(
+          "makeVertices: vertex " + std::to_string(i)
+          + " in combinational range [0, " + std::to_string(num_com_)
+          + ") has non-COMBINATIONAL type");
+    }
+  }
+  for (size_t i = num_com_; i < vertices_.size(); i++) {
+    if (vertices_[i].type() == VertexType::COMBINATIONAL) {
+      throw std::runtime_error(
+          "makeVertices: combinational vertex leaked into sequential range at index "
+          + std::to_string(i));
+    }
+  }
+
   edges_.reserve(4 * vertices_.size()); // rough estimate
 }
 
@@ -801,8 +838,8 @@ TaskArranger::finishTasks()
 }
 
 void 
-TaskArranger::visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer, 
-                            ParallelLrVisitor *visitor) 
+TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer,
+                           ParallelLrVisitor *visitor)
 {
   if (incremental_)
     reinit();
@@ -856,27 +893,15 @@ TaskArranger::visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *
 }
 
 void
-TaskArranger::visitParallelPrecheck(sta::dbSta *sta, LocalSta *local_sta,
-                                    rsz::Resizer *resizer,
-                                    ParallelLrVisitor *visitor,
-                                    std::vector<ResizeBenefit> &results)
+TaskArranger::visitAll(ParallelLrVisitor *visitor)
 {
-  resizer_ = resizer;
-
   // Clean up old visitors if any
   for (auto v : visitors_) delete v;
   visitors_.clear();
 
-  printf("Precheck: %zu combinational instances out of %zu total, %u threads\n",
+  printf("visitAll: %zu combinational instances out of %zu total, %u threads\n",
          num_com_, vertices_.size(), thread_count_);
   fflush(stdout);
-
-  // Pre-allocate results with 1:1 mapping to vertices_.
-  // Non-combinational slots are left with cost_change=0.
-  const size_t total = vertices_.size();
-  results.resize(total);
-  for (size_t i = 0; i < total; i++)
-    results[i] = {vertices_[i].inst_, -std::numeric_limits<float>::infinity(), i};
 
   // Create visitor copies for each thread
   visitors_.reserve(thread_count_);
@@ -885,18 +910,18 @@ TaskArranger::visitParallelPrecheck(sta::dbSta *sta, LocalSta *local_sta,
     visitors_.emplace_back(visitor->copy());
   }
 
-  // Dispatch only combinational vertices (no conflict graph)
+  // Dispatch all combinational instances (no dependency graph)
+  const size_t total = vertices_.size();
   for (size_t i = 0; i < total; i++) {
     if (vertices_[i].type() != VertexType::COMBINATIONAL)
       continue;
     InstVertex *iv = &vertices_[i];
+    VertexId vid = static_cast<VertexId>(i);
     if (!dispatch_queue_) {
-      float cost_change = visitors_[0]->trySwapPrecheck(iv->inst());
-      results[i] = {iv->inst(), cost_change, i};
+      visitors_[0]->visit(iv->inst(), vid);
     } else {
-      dispatch_queue_->dispatch([this, iv, &results, i](int thread_id) {
-        float cost_change = visitors_[thread_id]->trySwapPrecheck(iv->inst());
-        results[i] = {iv->inst(), cost_change, i};
+      dispatch_queue_->dispatch([this, iv, vid](int tid) {
+        visitors_[tid]->visit(iv->inst(), vid);
       });
     }
   }
@@ -911,14 +936,14 @@ TaskArranger::visitParallelPrecheck(sta::dbSta *sta, LocalSta *local_sta,
 }
 
 void
-TaskArranger::markSelectedInstances(const std::vector<ResizeBenefit> &benefits)
+TaskArranger::markSelectedInstances(const std::vector<size_t> &vertex_ids)
 {
   // Reset all vertices to unselected
   for (auto &v : vertices_)
     v.selected_ = false;
   // Mark only the top instances from precheck as selected
-  for (const auto &b : benefits)
-    vertices_[b.vertex_idx].selected_ = true;
+  for (size_t idx : vertex_ids)
+    vertices_[idx].selected_ = true;
 }
 
 void
@@ -958,7 +983,7 @@ TaskArranger::runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex)
       topology_checker_->onVisit(inst_vertex, std::this_thread::get_id());
     }
 
-    if (visitor->visit(inst_vertex->inst()))
+    if (visitor->visit(inst_vertex->inst(), inst_vertex->objectIdx()))
     {
       // Topology validation: mark before modification
       if (enable_topology_check_ && topology_checker_) {
@@ -1113,7 +1138,7 @@ TaskArranger::printTopologyViolations() const
   if (topology_checker_) {
     topology_checker_->printViolations();
   } else {
-    printf("Topology checker not initialized. Call enableTopologyCheck(true) before visitParallel().\n");
+    printf("Topology checker not initialized. Call enableTopologyCheck(true) before visitOrdered().\n");
   }
 }
 

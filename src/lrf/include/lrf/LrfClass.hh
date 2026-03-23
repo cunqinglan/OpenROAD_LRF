@@ -68,14 +68,20 @@ enum class MoveType {
 };
 
 enum class PtVertexType : uint8_t {
-  RefDriver, // vertices that drive the reference instance, should update parasitics of the these vertices
-  RefInput,  // fanin vertices of the reference instance
-  RefOutput, // fanout vertices of the reference instance
+  Sentinel,     // index-0 null sentinel (placeholder, always skipped)
+  RefDriver,    // vertices that drive the reference instance, should update parasitics of the these vertices
+  RefInput,     // fanin vertices of the reference instance
+  RefOutput,    // fanout vertices of the reference instance
+  VirtualInput, // virtual device input pin (no base sta::Vertex)
+  VirtualOutput,// virtual device output pin (no base sta::Vertex)
   None
 };
 
 enum class PtEdgeType : uint8_t {
-  RefInstEdge, // edges that belong to the reference instance
+  Sentinel,        // index-0 null sentinel (placeholder, always skipped)
+  RefInstEdge,     // edges that belong to the reference instance
+  VirtualGateEdge, // virtual device gate edge (no base sta::Edge)
+  VirtualWireEdge, // wire edge to/from virtual device (no base sta::Edge)
   None
 };
 

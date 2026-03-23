@@ -33,7 +33,7 @@ class ParallelLrVisitor
 public:
   ParallelLrVisitor(sta::dbSta *db_sta, LocalSta *local_sta, rsz::Resizer *resizer);
   virtual ~ParallelLrVisitor();
-  virtual bool visit(sta::Instance *inst);
+  virtual bool visit(sta::Instance *inst, sta::VertexId vid);
   bool visit(sta::Instance *inst, TimingRecord &timing_record);
   bool singleGateSizing(sta::Instance *inst);
   void setMoveType(MoveType move_type);
@@ -49,9 +49,10 @@ public:
 
   virtual ParallelLrVisitor *copy() const;
   bool checkVisitorStatus() const;
-  void operator()(sta::Instance *inst) { visit(inst); }
+  void operator()(sta::Instance *inst) { visit(inst, sta::object_id_null); }
   void printVisitedInstNames() const;
   PtGraph *ptGraph() const { return pt_graph_; }
+  LrRebuffer *rebuffer() const { return rebuffer_; }
   void setPtGraph(PtGraph *pt_graph) { pt_graph_ = pt_graph; }
   sta::Instance *refInst() const { return ref_inst_; }
   sta::LibertyCell *bestCell() const { return best_cell_; }
@@ -74,6 +75,7 @@ public:
   }
   void setPTTradeoff(float PT_tradeoff) { PT_tradeoff_ = PT_tradeoff; }
   void setSlackMargin(float slack_margin) { slack_margin_ = slack_margin; }
+  float slackMargin() const { return slack_margin_; }
   bool equivVtCells(sta::LibertyCell *cell1, sta::LibertyCell *cell2);
   void setClockPeriod(float clock_period) { clock_period_ = clock_period; }
   void setParallelLibData(ParallelLibData *parallel_lib_data) { parallel_lib_data_ = parallel_lib_data; }
@@ -142,15 +144,50 @@ protected:
     {"single_gate_sizing", 0.0},
     {"buffer_insertion", 0.0},
     {"buffer_count", 0.0},
-    {"precheck", 0.0}
+    {"precheck", 0.0},
+    {"rebuffer_total", 0.0},
+    {"rebuffer_setup", 0.0},
+    {"rebuffer_coarse", 0.0},
+    {"rebuffer_precise", 0.0},
+    {"rebuffer_pin_count", 0.0}
   };
 private:
   friend class LrRebuffer;
+  friend class TestLrf;
 };
 
+// Visitor for embarrassingly-parallel precheck: evaluates resize benefit
+// per instance without modifying the database. Stores results in an
+// externally-owned vector indexed by TaskArranger vertex ID.
+class PrecheckVisitor : public ParallelLrVisitor
+{
+public:
+  PrecheckVisitor(sta::dbSta *db_sta, LocalSta *local_sta, rsz::Resizer *resizer,
+                  std::vector<ResizeBenefit> *results);
 
+  bool visit(sta::Instance *inst, sta::VertexId vid) override;
+  void applyChangesToDb(rsz::Resizer *resizer) override {}
+  ParallelLrVisitor *copy() const override;
 
+private:
+  std::vector<ResizeBenefit> *results_;
+};
 
+// Visitor for embarrassingly-parallel buffer sensitivity precheck:
+// evaluates buffer insertion benefit per instance without modifying the database.
+class BufferSensitivityVisitor : public ParallelLrVisitor
+{
+public:
+  BufferSensitivityVisitor(sta::dbSta *db_sta, LocalSta *local_sta, rsz::Resizer *resizer,
+                           std::vector<ResizeBenefit> *results);
+
+  bool visit(sta::Instance *inst, sta::VertexId vid) override;
+  void applyChangesToDb(rsz::Resizer *resizer) override {}
+  ParallelLrVisitor *copy() const override;
+
+private:
+  std::vector<ResizeBenefit> *results_;
+};
 
 }  // namespace lrf
 
