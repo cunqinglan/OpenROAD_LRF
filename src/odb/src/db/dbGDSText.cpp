@@ -9,9 +9,9 @@
 #include <utility>
 #include <vector>
 
+#include "dbCore.h"
 #include "dbDatabase.h"
 #include "dbTable.h"
-#include "dbTable.hpp"
 #include "odb/db.h"
 #include "odb/dbTypes.h"
 namespace odb {
@@ -76,11 +76,11 @@ void _dbGDSText::collectMemInfo(MemInfo& info)
   info.size += sizeof(*this);
 
   // User Code Begin collectMemInfo
-  info.children_["propattr"].add(propattr_);
+  info.children["propattr"].add(propattr_);
   for (auto& [i, s] : propattr_) {
-    info.children_["propattr"].add(s);
+    info.children["propattr"].add(s);
   }
-  info.children_["text"].add(text_);
+  info.children["text"].add(text_);
   // User Code End collectMemInfo
 }
 

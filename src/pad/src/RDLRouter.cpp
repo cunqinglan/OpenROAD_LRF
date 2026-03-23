@@ -28,6 +28,7 @@
 #include "odb/db.h"
 #include "odb/dbObject.h"
 #include "odb/dbTransform.h"
+#include "odb/dbTypes.h"
 #include "odb/geom.h"
 #include "pad/ICeWall.h"
 #include "utl/Logger.h"
@@ -457,11 +458,9 @@ void RDLRouter::route(const std::vector<odb::dbNet*>& nets)
           }
         }
 
-        std::stable_sort(targets.begin(),
-                         targets.end(),
-                         [](const auto& lhs, const auto& rhs) {
-                           return distance(lhs) < distance(rhs);
-                         });
+        std::ranges::stable_sort(targets, [](const auto& lhs, const auto& rhs) {
+          return distance(lhs) < distance(rhs);
+        });
 
         debugPrint(
             logger_,
@@ -666,7 +665,14 @@ void RDLRouter::route(const std::vector<odb::dbNet*>& nets)
 
   // remove old routes
   for (const auto& route : routes_) {
-    route->getNet()->destroySWires();
+    auto swires = route->getNet()->getSWires();
+    for (auto itr = swires.begin(); itr != swires.end();) {
+      if ((*itr)->getWireType() == odb::dbWireType::FIXED) {
+        itr++;
+        continue;
+      }
+      itr = odb::dbSWire::destroy(itr);
+    }
   }
 
   for (const auto& route : routes_) {
@@ -727,7 +733,7 @@ std::set<odb::Point> RDLRouter::generateTerminalAccessPoints(
 template <class InputIt>
 static odb::Point getValidGridPoint(
     InputIt begin,
-    InputIt end,
+    const InputIt& end,
     const std::function<bool(const odb::Point&)>& valid)
 {
   odb::Point snap;
@@ -871,7 +877,8 @@ void RDLRouter::populateTerminalAccessPoints(RouteTarget& target) const
       gui_->addSnap(target.center, snap);
     }
     gui_->zoomToSnap(true);
-    gui_->pause(!isDebugNet(target.terminal->getNet()));
+    gui_->pause(!isDebugNet(target.terminal->getNet())
+                && !isDebugPin(target.terminal));
     gui_->clearSnap();
   }
 
@@ -885,13 +892,13 @@ RDLRouter::TerminalAccess RDLRouter::insertTerminalAccess(
   TerminalAccess access;
 
   // Remove snap points that would cause a violation
-  //   insersects another route
+  //   intersects another route
   std::set<odb::Point> snap_pts = target.grid_access;
   for (auto snap_itr = snap_pts.begin(); snap_itr != snap_pts.end();) {
     bool erase = false;
 
     for (const auto& route : routes_) {
-      if (route->isIntersecting(*snap_itr, spacing_ + width_)) {
+      if (route->isIntersecting(*snap_itr, width_, spacing_)) {
         erase = true;
         break;
       }
@@ -917,7 +924,8 @@ RDLRouter::TerminalAccess RDLRouter::insertTerminalAccess(
       gui_->addSnap(target.center, snap);
     }
     gui_->zoomToSnap(true);
-    gui_->pause(!isDebugNet(target.terminal->getNet()));
+    gui_->pause(!isDebugNet(target.terminal->getNet())
+                && !isDebugPin(target.terminal));
     gui_->clearSnap();
   }
 
@@ -944,12 +952,9 @@ RDLRouter::TerminalAccess RDLRouter::insertTerminalAccess(
 
     for (const auto& vertex : vertex_to_modify) {
       for (const auto& edge : getVertexEdges(vertex)) {
-        if (std::find(
-                vertex_to_modify.begin(), vertex_to_modify.end(), edge.m_source)
+        if (std::ranges::find(vertex_to_modify, edge.m_source)
                 != vertex_to_modify.end()
-            && std::find(vertex_to_modify.begin(),
-                         vertex_to_modify.end(),
-                         edge.m_target)
+            && std::ranges::find(vertex_to_modify, edge.m_target)
                    != vertex_to_modify.end()) {
           access.removed_edges.push_back(removeGraphEdge(edge));
         }
@@ -1017,7 +1022,8 @@ RDLRouter::TerminalAccess RDLRouter::insertTerminalAccess(
 
   if (logger_->debugCheck(utl::PAD, "Terminal", 1) && gui_ != nullptr) {
     gui_->zoomToSnap(false);
-    gui_->pause(!isDebugNet(target.terminal->getNet()));
+    gui_->pause(!isDebugNet(target.terminal->getNet())
+                && !isDebugPin(target.terminal));
     gui_->clearSnap();
   }
 
@@ -1034,41 +1040,20 @@ void RDLRouter::uncommitRoute(const std::vector<RDLRouter::GridEdge>& route)
 odb::Rect RDLRouter::getPointObstruction(const odb::Point& pt) const
 {
   const int check_dist = width_ / 2 + spacing_ + 1;
-  return odb::Rect(pt.x() - check_dist,
-                   pt.y() - check_dist,
-                   pt.x() + check_dist,
-                   pt.y() + check_dist);
+  return RDLRoute::getPointObstruction(pt, check_dist);
 }
 
 odb::Polygon RDLRouter::getEdgeObstruction(const odb::Point& pt0,
                                            const odb::Point& pt1) const
 {
   const int check_dist = width_ / 2 + spacing_ + 1;
-
-  const odb::Oct check_oct(pt0, pt1, 2 * check_dist);
-
-  std::vector<odb::Point> points = check_oct.getPoints();
-
-  if (check_oct.getDir() == odb::Oct::RIGHT) {
-    points[1].setX(check_oct.getCenterLow().x() + check_dist);
-    points[2].setY(check_oct.getCenterHigh().y() - check_dist);
-    points[5].setX(check_oct.getCenterHigh().x() - check_dist);
-    points[6].setY(check_oct.getCenterLow().y() + check_dist);
-  } else {
-    points[3].setY(check_oct.getCenterLow().y() + check_dist);
-    points[4].setX(check_oct.getCenterHigh().x() + check_dist);
-    points[7].setY(check_oct.getCenterHigh().y() - check_dist);
-    points[8].setX(check_oct.getCenterLow().x() - check_dist);
-    points[0] = points[8];
-  }
-
-  return points;
+  return RDLRoute::getEdgeObstruction(pt0, pt1, check_dist);
 }
 
 bool RDLRouter::is45DegreeEdge(const odb::Point& pt0,
                                const odb::Point& pt1) const
 {
-  return pt0.x() != pt1.x() && pt0.y() != pt1.y();
+  return RDLRoute::is45DegreeEdge(pt0, pt1);
 }
 
 std::set<GridGraphEdge> RDLRouter::getVertexEdges(
@@ -1795,11 +1780,13 @@ void RDLRouter::populateObstructions(const std::vector<odb::dbNet*>& nets)
   // Get already routed nets obstructions, excluding those that will be routed
   // now
   for (auto* net : block_->getNets()) {
-    if (std::find(nets.begin(), nets.end(), net) != nets.end()) {
-      continue;
-    }
+    const bool is_routing_net = std::ranges::find(nets, net) != nets.end();
 
     for (auto* swire : net->getSWires()) {
+      if (is_routing_net && swire->getWireType() != odb::dbWireType::FIXED) {
+        continue;
+      }
+
       for (auto* box : swire->getWires()) {
         if (box->getTechLayer() != layer_) {
           continue;
@@ -1879,6 +1866,18 @@ RDLRouter::generateRoutingTargets(odb::dbNet* net) const
 
   for (auto* iterm : net->getITerms()) {
     if (!iterm->getInst()->isPlaced()) {
+      continue;
+    }
+
+    auto* prop = odb::dbBoolProperty::find(iterm, kRouteProperty);
+    if (prop && !prop->getValue()) {
+      debugPrint(logger_,
+                 utl::PAD,
+                 "Router",
+                 2,
+                 "Skipping termininal on {}: {}",
+                 net->getName(),
+                 iterm->getName());
       continue;
     }
 
@@ -2013,6 +2012,15 @@ bool RDLRouter::isDebugNet(odb::dbNet* net) const
   }
 
   return net == debug_net_;
+}
+
+bool RDLRouter::isDebugPin(odb::dbITerm* pin) const
+{
+  if (debug_pin_ == nullptr) {
+    return false;
+  }
+
+  return pin == debug_pin_;
 }
 
 }  // namespace pad

@@ -3,6 +3,7 @@
 
 #include "dbObstruction.h"
 
+#include <cstdint>
 #include <cstring>
 
 #include "dbBlock.h"
@@ -11,13 +12,11 @@
 #include "dbDatabase.h"
 #include "dbInst.h"
 #include "dbTable.h"
-#include "dbTable.hpp"
 #include "dbTechLayer.h"
 #include "odb/db.h"
 #include "odb/dbBlockCallBackObj.h"
 #include "odb/dbSet.h"
 #include "odb/dbTypes.h"
-#include "odb/odb.h"
 #include "utl/Logger.h"
 
 namespace odb {
@@ -42,18 +41,14 @@ _dbObstruction::_dbObstruction(_dbDatabase*)
   flags_.has_min_spacing = 0;
   flags_.has_effective_width = 0;
   flags_.spare_bits = 0;
-  flags_._is_system_reserved = 0;
+  flags_.is_system_reserved = 0;
   min_spacing_ = 0;
   effective_width_ = 0;
 }
 
-_dbObstruction::~_dbObstruction()
-{
-}
-
 dbOStream& operator<<(dbOStream& stream, const _dbObstruction& obs)
 {
-  uint* bit_field = (uint*) &obs.flags_;
+  uint32_t* bit_field = (uint32_t*) &obs.flags_;
   stream << *bit_field;
   stream << obs.inst_;
   stream << obs.bbox_;
@@ -64,7 +59,7 @@ dbOStream& operator<<(dbOStream& stream, const _dbObstruction& obs)
 
 dbIStream& operator>>(dbIStream& stream, _dbObstruction& obs)
 {
-  uint* bit_field = (uint*) &obs.flags_;
+  uint32_t* bit_field = (uint32_t*) &obs.flags_;
   stream >> *bit_field;
   stream >> obs.inst_;
   stream >> obs.bbox_;
@@ -72,14 +67,14 @@ dbIStream& operator>>(dbIStream& stream, _dbObstruction& obs)
   stream >> obs.effective_width_;
 
   _dbDatabase* db = obs.getImpl()->getDatabase();
-  if (!db->isSchema(db_schema_except_pg_nets_obstruction)) {
+  if (!db->isSchema(kSchemaExceptPgNetsObstruction)) {
     // assume false for older databases
     obs.flags_.except_pg_nets = false;
   }
 
-  if (!db->isSchema(db_schema_die_area_is_polygon)) {
+  if (!db->isSchema(kSchemaDieAreaIsPolygon)) {
     // assume false for older databases
-    obs.flags_._is_system_reserved = false;
+    obs.flags_.is_system_reserved = false;
   }
 
   return stream;
@@ -341,13 +336,13 @@ dbBlock* dbObstruction::getBlock()
 bool dbObstruction::isSystemReserved()
 {
   _dbObstruction* obs = (_dbObstruction*) this;
-  return obs->flags_._is_system_reserved;
+  return obs->flags_.is_system_reserved;
 }
 
 void dbObstruction::setIsSystemReserved(bool is_system_reserved)
 {
   _dbObstruction* obs = (_dbObstruction*) this;
-  obs->flags_._is_system_reserved = is_system_reserved;
+  obs->flags_.is_system_reserved = is_system_reserved;
 }
 
 dbObstruction* dbObstruction::create(dbBlock* block_,
@@ -412,7 +407,7 @@ dbSet<dbObstruction>::iterator dbObstruction::destroy(
   return next;
 }
 
-dbObstruction* dbObstruction::getObstruction(dbBlock* block_, uint dbid_)
+dbObstruction* dbObstruction::getObstruction(dbBlock* block_, uint32_t dbid_)
 {
   _dbBlock* block = (_dbBlock*) block_;
   return (dbObstruction*) block->obstruction_tbl_->getPtr(dbid_);

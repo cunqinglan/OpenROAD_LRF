@@ -5,12 +5,13 @@
 #include "dbTechLayerCutClassRule.h"
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 
+#include "dbCore.h"
 #include "dbDatabase.h"
 #include "dbHashTable.h"
 #include "dbTable.h"
-#include "dbTable.hpp"
 #include "dbTechLayer.h"
 #include "odb/db.h"
 // User Code Begin Includes
@@ -97,8 +98,15 @@ void _dbTechLayerCutClassRule::collectMemInfo(MemInfo& info)
   info.size += sizeof(*this);
 
   // User Code Begin collectMemInfo
-  info.children_["name"].add(name_);
+  info.children["name"].add(name_);
   // User Code End collectMemInfo
+}
+
+_dbTechLayerCutClassRule::~_dbTechLayerCutClassRule()
+{
+  if (name_) {
+    free((void*) name_);
+  }
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -196,7 +204,7 @@ dbTechLayerCutClassRule* dbTechLayerCutClassRule::create(dbTechLayer* _layer,
 
 dbTechLayerCutClassRule* dbTechLayerCutClassRule::getTechLayerCutClassRule(
     dbTechLayer* inly,
-    uint dbid)
+    uint32_t dbid)
 {
   _dbTechLayer* layer = (_dbTechLayer*) inly;
   return (dbTechLayerCutClassRule*) layer->cut_class_rules_tbl_->getPtr(dbid);

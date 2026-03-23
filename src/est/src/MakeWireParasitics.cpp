@@ -12,6 +12,8 @@
 #include "db_sta/dbNetwork.hh"
 #include "db_sta/dbSta.hh"
 #include "est/EstimateParasitics.h"
+#include "grt/GRoute.h"
+#include "grt/GlobalRouter.h"
 #include "odb/db.h"
 #include "odb/geom.h"
 #include "sta/ArcDelayCalc.hh"
@@ -37,7 +39,7 @@ MakeWireParasitics::MakeWireParasitics(
     sta::dbSta* sta,
     odb::dbTech* tech,
     odb::dbBlock* block,
-    GlobalRouter* grouter)
+    grt::GlobalRouter* grouter)
     : global_router_(grouter),
       estimate_parasitics_(estimate_parasitics),
       tech_(tech),

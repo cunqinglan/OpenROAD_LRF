@@ -135,8 +135,6 @@ struct RouteBaseVars
 
   // targetRC metric coefficients.
   const float rcK1, rcK2, rcK3, rcK4;
-
-  const int maxInflationIter;
 };
 
 class RouteBase
@@ -158,9 +156,15 @@ class RouteBase
   void loadGrt();
   float getGrtRC() const;
 
-  void updateRudyRoute();
-  void getRudyResult();
-  float getRudyRC(bool verbose = true) const;
+  void calculateRudyTiles();
+  void updateRudyAverage(bool verbose = true);
+
+  float getRudyAverage() const { return final_average_rc_; }
+  int getOverflowedTilesCount() const { return overflowed_tiles_count_; }
+  int getTotalTilesCount() const { return tg_->tiles().size(); }
+  double getTotalRudyOverflow() const { return total_route_overflow_; }
+
+  bool isMinRc() const { return is_min_rc_; }
 
   // first: is Routability Need
   // second: reverting procedure need in NesterovPlace
@@ -168,7 +172,8 @@ class RouteBase
   std::pair<bool, bool> routability(int routability_driven_revert_count);
 
   std::vector<int64_t> inflatedAreaDelta() const;
-  int numCall() const;
+  int64_t getTotalInflation() const;
+  int getRevertCount() const;
 
  private:
   RouteBaseVars rbVars_;
@@ -182,8 +187,14 @@ class RouteBase
   std::unique_ptr<TileGrid> tg_;
 
   std::vector<int64_t> inflatedAreaDelta_;
+  std::vector<int64_t> minRcInflatedAreaDelta_;
+  std::vector<int64_t> accumulatedInflatedAreaDelta_;
 
-  int numCall_ = 0;
+  int revert_count_ = 0;
+  float final_average_rc_ = 0.0;
+  int overflowed_tiles_count_ = 0;
+  double total_route_overflow_ = 0.0;
+  bool is_min_rc_ = false;
 
   // if solutions are not improved at all,
   // needs to revert back to have the minimized RC values.
@@ -199,7 +210,7 @@ class RouteBase
   void resetRoutabilityResources();
   void revertToMinCongestion();
 
-  // update numCall_
+  // update revert_count_
   void increaseCounter();
 
   // routability funcs

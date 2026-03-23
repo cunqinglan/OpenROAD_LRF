@@ -3,6 +3,7 @@
 
 sta::define_cmd_args "global_placement" {\
     [-skip_initial_place]\
+    [-force_center_initial_place]\
     [-skip_nesterov_place]\
     [-timing_driven]\
     [-routability_driven]\
@@ -23,8 +24,8 @@ sta::define_cmd_args "global_placement" {\
     [-routability_use_grt]\
     [-routability_target_rc_metric routability_target_rc_metric]\
     [-routability_check_overflow routability_check_overflow]\
+    [-routability_snapshot_overflow routability_snapshot_overflow]\
     [-routability_max_density routability_max_density]\
-    [-routability_max_inflation_iter routability_max_inflation_iter]\
     [-routability_inflation_ratio_coef routability_inflation_ratio_coef]\
     [-routability_max_inflation_ratio routability_max_inflation_ratio]\
     [-routability_rc_coefficients routability_rc_coefficients]\
@@ -35,6 +36,7 @@ sta::define_cmd_args "global_placement" {\
     [-pad_left pad_left]\
     [-pad_right pad_right]\
     [-disable_revert_if_diverge]\
+    [-disable_pin_density_adjust]\
     [-enable_routing_congestion]
 }
 
@@ -45,8 +47,8 @@ proc global_placement { args } {
       -min_phi_coef -max_phi_coef -overflow \
       -reference_hpwl \
       -initial_place_max_iter -initial_place_max_fanout \
-      -routability_check_overflow -routability_max_density \
-      -routability_max_inflation_iter \
+      -routability_check_overflow -routability_snapshot_overflow \
+      -routability_max_density \
       -routability_target_rc_metric \
       -routability_inflation_ratio_coef \
       -routability_max_inflation_ratio \
@@ -57,6 +59,7 @@ proc global_placement { args } {
       -keep_resize_below_overflow \
       -pad_left -pad_right} \
     flags {-skip_initial_place \
+      -force_center_initial_place \
       -skip_nesterov_place \
       -timing_driven \
       -routability_driven \
@@ -64,6 +67,7 @@ proc global_placement { args } {
       -skip_io \
       -incremental \
       -disable_revert_if_diverge \
+      -disable_pin_density_adjust \
       -enable_routing_congestion}
 
   sta::check_argc_eq0 "global_placement" $args
@@ -122,7 +126,8 @@ proc cluster_flops { args } {
 
 proc global_placement_debug { args } {
   sta::parse_key_args "global_placement_debug" args \
-    keys {-pause -update -inst -start_iter -images_path} \
+    keys {-pause -update -inst -start_iter -images_path \
+      -start_rudy -rudy_stride} \
     flags {-draw_bins -initial -generate_images} ;# checker off
 
   if { [ord::get_db_block] == "NULL" } {
@@ -152,6 +157,18 @@ proc global_placement_debug { args } {
     sta::check_positive_integer "-start_iter" $start_iter
   }
 
+  set start_rudy 0
+  if { [info exists keys(-start_rudy)] } {
+    set start_rudy $keys(-start_rudy)
+    sta::check_positive_integer "-start_rudy" $start_rudy
+  }
+
+  set rudy_stride 1
+  if { [info exists keys(-rudy_stride)] } {
+    set rudy_stride $keys(-rudy_stride)
+    sta::check_positive_integer "-rudy_stride" $rudy_stride
+  }
+
   set draw_bins [info exists flags(-draw_bins)]
   set initial [info exists flags(-initial)]
   set generate_images [info exists flags(-generate_images)]
@@ -162,7 +179,7 @@ proc global_placement_debug { args } {
   }
 
   gpl::set_debug_cmd $pause $update $draw_bins $initial \
-    $inst $start_iter $generate_images $images_path
+    $inst $start_iter $start_rudy $rudy_stride $generate_images $images_path
 }
 
 sta::define_cmd_args "placement_cluster" {}

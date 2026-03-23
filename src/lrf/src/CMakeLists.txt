@@ -5,21 +5,45 @@ include("openroad")
 
 swig_lib(NAME      lrf
          NAMESPACE lrf
-         I_FILE    LRFW.i
+         I_FILE    LRF.i
          SWIG_INCLUDES ${OPENSTA_HOME}
-         SCRIPTS   LRFW.tcl
+         SCRIPTS   LRF.tcl
 )
 
 add_library(lrf_lib
     LrHelper.cc
+    LmHistory.cc
     LrfMgr.cc
     LrSizer.cc
+    PtGraph.cc
+    PtPiElmore.cc
+    LocalSta.cc
+    LocalParasitics.cc
+    LocalReduceParasitic.cc
+    IncreSta.cc
+    TestLrf.cc
+    LocalSearch.cc
+    LocalPath.cc
+    ParallelVisitor.cc
+    GraphBase.cc
+    TaskArranger.cc
+    LocalCellInfo.cc
+    ParallelLibData.cc
+    TopologyChecker.cc
+    RapidLrHelper.cc
+    LrSizer.cc
+    ViolationCheck.cc
+    LrRebuffer.cc
+  Rebranch.cc
 )
 
 target_sources(lrf
   PRIVATE
     # Graphics.cc
     MakeLrf.cc
+    # LrHelper.cc
+    # LocalSta.cc
+    # PtGraph.cc
 )
 
 target_include_directories(lrf
@@ -45,12 +69,13 @@ target_include_directories(lrf_lib
 
 target_link_libraries(lrf_lib
   PUBLIC
-    est_lib
+    # est_lib
     stt_lib
     odb
     OpenSTA
     dbSta_lib
     grt_lib
+    rsz_lib
     utl_lib
 )
 
@@ -66,6 +91,8 @@ target_link_libraries(lrf
     gui
     utl_lib
 )
+
+target_include_directories(lrf PUBLIC ${CMAKE_SOURCE_DIR}/src/lrf/include)
 
 messages(
   TARGET lrf
