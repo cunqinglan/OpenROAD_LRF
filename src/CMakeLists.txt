@@ -175,6 +175,7 @@ add_compile_options(
   -ffp-contract=off
   # Apple clang 14.0.0 deprecates sprintf, which generates 900 warnings.
   $<$<CXX_COMPILER_ID:AppleClang>:-Wno-deprecated-declarations>
+  $<$<CXX_COMPILER_ID:AppleClang>:-Wmismatched-tags>
   $<$<BOOL:${ASAN}>:-fsanitize=address>
   $<$<BOOL:${ASAN}>:-fno-omit-frame-pointer>
   $<$<BOOL:${ASAN}>:-g>
@@ -285,7 +286,7 @@ add_subdirectory(mpl)
 add_subdirectory(par)
 add_subdirectory(est)
 # LRF
-# add_subdirectory(lrf)
+add_subdirectory(lrf)
 
 ################################################################
 
@@ -334,6 +335,8 @@ target_link_libraries(openroad
   ppl
   stt
   dbSta
+  # ensure lrf symbols available to the final executable
+  lrf_lib
   OpenSTA
   odb
   odbtcl
@@ -361,6 +364,8 @@ target_link_libraries(openroad
   ${CMAKE_THREAD_LIBS_INIT}
   ${Boost_LIBRARIES}
   # LRF
+  # Link lrf if you want to expose its TCL/Python interface in the openroad binary.
+  # For now, leave it commented if not needed to avoid extra link deps.
   # lrf
 )
 

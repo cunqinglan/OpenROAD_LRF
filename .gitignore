@@ -33,7 +33,11 @@ include/ord/Version.hh
 build
 build_linux
 build_mac
+build_new
+sota_lrf
 test/results
+.claude
+CLAUDE.md
 
 docs/main
 README2.md
@@ -68,3 +72,8 @@ projectview.bazelproject
 .bsp/
 .bazelbsp/
 /buildifier
+
+lrf_api.sh
+log
+precheimprov.md
+VERSION.md

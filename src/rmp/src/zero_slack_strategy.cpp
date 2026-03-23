@@ -14,7 +14,6 @@
 #include "delay_optimization_strategy.h"
 #include "map/mio/mio.h"
 #include "rsz/Resizer.hh"
-#include "sta/Delay.hh"
 #include "sta/Graph.hh"
 #include "sta/GraphDelayCalc.hh"
 #include "sta/Search.hh"

@@ -86,26 +86,81 @@ class Timing
   void makeEquivCells();
   std::vector<odb::dbMaster*> equivCells(odb::dbMaster* master);
 
-  float getWorstSlack(MinMax minmax = Max);
-  float getTns(MinMax minmax = Max);
-  float getTns(sta::Corner* corner, MinMax minmax = Max);
-
   /////////////////////////////////////////////////////////////
   // Functions for LR sizing
   /////////////////////////////////////////////////////////////
-  // float getTns(bool minmax = false);
-
-  // float getLmDelaySum(odb::dbInst* inst, const sta::MinMax *minmax = sta::MinMax::max());
+  float getLmDelaySum(odb::dbInst* inst, const sta::MinMax *minmax = sta::MinMax::max());
     
   // bool checkErcViolations(odb::dbInst* inst, sta::Corner* corner);
 
-  // void lmUpdate();
+  void lmUpdate();
+
+  float averageDelayOnCritPath();
+  float getWorstSlack(MinMax minmax = Max);
+  float getTns(MinMax minmax = Max);
+  float getTns(sta::Corner* corner, MinMax minmax = Max);
   /////////////////////////////////////////////////////////////
   // End functions for LR sizing
   /////////////////////////////////////////////////////////////
 
-  // Test functions of Seqremapper
-  //void testSeqRemapper();
+  /////////////////////////////////////////////////////////////
+  // Functions for testing LR sizing
+  ///////////////////////////////////////////////////////////
+  void testLocalDelayCompute(char *inst_name);
+  void testLocalArrivalCompute(char *inst_name);
+  void testLocalSlewCompute(char *inst_name);
+  void testPtGraphErrors(char* inst_name);
+  void testParallelVisitor(const std::vector<odb::dbInst*> &inst_names);
+  void testMEEAssignments();
+  void testParallelResize();
+  void testParallelLrResizing(size_t max_resize_num,
+                             size_t iterations,
+                             size_t num_no_improve_tolerance,
+                             bool ratcons = false,
+                             float PT_tradeoff = 100.0,
+                             const char *lr_helper_method = "LRHelper");
+  void testTimingComputeAndWriteBack(const std::vector<odb::dbInst*> &insts);
+  void testReportVertices();
+  void testBufferInsertion(char *inst_name);
+  void testParallelResizingBuffering(size_t max_resize_num,
+                                     size_t iterations,
+                                     size_t num_no_improve_tolerance,
+                                     bool ratcons = false,
+                                     float PT_tradeoff = 100.0,
+                                     const char *lr_helper_method = "LRHelper");
+  void testParallelResizeByArray(size_t max_resize_num,
+                                 size_t iterations,
+                                 size_t num_no_improve_tolerance,
+                                 bool ratcons = false,
+                                 float PT_tradeoff = 100.0,
+                                 const char *lr_helper_method = "LRHelper");
+  void testParallelResizeByArrayWithBuffering(size_t max_resize_num,
+                                              size_t iterations,
+                                              size_t num_no_improve_tolerance,
+                                              bool ratcons = false,
+                                              float PT_tradeoff = 100.0,
+                                              const char *lr_helper_method = "RapidLRHelper");
+  void testParallelResizeByArrayWithPrecheck(size_t max_resize_num,
+                                             size_t iterations,
+                                             size_t num_no_improve_tolerance,
+                                             bool ratcons = false,
+                                             float PT_tradeoff = 100.0,
+                                             const char *lr_helper_method = "RapidLRHelper",
+                                             float top_ratio = 0.3);
+  void testParallelResizeByArrayWithPrecheckBuffering(size_t max_resize_num,
+                                             size_t iterations,
+                                             size_t num_no_improve_tolerance,
+                                             bool ratcons = false,
+                                             float PT_tradeoff = 100.0,
+                                             const char *lr_helper_method = "RapidLRHelper",
+                                             float top_ratio = 0.3);
+  void testPrecedingResizeCheck(float PT_tradeoff = 100.0,
+                                float top_ratio = 0.3);
+  void testSingleInstBuffering(char *inst_name);
+  void testParallelKKTProjection(const char *lr_helper_method = "RapidLRHelper");
+  /////////////////////////////////////////////////////////////
+  // End functions for testing LR sizing
+  /////////////////////////////////////////////////////////////
 
  private:
   sta::dbSta* getSta();

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2019-2025, The OpenROAD Authors
 
-#include "lrf/MakeLrf.h"
+#include "lrf/MakeLrf.hh"
 
 #include "odb/db.h"
 #include "lrf/LrfMgr.hh"

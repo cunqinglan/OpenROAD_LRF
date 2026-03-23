@@ -20,7 +20,11 @@
 #include "ord/OpenRoad.hh"
 #include "ord/Tech.h"
 #include "tcl.h"
+#include "tclDecls.h"
 #include "utl/Logger.h"
+#include "rsz/Resizer.hh"
+#include "est/EstimateParasitics.h"
+#include "lrf/IncreSta.hh"
 
 namespace ord {
 
@@ -146,6 +150,7 @@ std::string Design::evalTclString(const std::string& cmd)
   ord::OpenRoad::setOpenRoad(openroad, /* reinit_ok */ true);
   Tcl_Interp* tcl_interp = openroad->tclInterp();
   sta::Sta::setSta(openroad->getSta());
+  Tcl_SetAssocData(tcl_interp, "design", nullptr, this);
   Tcl_Eval(tcl_interp, cmd.c_str());
   return std::string(Tcl_GetStringResult(tcl_interp));
 }
@@ -365,39 +370,80 @@ odb::dbDatabase* Design::createDetachedDb()
 /////////////////////////////////////////////////////////////
 // Functions for LR sizing
 /////////////////////////////////////////////////////////////
-// std::vector<odb::dbInst*> Design::sortedInstances()
-// {
-//   // Note: returns a Python-friendly container via SWIG std_vector wrapper
-//   // or a typemap; see Design.i for vector exposure.
-//   printf("Design::sortedInstances called\n");
-//   fflush(stdout);
-//   sta::dbSta* sta = getSta();
-//   sta->searchPreamble();
-//   sta::dbNetwork* network = sta->getDbNetwork();
+std::vector<odb::dbInst*> Design::sortedInstances()
+{
+  // Note: returns a Python-friendly container via SWIG std_vector wrapper
+  // or a typemap; see Design.i for vector exposure.
+  printf("Design::sortedInstances called\n");
+  fflush(stdout);
+  sta::dbSta* sta = getSta();
+  sta->searchPreamble();
+  sta::dbNetwork* network = sta->getDbNetwork();
 
-//   sta::InstanceSeq &sorted_instances = sta->getSortedInstances();
-//   std::vector<odb::dbInst*> instances;
-//   instances.reserve(sorted_instances.size());
-//   for (auto* inst : sorted_instances) {
-//     odb::dbInst* db_inst = network->staToDb(inst);
-//     if (db_inst == nullptr) {
-//       // STA instance has no DB mapping; skip safely
-//       printf("Warning: staToDb returned nullptr for an instance %s\n",
-//              network->name(inst));
-//       continue;
-//     }
-//     odb::dbMaster* master = db_inst->getMaster();
-//     if (master) {
-//       instances.push_back(db_inst);
-//     }
-//   }
-//   // Cache the result so subsequent calls don't recompute unless the
-//   // database/design changes (see places that clear the cache above).
-//   sorted_instances_ = instances;
-//   return sorted_instances_;
-// }
+  sta::InstanceSeq &sorted_instances = sta->getIncreSta()->getSortedInstances();
+  std::vector<odb::dbInst*> instances;
+  instances.reserve(sorted_instances.size());
+  for (auto* inst : sorted_instances) {
+    odb::dbInst* db_inst = network->staToDb(inst);
+    if (db_inst == nullptr) {
+      // STA instance has no DB mapping; skip safely
+      printf("Warning: staToDb returned nullptr for an instance %s\n",
+             network->name(inst));
+      continue;
+    }
+    odb::dbMaster* master = db_inst->getMaster();
+    if (master) {
+      instances.push_back(db_inst);
+    }
+  }
+  // Cache the result so subsequent calls don't recompute unless the
+  // database/design changes (see places that clear the cache above).
+  sorted_instances_ = instances;
+  return sorted_instances_;
+}
 
+bool
+Design::swapInstMaster(odb::dbInst* inst, odb::dbMaster* new_master)
+{
+  auto db_iterms = inst->getITerms();
+  for (auto *db_iterm : db_iterms) {
+    if (!db_iterm) {
+      int x, y;
+      db_iterm->getAvgXY(&x, &y);
+      printf("Warning: Instance %s ITerm %s at (%d, %d) has no STA mapping\n",
+              inst->getName().c_str(),
+              db_iterm->getName().c_str(),
+              x,
+              y);
+              fflush(stdout);
+    }
+  }
+  rsz::Resizer *resizer = getResizer();
+  est::EstimateParasitics *estimator = resizer->getEstimateParasitics();
+  est::IncrementalParasiticsGuard guard(estimator);
+  bool swapped = inst->swapMaster(new_master);
+  printf("After swapMaster\n");
+  fflush(stdout);
+  for (auto *db_iterm : db_iterms) {
+    if (!db_iterm) {
+      int x, y;
+      db_iterm->getAvgXY(&x, &y);
+      printf("Warning: Instance %s ITerm %s at (%d, %d) has no STA mapping\n",
+              inst->getName().c_str(),
+              db_iterm->getName().c_str(),
+              x,
+              y);
+              fflush(stdout);
+    }
+  }
+  return swapped;
+}
 
+void Design::updateParasiticsNoDeleteNetwork() 
+{
+  est::EstimateParasitics *estimator = getResizer()->getEstimateParasitics();
+  estimator->updateWireParasiticsNoDeleteNetwork();
+}
 /////////////////////////////////////////////////////////////
 // End functions for LR sizing
 /////////////////////////////////////////////////////////////

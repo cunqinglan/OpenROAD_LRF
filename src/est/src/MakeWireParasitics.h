@@ -8,12 +8,14 @@
 #include <vector>
 
 #include "db_sta/dbSta.hh"
+#include "grt/GRoute.h"
 #include "grt/GlobalRouter.h"
 #include "grt/RoutePt.h"
 #include "odb/db.h"
 #include "sta/ArcDelayCalc.hh"
 #include "sta/Clock.hh"
 #include "sta/MinMax.hh"
+#include "sta/ParasiticsClass.hh"
 #include "sta/Set.hh"
 
 namespace sta {
