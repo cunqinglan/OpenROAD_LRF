@@ -1591,22 +1591,30 @@ CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_paddi
       std::chrono::duration<double>(end_eval - start_eval).count();
   runtime_map_["equiv_cell_count"] += candidates.size();
 
-  // Pick best resize candidate (respecting slack margin)
-  float best_resize_cost = std::numeric_limits<float>::max();
-  sta::LibertyCell *best_resize_cell = ori_cell;
+  // Pick top-2 resize candidates (respecting slack margin)
+  struct ResizeCandidate {
+    sta::LibertyCell *cell;
+    float cost;
+  };
+  ResizeCandidate top2[2] = {
+    {ori_cell, std::numeric_limits<float>::max()},
+    {ori_cell, std::numeric_limits<float>::max()}
+  };
   float ori_cost = std::numeric_limits<float>::max();
   for (size_t i = 0; i < candidates.size(); i++) {
     float cost = vec_cost_slack[i * 2];
     float slack = vec_cost_slack[i * 2 + 1];
     if (candidates[i] == ori_cell)
       ori_cost = cost;
-    if (cost < best_resize_cost && slack >= slack_before_swap_ * slack_margin_) {
-      best_resize_cell = candidates[i];
-      best_resize_cost = cost;
+    if (cost < top2[0].cost && slack >= slack_before_swap_ * slack_margin_) {
+      top2[1] = top2[0];
+      top2[0] = {candidates[i], cost};
+    } else if (cost < top2[1].cost && slack >= slack_before_swap_ * slack_margin_) {
+      top2[1] = {candidates[i], cost};
     }
   }
 
-  // ---- Phase 2: Try buffering on best resized cell ----
+  // ---- Phase 2: Try buffering on top-2 resized cells ----
   auto start_buf = std::chrono::high_resolution_clock::now();
 
   // Collect driver pin info (before rebufferPin may reallocate vertices)
@@ -1618,17 +1626,29 @@ CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_paddi
       drvr_infos.push_back({pv.vertex()->pin(), pv.objectIdx()});
   }
 
-  float buf_cost = std::numeric_limits<float>::max();
+  // Try buffering on each of the top-2 resize candidates, keep the best
+  float best_buf_cost = std::numeric_limits<float>::max();
+  sta::LibertyCell *best_buf_resize_cell = nullptr;
   bool buf_valid = false;
 
-  if (drvr_infos.size() == 1 && best_resize_cell != nullptr) {
-    // Set PtGraph to the best resized cell, then evaluate buffering
-    local_sta_->increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, best_resize_cell);
-    rebuffer_->rebufferPin(drvr_infos[0].pin,
-                           pt_graph_->ptVertex(drvr_infos[0].vid));
-    if (rebuffer_->bestBnet()) {
-      buf_cost = rebuffer_->bestCost();
-      buf_valid = true;
+  if (drvr_infos.size() == 1) {
+    for (int k = 0; k < 2; k++) {
+      if (top2[k].cell == nullptr
+          || top2[k].cost >= std::numeric_limits<float>::max())
+        continue;
+
+      local_sta_->increAndGetLocalTimingCost(
+          pt_graph_, arc_delay_calc_, top2[k].cell);
+      rebuffer_->rebufferPin(drvr_infos[0].pin,
+                             pt_graph_->ptVertex(drvr_infos[0].vid));
+      if (rebuffer_->bestBnet()) {
+        float cost = rebuffer_->bestCost();
+        if (cost < best_buf_cost) {
+          best_buf_cost = cost;
+          best_buf_resize_cell = top2[k].cell;
+          buf_valid = true;
+        }
+      }
     }
   }
 
@@ -1637,18 +1657,26 @@ CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_paddi
       std::chrono::duration<double>(end_buf - start_buf).count();
 
   // ---- Phase 3: Decision ----
-  // Compare: original vs resize-only vs resize+buffer
-  if (buf_valid && buf_cost < best_resize_cost && buf_cost < ori_cost) {
+  // Compare: original vs resize-only (top2[0]) vs best resize+buffer
+  float best_resize_cost = top2[0].cost;
+  sta::LibertyCell *best_resize_cell = top2[0].cell;
+
+  if (buf_valid && best_buf_cost < best_resize_cost && best_buf_cost < ori_cost) {
     // Resize + buffer wins
     decision_ = Decision::ResizeAndBuffer;
-    best_cell_ = best_resize_cell;
+    best_cell_ = best_buf_resize_cell;
+    // Recompute buffering for the winning cell (to get bestBnet in correct state)
+    local_sta_->increAndGetLocalTimingCost(
+        pt_graph_, arc_delay_calc_, best_buf_resize_cell);
+    rebuffer_->rebufferPin(drvr_infos[0].pin,
+                           pt_graph_->ptVertex(drvr_infos[0].vid));
     return true;
   } else if (best_resize_cell != ori_cell && best_resize_cost < ori_cost) {
     // Resize only wins
     decision_ = Decision::ResizeOnly;
     best_cell_ = best_resize_cell;
-    // Recompute final timing for best cell (for writeTimingToDb)
-    local_sta_->increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, best_resize_cell);
+    local_sta_->increAndGetLocalTimingCost(
+        pt_graph_, arc_delay_calc_, best_resize_cell);
     return true;
   }
 
