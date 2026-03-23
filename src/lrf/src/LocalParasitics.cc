@@ -56,8 +56,8 @@ void
 LocalParasitics::initParasiticMapFromBase() 
 {
   if (!corners_) {
-    printf("DEBUG: LocalParasitics::initParasiticMapFromBase: corners_ is null\n");
-    fflush(stdout);
+    // printf("DEBUG: LocalParasitics::initParasiticMapFromBase: corners_ is null\n");
+    // fflush(stdout);
     return;
   }
 

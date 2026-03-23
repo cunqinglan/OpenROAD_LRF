@@ -1573,8 +1573,8 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
   parasitic = local_parasitics_->findLocalParasitic(drvr_pin, rf, dcalc_ap);
   if (parasitic != nullptr) {
     if (!local_parasitics_->isPiModel(parasitic)) {
-      printf("LocalSta::localParasiticLoad: Non-PI model parasitic found for pin %s\n",
-             network_->name(drvr_pin));
+      // printf("LocalSta::localParasiticLoad: Non-PI model parasitic found for pin %s\n",
+      //        network_->name(drvr_pin));
       return;
     }
     load_cap = local_parasitics_->capacitance(parasitic);
@@ -1605,8 +1605,8 @@ LocalSta::localParasiticLoad(const Pin *drvr_pin,
   parasitic = local_parasitics_->findLocalParasitic(drvr_pin, rf, dcalc_ap);
   if (parasitic != nullptr) {
     if (!local_parasitics_->isPiModel(parasitic)) {
-      printf("LocalSta::localParasiticLoad: Non-PI model parasitic found for pin %s\n",
-             network_->name(drvr_pin));
+      // printf("LocalSta::localParasiticLoad: Non-PI model parasitic found for pin %s\n",
+      //        network_->name(drvr_pin));
       return;
     }
     load_cap = local_parasitics_->capacitance(parasitic);
@@ -1728,9 +1728,9 @@ LocalSta::printLocalTiming(PtGraph *pt_graph) const
     std::string vname = pt_vertex.vertex()
         ? pt_vertex.vertex()->to_string(graph_)
         : ("virtual_" + std::to_string(pt_vertex.objectIdx()));
-    printf("%s::printLocalTiming: Vertex %s\n",
-           debug_label_.c_str(),
-           vname.c_str());
+    // printf("%s::printLocalTiming: Vertex %s\n",
+    //        debug_label_.c_str(),
+    //        vname.c_str());
     PtVertexPathIterator path_iter(pt_vertex, this);
     while (path_iter.hasNext()) {
       Path *path = path_iter.next();
@@ -1756,11 +1756,11 @@ LocalSta::printLocalSlews(PtGraph *pt_graph) const
     for (const RiseFall *rf : RiseFall::range()) {
       for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
         Slew slew = pt_graph->slew(pt_vertex, rf, dcalc_ap->index());
-        printf("Vertex %s, RF %s, AP %u, slew = %f\n",
-               vname.c_str(),
-               rf->to_string().c_str(),
-               dcalc_ap->index(),
-               slew * 1.0e12);
+        // printf("Vertex %s, RF %s, AP %u, slew = %f\n",
+        //        vname.c_str(),
+        //        rf->to_string().c_str(),
+        //        dcalc_ap->index(),
+        //        slew * 1.0e12);
       }
     }
   }

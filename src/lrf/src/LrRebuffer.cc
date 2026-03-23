@@ -1060,8 +1060,8 @@ LrRebuffer::cellDelayLmSum(VertexId pt_vertex_id,
     auto *lms = edge->arcLms();
     if (lms == nullptr) {
       PtVertex &v = pt_graph->ptVertex(pt_vertex_id);
-      printf("LrRebuffer::cellDelayLmSum: Warning: edge from vertex %s has no LM values\n",
-             v.vertex() ? v.vertex()->to_string(graph_).c_str() : "virtual");
+      // printf("LrRebuffer::cellDelayLmSum: Warning: edge from vertex %s has no LM values\n",
+      //        v.vertex() ? v.vertex()->to_string(graph_).c_str() : "virtual");
       continue;
     }
     PtVertex &pt_from_vertex = pt_graph->ptVertex(pt_edge.ptFromId());

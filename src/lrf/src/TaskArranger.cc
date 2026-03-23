@@ -100,7 +100,7 @@ void
 TaskArranger::reinit()
 {
   if (dirty_) {
-    printf("TaskArranger::reinit graph marked dirty, rebuilding...\n");
+    // printf("TaskArranger::reinit graph marked dirty, rebuilding...\n");
     rebuild();
   } else {
     initVertexRefCounts(false);
@@ -899,9 +899,9 @@ TaskArranger::visitAll(ParallelLrVisitor *visitor)
   for (auto v : visitors_) delete v;
   visitors_.clear();
 
-  printf("visitAll: %zu combinational instances out of %zu total, %u threads\n",
-         num_com_, vertices_.size(), thread_count_);
-  fflush(stdout);
+  // printf("visitAll: %zu combinational instances out of %zu total, %u threads\n",
+  //        num_com_, vertices_.size(), thread_count_);
+  // fflush(stdout);
 
   // Create visitor copies for each thread
   visitors_.reserve(thread_count_);
@@ -1138,7 +1138,7 @@ TaskArranger::printTopologyViolations() const
   if (topology_checker_) {
     topology_checker_->printViolations();
   } else {
-    printf("Topology checker not initialized. Call enableTopologyCheck(true) before visitOrdered().\n");
+    // printf("Topology checker not initialized. Call enableTopologyCheck(true) before visitOrdered().\n");
   }
 }
 

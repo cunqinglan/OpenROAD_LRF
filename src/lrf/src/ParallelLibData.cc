@@ -35,11 +35,11 @@ ParallelLibData::init(rsz::Resizer* resizer, TaskArranger *task_arranger)
   makeSwappableCellsCache(resizer);
   auto mid = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff = mid - start;
-  printf("ParallelLibData::makeSwappableCellsCache took %.3f seconds\n", diff.count());
+  // printf("ParallelLibData::makeSwappableCellsCache took %.3f seconds\n", diff.count());
   preSaveLibCellLeakage(resizer, nullptr);
   auto end = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> elapsed = end - start;
-  printf("ParallelLibData::init took %.3f seconds\n", elapsed.count());
+  // printf("ParallelLibData::init took %.3f seconds\n", elapsed.count());
 }
 
 void
@@ -97,7 +97,7 @@ void
 ParallelLibData::preSaveLibCellLeakage(rsz::Resizer* resizer, sta::Corner* corner)
 {
   if (!swap_cell_presaved_) {
-    printf("ParallelLibData::preSaveLibCellLeakage Error: Swappable cells not prepared yet!\n");
+    // printf("ParallelLibData::preSaveLibCellLeakage Error: Swappable cells not prepared yet!\n");
     makeSwappableCellsCache(resizer);
   }
   if (inst_to_vid_map_ == nullptr) {

@@ -600,11 +600,11 @@ PtGraph::updateTimingArcSets()
         }
       }
       if (new_arc_set == nullptr) {
-        printf("PtGraph::updateTimingArcSets: no matching timing arc set in ref_lib_cell_ %s for PtEdge %u of edge %s\n",
-               ref_lib_cell_->name(),
-                pt_edge.objectIdx(),
-               pt_edge.edge()->to_string(sta_->graph()).c_str());
-        fflush(stdout);
+        // printf("PtGraph::updateTimingArcSets: no matching timing arc set in ref_lib_cell_ %s for PtEdge %u of edge %s\n",
+        //        ref_lib_cell_->name(),
+        //        pt_edge.objectIdx(),
+        //        pt_edge.edge()->to_string(sta_->graph()).c_str());
+        // fflush(stdout);
         continue;
       }
       pt_edge.setTimingArcSet(new_arc_set);
@@ -1035,9 +1035,9 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
         continue;
       const LMValue *lms = pt_edge.arcLms();
       if (lms == nullptr) {
-        printf("PtGraph::delayLmSum: pt_edge %u has no lm values\n",
-               pt_edge.objectIdx());
-        fflush(stdout);
+        // printf("PtGraph::delayLmSum: pt_edge %u has no lm values\n",
+        //        pt_edge.objectIdx());
+        // fflush(stdout);
         continue;
       }
       LMValue arc_lm = lms[lm_index];
@@ -1072,9 +1072,9 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
       const ArcDelay &arc_delay = arcDelay(pt_edge, timing_arc, ap_index);
       const LMValue *lms = pt_edge.arcLms();
       if (lms == nullptr) {
-        printf("PtGraph::delayLmSum: pt_edge %u has no lm values\n",
-               pt_edge.objectIdx());
-        fflush(stdout);
+        // printf("PtGraph::delayLmSum: pt_edge %u has no lm values\n",
+        //        pt_edge.objectIdx());
+        // fflush(stdout);
         continue;
       }
       LMValue arc_lm = lms[lm_index];
@@ -1138,9 +1138,9 @@ PtGraph::annotateVerticesType()
       auto it = vertex_map_.find(load_vertex);
       if (it == vertex_map_.end()) {
         // Commonly these vertices are !searchFrom vertices
-        printf("PtGraph::annotateRefFaninVertices: load vertex %s not found in vertex_map_\n",
-               load_vertex->to_string(sta_).c_str());
-        fflush(stdout);
+        // printf("PtGraph::annotateRefFaninVertices: load vertex %s not found in vertex_map_\n",
+        //        load_vertex->to_string(sta_).c_str());
+        // fflush(stdout);
         continue;
       }
       ptVertex(it->second).setType(PtVertexType::RefInput);
@@ -1158,7 +1158,7 @@ PtGraph::annotateVerticesType()
         continue;
       auto it = vertex_map_.find(drvr_vertex);
       if (it == vertex_map_.end()) {
-        printf("PtGraph::annotateRefFaninVertices: drvr vertex not found in vertex_map_\n");
+        // printf("PtGraph::annotateRefFaninVertices: drvr vertex not found in vertex_map_\n");
         fflush(stdout);
         continue;
       }

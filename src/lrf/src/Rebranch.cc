@@ -422,22 +422,22 @@ computeSinkCriticality(const sta::Pin* drvr_pin,
   std::unordered_map<const sta::Pin*, double> sink_criticality;
   
   if (drvr_pin == nullptr) {
-    printf("ERROR: computeSinkCriticality called with null driver pin\n");
+    // printf("ERROR: computeSinkCriticality called with null driver pin\n");
     return sink_criticality;
   }
 
   sta::Network* network = sta->network();
   sta::Term* term = network->term(drvr_pin);
   if (term == nullptr) {
-    printf("ERROR: Cannot find term for driver pin %s\n", 
-           network->pathName(drvr_pin));
+    // printf("ERROR: Cannot find term for driver pin %s\n", 
+           // network->pathName(drvr_pin));
     return sink_criticality;
   }
   
   sta::Net* net = network->net(term);
   if (net == nullptr) {
-    printf("ERROR: Cannot find net for driver pin %s\n", 
-           network->pathName(drvr_pin));
+    // printf("ERROR: Cannot find net for driver pin %s\n", 
+           // network->pathName(drvr_pin));
     return sink_criticality;
   }
 
@@ -447,7 +447,7 @@ computeSinkCriticality(const sta::Pin* drvr_pin,
   }
 
   if (corner == nullptr) {
-    printf("ERROR: No valid corner found for criticality computation\n");
+    // printf("ERROR: No valid corner found for criticality computation\n");
     return sink_criticality;
   }
 
@@ -497,7 +497,7 @@ printSinkCriticality(const sta::Pin* drvr_pin,
                      sta::dbSta* sta)
 {
   if (drvr_pin == nullptr) {
-    printf("ERROR: printSinkCriticality called with null driver pin\n");
+    // printf("ERROR: printSinkCriticality called with null driver pin\n");
     return;
   }
 
@@ -505,14 +505,14 @@ printSinkCriticality(const sta::Pin* drvr_pin,
   sta::Term* term = network->term(drvr_pin);
   sta::Net* net = (term != nullptr) ? network->net(term) : nullptr;
   
-  printf("\n=== Sink Criticality for net: %s (driver: %s) ===\n",
-         net ? network->pathName(net) : "unknown",
-         network->pathName(drvr_pin));
-  printf("Total sink count: %zu\n", sink_criticality.size());
+  // printf("\n=== Sink Criticality for net: %s (driver: %s) ===\n",
+         // net ? network->pathName(net) : "unknown",
+         // network->pathName(drvr_pin));
+  // printf("Total sink count: %zu\n", sink_criticality.size());
   
   if (sink_criticality.empty()) {
-    printf("No sinks found or all sinks have non-negative slack.\n");
-    printf("===================================================\n\n");
+    // printf("No sinks found or all sinks have non-negative slack.\n");
+    // printf("===================================================\n\n");
     return;
   }
   
@@ -528,22 +528,22 @@ printSinkCriticality(const sta::Pin* drvr_pin,
   std::sort(sorted_sinks.begin(), sorted_sinks.end(),
             [](const auto& a, const auto& b) { return a.second > b.second; });
   
-  printf("%-60s %15s %15s\n", "Pin Name", "Criticality", "Normalized");
-  printf("%-60s %15s %15s\n", "--------", "-----------", "----------");
+  // printf("%-60s %15s %15s\n", "Pin Name", "Criticality", "Normalized");
+  // printf("%-60s %15s %15s\n", "--------", "-----------", "----------");
   
   for (const auto& entry : sorted_sinks) {
     const sta::Pin* pin = entry.first;
     double crit = entry.second;
     double normalized = (max_crit > 0.0) ? (crit / max_crit) : 0.0;
     
-    printf("%-60s %15.6f %14.1f%%\n",
-           network->pathName(pin),
-           crit,
-           normalized * 100.0);
+    // printf("%-60s %15.6f %14.1f%%\n",
+           // network->pathName(pin),
+           // crit,
+           // normalized * 100.0);
   }
   
-  printf("\nMax criticality: %.6f\n", max_crit);
-  printf("===================================================\n\n");
+  // printf("\nMax criticality: %.6f\n", max_crit);
+  // printf("===================================================\n\n");
   fflush(stdout);
 }
 
