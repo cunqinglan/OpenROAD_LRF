@@ -943,12 +943,11 @@ TaskArranger::visitAll(ParallelLrVisitor *visitor)
 void
 TaskArranger::markSelectedInstances(const std::vector<size_t> &vertex_ids)
 {
-  // Reset all vertices to unselected
+  // Reset all vertices to skip, then mark selected for resize
   for (auto &v : vertices_)
-    v.selected_ = false;
-  // Mark only the top instances from precheck as selected
+    v.move_mask_ = 0;
   for (size_t idx : vertex_ids)
-    vertices_[idx].selected_ = true;
+    vertices_[idx].move_mask_ = InstVertex::kMoveResize;
 }
 
 void
@@ -981,7 +980,7 @@ TaskArranger::createTask(InstVertex* inst_vertex)
 void
 TaskArranger::runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex)
 {
-  if (!inst_vertex->selected_) {
+  if (inst_vertex->move_mask_ == 0) {
     // Non-selected: lightweight slew-only pass to keep timing fresh
     // for downstream selected instances. No cell evaluation.
     visitor->visitSlewOnly(inst_vertex->inst());

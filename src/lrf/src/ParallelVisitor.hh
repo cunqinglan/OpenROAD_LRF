@@ -202,10 +202,9 @@ private:
 };
 
 // Visitor for single-pass resize + buffering: for each instance, decide
-// whether to resize, insert buffers, or do both.  Resize candidates and
-// buffer candidates are determined by external prechecks; the buffer flag
-// is annotated on InstVertex::buffer_candidate_ and propagated to the
-// visitor via setBufferCandidate() before each visit() call in runTask().
+// whether to resize, insert buffers, or do both.  Operations are controlled
+// by InstVertex::move_mask_ (kMoveResize | kMoveBuffer bitmask), checked
+// via doResize()/doBuffer() in visit().
 class TaskArranger;
 
 class CombinedVisitor : public ParallelLrVisitor
