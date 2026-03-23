@@ -86,6 +86,7 @@ struct InstVertex {
   ObjectIdx object_idx_ = object_idx_null;
   VertexType type_ = VertexType::NONE;
   bool selected_ = true;  // default true: all instances participate in resize
+  bool buffer_candidate_ = false;  // true: also evaluate buffering (set by precheck)
   std::vector<sta::PwrActivity> activities_;
 };
 

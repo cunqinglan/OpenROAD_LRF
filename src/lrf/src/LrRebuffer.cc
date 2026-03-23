@@ -381,6 +381,7 @@ void
 LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
 {
   best_bnet_ = nullptr;
+  best_cost_ = std::numeric_limits<float>::max();
   if (!best_vinfo_.vertex_ids.empty()) {
     removeVirtualBuffer(best_vinfo_);
   }
@@ -836,6 +837,10 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
              best_option->cap(), best_option->fanout(), buf_count);
       fflush(stdout);
     }
+
+    // Persist best cost for external callers (e.g. CombinedVisitor).
+    if (last_iteration)
+      best_cost_ = best_cost;
 
     if (last_iteration) {
       // Rebuild virtual buffer for best option and run local timing so that
