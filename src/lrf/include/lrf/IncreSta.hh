@@ -74,6 +74,12 @@ public:
   void parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
                          int top_n = 100);
 
+  // Single-pass resize + buffering: for buffer candidates, evaluate
+  // resize then try buffering on the best resized cell.
+  void parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
+                                  float avg_power, float PT_tradeoff,
+                                  int buffer_top_n = 100);
+
   // Screen buffering candidates: collect gates with negative late slack,
   // sort by output_cap / input_cap ratio descending, return top_n vertex ids.
   std::vector<size_t> bufferingVerticesCandidate(int top_n);

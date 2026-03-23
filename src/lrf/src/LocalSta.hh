@@ -461,6 +461,7 @@ private:
   friend class TestLrf;
   friend class LrRebuffer;
   friend class ParallelLrVisitor;
+  friend class CombinedVisitor;
 };
 
 
