@@ -1205,10 +1205,15 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
     if (dpl) {
       logger_->info(utl::RES, 404,
                     "Running detailed placement to resolve overlaps...");
+      // Passing 0 for max_displacement uses tool defaults (500 sites x,
+      // 100 sites y) per the Opendp API, allowing cells to move enough
+      // to resolve any overlaps introduced by cell insertion/remapping.
       dpl->detailedPlacement(/*max_displacement_x=*/0,
                              /*max_displacement_y=*/0);
       logger_->info(utl::RES, 405,
                     "Running placement improvement for wirelength optimization...");
+      // Passing 0 for max_displacement uses tool defaults (unlimited within
+      // the grid bounds) per the Opendp API.
       dpl->improvePlacement(/*seed=*/42,
                             /*max_displacement_x=*/0,
                             /*max_displacement_y=*/0);
