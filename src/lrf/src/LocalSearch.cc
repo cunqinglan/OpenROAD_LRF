@@ -192,9 +192,9 @@ LocalArrivalVisitor::findVirtualVertexArrival(PtVertex &pt_vertex)
   // for tag_bldr init. Path::init needs a real vertex for graph->id().
   Vertex *init_vertex = pt_vertex.proxyVertex();
   if (init_vertex == nullptr) {
-    printf("Warning: findVirtualVertexArrival: no proxy vertex for virtual_%u\n",
-           pt_vertex.objectIdx());
-    fflush(stdout);
+    // printf("Warning: findVirtualVertexArrival: no proxy vertex for virtual_%u\n",
+           // pt_vertex.objectIdx());
+    // fflush(stdout);
     return;
   }
 
@@ -273,9 +273,9 @@ LocalPathVisitor::localVisitEdge(PtVertex &from_pt_vertex,
       // Check if the path has a valid tag index before accessing it
       TagIndex tag_idx = from_path->tagIndex(this);
       if (tag_idx == sta::tag_group_index_max || tag_idx >= search_->tagCount()) {
-        printf("Warning: LocalPathVisitor::localVisitEdge: Skipping invalid path on vertex %s that may have been corrupted by copyPaths.\n",
-               from_pt_vertex.pin() ? network_->name(from_pt_vertex.pin()) : "virtual");
-        fflush(stdout);
+        // printf("Warning: LocalPathVisitor::localVisitEdge: Skipping invalid path on vertex %s that may have been corrupted by copyPaths.\n",
+               // from_pt_vertex.pin() ? network_->name(from_pt_vertex.pin()) : "virtual");
+        // fflush(stdout);
         continue;
       }
       PathAnalysisPt *from_path_ap = from_path->pathAnalysisPt(this);
@@ -373,7 +373,7 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
   const Clock *clk = from_clk_info->clock();
 
   if (from_clk_info->isGenClkSrcPath()) {
-    printf("Local arrival analysis supports gen clk src paths.\n");
+    // printf("Local arrival analysis supports gen clk src paths.\n");
     if (!sdc_->clkStopPropagation(clk,from_pin,from_rf,to_pin,to_rf)
 	&& (variables_->clkThruTristateEnabled()
 	    || !(role == TimingRole::tristateEnable()
@@ -623,8 +623,8 @@ LocalArrivalVisitor::printArrivals()
       Path *path = path_iter.next();
       Arrival arrival = path->arrival();
       const char *vname = pt_vertex.pin() ? network_->name(pt_vertex.pin()) : "virtual";
-      printf("Vertex %s Path %zu Arrival: %f\n",
-             vname, path_num, arrival);
+      // printf("Vertex %s Path %zu Arrival: %f\n",
+             // vname, path_num, arrival);
       path_num++;
     }
   }
@@ -817,8 +817,8 @@ LocalRequiredVisitor::printRequireds()
       Path *path = path_iter.next();
       Required required = path->required();
       const char *vname = pt_vertex.pin() ? network_->name(pt_vertex.pin()) : "virtual";
-      printf("Vertex %s Path %zu Required: %f\n",
-             vname, path_num, required);
+      // printf("Vertex %s Path %zu Required: %f\n",
+             // vname, path_num, required);
       path_num++;
     }
   }

@@ -89,7 +89,7 @@ void
 TaskArranger::init()
 {
   if (vertices_.empty()) {
-    printf("TaskArranger::init making graph...\n");
+    // printf("TaskArranger::init making graph...\n");
     makeGraph();
     initVertexRefCounts(true);
     ensureGraphVertices();
@@ -111,7 +111,7 @@ TaskArranger::reinit()
 void
 TaskArranger::rebuild()
 {
-  printf("TaskArranger::rebuild clearing and rebuilding graph...\n");
+  // printf("TaskArranger::rebuild clearing and rebuilding graph...\n");
   vertices_.clear();
   edges_.clear();
   inst_to_vid_.clear();
@@ -123,8 +123,8 @@ TaskArranger::rebuild()
   makeGraph();
   initVertexRefCounts(true);
   ensureGraphVertices();
-  printf("TaskArranger::rebuild done. %zu vertices, %zu edges\n",
-         vertices_.size(), edges_.size());
+  // printf("TaskArranger::rebuild done. %zu vertices, %zu edges\n",
+         // vertices_.size(), edges_.size());
 }
 
 void
@@ -133,8 +133,8 @@ TaskArranger::ensureGraphVertices()
   // Pre-warm the graph by accessing all relevant vertices.
   // This forces OpenSTA to allocate vertices in the graph, preventing
   // reallocation/pointer invalidation during parallel execution.
-  printf("TaskArranger::ensureGraphVertices pre-warming graph...\n");
-  fflush(stdout);
+  // printf("TaskArranger::ensureGraphVertices pre-warming graph...\n");
+  // fflush(stdout);
   
   sta::Graph *graph = graph_;
   sta::Network *network = network_;
@@ -184,8 +184,8 @@ TaskArranger::ensureGraphVertices()
       }
     }
   }
-  printf("TaskArranger::ensureGraphVertices done.\n");
-  fflush(stdout);
+  // printf("TaskArranger::ensureGraphVertices done.\n");
+  // fflush(stdout);
 }
 
 VertexId
@@ -260,13 +260,13 @@ TaskArranger::makeGraph()
 void 
 TaskArranger::checkGraph() const
 {
-  printf("Checking all vertices in the graph...\n");
-  fflush(stdout);
+  // printf("Checking all vertices in the graph...\n");
+  // fflush(stdout);
   for (size_t vid = 0; vid < vertices_.size(); vid++) {
     const InstVertex &inst_vertex = vertices_[vid];
     if (inst_vertex.type() == VertexType::NONE) {
-      printf("ERROR: Vertex %zu has type NONE in checkGraph.\n", vid);
-      fflush(stdout);
+      // printf("ERROR: Vertex %zu has type NONE in checkGraph.\n", vid);
+      // fflush(stdout);
       continue;
     }
     if (inst_vertex.objectIdx() == object_idx_null) {
@@ -276,11 +276,11 @@ TaskArranger::checkGraph() const
       throw std::runtime_error("Instance to VertexId mapping incorrect in checkGraph.");
     }
   }
-  printf("All vertices checked successfully in checkGraph.\n");
-  fflush(stdout);
+  // printf("All vertices checked successfully in checkGraph.\n");
+  // fflush(stdout);
 
-  printf("Checking all edges in the graph...\n");
-  fflush(stdout);
+  // printf("Checking all edges in the graph...\n");
+  // fflush(stdout);
   for (size_t eid = 0; eid < edges_.size(); eid++) {
     const InstEdge &inst_edge = edges_[eid];
     if (inst_edge.objectIdx() == object_idx_null) {
@@ -299,10 +299,10 @@ TaskArranger::checkGraph() const
       }
     }
   }
-  printf("All edges checked successfully in checkGraph.\n");
-  fflush(stdout);
+  // printf("All edges checked successfully in checkGraph.\n");
+  // fflush(stdout);
 
-  printf("Checking ref counts of vertices in the graph...\n");
+  // printf("Checking ref counts of vertices in the graph...\n");
   for (size_t vid = 0; vid < vertices_.size(); vid++) {
     const InstVertex &inst_vertex = vertices_[vid];
     if (inst_vertex.tempRefNum() == 0) {
@@ -349,9 +349,9 @@ TaskArranger::makeVertices()
   // Pre-reserve mapping capacity to keep unordered_map lookups O(1) without rehash.
   inst_to_vid_.reserve(vertices_.size());
   num_com_ = num_com_insts;
-  printf("Making vertices: %d combinational, %d sequential, %zu numcom\n", 
-         num_com_insts, num_root_insts, num_com_);
-  fflush(stdout);
+  // printf("Making vertices: %d combinational, %d sequential, %zu numcom\n", 
+         // num_com_insts, num_root_insts, num_com_);
+  // fflush(stdout);
   sta::LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
   num_com_insts = 0;
   num_root_insts = 0;
@@ -389,9 +389,9 @@ TaskArranger::makeVertices()
     }
   }
   delete inst_iter;
-  printf("Double check size: num_root_insts=%d, num_com_insts=%d\n", 
-         num_root_insts, num_com_insts);
-  fflush(stdout);
+  // printf("Double check size: num_root_insts=%d, num_com_insts=%d\n", 
+         // num_root_insts, num_com_insts);
+  // fflush(stdout);
 
   // Create vertex for top instance
   {
@@ -405,9 +405,9 @@ TaskArranger::makeVertices()
     setInstanceId1(top_inst, vid);
     vertex.setType(VertexType::TOP);
     const char *inst_name = network_->name(top_inst);
-    printf("  Initialized top instance vertex %d: inst=%p, name=%s\n", 
-           vid, (void*)top_inst, inst_name);
-    fflush(stdout);
+    // printf("  Initialized top instance vertex %d: inst=%p, name=%s\n", 
+           // vid, (void*)top_inst, inst_name);
+    // fflush(stdout);
   }
   
   // Verify vertex layout invariant: [0, num_com_) must all be COMBINATIONAL,
@@ -442,16 +442,16 @@ void
 TaskArranger::makeEdges()
 {
   // ✅ 先验证所有 vertices 的 inst_ 指针
-  printf("Verifying all vertices before makeEdges...\n");
-  fflush(stdout);
+  // printf("Verifying all vertices before makeEdges...\n");
+  // fflush(stdout);
   for (size_t vid = 0; vid < vertices_.size(); vid++) {
     InstVertex &inst_vertex = vertices_[vid];
     if (!inst_vertex.inst()) {
       throw std::runtime_error("Vertex has null inst_ before makeEdges.");
     }
   }
-  printf("Verification complete. Starting makeEdges...\n");
-  fflush(stdout);
+  // printf("Verification complete. Starting makeEdges...\n");
+  // fflush(stdout);
   
   for (size_t vid = 0; vid < vertices_.size(); vid++) {
     InstVertex &inst_vertex = vertices_[vid];
@@ -504,8 +504,8 @@ TaskArranger::FanoutsInstances(const sta::Pin *drvr_pin)
     }
   } else {
     // Bidirect pin case, not supported yet.
-    printf("Bidirect pin found, not supported yet.\n");
-    fflush(stdout);
+    // printf("Bidirect pin found, not supported yet.\n");
+    // fflush(stdout);
   }
   
   return fanout_insts;
@@ -515,8 +515,8 @@ void
 TaskArranger::makeInstDrvrWireMEE(sta::Instance* inst)
 {
   if (inst == nullptr) {
-    printf("Instance is nullptr in makeInstDrvrWireMEE.\n");
-    fflush(stdout);
+    // printf("Instance is nullptr in makeInstDrvrWireMEE.\n");
+    // fflush(stdout);
     return;
   }
   InstVertex* from_inst_vertex = vertex(inst);
@@ -562,15 +562,15 @@ TaskArranger::makeSiblingFanoutsMEE(InstVertex* inst_vertex)
 {
   // debug print
   if (!inst_vertex) {
-    printf("ERROR: inst_vertex is nullptr in makeSiblingFanoutsMEE\n");
-    fflush(stdout);
+    // printf("ERROR: inst_vertex is nullptr in makeSiblingFanoutsMEE\n");
+    // fflush(stdout);
     return;
   }
   
   sta::Instance* inst = inst_vertex->inst();
   if (!inst) {
-    printf("ERROR: inst_vertex->inst() is nullptr in makeSiblingFanoutsMEE\n");
-    fflush(stdout);
+    // printf("ERROR: inst_vertex->inst() is nullptr in makeSiblingFanoutsMEE\n");
+    // fflush(stdout);
     return;
   }
   // First, get all fanout instances of this instance.
@@ -635,8 +635,8 @@ TaskArranger::makeEdge(InstVertex* from_vertex,
     // Disallow incoming edges to SEQ/TOP: do not create * -> (SEQ/TOP).
     const char* from_name = from_vertex->inst() ? network_->name(from_vertex->inst()) : "<null>";
     const char* to_name = to_vertex->inst() ? network_->name(to_vertex->inst()) : "<null>";
-    printf("Disallow edge into %s (SEQ/TOP): from=%s -> to=%s\n", to_name, from_name, to_name);
-    fflush(stdout);
+    // printf("Disallow edge into %s (SEQ/TOP): from=%s -> to=%s\n", to_name, from_name, to_name);
+    // fflush(stdout);
     return edge_id_null;
   }
   // Check for duplicate edge and skip if exists.
@@ -689,9 +689,9 @@ TaskArranger::printFailed() const
     if (vertex_ref_counts_[vid].load() == 0) {
       com_without_zero_fanout++;
       if (inst_vertex_set.find(const_cast<InstVertex*>(&vertices_[vid])) == inst_vertex_set.end()) {
-        printf("ERROR: Com vertex %s with zero ref is not visited\n",
-               network_->name(vertices_[vid].inst()));
-        fflush(stdout);
+        // printf("ERROR: Com vertex %s with zero ref is not visited\n",
+               // network_->name(vertices_[vid].inst()));
+        // fflush(stdout);
         zero_ref_not_visited = true;
       }
       InstVertexOutEdgeIterator edge_iter(
@@ -701,21 +701,21 @@ TaskArranger::printFailed() const
         VertexId to_vid = id(out_inst_vertex);
         if (vertex_ref_counts_[to_vid].load() != 0) {
           com_visited_but_has_nonezero_fanout++;
-          printf("WARNING: Com vertex %s has non-zero ref fanout: %s \n",
-                 network_->name(vertices_[vid].inst()),
-                 network_->name(out_inst_vertex->inst()));
-          fflush(stdout);
+          // printf("WARNING: Com vertex %s has non-zero ref fanout: %s \n",
+                 // network_->name(vertices_[vid].inst()),
+                 // network_->name(out_inst_vertex->inst()));
+          // fflush(stdout);
         }
       }
     }
   }
-  printf("Total combinational vertices without zero ref fanout: %d\n",
-         com_without_zero_fanout);
-  printf("Total combinational vertices visited but has non-zero ref fanout: %d\n",
-         com_visited_but_has_nonezero_fanout);
-  if (zero_ref_not_visited)
-    printf("Some zero-ref combinational vertices were not visited!\n");
-  fflush(stdout);
+  // printf("Total combinational vertices without zero ref fanout: %d\n",
+         // com_without_zero_fanout);
+  // printf("Total combinational vertices visited but has non-zero ref fanout: %d\n",
+         // com_visited_but_has_nonezero_fanout);
+  // if (zero_ref_not_visited)
+  //   printf("Some zero-ref combinational vertices were not visited!\n");
+  // fflush(stdout);
 }
 
 void
@@ -726,16 +726,16 @@ TaskArranger::printGraph() const
       continue;
     const InstVertex &inst_vertex = vertices_[vid];
     const sta::Instance* inst = inst_vertex.inst();
-    printf("Vertex %zu: Instance %s, Level %u, TempRefNum %zu, atomicRefCount %zu, type %s\n",
-           vid,
-           inst ? network_->name(inst) : "nullptr",
-           inst_vertex.level(),
-           inst_vertex.tempRefNum(),
-           vertex_ref_counts_[vid].load(),
-           inst_vertex.type() == VertexType::COMBINATIONAL ? "COMBINATIONAL" :
-           inst_vertex.type() == VertexType::SEQUENTIAL ? "SEQUENTIAL" :
-           inst_vertex.type() == VertexType::TOP ? "TOP" : "NONE");
-           fflush(stdout);
+    // printf("Vertex %zu: Instance %s, Level %u, TempRefNum %zu, atomicRefCount %zu, type %s\n",
+           // vid,
+           // inst ? network_->name(inst) : "nullptr",
+           // inst_vertex.level(),
+           // inst_vertex.tempRefNum(),
+           // vertex_ref_counts_[vid].load(),
+           // inst_vertex.type() == VertexType::COMBINATIONAL ? "COMBINATIONAL" :
+           // inst_vertex.type() == VertexType::SEQUENTIAL ? "SEQUENTIAL" :
+           // inst_vertex.type() == VertexType::TOP ? "TOP" : "NONE");
+           // fflush(stdout);
     InstVertexOutEdgeIterator edge_iter(
         const_cast<InstVertex*>(&inst_vertex), this);
     while (edge_iter.hasNext()) {
@@ -743,9 +743,9 @@ TaskArranger::printGraph() const
       const InstEdge *edge_ptr = edge(edge_id);
       const InstVertex* to_vertex = vertex(edge_ptr->to());
       const sta::Instance* to_inst = to_vertex->inst();
-      printf("  Edge to : Instance %s\n",
-             to_inst ? network_->name(to_inst) : "nullptr");
-             fflush(stdout);
+      // printf("  Edge to : Instance %s\n",
+             // to_inst ? network_->name(to_inst) : "nullptr");
+             // fflush(stdout);
     }
   }
 }
@@ -758,11 +758,11 @@ TaskArranger::reduceEdgeFromRoots()
   || inst_vertex.type() == VertexType::TOP) {
       if (inst_vertex.hasFanins()) {
         if (inst_vertex.type() == VertexType::SEQUENTIAL) {
-          printf("Sequential vertex of %s has fanins in reduceEdgeFromReg, skipping.\n", network_->name(inst_vertex.inst()));
-          fflush(stdout);
+          // printf("Sequential vertex of %s has fanins in reduceEdgeFromReg, skipping.\n", network_->name(inst_vertex.inst()));
+          // fflush(stdout);
         } else {
-          printf("Top vertex of %s has fanins in reduceEdgeFromReg, skipping.\n", network_->name(inst_vertex.inst()));
-          fflush(stdout);
+          // printf("Top vertex of %s has fanins in reduceEdgeFromReg, skipping.\n", network_->name(inst_vertex.inst()));
+          // fflush(stdout);
         }
         throw std::runtime_error("Sequential or Top vertex has fanins in reduceEdgeFromReg.");
       }
@@ -849,7 +849,7 @@ TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *r
   
   // Initialize topology checker if enabled
   if (enable_topology_check_) {
-    printf("Topology check enabled.\n");
+    // printf("Topology check enabled.\n");
     topology_checker_ = std::make_unique<TopologyChecker>(this);
   }
   
@@ -862,8 +862,8 @@ TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *r
   
   visitors_.reserve(thread_count_);
   visitors_.push_back(visitor);
-  printf("Visit with %u threads\n", thread_count_);
-  fflush(stdout);
+  // printf("Visit with %u threads\n", thread_count_);
+  // fflush(stdout);
   for (size_t i = 1; i < thread_count_; i++) {
     visitors_.emplace_back(visitor->copy());
   }
@@ -1123,13 +1123,13 @@ SearchMEEPred::searchTo(const sta::Vertex* to_vertex)
 void
 TaskArranger::printVisitedInstNames() const
 {
-  printf("=== Visited Instance Names (in order) ===\n");
-  printf("Total visited: %zu instances\n", visited_inst_vertices_.size());
+  // printf("=== Visited Instance Names (in order) ===\n");
+  // printf("Total visited: %zu instances\n", visited_inst_vertices_.size());
   for (size_t i = 0; i < visited_inst_vertices_.size(); i++) {
-    printf("[%zu] %s\n", i, network_->name(visited_inst_vertices_[i]->inst()));
+    // printf("[%zu] %s\n", i, network_->name(visited_inst_vertices_[i]->inst()));
   }
-  printf("=========================================\n");
-  fflush(stdout);
+  // printf("=========================================\n");
+  // fflush(stdout);
 }
 
 void
