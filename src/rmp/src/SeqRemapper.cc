@@ -537,27 +537,21 @@ void SeqRemapper::performIncreDpl(cut::LogicCut& logic_cut, dpl::Opendp* dpl)
     centroid = odb::Point(core.xMin(), core.yMin());
   }
 
-  // Step 2: Seed each new cut instance at the centroid and mark it PLACED
-  //         so DPL can legally snap it to a valid row/site.
+  // Step 2: Seed each new cut instance at the centroid as a location hint,
+  //         but keep UNPLACED so incrementalDetailedPlacement will place them.
   for (const sta::Instance* sta_inst : logic_cut.cut_instances()) {
     odb::dbInst* db_inst = network->staToDb(sta_inst);
     if (db_inst == nullptr) {
       continue;
     }
     db_inst->setLocation(centroid.x(), centroid.y());
-    db_inst->setPlacementStatus(odb::dbPlacementStatus::PLACED);
+    db_inst->setPlacementStatus(odb::dbPlacementStatus::NONE);
   }
 
-  // Step 3: Legalize each new cut instance in place — snaps to the nearest
-  //         legal row/site and resolves overlaps locally, like rsz does after
-  //         cell insertion.
-  for (const sta::Instance* sta_inst : logic_cut.cut_instances()) {
-    odb::dbInst* db_inst = network->staToDb(sta_inst);
-    if (db_inst == nullptr) {
-      continue;
-    }
-    dpl->legalCellPos(db_inst);
-  }
+  // Step 3: Run incremental detailed placement — only places unplaced cells,
+  //         treats all existing placed cells as obstacles in the grid.
+  dpl->incrementalDetailedPlacement(/*max_displacement_x=*/0,
+                                    /*max_displacement_y=*/0);
 
   logger_->info(utl::RES, 338, "Incremental detailed placement completed");
 }

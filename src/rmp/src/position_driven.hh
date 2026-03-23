@@ -1,9 +1,31 @@
 #include <limits>
+#include <vector>
+#include <string>
 
 #include "cut/logic_cut.h"
 #include "Strategy.hh"
 
+namespace abc {
+struct Map_MappingSolution_t;
+struct Map_Man_t;
+struct Abc_Ntk_t;
+}
+
+namespace sta {
+class Slack;
+class Vertex;
+}
 namespace rmp {
+
+// Result of evaluating a single mapping solution in a child process.
+struct SolutionEvalResult {
+  int solution_index;
+  abc::Map_MappingSolution_t* pSolution;
+  sta::Slack slack;
+  std::string log;
+  bool success;
+};
+
 class PositionDrivenStrategy : public ExtractLocalWindow
 {
  public:
@@ -25,7 +47,8 @@ class PositionDrivenStrategy : public ExtractLocalWindow
   void remap(SeqRemapper& remapper,
              float percentage = -1.0f,
              float max_percentage = -1.0f,
-             float slack_threshold = std::numeric_limits<float>::max());
+             float slack_threshold = std::numeric_limits<float>::max(),
+             bool run_detailed_placement = false);
 
   sta::Slack evaluateSolution(abc::Map_MappingSolution_t* pSolution,
                               abc::Map_Man_t* pMan,
@@ -33,14 +56,30 @@ class PositionDrivenStrategy : public ExtractLocalWindow
                               cut::LogicCut& candidate_cut,
                               SeqRemapper& remapper);
 
+  // Fork-evaluate a range of solutions [iStart, iEnd) in parallel.
+  // Returns results for each solution including slack and log output.
+  std::vector<SolutionEvalResult> forkEvaluateSolutions(
+      abc::Map_Man_t* map_man,
+      abc::Abc_Ntk_t* logic_network,
+      cut::LogicCut& candidate_cut,
+      SeqRemapper& remapper,
+      int iStart,
+      int iEnd);
+
   //void positionDrivenRemap (SeqRemapper& remapper);
   sta::Vertex* getFarthestOutputVertex(
       SeqRemapper& remapper);
-  sta::Vertex* getWorstVertex(
+  std::vector<sta::Vertex*> getWorstVertices(
       SeqRemapper& remapper,
       float percentage = -1.0f,
       float max_percentage = -1.0f,
       float slack_threshold = std::numeric_limits<float>::max());
+  std::vector<sta::Vertex*> getWorstVerticesForEndpoint(
+      SeqRemapper& remapper,
+      sta::Vertex* endpoint);
+  bool remapOneCut(
+      SeqRemapper& remapper,
+      std::vector<sta::Vertex*>& worst_vertices);
   void extractCandidateCutAroundVertex(SeqRemapper& remapper);
   cut::LogicCut getCandidateCut() const {
     return candidate_cut_;

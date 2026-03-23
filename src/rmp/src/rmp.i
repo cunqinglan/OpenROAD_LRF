@@ -122,12 +122,14 @@ void position_driven_remap_cmd(Corner* corner,
                                float percentage,
                                float max_percentage,
                                float slack_threshold,
-                               int has_threshold) {
+                               int has_threshold,
+                               int run_dpl) {
   getRestructure()->positionDrivenRemap(
       corner,
       percentage,
       max_percentage,
-      has_threshold ? slack_threshold : std::numeric_limits<float>::max());
+      has_threshold ? slack_threshold : std::numeric_limits<float>::max(),
+      run_dpl != 0);
 }
 
 %}
