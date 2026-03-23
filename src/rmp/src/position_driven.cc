@@ -536,7 +536,7 @@ std::vector<sta::Vertex*> PositionDrivenStrategy::getWorstVerticesForEndpoint(
 
   sta::Path* end_path = sta->vertexWorstSlackPath(endpoint, sta::MinMax::max());
   if (end_path == nullptr) {
-    logger_->warn(utl::RES, 333,
+    logger_->warn(utl::RES, 350,
                   "No worst-slack path found for endpoint {}.",
                   endpoint->name(network));
     return {};
@@ -618,7 +618,7 @@ std::vector<sta::Vertex*> PositionDrivenStrategy::getWorstVerticesForEndpoint(
         db_inst->getLocation(inst_x, inst_y);
       }
 
-      logger_->info(utl::RES, 380,
+      logger_->info(utl::RES, 388,
           "[VertexDelayInfo] Instance: {} | Cell: {} | Position: ({}, {}) | LoadDelay: {}",
           inst_name, cell_type, inst_x, inst_y, sta::delayAsFloat(load_delay));
 
@@ -645,7 +645,7 @@ std::vector<sta::Vertex*> PositionDrivenStrategy::getWorstVerticesForEndpoint(
         // For output pins: find fanout instances and compute HPWL distance + delay.
         sta::Net* pin_net = network->net(pin);
         if (pin_net == nullptr) {
-          logger_->info(utl::RES, 381,
+          logger_->info(utl::RES, 389,
               "  Pin: {} | Dir: {} | Slack: {} | (no net)",
               pin_name, dir_str, sta::delayAsFloat(pin_slack));
           continue;
@@ -729,7 +729,7 @@ std::vector<sta::Vertex*> PositionDrivenStrategy::getWorstVerticesForEndpoint(
           }
         }
 
-        logger_->info(utl::RES, 382,
+        logger_->info(utl::RES, 390,
             "  Pin: {} | Dir: {} | Slack: {} | Connected: [{}] | Delays: [{}]",
             pin_name, dir_str, sta::delayAsFloat(pin_slack),
             connected_info.empty() ? "none" : connected_info,
@@ -787,7 +787,7 @@ bool PositionDrivenStrategy::remapOneCut(
       continue;
     }
 
-    logger_->info(utl::RES, 390,
+    logger_->info(utl::RES, 406,
                   "[Step1] Candidate {}: bad_instance name={}, type={}",
                   vi, network->name(inst), cell->name());
 
@@ -1382,19 +1382,19 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
     if (WIFEXITED(status)) {
       int exit_code = WEXITSTATUS(status);
       if (exit_code != 0) {
-        logger_->warn(utl::RES, 380,
+        logger_->warn(utl::RES, 385,
                       "Solution {} child exited with code {}.",
                       children[j].solution_index + 1, exit_code);
         results[j].success = false;
       }
     } else if (WIFSIGNALED(status)) {
       int sig = WTERMSIG(status);
-      logger_->warn(utl::RES, 381,
+      logger_->warn(utl::RES, 386,
                     "Solution {} child killed by signal {} ({}).",
                     children[j].solution_index + 1, sig, strsignal(sig));
       results[j].success = false;
     } else {
-      logger_->warn(utl::RES, 382,
+      logger_->warn(utl::RES, 387,
                     "Solution {} child ended with unknown status 0x{:x}.",
                     children[j].solution_index + 1, status);
       results[j].success = false;
