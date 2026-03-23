@@ -1230,11 +1230,11 @@ IncreSta::parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
   printf("Buffer candidates: %zu (of %zu total)\n",
          buf_candidates.size(), task_arranger->vertexCount());
 
-  // Reset all buffer_candidate_ flags, then set selected ones
+  // All instances get resize; buffer candidates also get buffer bit
   for (size_t i = 0; i < task_arranger->vertexCount(); i++)
-    task_arranger->vertex(i)->buffer_candidate_ = false;
+    task_arranger->vertex(i)->move_mask_ = InstVertex::kMoveResize;
   for (size_t vid : buf_candidates)
-    task_arranger->vertex(vid)->buffer_candidate_ = true;
+    task_arranger->vertex(vid)->move_mask_ |= InstVertex::kMoveBuffer;
 
   // Initialize global STA/Resizer state for buffering (serial preamble)
   LrRebuffer::initGlobalPreamble(sta_, resizer);
