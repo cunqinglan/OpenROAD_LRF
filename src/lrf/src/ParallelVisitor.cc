@@ -410,6 +410,7 @@ ParallelLrVisitor::trySwapByArrayPruned(sta::Instance *inst, int col_padding, in
   // --- Build PtGraph ---
   auto start_pt = std::chrono::high_resolution_clock::now();
   pt_graph_ = local_sta_->makePtGraph(inst, false);
+  pt_graph_->pruneInsignificantSiblings();
   auto end_pt = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
       std::chrono::duration<double>(end_pt - start_pt).count();
