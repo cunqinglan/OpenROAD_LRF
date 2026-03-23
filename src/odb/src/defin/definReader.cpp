@@ -709,10 +709,13 @@ int definReader::netCallback(DefParser::defrCallbackType_e /* unused: type */,
   definReader* reader = (definReader*) data;
   CHECKBLOCK
   definNet* netR = reader->_netR.get();
-  if (reader->_mode == defin::FLOORPLAN) {
-    // In FLOORPLAN mode, skip all net connections to preserve the
-    // Verilog netlist connectivity.  Only physical placement (from
-    // COMPONENTS / PINS) is imported.
+  if (reader->_mode == defin::FLOORPLAN
+      && reader->_block->findNet(net->name()) == nullptr) {
+    reader->_logger->warn(
+        utl::ODB,
+        275,
+        "skipping undefined net {} encountered in FLOORPLAN DEF",
+        net->name()); 
     return PARSE_OK;
   }
   if (net->numShieldNets() > 0) {

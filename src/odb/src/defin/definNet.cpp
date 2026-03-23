@@ -122,11 +122,9 @@ void definNet::connection(const char* iname, const char* tname)
   dbInst* inst = _block->findInst(iname);
 
   if (inst == nullptr) {
-    if (_mode != defin::FLOORPLAN) {
-      _logger->warn(
-          utl::ODB, 99, "error: netlist component ({}) is not defined", iname);
-      ++_errors;
-    }
+    _logger->warn(
+        utl::ODB, 99, "error: netlist component ({}) is not defined", iname);
+    ++_errors;
     return;
   }
 

@@ -55,7 +55,7 @@ LrSizer::criticalPathSizing()
     }
   }
   if (violating_ends.empty()) {
-    printf("No violating endpoints found (all slacks >= 0). WNS met.\n");
+    // printf("No violating endpoints found (all slacks >= 0). WNS met.\n");
     return;
   }
   // Step 2: Compute per-endpoint threshold.
@@ -63,15 +63,15 @@ LrSizer::criticalPathSizing()
   // Distribute it across violating endpoints to get per-endpoint threshold.
   float tsh_TNS = para_tsh_discount_ * clock_period;
   float tsh = tsh_TNS / violating_ends.size();
-  printf("criticalPathSizing: %zu violating endpoints, clock_period=%.4e, "
-         "tsh_TNS=%.4e, per-endpoint tsh=%.4e\n",
-         violating_ends.size(), clock_period, tsh_TNS, tsh);
+  // printf("criticalPathSizing: %zu violating endpoints, clock_period=%.4e, "
+         // "tsh_TNS=%.4e, per-endpoint tsh=%.4e\n",
+         // violating_ends.size(), clock_period, tsh_TNS, tsh);
   // Filter to only keep endpoints worse than the per-endpoint threshold.
   std::erase_if(violating_ends, [tsh](const auto& p) {
     return p.second >= -tsh;
   });
   if (violating_ends.empty()) {
-    printf("No violating endpoints with slack < %.4e after per-endpoint filtering.\n", -tsh);
+    // printf("No violating endpoints with slack < %.4e after per-endpoint filtering.\n", -tsh);
     return;
   }
   std::ranges::stable_sort(violating_ends,
@@ -82,11 +82,11 @@ LrSizer::criticalPathSizing()
   
   for (const auto& [end, slack] : violating_ends) {
     if (repairCriticalPath(end)) {
-      printf("Resized gates on critical path to endpoint %s with slack %e.\n",
-             end->to_string(graph_).c_str(), slack);
+      // printf("Resized gates on critical path to endpoint %s with slack %e.\n",
+             // end->to_string(graph_).c_str(), slack);
     } else {
-      printf("Failed to resize gates on critical path to endpoint %s with slack %e.\n",
-             end->to_string(graph_).c_str(), slack);
+      // printf("Failed to resize gates on critical path to endpoint %s with slack %e.\n",
+             // end->to_string(graph_).c_str(), slack);
     }
   }
 }
@@ -132,7 +132,7 @@ LrSizer::sizeCriticalPathGates(sta::Path* path_end)
       }
     }
   }
-  printf("Sized %d gates on critical path.\n", gates_sized);
+  // printf("Sized %d gates on critical path.\n", gates_sized);
 
   return gates_sized > 0;
 }

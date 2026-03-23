@@ -1,6 +1,7 @@
 
 #include <cstdio>
 #include <mutex>
+#include <shared_mutex>
 
 #include "LocalParasitics.hh"
 #include "parasitics/ReduceParasitics.hh"
@@ -16,8 +17,9 @@
 
 namespace lrf {
 
-// Global mutex to protect access to OpenDB/STA objects which may not be thread-safe
-std::mutex g_odb_sta_access_mutex;
+// Global shared mutex to protect access to OpenDB/STA objects which may not be thread-safe.
+// Readers (visit/evaluation) take shared_lock; writers (applyChangesToDb) take unique_lock.
+std::shared_mutex g_odb_sta_access_mutex;
 using sta::Parasitic;
 using sta::ParasiticNode;
 using sta::Pin;
@@ -140,8 +142,7 @@ LocalParasitics::makeLocalPiElmore(const Parasitic *parasitic_network,
                                    const MinMax *min_max,
                                    const ParasiticAnalysisPt *ap)
 {
-  // Protect access to OpenDB/STA network objects which may have internal state
-  std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
+  // Caller (visit) must hold g_odb_sta_access_mutex shared_lock.
   float c2, rpi, c1;
   LocalReduceToPiElmore reducer(this, pt_graph);
   reducer.reduceToPi(parasitic_network, drvr_pin, drvr_node,
@@ -166,7 +167,7 @@ LocalParasitics::makeLocalPiElmore(const Parasitic *parasitic_network,
   ConcretePiElmore *local_pi_elmore = nullptr;
   if (existing_parasitic) {
     if (!existing_parasitic->isPiElmore()) {
-      printf("Error: Existing parasitic is not PiElmore\n");
+      // printf("Error: Existing parasitic is not PiElmore\n");
       fflush(stdout);
       return nullptr;
     }
