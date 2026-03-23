@@ -59,8 +59,8 @@ public:
   PtVertex *ptVertex(const sta::Vertex *vertex) {
     auto it = vertex_map_.find(vertex);
     if (it == vertex_map_.end()) {
-      printf("PtGraph::ptVertex: vertex %s not found in map\n",
-             vertex->to_string(sta_).c_str());
+      // printf("PtGraph::ptVertex: vertex %s not found in map\n",
+             // vertex->to_string(sta_).c_str());
              fflush(stdout);
       return nullptr;
     }

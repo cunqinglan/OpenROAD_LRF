@@ -81,7 +81,7 @@ SortVertexVisitor::visit(Vertex *vertex)
 VertexVisitor *
 SortVertexVisitor::copy() const
 {
-  printf("SortVertexVisitor::copy() called - not implemented\n");
+  // printf("SortVertexVisitor::copy() called - not implemented\n");
   return nullptr;
 }
 
@@ -341,11 +341,11 @@ LRHelper::distributeLmOutToIn(Vertex *vertex,
         continue;
       }
       if (in_lm_sum == 0.0) {
-        printf("LRHelper::distributeLmOutToIn: vertex %s edge %s AP corner %s, delay min/max %s: in LM sum is zero, skipping distribution\n",
-               vertex->to_string(graph_).c_str(),
-               in_edge->to_string(graph_).c_str(),
-               dcalc_ap->corner()->name(),
-               dcalc_ap->delayMinMax()->to_string().c_str());
+        // printf("LRHelper::distributeLmOutToIn: vertex %s edge %s AP corner %s, delay min/max %s: in LM sum is zero, skipping distribution\n",
+               // vertex->to_string(graph_).c_str(),
+               // in_edge->to_string(graph_).c_str(),
+               // dcalc_ap->corner()->name(),
+               // dcalc_ap->delayMinMax()->to_string().c_str());
                fflush(stdout);
         continue;
       }
@@ -514,12 +514,12 @@ LRHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta, DcalcAnalys
     // if (lms[lm_idx] < MIN_LM_VALUE) lms[lm_idx] = MIN_LM_VALUE;
   }
   if (lms[lm_idx] < 0.0) {
-    printf("LRHelper::updateEndPointArcLms: edge %s AP corner %s delay min/max %s: computed negative LM %.6f with aat %.6f, rat %.6f, delay %.6f\n",
-            edge->to_string(graph_).c_str(),
-            dcalc_ap->corner()->name(),
-            delay_minmax->to_string().c_str(),
-            lms[lm_idx],
-            from_aat * 1.0e12, to_rat * 1.0e12, delay * 1.0e12);
+    // printf("LRHelper::updateEndPointArcLms: edge %s AP corner %s delay min/max %s: computed negative LM %.6f with aat %.6f, rat %.6f, delay %.6f\n",
+            // edge->to_string(graph_).c_str(),
+            // dcalc_ap->corner()->name(),
+            // delay_minmax->to_string().c_str(),
+            // lms[lm_idx],
+            // from_aat * 1.0e12, to_rat * 1.0e12, delay * 1.0e12);
     fflush(stdout);
     lms[lm_idx] = 0.0;
   }
@@ -583,12 +583,12 @@ LRHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, DcalcAnalysisPt con
     // if (lms[lm_idx] < MIN_LM_VALUE) lms[lm_idx] = MIN_LM_VALUE;
   }
   if (lms[lm_idx] < 0.0) {
-    printf("LRHelper::updateArcLms: edge %s AP corner %s delay min/max %s: computed negative LM %.6f from origin %.6f with aat %.6f, rat %.6f, delay %.6f\n",
-            edge->to_string(graph_).c_str(),
-            dcalc_ap->corner()->name(),
-            delay_minmax->to_string().c_str(),
-            lms[lm_idx], origin,
-            from_aat * 1.0e12, to_aat * 1.0e12, delay * 1.0e12);
+    // printf("LRHelper::updateArcLms: edge %s AP corner %s delay min/max %s: computed negative LM %.6f from origin %.6f with aat %.6f, rat %.6f, delay %.6f\n",
+            // edge->to_string(graph_).c_str(),
+            // dcalc_ap->corner()->name(),
+            // delay_minmax->to_string().c_str(),
+            // lms[lm_idx], origin,
+            // from_aat * 1.0e12, to_aat * 1.0e12, delay * 1.0e12);
     fflush(stdout);
     lms[lm_idx] = 0.0;
   }

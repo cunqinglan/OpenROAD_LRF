@@ -1,5 +1,6 @@
 #include <atomic>
 #include <thread>
+#include <shared_mutex>
 
 #include "TaskArranger.hh"
 #include "TopologyChecker.hh"
@@ -20,7 +21,7 @@
 
 namespace lrf {
 
-extern std::mutex g_odb_sta_access_mutex;
+extern std::shared_mutex g_odb_sta_access_mutex;
 
 InstVertexLevelLess::InstVertexLevelLess()
 {
@@ -246,7 +247,7 @@ TaskArranger::checkGraph() const
   for (size_t vid = 0; vid < vertices_.size(); vid++) {
     const InstVertex &inst_vertex = vertices_[vid];
     if (inst_vertex.type() == VertexType::NONE) {
-      printf("ERROR: Vertex %zu has type NONE in checkGraph.\n", vid);
+      // printf("ERROR: Vertex %zu has type NONE in checkGraph.\n", vid);
       fflush(stdout);
       continue;
     }
@@ -467,7 +468,7 @@ TaskArranger::FanoutsInstances(const sta::Pin *drvr_pin)
     }
   } else {
     // Bidirect pin case, not supported yet.
-    printf("Bidirect pin found, not supported yet.\n");
+    // printf("Bidirect pin found, not supported yet.\n");
     fflush(stdout);
   }
   
@@ -478,7 +479,7 @@ void
 TaskArranger::makeInstDrvrWireMEE(sta::Instance* inst)
 {
   if (inst == nullptr) {
-    printf("Instance is nullptr in makeInstDrvrWireMEE.\n");
+    // printf("Instance is nullptr in makeInstDrvrWireMEE.\n");
     fflush(stdout);
     return;
   }
@@ -525,14 +526,14 @@ TaskArranger::makeSiblingFanoutsMEE(InstVertex* inst_vertex)
 {
   // debug print
   if (!inst_vertex) {
-    printf("ERROR: inst_vertex is nullptr in makeSiblingFanoutsMEE\n");
+    // printf("ERROR: inst_vertex is nullptr in makeSiblingFanoutsMEE\n");
     fflush(stdout);
     return;
   }
   
   sta::Instance* inst = inst_vertex->inst();
   if (!inst) {
-    printf("ERROR: inst_vertex->inst() is nullptr in makeSiblingFanoutsMEE\n");
+    // printf("ERROR: inst_vertex->inst() is nullptr in makeSiblingFanoutsMEE\n");
     fflush(stdout);
     return;
   }
@@ -598,7 +599,7 @@ TaskArranger::makeEdge(InstVertex* from_vertex,
     // Disallow incoming edges to SEQ/TOP: do not create * -> (SEQ/TOP).
     const char* from_name = from_vertex->inst() ? network_->name(from_vertex->inst()) : "<null>";
     const char* to_name = to_vertex->inst() ? network_->name(to_vertex->inst()) : "<null>";
-    printf("Disallow edge into %s (SEQ/TOP): from=%s -> to=%s\n", to_name, from_name, to_name);
+    // printf("Disallow edge into %s (SEQ/TOP): from=%s -> to=%s\n", to_name, from_name, to_name);
     fflush(stdout);
     return edge_id_null;
   }
@@ -652,8 +653,8 @@ TaskArranger::printFailed() const
     if (vertex_ref_counts_[vid].load() == 0) {
       com_without_zero_fanout++;
       if (inst_vertex_set.find(const_cast<InstVertex*>(&vertices_[vid])) == inst_vertex_set.end()) {
-        printf("ERROR: Com vertex %s with zero ref is not visited\n",
-               network_->name(vertices_[vid].inst()));
+        // printf("ERROR: Com vertex %s with zero ref is not visited\n",
+               // network_->name(vertices_[vid].inst()));
         fflush(stdout);
         zero_ref_not_visited = true;
       }
@@ -664,20 +665,20 @@ TaskArranger::printFailed() const
         VertexId to_vid = id(out_inst_vertex);
         if (vertex_ref_counts_[to_vid].load() != 0) {
           com_visited_but_has_nonezero_fanout++;
-          printf("WARNING: Com vertex %s has non-zero ref fanout: %s \n",
-                 network_->name(vertices_[vid].inst()),
-                 network_->name(out_inst_vertex->inst()));
+          // printf("WARNING: Com vertex %s has non-zero ref fanout: %s \n",
+                 // network_->name(vertices_[vid].inst()),
+                 // network_->name(out_inst_vertex->inst()));
           fflush(stdout);
         }
       }
     }
   }
-  printf("Total combinational vertices without zero ref fanout: %d\n",
-         com_without_zero_fanout);
-  printf("Total combinational vertices visited but has non-zero ref fanout: %d\n",
-         com_visited_but_has_nonezero_fanout);
+  // printf("Total combinational vertices without zero ref fanout: %d\n",
+         // com_without_zero_fanout);
+  // printf("Total combinational vertices visited but has non-zero ref fanout: %d\n",
+         // com_visited_but_has_nonezero_fanout);
   if (zero_ref_not_visited)
-    printf("Some zero-ref combinational vertices were not visited!\n");
+    // printf("Some zero-ref combinational vertices were not visited!\n");
   fflush(stdout);
 }
 
@@ -689,15 +690,15 @@ TaskArranger::printGraph() const
       continue;
     const InstVertex &inst_vertex = vertices_[vid];
     const sta::Instance* inst = inst_vertex.inst();
-    printf("Vertex %zu: Instance %s, Level %u, TempRefNum %zu, atomicRefCount %zu, type %s\n",
-           vid,
-           inst ? network_->name(inst) : "nullptr",
-           inst_vertex.level(),
-           inst_vertex.tempRefNum(),
-           vertex_ref_counts_[vid].load(),
-           inst_vertex.type() == VertexType::COMBINATIONAL ? "COMBINATIONAL" :
-           inst_vertex.type() == VertexType::SEQUENTIAL ? "SEQUENTIAL" :
-           inst_vertex.type() == VertexType::TOP ? "TOP" : "NONE");
+    // printf("Vertex %zu: Instance %s, Level %u, TempRefNum %zu, atomicRefCount %zu, type %s\n",
+           // vid,
+           // inst ? network_->name(inst) : "nullptr",
+           // inst_vertex.level(),
+           // inst_vertex.tempRefNum(),
+           // vertex_ref_counts_[vid].load(),
+           // inst_vertex.type() == VertexType::COMBINATIONAL ? "COMBINATIONAL" :
+           // inst_vertex.type() == VertexType::SEQUENTIAL ? "SEQUENTIAL" :
+           // inst_vertex.type() == VertexType::TOP ? "TOP" : "NONE");
            fflush(stdout);
     InstVertexOutEdgeIterator edge_iter(
         const_cast<InstVertex*>(&inst_vertex), this);
@@ -706,8 +707,8 @@ TaskArranger::printGraph() const
       const InstEdge *edge_ptr = edge(edge_id);
       const InstVertex* to_vertex = vertex(edge_ptr->to());
       const sta::Instance* to_inst = to_vertex->inst();
-      printf("  Edge to : Instance %s\n",
-             to_inst ? network_->name(to_inst) : "nullptr");
+      // printf("  Edge to : Instance %s\n",
+             // to_inst ? network_->name(to_inst) : "nullptr");
              fflush(stdout);
     }
   }
@@ -721,10 +722,10 @@ TaskArranger::reduceEdgeFromRoots()
   || inst_vertex.type() == VertexType::TOP) {
       if (inst_vertex.hasFanins()) {
         if (inst_vertex.type() == VertexType::SEQUENTIAL) {
-          printf("Sequential vertex of %s has fanins in reduceEdgeFromReg, skipping.\n", network_->name(inst_vertex.inst()));
+          // printf("Sequential vertex of %s has fanins in reduceEdgeFromReg, skipping.\n", network_->name(inst_vertex.inst()));
           fflush(stdout);
         } else {
-          printf("Top vertex of %s has fanins in reduceEdgeFromReg, skipping.\n", network_->name(inst_vertex.inst()));
+          // printf("Top vertex of %s has fanins in reduceEdgeFromReg, skipping.\n", network_->name(inst_vertex.inst()));
           fflush(stdout);
         }
         throw std::runtime_error("Sequential or Top vertex has fanins in reduceEdgeFromReg.");
@@ -812,7 +813,7 @@ TaskArranger::visitParallel(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *
   
   // Initialize topology checker if enabled
   if (enable_topology_check_) {
-    printf("Topology check enabled.\n");
+    // printf("Topology check enabled.\n");
     topology_checker_ = std::make_unique<TopologyChecker>(this);
   }
   
@@ -1098,12 +1099,12 @@ SearchMEEPred::searchTo(const sta::Vertex* to_vertex)
 void
 TaskArranger::printVisitedInstNames() const
 {
-  printf("=== Visited Instance Names (in order) ===\n");
-  printf("Total visited: %zu instances\n", visited_inst_vertices_.size());
+  // printf("=== Visited Instance Names (in order) ===\n");
+  // printf("Total visited: %zu instances\n", visited_inst_vertices_.size());
   for (size_t i = 0; i < visited_inst_vertices_.size(); i++) {
-    printf("[%zu] %s\n", i, network_->name(visited_inst_vertices_[i]->inst()));
+    // printf("[%zu] %s\n", i, network_->name(visited_inst_vertices_[i]->inst()));
   }
-  printf("=========================================\n");
+  // printf("=========================================\n");
   fflush(stdout);
 }
 
@@ -1113,7 +1114,7 @@ TaskArranger::printTopologyViolations() const
   if (topology_checker_) {
     topology_checker_->printViolations();
   } else {
-    printf("Topology checker not initialized. Call enableTopologyCheck(true) before visitParallel().\n");
+    // printf("Topology checker not initialized. Call enableTopologyCheck(true) before visitParallel().\n");
   }
 }
 
