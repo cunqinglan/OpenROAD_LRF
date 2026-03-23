@@ -72,7 +72,7 @@ void example_manual_check(sta::dbSta* sta,
   arranger->visitOrdered(sta, local_sta, resizer, visitor);
   
   // 手动查看违规（可选，因为 visitOrdered 结束时已经打印过）
-  printf("\n--- Manual violation check ---\n");
+  // printf("\n--- Manual violation check ---\n");
   arranger->printTopologyViolations();
   
   delete arranger;

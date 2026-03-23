@@ -715,7 +715,7 @@ int definReader::netCallback(DefParser::defrCallbackType_e /* unused: type */,
         utl::ODB,
         275,
         "skipping undefined net {} encountered in FLOORPLAN DEF",
-        net->name());
+        net->name()); 
     return PARSE_OK;
   }
   if (net->numShieldNets() > 0) {

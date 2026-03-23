@@ -891,15 +891,15 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
 
   // Print top results (cap at 20 for display)
   size_t print_n = std::min(results.size(), static_cast<size_t>(20));
-  printf("Selected %zu instances (top_ratio=%.2f), top %zu:\n",
-         results.size(), top_ratio, print_n);
+  // printf("Selected %zu instances (top_ratio=%.2f), top %zu:\n",
+  //        results.size(), top_ratio, print_n);
   for (size_t i = 0; i < results.size(); i++) {
     selected_ids.push_back(results[i].vertex_idx);
-    if (i < print_n) {
-      printf("  [%zu] %s  cost_change=%.6f  vertex_idx=%zu\n", i,
-             network_->pathName(results[i].inst),
-             results[i].cost_change, results[i].vertex_idx);
-    }
+    // if (i < print_n) {
+    //   printf("  [%zu] %s  cost_change=%.6f  vertex_idx=%zu\n", i,
+    //          network_->pathName(results[i].inst),
+    //          results[i].cost_change, results[i].vertex_idx);
+    // }
   }
   printf("precedingResizeCheck total time: %f s\n", diff_total.count());
   fflush(stdout);
@@ -1197,14 +1197,14 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
   sta_->findRequireds();
   double tns_after = sta_->totalNegativeSlack(MinMax::max());
   double wns_after = sta_->worstSlack(MinMax::max());
-  printf("After parallel LR Buffering, TNS: %.4f ps, WNS: %.4f ps\n",
-         tns_after * 1e12, wns_after * 1e12);
-  printf("  screening time: %.3f s, buffering time: %.3f s\n",
-         screen_sec, buffer_sec);
+  // printf("After parallel LR Buffering, TNS: %.4f ps, WNS: %.4f ps\n",
+  //        tns_after * 1e12, wns_after * 1e12);
+  // printf("  screening time: %.3f s, buffering time: %.3f s\n",
+  //        screen_sec, buffer_sec);
 
   auto end_total = std::chrono::high_resolution_clock::now();
-  printf("IncreSta::parallelBuffering total time %.3f s\n",
-         std::chrono::duration<double>(end_total - start_total).count());
+  // printf("IncreSta::parallelBuffering total time %.3f s\n",
+  //        std::chrono::duration<double>(end_total - start_total).count());
 }
 
 } // namespace lrf
