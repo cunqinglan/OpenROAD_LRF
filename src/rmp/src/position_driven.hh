@@ -5,16 +5,7 @@
 #include "cut/logic_cut.h"
 #include "Strategy.hh"
 
-namespace abc {
-struct Map_MappingSolution_t;
-struct Map_Man_t;
-struct Abc_Ntk_t;
-}
 
-namespace sta {
-class Slack;
-class Vertex;
-}
 namespace rmp {
 
 // Result of evaluating a single mapping solution in a child process.
