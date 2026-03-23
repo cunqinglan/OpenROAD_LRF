@@ -820,6 +820,7 @@ void LogicCut::InsertAbcMapSolution(abc::Map_MappingSolution_t* pSolution,
     logger->error(utl::CUT,
                   50,
                   "Failed to create mapped ABC network from solution.");
+    return;
   }
 
   // Convert to netlist form (required by InsertMappedAbcNetwork)
@@ -830,6 +831,7 @@ void LogicCut::InsertAbcMapSolution(abc::Map_MappingSolution_t* pSolution,
     logger->error(utl::CUT,
                   54,
                   "Failed to convert mapped ABC network to netlist.");
+    return;
   }
 
   // Wrap the network in a unique pointer for automatic cleanup
