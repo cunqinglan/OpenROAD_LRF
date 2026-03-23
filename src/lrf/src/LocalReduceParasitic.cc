@@ -353,9 +353,9 @@ LocalReduceToPiElmore::reduceElmoreDfsToPt(const Pin *drvr_pin,
       const PtVertex *pt_v = load_vertex
           ? pt_graph_->ptVertex(load_vertex) : nullptr;
       if (!pt_v) {
-        printf("Warning: reduceElmoreDfsToPt: load pin %s not found in PtGraph\n",
-               network_->pathName(pin));
-        fflush(stdout);
+        // printf("Warning: reduceElmoreDfsToPt: load pin %s not found in PtGraph\n",
+               // network_->pathName(pin));
+        // fflush(stdout);
       }
       VertexId vid = pt_v ? pt_v->objectIdx() : sta::object_id_null;
       result.addLoad(vid, pin, elmore);

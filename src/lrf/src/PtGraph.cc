@@ -179,9 +179,9 @@ PtGraph::makeGraph(sta::InstanceSet &inst_seq, sta::Instance *ref_inst)
   ref_inst_ = ref_inst;
   ref_lib_cell_ = sta_->network()->libertyCell(ref_inst);
   if (ref_lib_cell_ == nullptr) {
-    printf("Warning: PtGraph::makeGraph: ref_inst %s has no liberty cell\n",
-           sta_->network()->name(ref_inst));
-    fflush(stdout);
+    // printf("Warning: PtGraph::makeGraph: ref_inst %s has no liberty cell\n",
+           // sta_->network()->name(ref_inst));
+    // fflush(stdout);
   }
   makePtVertexAndPtEdge(inst_seq);
   setGraphMade(true);
@@ -332,8 +332,8 @@ PtGraph::makeEdge(sta::Edge *edge,
   PtEdge &pt_edge = pt_edges_.back();
   EdgeId edge_id = static_cast<EdgeId>(pt_edges_.size() - 1);
   if (edge_id == pt_edge_id_null) {
-    printf("PtGraph::makeEdge: edge id overflow\n");
-    fflush(stdout);
+    // printf("PtGraph::makeEdge: edge id overflow\n");
+    // fflush(stdout);
   }
   pt_edge.setObjectIdx(edge_id);
   pt_edge.init(edge, pt_from, pt_to);
@@ -552,8 +552,8 @@ void
 PtGraph::updateTimingArcSets()
 {
   if (ref_lib_cell_ == nullptr) {
-    printf("PtGraph::findRefTimingArcSet: ref_lib_cell_ is nullptr\n");
-    fflush(stdout);
+    // printf("PtGraph::findRefTimingArcSet: ref_lib_cell_ is nullptr\n");
+    // fflush(stdout);
     return;
   }
 
@@ -563,9 +563,9 @@ PtGraph::updateTimingArcSets()
     if (pt_edge.type() == PtEdgeType::RefInstEdge) {
       sta::TimingArcSet *ref_arc_set = pt_edge.timingArcSet();
       if (ref_arc_set == nullptr) {
-        printf("PtGraph::updateTimingArcSets: PtEdge %u has no timing arc set\n",
-               pt_edge.objectIdx());
-        fflush(stdout);
+        // printf("PtGraph::updateTimingArcSets: PtEdge %u has no timing arc set\n",
+               // pt_edge.objectIdx());
+        // fflush(stdout);
         continue;
       }
       sta::TimingArcSet *new_arc_set = 
@@ -842,26 +842,26 @@ PtGraph::printGraph(const char *output_path, bool dot_format)
   if (output_path && output_path[0] != '\0') {
     out = fopen(output_path, "w");
     if (!out) {
-      fprintf(stderr,
-              "PtGraph::printGraph: failed to open %s, using stdout\n",
-              output_path);
+      // fprintf(stderr,
+              // "PtGraph::printGraph: failed to open %s, using stdout\n",
+              // output_path);
       out = stdout;
     }
   }
 
   if (dot_format) {
     std::string ref_label = dotEscape(ref_name);
-    fprintf(out, "digraph PtGraph {\n");
-    fprintf(out, "  label=\"PtGraph ref %s\";\n", ref_label.c_str());
-    fprintf(out, "  labelloc=\"t\";\n");
-    fprintf(out, "  node [shape=box];\n");
+    // fprintf(out, "digraph PtGraph {\n");
+    // fprintf(out, "  label=\"PtGraph ref %s\";\n", ref_label.c_str());
+    // fprintf(out, "  labelloc=\"t\";\n");
+    // fprintf(out, "  node [shape=box];\n");
     for (size_t vid = 1; vid < pt_vertices_.size(); vid++) {
       const PtVertex &pt_vertex = pt_vertices_[vid];
       const Vertex *vertex = pt_vertex.vertex();
       std::string vertex_name = vertex ? vertex->to_string(sta_)
                                        : ("virtual_" + std::to_string(vid));
       std::string label = dotEscape(vertex_name);
-      fprintf(out, "  v%zu [label=\"%zu: %s\"];\n", vid, vid, label.c_str());
+      // fprintf(out, "  v%zu [label=\"%zu: %s\"];\n", vid, vid, label.c_str());
     }
     for (size_t eid = 1; eid < pt_edges_.size(); eid++) {
       const PtEdge &pt_edge = pt_edges_[eid];
@@ -872,32 +872,32 @@ PtGraph::printGraph(const char *output_path, bool dot_format)
         edge_label += ptEdgeTypeName(pt_edge.type());
       }
       edge_label = dotEscape(edge_label);
-      fprintf(out, "  v%u -> v%u [label=\"%s\"];\n",
-              pt_edge.ptFromId(),
-              pt_edge.ptToId(),
-              edge_label.c_str());
+      // fprintf(out, "  v%u -> v%u [label=\"%s\"];\n",
+              // pt_edge.ptFromId(),
+              // pt_edge.ptToId(),
+              // edge_label.c_str());
     }
-    fprintf(out, "}\n");
+    // fprintf(out, "}\n");
   } else {
-    fprintf(out, "PtGraph for ref inst %s: %zu vertices, %zu edges\n",
-            ref_name,
-            vertex_count,
-            edge_count);
+    // fprintf(out, "PtGraph for ref inst %s: %zu vertices, %zu edges\n",
+            // ref_name,
+            // vertex_count,
+            // edge_count);
     for (size_t vid = 1; vid < pt_vertices_.size(); vid++) {
       PtVertex &pt_vertex = pt_vertices_[vid];
       const Vertex *vertex = pt_vertex.vertex();
       std::string vertex_name = vertex ? vertex->to_string(sta_)
                                        : ("virtual_" + std::to_string(vid));
-      fprintf(out,
-              "PtVertex %zu: %s, level %.1f, type %s, driver %s, load %s, fanin %s, fanout %s\n",
-              vid,
-              vertex_name.c_str(),
-              pt_vertex.level(),
-              ptVertexTypeName(pt_vertex.type()),
-              pt_vertex.isDriver() ? "yes" : "no",
-              pt_vertex.isLoad() ? "yes" : "no",
-              pt_vertex.hasFanin() ? "yes" : "no",
-              pt_vertex.hasFanout() ? "yes" : "no");
+      // fprintf(out,
+              // "PtVertex %zu: %s, level %.1f, type %s, driver %s, load %s, fanin %s, fanout %s\n",
+              // vid,
+              // vertex_name.c_str(),
+              // pt_vertex.level(),
+              // ptVertexTypeName(pt_vertex.type()),
+              // pt_vertex.isDriver() ? "yes" : "no",
+              // pt_vertex.isLoad() ? "yes" : "no",
+              // pt_vertex.hasFanin() ? "yes" : "no",
+              // pt_vertex.hasFanout() ? "yes" : "no");
       PtVertexOutEdgeIterator out_iter(vid, this);
       while (out_iter.hasNext()) {
         PtEdge &pt_edge = out_iter.next();
@@ -905,17 +905,17 @@ PtGraph::printGraph(const char *output_path, bool dot_format)
         std::string edge_name = edge ? edge->to_string(sta_->graph())
                                      : ("virtual_" + std::to_string(pt_edge.objectIdx()));
         const char *edge_kind = pt_edge.isWire() ? "wire" : "inst";
-        fprintf(out, "  PtEdge %u -> PtVertex %u: %s, type %s, %s\n",
-                pt_edge.objectIdx(),
-                pt_edge.ptToId(),
-                edge_name.c_str(),
-                ptEdgeTypeName(pt_edge.type()),
-                edge_kind);
+        // fprintf(out, "  PtEdge %u -> PtVertex %u: %s, type %s, %s\n",
+                // pt_edge.objectIdx(),
+                // pt_edge.ptToId(),
+                // edge_name.c_str(),
+                // ptEdgeTypeName(pt_edge.type()),
+                // edge_kind);
       }
     }
   }
 
-  fflush(out);
+  // fflush(out);
   if (out != stdout) {
     fclose(out);
   }
@@ -929,24 +929,24 @@ PtGraph::printDelays()
       Edge *edge = pt_edge.edge();
       std::string edge_str = edge ? edge->to_string(sta_->graph())
                                   : ("virtual_" + std::to_string(pt_edge.objectIdx()));
-      printf("PtEdge %u (Edge %s) delays:\n",
-             pt_edge.objectIdx(),
-             edge_str.c_str());
+      // printf("PtEdge %u (Edge %s) delays:\n",
+             // pt_edge.objectIdx(),
+             // edge_str.c_str());
       size_t delay_count = slew_rf_count_ * ap_count_;
       ArcDelay *arc_delays = pt_edge.arcDelays();
       for (size_t i = 0; i < delay_count; i++) {
-        printf("  Delay[%zu]: %f\n", i, arc_delays[i] * 1e12);
+        // printf("  Delay[%zu]: %f\n", i, arc_delays[i] * 1e12);
       }
     }
   }
-  fflush(stdout);
+  // fflush(stdout);
 }
 
 void PtGraph::initVertexAndEdges()
 {
   if (!graph_made_) {
-    printf("PtGraph::initVertexAndEdges: graph not made yet\n");
-    fflush(stdout);
+    // printf("PtGraph::initVertexAndEdges: graph not made yet\n");
+    // fflush(stdout);
     return;
   }
 
@@ -1002,9 +1002,9 @@ PtGraph::delayLmSum(const sta::MinMax *minmax, float &delay_lambda_sum, bool avo
           continue;
         const LMValue *lms = pt_edge.arcLms();
         if (lms == nullptr) {
-          printf("PtGraph::delayLmSum: pt_edge %u has no lm values\n",
-                  pt_edge.objectIdx());
-          fflush(stdout);
+          // printf("PtGraph::delayLmSum: pt_edge %u has no lm values\n",
+                  // pt_edge.objectIdx());
+          // fflush(stdout);
           continue;
         }
         LMValue arc_lm = lms[lm_index];
@@ -1159,7 +1159,7 @@ PtGraph::annotateVerticesType()
       auto it = vertex_map_.find(drvr_vertex);
       if (it == vertex_map_.end()) {
         // printf("PtGraph::annotateRefFaninVertices: drvr vertex not found in vertex_map_\n");
-        fflush(stdout);
+        // fflush(stdout);
         continue;
       }
       ptVertex(it->second).setType(PtVertexType::RefOutput);
@@ -1195,9 +1195,9 @@ PtGraph::pinToPtVertex(const sta::Pin *pin) const
       return ptVertex(pt_vertex_id);
     }
     else {
-      printf("PtGraph::pinToPtVertex: vertex %s not found in vertex_map_\n",
-             vertex->to_string(sta_->graph()).c_str());
-      fflush(stdout);
+      // printf("PtGraph::pinToPtVertex: vertex %s not found in vertex_map_\n",
+             // vertex->to_string(sta_->graph()).c_str());
+      // fflush(stdout);
       throw std::out_of_range("PtGraph::pinToPtVertex: vertex not found in vertex_map_");
     }
   } else {
@@ -1215,36 +1215,36 @@ PtGraph::getRefPinCapacitance(const PtVertex &pt_vertex,
   float port_cap = 0.0f;
   if (pt_vertex.type() != PtVertexType::RefInput && 
       pt_vertex.type() != PtVertexType::RefOutput) {
-    printf("PtGraph::getRefPinCapacitance: pt_vertex is not RefInput type\n");
-    fflush(stdout);
+    // printf("PtGraph::getRefPinCapacitance: pt_vertex is not RefInput type\n");
+    // fflush(stdout);
     return 0.0f;
   }
   
   if (ref_lib_cell_ == nullptr) {
-    printf("PtGraph::getRefPinCapacitance: ref_lib_cell_ is nullptr\n");
-    fflush(stdout);
+    // printf("PtGraph::getRefPinCapacitance: ref_lib_cell_ is nullptr\n");
+    // fflush(stdout);
     return 0.0f;
   }
   
   const sta::Pin *pin = pt_vertex.vertex()->pin();
   if (pin == nullptr) {
-    printf("PtGraph::getRefPinCapacitance: pin is nullptr\n");
-    fflush(stdout);
+    // printf("PtGraph::getRefPinCapacitance: pin is nullptr\n");
+    // fflush(stdout);
     return 0.0f;
   }
   
   const char* pin_name = sta_->network()->portName(pin);
   if (pin_name == nullptr) {
-    printf("PtGraph::getRefPinCapacitance: pin_name is nullptr for pin\n");
-    fflush(stdout);
+    // printf("PtGraph::getRefPinCapacitance: pin_name is nullptr for pin\n");
+    // fflush(stdout);
     return 0.0f;
   }
   
   sta::LibertyPort *lib_port = ref_lib_cell_->findLibertyPort(pin_name);
   if (lib_port == nullptr) {
-    printf("PtGraph::getRefPinCapacitance: no lib port for pin %s in cell %s\n", 
-           pin_name, ref_lib_cell_->name());
-    fflush(stdout);
+    // printf("PtGraph::getRefPinCapacitance: no lib port for pin %s in cell %s\n", 
+           // pin_name, ref_lib_cell_->name());
+    // fflush(stdout);
     return 0.0f;
   }
   
@@ -1531,7 +1531,7 @@ PtVertexInEdgeIterator::PtVertexInEdgeIterator(VertexId vertex_id,
   if (pt_graph_ && pt_graph_->pt_vertices_.size() > vertex_id) {
     next_ = pt_graph_->ptVertex(vertex_id).in_edges_;
   } else {
-    printf("PtVertexInEdgeIterator: invalid vertex id %u\n", vertex_id);
+    // printf("PtVertexInEdgeIterator: invalid vertex id %u\n", vertex_id);
     next_ = pt_edge_id_null;
   }
 }

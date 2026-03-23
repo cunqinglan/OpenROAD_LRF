@@ -67,7 +67,7 @@ void TopologyChecker::recordViolation(ViolationType type, InstVertex* vertex,
   // printf("Thread: %s\n", getThreadIdStr(thread_id).c_str());
   // printf("Detail: %s\n", detail.c_str());
   // printf("\n");
-  fflush(stdout);
+  // fflush(stdout);
 }
 
 void TopologyChecker::onVisit(InstVertex* vertex, std::thread::id thread_id)
@@ -253,7 +253,7 @@ void TopologyChecker::printViolations()
     // printf("\n");
   }
   
-  fflush(stdout);
+  // fflush(stdout);
 }
 
 void TopologyChecker::clear()

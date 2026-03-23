@@ -148,8 +148,8 @@ LocalParasitics::makeLocalPiElmore(const Parasitic *parasitic_network,
   ConcretePiElmore *local_pi_elmore = nullptr;
   if (existing_parasitic) {
     if (!existing_parasitic->isPiElmore()) {
-      printf("Error: Existing parasitic is not PiElmore\n");
-      fflush(stdout);
+      // printf("Error: Existing parasitic is not PiElmore\n");
+      // fflush(stdout);
       return nullptr;
     }
     local_pi_elmore = dynamic_cast<ConcretePiElmore*>(existing_parasitic);
@@ -270,9 +270,9 @@ LocalParasitics::findLocalParasiticNetwork(const Net *net, const ParasiticAnalys
     if (!parasitic_array) {
       const char *unconnected_net_name = "UNCONNECTED";
       if (!network_->name(net) || !strstr(network_->name(net), unconnected_net_name)) {
-        printf("Error: LocalParasitics::findLocalParasiticNetwork: No parasitic array found for net %s\n",
-                network_->name(net));
-        fflush(stdout);
+        // printf("Error: LocalParasitics::findLocalParasiticNetwork: No parasitic array found for net %s\n",
+                // network_->name(net));
+        // fflush(stdout);
       }
       return nullptr;
     }
@@ -280,16 +280,16 @@ LocalParasitics::findLocalParasiticNetwork(const Net *net, const ParasiticAnalys
     if (!parasitic) {
       parasitic = parasitic_array[ap->indexMax()];
       if (parasitic == nullptr) {
-        printf("Error: LocalParasitics::findLocalParasiticNetwork: No parasitic found for net %s\n",
-               network_->name(net));
-        fflush(stdout);
+        // printf("Error: LocalParasitics::findLocalParasiticNetwork: No parasitic found for net %s\n",
+               // network_->name(net));
+        // fflush(stdout);
         return nullptr;
       }
     }
     return parasitic;
   }
-  printf("Error: LocalParasitics::findLocalParasiticNetwork: local_parasitic_network_map_ is empty\n");
-  fflush(stdout);
+  // printf("Error: LocalParasitics::findLocalParasiticNetwork: local_parasitic_network_map_ is empty\n");
+  // fflush(stdout);
   return nullptr;
 }
 
@@ -360,20 +360,20 @@ LocalParasitics::findLocalParasitic(const Pin *drvr_pin, const RiseFall *rf, con
     if (!parasitic_array) {
       // printf("Error: LocalParasitics::findLocalParasitic: No parasitic array found for driver pin %s\n",
       //        network_->name(drvr_pin));
-      fflush(stdout);
+      // fflush(stdout);
       return nullptr;
     }
     ConcreteParasitic *parasitic = parasitic_array[ap_rf_index];
     if (!parasitic) {
-      printf("Error: LocalParasitics::findLocalParasitic: No parasitic found for driver pin %s\n",
-             network_->name(drvr_pin));
-      fflush(stdout);
+      // printf("Error: LocalParasitics::findLocalParasitic: No parasitic found for driver pin %s\n",
+             // network_->name(drvr_pin));
+      // fflush(stdout);
       return nullptr;
     }
     if (!parasitic->isPiElmore()) {
-      printf("Error: LocalParasitics::findLocalParasitic: Parasitic is not PiElmore for driver pin %s\n",
-             network_->name(drvr_pin));
-      fflush(stdout);
+      // printf("Error: LocalParasitics::findLocalParasitic: Parasitic is not PiElmore for driver pin %s\n",
+             // network_->name(drvr_pin));
+      // fflush(stdout);
       return nullptr;
     }
     return parasitic;
