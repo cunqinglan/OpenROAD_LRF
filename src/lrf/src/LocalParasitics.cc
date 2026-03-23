@@ -13,6 +13,7 @@
 
 #include "LocalReduceParasitic.hh"
 #include "LocalParasitics.hh"
+#include "PtPiElmore.hh"
 
 namespace lrf {
 
@@ -54,27 +55,16 @@ LocalParasitics::~LocalParasitics()
 void 
 LocalParasitics::initParasiticMapFromBase() 
 {
-  printf("DEBUG: LocalParasitics::initParasiticMapFromBase start\n");
-  fflush(stdout);
-  
   if (!corners_) {
-    printf("DEBUG: corners_ is null\n");
+    printf("DEBUG: LocalParasitics::initParasiticMapFromBase: corners_ is null\n");
     fflush(stdout);
     return;
   }
 
   ConcreteParasitics *global = dynamic_cast<ConcreteParasitics*>(parasitics_);
-  printf("DEBUG: global=%p\n", global);
-  fflush(stdout);
 
   if (global != nullptr) {
-    printf("DEBUG: checking global->drvr_parasitic_map_\n");
-    fflush(stdout);
-    
     if (!global->drvr_parasitic_map_.empty()) {
-      printf("DEBUG: map size: %zu\n", global->drvr_parasitic_map_.size());
-      fflush(stdout);
-      
       for (const auto& [pin, array] : global->drvr_parasitic_map_) {
         int ap_count = corners_->parasiticAnalysisPtCount();
         int ap_rf_count = ap_count * RiseFall::index_count;
@@ -95,17 +85,9 @@ LocalParasitics::initParasiticMapFromBase()
         }
         local_drvr_parasitic_map_[pin] = local_array;
       }
-    } else {
-      printf("DEBUG: Global drvr parasitic map is empty.\n");
-      // throw std::runtime_error("Error: LocalParasitics::initParasiticMapFromBase: "
-      //                         "Global drvr parasitic map is empty.");
     }
-    // Since we don't use anything in origin concrete parasitics, 
-    // we can just copy the parasitic network map pointer.
     local_parasitic_network_map_ = global->parasitic_network_map_;
   }
-  printf("DEBUG: LocalParasitics::initParasiticMapFromBase end\n");
-  fflush(stdout);
 }
 
 Parasitic *
@@ -207,6 +189,74 @@ LocalParasitics::recomputeLocalParasitics(PtGraph *pt_graph)
       // fflush(stdout);
     }
       }
+    }
+  }
+}
+
+void
+LocalParasitics::recomputePtParasitics(PtGraph *pt_graph)
+{
+  pt_graph->clearPtParasitics();
+  for (const auto &pt_vertex : pt_graph->ptVertices()) {
+    if (pt_vertex.type() != PtVertexType::RefDriver
+        && pt_vertex.type() != PtVertexType::RefOutput)
+      continue;
+    if (!pt_vertex.vertex() || !pt_vertex.vertex()->pin())
+      continue;
+    const Pin *drvr_pin = pt_vertex.vertex()->pin();
+    const Net *net = findParasiticNet(drvr_pin);
+    for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
+      ParasiticAnalysisPt *ap = dcalc_ap->parasiticAnalysisPt();
+      Parasitic *parasitic_network = findLocalParasiticNetwork(net, ap);
+      if (!parasitic_network)
+        continue;
+      ParasiticNode *drvr_node =
+          parasitics_->findParasiticNode(parasitic_network, drvr_pin);
+      if (!drvr_node)
+        continue;
+      for (const RiseFall *rf : RiseFall::range()) {
+        PtPiElmore &pt_pi = pt_graph->makePtParasitic(
+            pt_vertex.objectIdx(), rf, dcalc_ap->index());
+        pt_pi.clear();
+        LocalReduceToPiElmore reducer(this, pt_graph);
+        reducer.makePtPiElmore(parasitic_network, drvr_pin, drvr_node,
+                               ap->couplingCapFactor(), rf,
+                               dcalc_ap->corner(),
+                               dcalc_ap->constraintMinMax(), ap,
+                               pt_pi);
+      }
+    }
+  }
+}
+
+void
+LocalParasitics::recomputeSinglePtParasitic(PtGraph *pt_graph, VertexId drvr_vid)
+{
+  pt_graph->clearPtParasitics(drvr_vid);
+  const PtVertex &pt_vertex = pt_graph->ptVertex(drvr_vid);
+  if (!pt_vertex.vertex() || !pt_vertex.vertex()->pin())
+    return;
+  const Pin *drvr_pin = pt_vertex.vertex()->pin();
+  const Net *net = findParasiticNet(drvr_pin);
+  for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
+    ParasiticAnalysisPt *ap = dcalc_ap->parasiticAnalysisPt();
+    Parasitic *parasitic_network = findLocalParasiticNetwork(net, ap);
+    if (!parasitic_network)
+      continue;
+    ParasiticNode *drvr_node =
+        parasitics_->findParasiticNode(parasitic_network, drvr_pin);
+    if (!drvr_node)
+      continue;
+    for (const RiseFall *rf : RiseFall::range()) {
+      PtPiElmore &pt_pi = pt_graph->makePtParasitic(
+          drvr_vid, rf, dcalc_ap->index());
+      pt_pi.clear();
+      LocalReduceToPiElmore reducer(this, pt_graph);
+      reducer.makePtPiElmore(parasitic_network, drvr_pin, drvr_node,
+                             ap->couplingCapFactor(), rf,
+                             dcalc_ap->corner(),
+                             dcalc_ap->constraintMinMax(), ap,
+                             pt_pi);
     }
   }
 }

@@ -2,6 +2,7 @@
 
 #include <vector>
 #include <map>
+#include <unordered_map>
 
 #include "sta/Graph.hh"
 #include "sta/Sta.hh"
@@ -10,6 +11,7 @@
 #include "sta/TimingArc.hh"
 #include "sta/Map.hh"
 #include "lrf/LrfClass.hh"
+#include "PtPiElmore.hh"
 #include <stdexcept>
 
 namespace sta {
@@ -51,6 +53,20 @@ public:
 
   sta::EdgeId makeEdge(sta::Edge *edge, sta::VertexId pt_from, sta::VertexId pt_to);
   sta::VertexId makeVertex(sta::Vertex *vertex);
+  sta::VertexId makeVirtualVertex(sta::LibertyCell *cell, sta::LibertyPort *port,
+                                  bool is_driver, bool is_load, PtVertexType type);
+  sta::EdgeId makeVirtualEdge(sta::VertexId pt_from, sta::VertexId pt_to,
+                              sta::TimingArcSet *arc_set, bool is_wire);
+  void setVirtualEdgeLms(PtEdge &pt_edge, const std::vector<LMValue> &lms);
+  void initVirtualPaths(PtVertex &virtual_vertex, PtVertex &source_vertex);
+  void deleteEdge(sta::EdgeId edge_id);
+  void deleteVertex(sta::VertexId vertex_id);
+  void reserveVertices(size_t count) { pt_vertices_.reserve(count); }
+  void reserveEdges(size_t count) { pt_edges_.reserve(count); }
+  size_t vertexCount() const { return pt_vertices_.size(); }
+  size_t edgeCount() const { return pt_edges_.size(); }
+  size_t vertexCapacity() const { return pt_vertices_.capacity(); }
+  size_t edgeCapacity() const { return pt_edges_.capacity(); }
   PtEdge &edge(sta::EdgeId edge_id) { return pt_edges_[edge_id]; }
   PtVertex &ptVertex(sta::VertexId vertex_id) { return pt_vertices_[vertex_id]; }
   const PtVertex &ptVertex(sta::VertexId vertex_id) const {
@@ -62,6 +78,16 @@ public:
       printf("PtGraph::ptVertex: vertex %s not found in map\n",
              vertex->to_string(sta_).c_str());
              fflush(stdout);
+      return nullptr;
+    }
+    return &pt_vertices_[it->second];
+  }
+  const PtVertex *ptVertex(const sta::Vertex *vertex) const {
+    auto it = vertex_map_.find(vertex);
+    if (it == vertex_map_.end()) {
+      printf("PtGraph::ptVertex const: vertex %s not found in map\n",
+             vertex->to_string(sta_).c_str());
+      fflush(stdout);
       return nullptr;
     }
     return &pt_vertices_[it->second];
@@ -102,6 +128,12 @@ public:
   const sta::ArcDelay &wireArcDelay(const PtEdge &pt_edge,
                                     const sta::RiseFall *rf,
                                     sta::DcalcAPIndex ap_index);
+  // Copy slew from PtVertex to real sta::Vertex.
+  void writeSlewToGraph(const PtVertex &pt_vertex, sta::Vertex *sta_vertex);
+  // Copy paths (arrival + required) from PtVertex to real sta::Vertex.
+  // Skips if paths are null or tag groups don't match.
+  void writePathsToGraph(const PtVertex &pt_vertex, sta::Vertex *sta_vertex);
+
   // Output informations of the PtGraph for debug purpose
   std::string to_string();
   void printGraph(bool dot_format = false);
@@ -138,10 +170,22 @@ public:
   void setDcalcAnalysisPt(sta::DcalcAnalysisPt *dcalc_ap) { dcalc_ap_ = dcalc_ap; }
   sta::DcalcAnalysisPt *dcalcAnalysisPt() const { return dcalc_ap_; }
 
+  // PtGraph-local PiElmore parasitics
+  PtPiElmore* findPtParasitic(VertexId drvr_id,
+                               const sta::RiseFall *rf,
+                               int ap_index);
+  PtPiElmore& makePtParasitic(VertexId drvr_id,
+                               const sta::RiseFall *rf,
+                               int ap_index);
+  void clearPtParasitics();
+  void clearPtParasitics(VertexId drvr_id);
+
 protected:
   void initVertexAndEdges();
   void annotateVerticesType();
   void annotateEdgesType();
+  void deleteOutEdge(sta::VertexId from_id, sta::EdgeId edge_id);
+  void deleteInEdge(sta::VertexId to_id, sta::EdgeId edge_id);
 
   sta::Sta *sta_;
   PtEdgeSeq pt_edges_;
@@ -156,6 +200,10 @@ protected:
   sta::Instance *ref_inst_ = nullptr;
   sta::LibertyCell *ref_lib_cell_ = nullptr;
   sta::DcalcAnalysisPt *dcalc_ap_ = nullptr;
+
+  // PtGraph-local PiElmore parasitics storage.
+  // Key: driver VertexId. Value: vector indexed by rf * ap_count + ap_index.
+  std::unordered_map<VertexId, std::vector<PtPiElmore>> pt_parasitics_;
 
 private:
   friend class PtEdge;
@@ -173,15 +221,23 @@ public:
   void init(sta::Edge *edge,
             sta::VertexId pt_from,
             sta::VertexId pt_to);
+  void initVirtual(sta::VertexId pt_from, sta::VertexId pt_to,
+                   sta::TimingArcSet *arc_set, bool is_wire);
 
   sta::ArcDelay *arcDelays() { return arc_delays_.empty() ? nullptr : arc_delays_.data(); }
   const sta::ArcDelay *arcDelays() const { return arc_delays_.empty() ? nullptr : arc_delays_.data(); }
   size_t arcDelayCount() const { return arc_delays_.size(); }
   sta::Edge *edge() { return edge_; }
   const sta::Edge *edge() const { return edge_; }
+  bool hasBase() const { return edge_ != nullptr; }
+  bool isWire() const { return edge_ ? edge_->isWire() : is_wire_; }
+  bool isVirtual() const {
+    return type_ == PtEdgeType::VirtualGateEdge
+        || type_ == PtEdgeType::VirtualWireEdge;
+  }
   sta::VertexId ptFromId() const { return pt_from_; }
   sta::VertexId ptToId() const { return pt_to_; }
-  const sta::TimingRole *role() const { return edge_->role(); }
+  const sta::TimingRole *role() const;
   PtEdgeType type() const { return type_; }
   void setType(PtEdgeType type) { type_ = type; }
 
@@ -190,12 +246,19 @@ public:
   void setTimingArcSet(sta::TimingArcSet *timing_arc_set) { timing_arc_set_ = timing_arc_set; }
   sta::TimingArcSet *timingArcSet() const { return timing_arc_set_; }
 
+  // LM access: returns base edge LMs if hasBase(), otherwise local arc_lms_
+  LMValue *arcLms();
+  const LMValue *arcLms() const;
+  void setArcLms(const std::vector<LMValue> &lms);
+
 protected:
   void setArcDelays(sta::ArcDelay *arc_delay, size_t delay_count);
   void copyInfoFromEdge(size_t ap_count);
 
   sta::Edge *edge_{};
   std::vector<sta::ArcDelay> arc_delays_;
+  std::vector<LMValue> arc_lms_;
+  bool is_wire_{false};
   sta::EdgeId vertex_out_next_{};
   sta::EdgeId vertex_out_prev_{};
   sta::EdgeId vertex_in_link_{};
@@ -210,20 +273,36 @@ private:
   friend class PtVertex;
   friend class PtVertexInEdgeIterator;
   friend class PtVertexOutEdgeIterator;
+  friend class LrRebuffer;
 };
 
 class PtVertex {
 public:
   PtVertex();
   ~PtVertex();
+  PtVertex(PtVertex &&other) noexcept;
+  PtVertex &operator=(PtVertex &&other) noexcept;
+  PtVertex(const PtVertex &) = delete;
+  PtVertex &operator=(const PtVertex &) = delete;
 
   void init(sta::Vertex *vertex);
+  void initVirtual(sta::LibertyCell *cell, sta::LibertyPort *port,
+                   bool is_driver, bool is_load);
+  // Proxy vertex: a real sta::Vertex used for tag_bldr init on virtual vertices.
+  // Set by the caller (e.g., LrRebuffer) to the driver vertex of the net being buffered.
+  void setProxyVertex(sta::Vertex *v) { proxy_vertex_ = v; }
+  sta::Vertex *proxyVertex() const { return proxy_vertex_; }
 
   sta::VertexId objectIdx() const { return object_idx_; }
   void setObjectIdx(sta::VertexId idx);
   sta::Vertex *vertex() { return vertex_; }
-  sta::Pin *pin() { return vertex_->pin(); }
+  sta::Pin *pin() { return vertex_ ? vertex_->pin() : nullptr; }
   sta::Vertex *vertex() const { return vertex_; }
+  bool hasBase() const { return vertex_ != nullptr; }
+  sta::LibertyPort *libertyPort() const { return liberty_port_; }
+  sta::LibertyCell *libertyCell() const { return liberty_cell_; }
+  float level() const { return level_; }
+  void setLevel(float lvl) { level_ = lvl; }
   sta::Slew *slews() { return slews_.empty() ? nullptr : slews_.data(); }
   bool hasFanin() const;
   bool hasFanout() const;
@@ -234,7 +313,7 @@ public:
   void copyInfoFromVertex(size_t ap_count, size_t slew_rf_count);
   void setType(PtVertexType type) { type_ = type; }
   PtVertexType type() const { return type_; }
-  sta::Pin *pin() const { return vertex_->pin(); }
+  sta::Pin *pin() const { return vertex_ ? vertex_->pin() : nullptr; }
   void setTagGroupIndex(int index) { tag_group_index_ = index; }
   size_t tagGroupIndex() const { return tag_group_index_; }
   sta::Path *paths() const { return paths_; }
@@ -243,9 +322,21 @@ public:
   bool isDriver() const { return is_driver_; }
   void setIsLoad(bool is_load) { is_load_ = is_load; }
   bool isLoad() const { return is_load_; }
-  
+  bool isVirtual() const {
+    return type_ == PtVertexType::VirtualInput
+        || type_ == PtVertexType::VirtualOutput;
+  }
+  // True when this driver's downstream loads include a virtual buffer,
+  // meaning the original parasitic is invalid and load_cap should be recomputed.
+  void setHasVirtualBuffer(bool v) { has_virtual_buffer_ = v; }
+  bool hasVirtualBuffer() const { return has_virtual_buffer_; }
+
 protected:
   sta::Vertex *vertex_{nullptr};
+  sta::Vertex *proxy_vertex_{nullptr};
+  sta::LibertyPort *liberty_port_{nullptr};
+  sta::LibertyCell *liberty_cell_{nullptr};
+  float level_{-1.0f};
   std::vector<sta::Arrival> arrivals_;
   sta::VertexId object_idx_{pt_vertex_id_null};
   sta::EdgeId out_edges_{pt_edge_id_null};
@@ -253,10 +344,11 @@ protected:
   std::vector<sta::Slew> slews_;
   bool is_root_{};
   PtVertexType type_{PtVertexType::None};
-  int tag_group_index_ {0};
+  int tag_group_index_ {static_cast<int>(sta::tag_group_index_max)};
   sta::Path *paths_ = nullptr;
-  bool is_driver_{false}; 
+  bool is_driver_{false};
   bool is_load_{false};
+  bool has_virtual_buffer_{false};
 
 private:
   friend class PtGraph;
@@ -264,6 +356,7 @@ private:
   friend class PtVertexInEdgeIterator;
   friend class PtVertexOutEdgeIterator;
   friend class LocalSta;
+  friend class LrRebuffer;
 };
 
 class PtVertexInEdgeIterator {

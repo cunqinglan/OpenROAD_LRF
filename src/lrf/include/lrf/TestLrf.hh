@@ -61,6 +61,9 @@ public:
   // Test single net buffer insertion
   void testBufferInsertion(char *inst_name, sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
 
+  // Test buffering on a single instance via visitor->visit() path
+  void testSingleInstBuffering(char *inst_name, sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
+
   void testMEEAssignments(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
 
   void testParallelResize(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
@@ -123,6 +126,19 @@ public:
                             std::string lr_helper_method = "RapidLRHelper",
                             float top_ratio = 0.3);
 
+  // Resize by array with precheck + buffering (precheck replaces adaptive resize)
+  void testParallelLrResizeByArrayWithPrecheckBuffering(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons = false,
+                            float PT_tradeoff = 100.0,
+                            std::string lr_helper_method = "RapidLRHelper",
+                            float top_ratio = 0.3);
+
   // Preceding resize precheck: evaluate resize benefit for all instances
   // in parallel without a conflict graph, sort by benefit, and print results.
   void testPrecedingResizeCheck(sta::dbSta* sta,
@@ -131,6 +147,13 @@ public:
                                 size_t thread_num,
                                 float PT_tradeoff = 100.0,
                                 float top_ratio = 0.3);
+
+  // Test parallel KKT projection correctness: compare serial vs parallel results.
+  void testParallelKKTProjection(sta::dbSta* sta,
+                                  rsz::Resizer *resizer,
+                                  odb::dbBlock *block,
+                                  size_t thread_num,
+                                  std::string lr_helper_method = "LRHelper");
 
 protected:
   void printSlewComparison(char *inst_name, sta::dbSta* sta, 
