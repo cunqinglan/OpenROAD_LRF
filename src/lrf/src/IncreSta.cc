@@ -17,7 +17,9 @@
 #include "parasitics/ConcreteParasitics.hh"
 #include "TaskArranger.hh"
 #include "ParallelVisitor.hh"
+#include "NetlistTransformation.hh"
 #include "LrRebuffer.hh"
+#include "LrRebufferV2.hh"
 #include "rsz/Resizer.hh"
 #include "ParallelLibData.hh"
 #include "LrSizer.hh"
@@ -826,6 +828,106 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_total = end_total - start_total;
   printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
+}
+
+void
+IncreSta::parallelResizeByArrayV2(rsz::Resizer *resizer, float avg_delay,
+                                  float avg_power, float PT_tradeoff)
+{
+  auto start_total = std::chrono::high_resolution_clock::now();
+
+  local_sta_->initParallel();
+  sta::Slack wns = sta_->worstSlack(sta::MinMax::max());
+
+  if (!swap_cell_presaved_)
+    makeSwappableCellsCache(resizer);
+  if (!swap_cell_leakage_presaved_)
+    preSaveLibCellLeakage();
+  makeEquivCellArray();
+
+  auto start_resize = std::chrono::high_resolution_clock::now();
+
+  // Create new-framework visitor with ResizeOperator
+  auto *visitor = new ParallelVisitor(sta_, local_sta_, resizer);
+
+  auto resize_op = std::make_unique<ResizeOperator>(sta_, local_sta_);
+  resize_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+  visitor->setResizeOperator(std::move(resize_op));
+
+  visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &inst_info_map_);
+
+  local_sta_->runResize(resizer, visitor);
+
+  auto end_resize = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_resize = end_resize - start_resize;
+
+  sta_->updateTiming(true);
+  sta_->findRequireds();
+  double tns_after = sta_->totalNegativeSlack(sta::MinMax::max());
+  double wns_after = sta_->worstSlack(sta::MinMax::max());
+  printf("After V2 parallel resize, TNS: %e, WNS: %e\n", tns_after, wns_after);
+  printf("parallel resize time: %f s\n", diff_resize.count());
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_total = end_total - start_total;
+  printf("IncreSta::parallelResizeV2 total time %f s\n", diff_total.count());
+}
+
+void
+IncreSta::parallelBufferingV2(rsz::Resizer *resizer, float PT_tradeoff,
+                              int top_n)
+{
+  printf("IncreSta::parallelBufferingV2 start\n");
+  auto start_total = std::chrono::high_resolution_clock::now();
+
+  float avg_delay = averageDelayOnCritPath();
+  float avg_leakage = averageLeakage();
+  sta::Slack wns = sta_->worstSlack(sta::MinMax::max());
+
+  local_sta_->initParallel();
+  TaskArranger *task_arranger = local_sta_->taskArranger();
+
+  // Screen buffering candidates
+  std::vector<size_t> selected = bufferingVerticesCandidate(top_n);
+  if (selected.empty()) {
+    printf("No buffering candidates found. Skipping.\n");
+    return;
+  }
+  task_arranger->markSelectedInstances(selected);
+
+  // Initialize global preamble (serial, once)
+  LrRebufferV2::initGlobalPreamble(sta_, resizer);
+
+  // Create V2 visitor with BufferOperator only
+  auto *visitor = new ParallelVisitor(sta_, local_sta_, resizer);
+  visitor->setTaskArranger(task_arranger);
+
+  auto buffer_op = std::make_unique<BufferOperator>(
+      sta_, local_sta_, resizer, &visitor->evalContext());
+  visitor->setBufferOperator(std::move(buffer_op));
+  visitor->init(avg_delay, avg_leakage, wns, PT_tradeoff, nullptr);
+
+  // Mark all selected instances for buffer-only
+  for (size_t vid : selected)
+    task_arranger->vertex(vid)->move_mask_ = InstVertex::kMoveBuffer;
+
+  auto start_buf = std::chrono::high_resolution_clock::now();
+  local_sta_->runResize(resizer, visitor);
+  task_arranger->markDirty();
+  auto end_buf = std::chrono::high_resolution_clock::now();
+
+  sta_->updateTiming(true);
+  sta_->findRequireds();
+  double tns_after = sta_->totalNegativeSlack(sta::MinMax::max());
+  double wns_after = sta_->worstSlack(sta::MinMax::max());
+  printf("After V2 buffering, TNS: %.4f ps, WNS: %.4f ps\n",
+         tns_after * 1e12, wns_after * 1e12);
+  printf("  buffering time: %.3f s\n",
+         std::chrono::duration<double>(end_buf - start_buf).count());
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  printf("IncreSta::parallelBufferingV2 total time %.3f s\n",
+         std::chrono::duration<double>(end_total - start_total).count());
 }
 
 std::vector<size_t>

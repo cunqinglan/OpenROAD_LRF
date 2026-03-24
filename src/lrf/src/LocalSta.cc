@@ -2059,6 +2059,12 @@ LocalSta::runResize(rsz::Resizer *resizer, ParallelLrVisitor *visitor)
   task_arranger_->visitOrdered(sta_, this, resizer, visitor);
 }
 
+void
+LocalSta::runResize(rsz::Resizer *resizer, ParallelVisitor *visitor)
+{
+  task_arranger_->visitOrdered(sta_, this, resizer, visitor);
+}
+
 sta::Path *
 LocalSta::ptVertexWorstSlackPath(PtVertex &pt_vertex, const sta::MinMax *min_max) const
 {
