@@ -201,6 +201,10 @@ public:
   // All vertices are first reset to unselected, then only those in vertex_ids are marked.
   void markSelectedInstances(const std::vector<size_t> &vertex_ids);
 
+  // Aggregate change stats from all visitors and update PruningControl.
+  // Must be called before visitors are deleted.
+  void updatePruningStats();
+
   void setMaxResizeNum(size_t max_resize_num) { max_resize_num_ = max_resize_num; }
   size_t vertexCount() const { return vertices_.size(); }
   const std::unordered_map<const sta::Instance*, VertexId> *instToVidMap() const { return &inst_to_vid_; }

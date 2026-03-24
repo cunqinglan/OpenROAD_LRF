@@ -35,6 +35,7 @@ struct VirtualBufferInfo {
 class LrRebuffer : public rsz::Rebuffer
 {
   friend class TestLrf;
+  friend class CombinedVisitor;
 public:
   LrRebuffer(rsz::Resizer* resizer, ParallelLrVisitor* parallel_visitor);
   // Call once in serial before creating any LrRebuffer instances in parallel.
@@ -65,8 +66,6 @@ public:
                               float avg_delay, float avg_leakage);
 
 protected:
-  void localAnnotateLoadSlacks(const rsz::BufferedNetPtr& tree, PtVertex &drvr_pt_vertex);
-
   // Cost computation: delay_LM_sum + leakage
   float computeBufferAddedCost(float buffer_delay_seconds,
                                 float buffer_leakage,
@@ -85,6 +84,7 @@ protected:
   VirtualBufferInfo buildVirtualBuffer(sta::VertexId drvr_vertex_id,
                                        const rsz::BufferedNetPtr& option);
   void removeVirtualBuffer(VirtualBufferInfo &info);
+  void cleanupVirtualBuffer();
   float computeVirtualSlack(const VirtualBufferInfo &info);
   rsz::BufferedNetPtr attemptTopologyRewrite(const rsz::BufferedNetPtr& node,
                                              const rsz::BufferedNetPtr& left,
@@ -94,6 +94,10 @@ protected:
   // After exportBufferTree physically inserts buffers, write the LMs from
   // the BnetPtr tree back onto the corresponding real graph wire edges.
   void writeLmsToGraph();
+  // After physical buffer insertion, estimate parasitic for each new buffer's
+  // output net and sync into local_parasitic_network_map_ so that subsequent
+  // PtGraphs can build PtPiElmore via recomputePtParasitics.
+  void syncNewBufferParasitics(const rsz::BufferedNetPtr& tree);
   // Write timing (slew, arrival, required, arc delay) from PtGraph virtual
   // buffer vertices/edges to the corresponding real graph vertices/edges.
   void writeTimingToGraph();

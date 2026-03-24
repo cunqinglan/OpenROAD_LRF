@@ -80,6 +80,10 @@ public:
   void setPTTradeoff(float PT_tradeoff) { PT_tradeoff_ = PT_tradeoff; }
   void setSlackMargin(float slack_margin) { slack_margin_ = slack_margin; }
   float slackMargin() const { return slack_margin_; }
+  void setPruningControl(PruningControl *pc) { pruning_control_ = pc; }
+  PruningControl *pruningControl() const { return pruning_control_; }
+  int resizeVisitCount() const { return static_cast<int>(visited_instances_.size()); }
+  int resizeChangeCount() const { return resize_change_count_; }
   bool equivVtCells(sta::LibertyCell *cell1, sta::LibertyCell *cell2);
   void setClockPeriod(float clock_period) { clock_period_ = clock_period; }
   void setParallelLibData(ParallelLibData *parallel_lib_data) { parallel_lib_data_ = parallel_lib_data; }
@@ -107,6 +111,8 @@ protected:
   bool trySwapV1(sta::Instance *inst);
   // Neighborhood search in equiv cell array for resizing; returns true on success.
   bool trySwapByArray(sta::Instance *inst, int col_padding = 3, int row_padding = 1);
+  // History-based pruned variant: uses stored ordering when available, falls back to full search.
+  bool trySwapByArrayPruned(sta::Instance *inst, int col_padding = 3, int row_padding = 1);
   // Insert buffering for the given instance to improve timing; returns true on success.
   bool tryBuffering(sta::Instance *inst);
   std::vector<std::pair<sta::LibertyCell*, std::pair<size_t, size_t>>> getLegalEquivCells(
@@ -133,9 +139,11 @@ protected:
   ParallelLibData *parallel_lib_data_ = nullptr;
   LibertyCellArray *equiv_cell_array_ = nullptr;
   PosMap *equiv_cell_pos_map_ = nullptr;
+  PruningControl *pruning_control_ = nullptr;
   float clock_period_ = 0.0;
   LrRebuffer *rebuffer_ = nullptr;
   MoveType move_type_ = MoveType::Resizing;
+  int resize_change_count_ = 0;
 
   std::map<std::string, double> runtime_map_ = {
     {"visit", 0.0},

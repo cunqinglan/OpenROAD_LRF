@@ -874,6 +874,11 @@ TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *r
   }
   finishTasks();
   
+  // Aggregate change stats from all thread visitors and detect K
+  // (first iteration where change_rate < threshold). Must run before
+  // visitors are deleted since it reads their counters.
+  updatePruningStats();
+
   int cnt = 0;
   for (auto v : visitors_) {
     // printf("Visitor %d runtime profile:\n", cnt);
@@ -1015,6 +1020,37 @@ TaskArranger::runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex)
   for (VertexId zero_ref_id : zero_ref_vertices) {
     InstVertex* zero_ref_vertex = vertex(zero_ref_id);
     createTask(zero_ref_vertex);
+  }
+}
+
+void
+TaskArranger::updatePruningStats()
+{
+  if (visitors_.empty())
+    return;
+  PruningControl *pc = visitors_[0]->pruningControl();
+  if (!pc)
+    return;
+
+  int total_visit = 0, total_change = 0;
+  for (auto *v : visitors_) {
+    total_visit += v->resizeVisitCount();
+    total_change += v->resizeChangeCount();
+  }
+  if (total_visit == 0)
+    return;
+
+  float change_rate = static_cast<float>(total_change) / total_visit;
+  printf("Pruning: change_rate=%.4f (%d/%d), iteration=%d, enabled=%d, K=%d\n",
+         change_rate, total_change, total_visit,
+         pc->iteration, pc->enabled, pc->K);
+  fflush(stdout);
+
+  if (pc->K == -1 && change_rate < pc->change_threshold) {
+    pc->K = pc->iteration;
+    pc->enabled = true;
+    printf("Pruning: K detected at iteration %d, pruning enabled\n", pc->K);
+    fflush(stdout);
   }
 }
 
