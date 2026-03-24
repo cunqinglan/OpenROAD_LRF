@@ -330,13 +330,6 @@ write_def_cmd(const char *filename,
 }
 
 void
-write_json_netlist_cmd(const char *filename)
-{
-  OpenRoad *ord = getOpenRoad();
-  ord->writeJsonNetlist(filename);
-}
-
-void
 write_lef_cmd(const char *filename)
 {
   OpenRoad *ord = getOpenRoad();

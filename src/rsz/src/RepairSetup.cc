@@ -626,15 +626,15 @@ void RepairSetup::repairSetup(const sta::Pin* end_pin, bool size_up_only)
   init();
   max_repairs_per_pass_ = 1;
 
-  Vertex* vertex = graph_->pinLoadVertex(end_pin);
-  const Slack slack = sta_->vertexSlack(vertex, max_);
-  Path* path = sta_->vertexWorstSlackPath(vertex, max_);
+  sta::Vertex* vertex = graph_->pinLoadVertex(end_pin);
+  const sta::Slack slack = sta_->vertexSlack(vertex, max_);
+  sta::Path* path = sta_->vertexWorstSlackPath(vertex, max_);
 
-  move_sequence.clear();
+  move_sequence_.clear();
   if (size_up_only) {
-    move_sequence = {resizer_->size_up_move_.get()};
+    move_sequence_ = {resizer_->size_up_move_.get()};
   } else {
-    move_sequence = {resizer_->unbuffer_move_.get(),
+    move_sequence_ = {resizer_->unbuffer_move_.get(),
                      resizer_->vt_swap_speed_move_.get(),
                      //resizer_->size_down_move_.get(),
                      resizer_->size_up_move_.get(),
