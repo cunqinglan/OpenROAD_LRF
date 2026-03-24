@@ -5,6 +5,8 @@
 #include "lrf/LrfClass.hh"
 
 #include <stdexcept>
+#include <string>
+#include <vector>
 
 namespace rsz
 {
@@ -41,6 +43,46 @@ struct ErrorPoint
   Arrival local_arrival;
   Arrival open_arrival;
   sta::DcalcAnalysisPt* analysis_pt;
+};
+
+// ── IterationHelper ──────────────────────────────────────
+// Tracks per-phase metrics and prints formatted deltas.
+// Independent class, can be reused outside TestLrf.
+class IterationHelper {
+public:
+  struct Metrics {
+    double wns_ps = 0.0;
+    double tns_ps = 0.0;
+    double leakage = 0.0;   // raw watts from STA
+    double runtime_s = 0.0;
+  };
+
+  IterationHelper(sta::dbSta *sta, odb::dbBlock *block);
+
+  // Snapshot current timing + leakage
+  Metrics snapshot(double runtime_s = 0.0);
+
+  // Record a row (buffered, not printed immediately)
+  void recordRow(size_t iter, const char *phase,
+                 const Metrics &cur, const Metrics &before,
+                 const char *decision);
+
+  // Print all recorded rows as a clean table
+  void printSummary(const Metrics &best);
+
+  // ECO decision: compare cur vs best, manage ECO checkpoint.
+  // Returns decision string. Sets should_break=true if should terminate.
+  // allow_revert=false: only accept or hold (for buffer phases that shouldn't revert).
+  const char *ecoDecision(const Metrics &cur, Metrics &best,
+                          size_t &no_improve, size_t tolerance,
+                          size_t &eco_iter, bool &should_break,
+                          bool allow_revert = true);
+
+private:
+  sta::dbSta *sta_;
+  odb::dbBlock *block_;
+  sta::Corner *corner_;
+  std::vector<std::string> rows_;
 };
 
 class  TestLrf
@@ -86,6 +128,28 @@ public:
                             std::string lr_helper_method);
 
   void testParallelLrResizeByArray(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons = false,
+                            float PT_tradeoff = 100.0,
+                            std::string lr_helper_method = "LRHelper");
+
+  void testParallelLrResizeByArrayV2(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons = false,
+                            float PT_tradeoff = 100.0,
+                            std::string lr_helper_method = "LRHelper");
+
+  void testParallelLrResizeByArrayWithBufferingV2(sta::dbSta* sta,
                             rsz::Resizer *resizer,
                             odb::dbBlock *block,
                             size_t thread_num,

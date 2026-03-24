@@ -37,6 +37,7 @@ using sta::ObjectIdx;
 using rsz::Resizer;
 
 class ParallelLrVisitor;
+class ParallelVisitor;
 class LocalSta;
 class InstVertex;
 class InstEdge;
@@ -148,6 +149,8 @@ public:
   // calling visitor->visit() + visitor->applyChangesToDb() per instance.
   void visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer,
                     ParallelLrVisitor *visitor);
+  void visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer,
+                    ParallelVisitor *visitor);
   // Embarrassingly parallel: dispatches all combinational instances to
   // visitor->visit() with no dependency graph. The visitor defines what to do.
   void visitAll(ParallelLrVisitor *visitor);
@@ -157,6 +160,7 @@ public:
   void getZeroRefComInstVertices(std::vector<InstVertex*>& zero_ref_vertices);
   void createTask(InstVertex* inst_vertex);
   void runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex);
+  void runTask(ParallelVisitor *visitor, InstVertex* inst_vertex);
   void finishTasks();
 
   // Assign MEE edges among sibling fanout instances of inst.
@@ -229,12 +233,15 @@ protected:
   // Mutex removed: apply_change_to_db_mutex_ is replaced by g_odb_sta_access_mutex
   // Visitors for each thread
   std::vector<ParallelLrVisitor *> visitors_;
+  std::vector<ParallelVisitor *> visitors_v2_;
   // Maximum resize number allowed in one iteration
   size_t max_resize_num_ = 1000000;
   // Flag of if the first time visitOrdered
   bool incremental_ = false;
   // Flag set after netlist-modifying operations (e.g. buffer insertion)
   bool dirty_ = false;
+  // Flag: true when dispatching with ParallelVisitor (v2) vs ParallelLrVisitor
+  bool use_v2_visitors_ = false;
   
   // Topology validation
   bool enable_topology_check_ = false;

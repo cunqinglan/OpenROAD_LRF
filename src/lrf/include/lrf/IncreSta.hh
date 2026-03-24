@@ -69,10 +69,15 @@ public:
                       float PT_tradeoff);
   void parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float avg_power,
                       float PT_tradeoff);
+  // New framework (NetlistTransformation) resize entry point
+  void parallelResizeByArrayV2(rsz::Resizer *resizer, float avg_delay, float avg_power,
+                      float PT_tradeoff);
   void setMaxResizeNum(size_t max_resize_num);
 
   void parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
                          int top_n = 100);
+  void parallelBufferingV2(rsz::Resizer *resizer, float PT_tradeoff,
+                           int top_n = 100);
 
   // Single-pass resize + buffering: for buffer candidates, evaluate
   // resize then try buffering on the best resized cell.

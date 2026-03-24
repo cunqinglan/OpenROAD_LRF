@@ -3,6 +3,7 @@
 #include <thread>
 
 #include "TaskArranger.hh"
+#include "NetlistTransformation.hh"
 #include "TopologyChecker.hh"
 #include "search/Levelize.hh"
 #include "sta/ObjectTable.hh"
@@ -841,6 +842,7 @@ void
 TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer,
                            ParallelLrVisitor *visitor)
 {
+  use_v2_visitors_ = false;
   if (incremental_)
     reinit();
   // Clear previous visit records
@@ -961,14 +963,20 @@ TaskArranger::createTask(InstVertex* inst_vertex)
   if (!dispatch_queue_) {
     if (thread_count_ == 1) {
       // Single-threaded execution
-      runTask(visitors_[0], inst_vertex);
+      if (use_v2_visitors_)
+        runTask(visitors_v2_[0], inst_vertex);
+      else
+        runTask(visitors_[0], inst_vertex);
       return;
     } else {
       throw std::runtime_error("Dispatch queue is null in multi-threaded mode.");
     }
   }
   dispatch_queue_->dispatch([inst_vertex, this](int id) {
-    runTask(visitors_[id], inst_vertex);
+    if (use_v2_visitors_)
+      runTask(visitors_v2_[id], inst_vertex);
+    else
+      runTask(visitors_[id], inst_vertex);
   });
 }
 
@@ -1141,6 +1149,88 @@ TaskArranger::printTopologyViolations() const
     topology_checker_->printViolations();
   } else {
     printf("Topology checker not initialized. Call enableTopologyCheck(true) before visitOrdered().\n");
+  }
+}
+
+////////////////////////////////////////////////////////////////
+// ParallelVisitor overloads (NetlistTransformation framework)
+////////////////////////////////////////////////////////////////
+
+void
+TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta,
+                           rsz::Resizer *resizer,
+                           ParallelVisitor *visitor)
+{
+  use_v2_visitors_ = true;
+  if (incremental_)
+    reinit();
+  clearVisitedInstVertices();
+  resizer_ = resizer;
+
+  if (enable_topology_check_) {
+    printf("Topology check enabled.\n");
+    topology_checker_ = std::make_unique<TopologyChecker>(this);
+  }
+
+  for (auto v : visitors_v2_) delete v;
+  visitors_v2_.clear();
+
+  std::vector<InstVertex*> zero_ref_vertices;
+  getZeroRefComInstVertices(zero_ref_vertices);
+
+  visitors_v2_.reserve(thread_count_);
+  visitors_v2_.push_back(visitor);
+  printf("Visit with %u threads\n", thread_count_);
+  fflush(stdout);
+  for (size_t i = 1; i < thread_count_; i++) {
+    visitors_v2_.emplace_back(visitor->copy());
+  }
+  for (size_t i = 0; i < zero_ref_vertices.size(); i++) {
+    createTask(zero_ref_vertices[i]);
+  }
+  finishTasks();
+
+  int cnt = 0;
+  for (auto v : visitors_v2_) {
+    v->printRuntimeProfile();
+    delete v;
+    cnt++;
+  }
+  visitors_v2_.clear();
+
+  if (enable_topology_check_ && topology_checker_) {
+    topology_checker_->printViolations();
+    topology_checker_.reset();
+  }
+
+  incremental_ = true;
+}
+
+void
+TaskArranger::runTask(ParallelVisitor *visitor, InstVertex* inst_vertex)
+{
+  if (inst_vertex->move_mask_ == 0) {
+    visitor->visitSlewOnly(inst_vertex->inst());
+  } else {
+    if (enable_topology_check_ && topology_checker_) {
+      topology_checker_->onVisit(inst_vertex, std::this_thread::get_id());
+    }
+
+    if (visitor->visit(inst_vertex->inst(), inst_vertex->objectIdx()))
+    {
+      if (enable_topology_check_ && topology_checker_) {
+        topology_checker_->onBeforeModify(inst_vertex, std::this_thread::get_id());
+      }
+      visitor->applyChangesToDb(resizer_);
+      if (enable_topology_check_ && topology_checker_) {
+        topology_checker_->onAfterModify(inst_vertex, std::this_thread::get_id());
+      }
+    }
+  }
+  std::set<VertexId> zero_ref_vertices = decreOutRefCount(inst_vertex);
+  for (VertexId zero_ref_id : zero_ref_vertices) {
+    InstVertex* zero_ref_vertex = vertex(zero_ref_id);
+    createTask(zero_ref_vertex);
   }
 }
 

@@ -42,6 +42,7 @@ typedef float LocalCost;
 
 class LocalParasitics;
 class ParallelLrVisitor;
+class ParallelVisitor;
 
 class LocalSta: public GraphDelayCalc {
 public:
@@ -108,6 +109,7 @@ public:
   // Functions for parallel LR
   void initParallel();
   void runResize(rsz::Resizer *resizer, ParallelLrVisitor *visitor);
+  void runResize(rsz::Resizer *resizer, ParallelVisitor *visitor);
 
   // Functions for ERC check
   float getPinMaxSlewLimit(sta::Pin *pin, sta::LibertyCell *cell);
@@ -152,6 +154,14 @@ public:
                               float &limit1,
                               float &slack1) const;
   sta::Path *ptVertexWorstSlackPath(PtVertex &pt_vertex, const sta::MinMax *min_max) const;
+
+  // Public API for operators
+  DelayLmSumResult initAndGetLocalTimingCost(PtGraph *pt_graph, sta::ArcDelayCalc *arc_delay_calc);
+  DelayLmSumResult increAndGetLocalTimingCost(PtGraph *pt_graph,
+                                    sta::ArcDelayCalc *arc_delay_calc,
+                                    sta::LibertyCell *equiv_cell);
+  sta::Slack localSlackAroundRef(PtGraph *pt_graph);
+  void virtualReplaceCell(PtGraph *pt_graph, sta::LibertyCell *new_cell);
 
 protected:
   const Pin *findNetParasiticDrvrPin(sta::Net *net) const;
@@ -385,12 +395,9 @@ protected:
   float refgateDelayLmSum(PtGraph *pt_graph);
   void graphPop();
   void setSta(dbSta *sta) { sta_ = sta; }
-  DelayLmSumResult initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
-  DelayLmSumResult increAndGetLocalTimingCost(PtGraph *pt_graph,
-                                    ArcDelayCalc *arc_delay_calc,
-                                    LibertyCell *equiv_cell);
+  // initAndGetLocalTimingCost, increAndGetLocalTimingCost, localSlackAroundRef
+  // moved to public section above
   void updateLocalTiming(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
-  Slack localSlackAroundRef(PtGraph *pt_graph);
   Slack localSlackAtEndpoints(PtGraph *pt_graph);
   // Compute slack at sink pins using STA required (unchanged by buffer)
   // and PtVertex arrival (updated by findLocalArrivals through virtual buffer).
@@ -408,7 +415,7 @@ protected:
   ////////////////////////////////////////////////////////
   // Swapping cells virtually
   ////////////////////////////////////////////////////////
-  void virtualReplaceCell(PtGraph *pt_graph, LibertyCell *new_cell);
+  // virtualReplaceCell moved to public section
   void loadLocalParasitics(const Pin *drvr_pin,
                            const RiseFall *rf,
                            const DcalcAnalysisPt *dcalc_ap,
@@ -460,6 +467,7 @@ private:
   friend class IncreSta;
   friend class TestLrf;
   friend class LrRebuffer;
+  friend class LrRebufferV2;
   friend class ParallelLrVisitor;
   friend class CombinedVisitor;
 };
