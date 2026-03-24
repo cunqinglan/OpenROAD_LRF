@@ -58,7 +58,7 @@
 #include "odb/db.h"
 #include "odb/defin.h"
 #include "odb/defout.h"
-#include "odb/jsonout.h"
+//#include "odb/jsonout.h"
 #include "odb/lefin.h"
 #include "odb/lefout.h"
 #include "ord/InitOpenRoad.hh"
@@ -406,7 +406,7 @@ void OpenRoad::writeDef(const char* filename, const std::string& version)
     }
   }
 }
-
+/*
 void OpenRoad::writeJsonNetlist(const char* filename)
 {
   odb::dbChip* chip = db_->getChip();
@@ -427,7 +427,7 @@ void OpenRoad::writeJsonNetlist(const char* filename)
     }
   }
 }
-
+*/
 void OpenRoad::writeAbstractLef(const char* filename,
                                 const int bloat_factor,
                                 const bool bloat_occupied_layers)
