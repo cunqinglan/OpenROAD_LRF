@@ -52,9 +52,11 @@ public:
 
   void collectLocalGraph(Instance *inst, InstanceSet &local_instances);
   void collectLocalVertices(Instance *inst, VertexSet &local_vertices);
-  void makePtGraph(PtGraph *pt_graph, Instance *inst, 
+  void makePtGraph(PtGraph *pt_graph, Instance *inst,
                           DcalcAnalysisPt *dcalc_ap = nullptr);
   PtGraph *makePtGraph(Instance *inst, bool update_timing_first = false);
+  void rebuildPtGraph(PtGraph *pt_graph, Instance *inst,
+                      bool update_timing_first = false);
 
   sta::dbSta *getSta() { return sta_; }
   TaskArranger *taskArranger() { return task_arranger_; }

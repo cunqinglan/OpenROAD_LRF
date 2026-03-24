@@ -514,6 +514,20 @@ LocalSta::makePtGraph(Instance *inst, bool update_timing_first)
 }
 
 void
+LocalSta::rebuildPtGraph(PtGraph *pt_graph, Instance *inst,
+                          bool update_timing_first)
+{
+  pt_graph->reset();
+  makePtGraph(pt_graph, inst);
+  if (update_timing_first) {
+    Level top_level = pt_graph->topVertexLevel();
+    findDelays(top_level);
+    search_->findArrivals(top_level);
+    pt_graph->initVertexAndEdges();
+  }
+}
+
+void
 LocalSta::topoSortVertices(PtGraph *pt_graph)
 {
   pt_graph->topoSortVertices();
@@ -1997,7 +2011,10 @@ void
 LRSInstanceVisitor::visit(Instance *inst)
 {
   inst_ = inst;
-  local_graph_ = new PtGraph(local_sta_->getSta());
+  if (!local_graph_)
+    local_graph_ = new PtGraph(local_sta_->getSta());
+  else
+    local_graph_->reset();
   local_sta_->makePtGraph(local_graph_, inst_);
 }
 

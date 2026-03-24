@@ -124,6 +124,24 @@ PtGraph::~PtGraph()
 {
 }
 
+void
+PtGraph::reset()
+{
+  // ~PtVertex() handles delete[] paths_ for each removed element.
+  // resize(1) preserves capacity so subsequent push_back reuses memory.
+  pt_vertices_.resize(1);
+  pt_edges_.resize(1);
+  sorted_vertex_ids_.clear();
+  roots_.clear();
+  vertex_map_.clear();
+  pt_parasitics_.clear();
+  graph_made_ = false;
+  sorted_ = false;
+  ref_inst_ = nullptr;
+  ref_lib_cell_ = nullptr;
+  dcalc_ap_ = nullptr;
+}
+
 PtPiElmore*
 PtGraph::findPtParasitic(VertexId drvr_id,
                           const sta::RiseFall *rf,
