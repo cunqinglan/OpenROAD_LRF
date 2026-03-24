@@ -261,6 +261,18 @@ LocalParasitics::recomputeSinglePtParasitic(PtGraph *pt_graph, VertexId drvr_vid
   }
 }
 
+void
+LocalParasitics::syncParasiticNetworkFromGlobal(const Net *net)
+{
+  ConcreteParasitics *global = dynamic_cast<ConcreteParasitics*>(parasitics_);
+  if (!global)
+    return;
+  ConcreteParasiticNetwork **array = global->parasitic_network_map_.findKey(net);
+  if (array) {
+    local_parasitic_network_map_[net] = array;
+  }
+}
+
 Parasitic *
 LocalParasitics::findLocalParasiticNetwork(const Net *net, const ParasiticAnalysisPt *ap) const
 {

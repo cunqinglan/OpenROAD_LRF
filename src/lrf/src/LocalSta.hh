@@ -404,11 +404,13 @@ protected:
   // reduced pi model need to be recomputed.
   void recomputeLocalParasitics(PtGraph *pt_graph);
   void recomputeSinglePtParasitic(PtGraph *pt_graph, sta::VertexId drvr_vid);
+  void syncParasiticNetworkFromGlobal(const sta::Net *net);
 
   ////////////////////////////////////////////////////////
   // Swapping cells virtually
   ////////////////////////////////////////////////////////
-  void virtualReplaceCell(PtGraph *pt_graph, LibertyCell *new_cell);
+  // Returns false if new_cell's timing arcs are incompatible.
+  bool virtualReplaceCell(PtGraph *pt_graph, LibertyCell *new_cell);
   void loadLocalParasitics(const Pin *drvr_pin,
                            const RiseFall *rf,
                            const DcalcAnalysisPt *dcalc_ap,

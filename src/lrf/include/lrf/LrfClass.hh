@@ -98,7 +98,7 @@ enum class PinType : uint8_t {
 };
 
 struct DelayLmSumResult {
-  float delay_lm_sum = 1000000000.0;
+  float delay_lm_sum = sta::INF;
   std::vector<float> vec_lms;
   std::vector<float> vec_delays;
 };
