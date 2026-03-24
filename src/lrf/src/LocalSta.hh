@@ -161,7 +161,7 @@ public:
                                     sta::ArcDelayCalc *arc_delay_calc,
                                     sta::LibertyCell *equiv_cell);
   sta::Slack localSlackAroundRef(PtGraph *pt_graph);
-  void virtualReplaceCell(PtGraph *pt_graph, sta::LibertyCell *new_cell);
+  bool virtualReplaceCell(PtGraph *pt_graph, sta::LibertyCell *new_cell);
 
 protected:
   const Pin *findNetParasiticDrvrPin(sta::Net *net) const;
