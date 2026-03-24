@@ -44,15 +44,17 @@ ParallelLrVisitor::ParallelLrVisitor(sta::dbSta *db_sta, LocalSta *local_sta,
   resizer_(resizer),
   arc_delay_calc_(local_sta_->arcDelayCalc()->copy())
 {
-  // Since this visitor is created in serial, 
+  // Since this visitor is created in serial,
   // make equivalent cells here is safe.
   slack_before_swap_ = sta::MinMax::max()->initValue();
+  owned_pt_graph_ = new PtGraph(local_sta_->getSta());
 }
 
 ParallelLrVisitor::~ParallelLrVisitor()
 {
   delete arc_delay_calc_;
   delete rebuffer_;
+  delete owned_pt_graph_;
 }
 
 bool 
@@ -124,7 +126,8 @@ ParallelLrVisitor::trySwap(sta::Instance *inst)
     //      legal_equiv_cells.size());
     // fflush(stdout);
     auto start_pt_graph_construction = std::chrono::high_resolution_clock::now();
-    pt_graph_ = local_sta_->makePtGraph(inst, false);
+    local_sta_->rebuildPtGraph(owned_pt_graph_, inst);
+    pt_graph_ = owned_pt_graph_;
     auto end_pt_graph_construction = std::chrono::high_resolution_clock::now();
     runtime_map_["pt_graph_construction"] += std::chrono::duration<double>(end_pt_graph_construction - start_pt_graph_construction).count();
     
@@ -248,7 +251,8 @@ ParallelLrVisitor::trySwapByArray(sta::Instance *inst, int col_padding, int row_
 
   // Build PtGraph
   auto start_pt = std::chrono::high_resolution_clock::now();
-  pt_graph_ = local_sta_->makePtGraph(inst, false);
+  local_sta_->rebuildPtGraph(owned_pt_graph_, inst);
+  pt_graph_ = owned_pt_graph_;
   auto end_pt = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
       std::chrono::duration<double>(end_pt - start_pt).count();
@@ -371,7 +375,8 @@ ParallelLrVisitor::trySwapPrecheck(sta::Instance *inst, int col_padding, int row
 
   // Build PtGraph
   auto t_pt_start = std::chrono::high_resolution_clock::now();
-  PtGraph *pt_graph = local_sta_->makePtGraph(inst, false);
+  local_sta_->rebuildPtGraph(owned_pt_graph_, inst);
+  PtGraph *pt_graph = owned_pt_graph_;
   auto t_pt_end = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
       std::chrono::duration<double>(t_pt_end - t_pt_start).count();
@@ -436,7 +441,7 @@ ParallelLrVisitor::trySwapPrecheck(sta::Instance *inst, int col_padding, int row
 
   // Derive best cost from cached results — no second STA pass needed.
   if (ori_cost == std::numeric_limits<float>::max()) {
-    // pt_graph is owned by local_sta_->local_graphs_, do NOT delete here
+    // pt_graph is owned by the visitor (owned_pt_graph_), reused across visits
     return 0.0f;
   }
 
@@ -621,7 +626,8 @@ ParallelLrVisitor::trySwapV1(sta::Instance *inst)
     //      legal_equiv_cells.size());
     // fflush(stdout);
 
-    pt_graph_ = local_sta_->makePtGraph(inst, false);
+    local_sta_->rebuildPtGraph(owned_pt_graph_, inst);
+    pt_graph_ = owned_pt_graph_;
     
     best_cell_ = ori_cell;
     float best_cost = std::numeric_limits<float>::max();
@@ -770,7 +776,8 @@ ParallelLrVisitor::visit(sta::Instance *inst,
          // legal_equiv_cells.size());
     // fflush(stdout);
 
-    pt_graph_ = local_sta_->makePtGraph(inst, false);
+    local_sta_->rebuildPtGraph(owned_pt_graph_, inst);
+    pt_graph_ = owned_pt_graph_;
     // Compute Original delays
     DelayLmSumResult original_result = local_sta_->
                 initAndGetLocalTimingCost(pt_graph_, arc_delay_calc_);
@@ -858,6 +865,7 @@ ParallelLrVisitor::copy() const
   new_visitor->setEquivCellArray(equiv_cell_array_, equiv_cell_pos_map_);
   new_visitor->setClockPeriod(clock_period_);
   new_visitor->setMoveType(move_type_);  // also creates LrRebuffer if needed
+  // owned_pt_graph_ is already created in the constructor
   return new_visitor;
 }
 
@@ -1107,7 +1115,8 @@ ParallelLrVisitor::tryBuffering(sta::Instance *inst)
   // 3. If cost improved, keep the buffer insertion
   // 4. Submmit the buffer insertion
   visited_instances_.push_back(db_sta_->network()->pathName(inst));
-  pt_graph_ = local_sta_->makePtGraph(inst, false);
+  local_sta_->rebuildPtGraph(owned_pt_graph_, inst);
+  pt_graph_ = owned_pt_graph_;
   if (rebuffer_ == nullptr) {
     throw std::runtime_error(
         "ParallelLrVisitor::tryBuffering: rebuffer_ is null; "
@@ -1193,7 +1202,8 @@ BufferSensitivityVisitor::BufferSensitivityVisitor(
 bool
 BufferSensitivityVisitor::visit(sta::Instance *inst, sta::VertexId vid)
 {
-  pt_graph_ = local_sta_->makePtGraph(inst, false);
+  local_sta_->rebuildPtGraph(owned_pt_graph_, inst);
+  pt_graph_ = owned_pt_graph_;
   if (rebuffer_ == nullptr) {
     throw std::runtime_error(
         "BufferSensitivityVisitor::visit: rebuffer_ is null; "
