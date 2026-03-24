@@ -657,8 +657,16 @@ LocalSta::seedNoDrvrSlew(PtVertex &pt_drvr_vertex,
 
   // Use local slew
   pt_graph->setSlew(pt_drvr_vertex, rf, ap_index, slew);
-  
-  Parasitic *parasitic = local_parasitics_->findLocalParasitic(drvr_pin, rf, dcalc_ap);
+
+  // Check PtGraph-local PiElmore first (covers newly inserted buffer nets)
+  Parasitic *parasitic = nullptr;
+  PtPiElmore *pt_pi = pt_graph->findPtParasitic(
+      pt_drvr_vertex.objectIdx(), rf, dcalc_ap->index());
+  if (pt_pi && pt_pi->capacitance() > 0.0f) {
+    parasitic = pt_pi;
+  } else {
+    parasitic = local_parasitics_->findLocalParasitic(drvr_pin, rf, dcalc_ap);
+  }
   LoadPinIndexMap load_pin_index_map = makeLoadPinIndexMap(pt_drvr_vertex, pt_graph);
   ArcDcalcResult dcalc_result =
     arc_delay_calc->inputPortDelay(drvr_pin, delayAsFloat(slew), rf, parasitic,
@@ -1402,7 +1410,10 @@ LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph,
                                      ArcDelayCalc *arc_delay_calc,
                                      LibertyCell *equiv_cell)
 {
-  virtualReplaceCell(pt_graph, equiv_cell);
+  if (!virtualReplaceCell(pt_graph, equiv_cell)) {
+    // Incompatible cell: return max cost to reject this candidate.
+    return DelayLmSumResult{};
+  }
   findLocalDelays(pt_graph, arc_delay_calc);
   findLocalArrivals(pt_graph);
   findLocalRequireds(pt_graph);
@@ -1433,6 +1444,12 @@ void
 LocalSta::recomputeSinglePtParasitic(PtGraph *pt_graph, VertexId drvr_vid)
 {
   local_parasitics_->recomputeSinglePtParasitic(pt_graph, drvr_vid);
+}
+
+void
+LocalSta::syncParasiticNetworkFromGlobal(const Net *net)
+{
+  local_parasitics_->syncParasiticNetworkFromGlobal(net);
 }
 
 Slack
@@ -2008,19 +2025,13 @@ LRSInstanceVisitor
   return new LRSInstanceVisitor(local_sta_);
 }
 
-void 
+bool
 LocalSta::virtualReplaceCell(PtGraph *pt_graph, LibertyCell *new_cell)
 {
   // If it's nullptr, we use original ref lib cell of pt graph
   if (new_cell) {
-    // Relax check: only require port and function equivalence.
-    // Timing arc set differences (e.g. different conditional arc
-    // granularity between drive strengths in ASAP7) are handled
-    // by the fallback logic in PtGraph::updateTimingArcSets().
-    if (!equivCellPorts(pt_graph->refGate(), new_cell)
-        || !equivCellFuncs(pt_graph->refGate(), new_cell)) {
-      printf("This cell: %s (orig: %s) replacement needs more processing\n", new_cell->name(), pt_graph->refGate()->name());
-      return;
+    if (!sta::equivCellsArcs(pt_graph->refGate(), new_cell)) {
+      return false;
     }
     pt_graph->setRefGate(new_cell);
     pt_graph->updateTimingArcSets();
@@ -2030,6 +2041,7 @@ LocalSta::virtualReplaceCell(PtGraph *pt_graph, LibertyCell *new_cell)
       throw std::runtime_error("LocalSta::virtualReplaceCell: pt_graph ref gate is nullptr");
     }
   }
+  return true;
 }
 
 void 

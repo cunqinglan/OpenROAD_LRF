@@ -72,6 +72,9 @@ public:
   void recomputePtParasitics(PtGraph *pt_graph);
   // Rebuild PtPiElmore for a single driver vertex from the original parasitic network.
   void recomputeSinglePtParasitic(PtGraph *pt_graph, sta::VertexId drvr_vid);
+  // Copy a parasitic network entry from the global map into the local map.
+  // Used after buffer insertion to make newly created nets visible to local STA.
+  void syncParasiticNetworkFromGlobal(const sta::Net *net);
   // Parasitic *
 
 protected:

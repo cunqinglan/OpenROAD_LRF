@@ -7,6 +7,7 @@
 #include <chrono>
 #include "PtPiElmore.hh"
 #include "rsz/Resizer.hh"
+#include "est/EstimateParasitics.h"
 #include "LocalSta.hh"
 #include "LocalReduceParasitic.hh"
 #include "ParallelVisitor.hh"
@@ -129,6 +130,7 @@ LrRebuffer::annotateLoadLMs(PtVertex &drvr_pt_vertex, const BnetPtr& tree)
   PtVertexOutEdgeIterator out_edge_iter(drvr_pt_vertex, pt_graph);
   while (out_edge_iter.hasNext()) {
     PtEdge &pt_edge = out_edge_iter.next();
+    if (!pt_edge.hasBase()) continue;
     sta::Edge *edge = pt_edge.edge();
     if (!edge->isWire()) continue;
     
@@ -366,6 +368,7 @@ LrRebuffer::applyBufferingToDb()
   odb::dbNet* const db_net = db_network_->flatNet(drvr_pin_);
   int count = exportBufferTree(best_bnet_, db_network_->dbToSta(db_net), 1, nullptr, "rebuffer");
   if (count > 0) {
+    syncNewBufferParasitics(best_bnet_);
     writeLmsToGraph();
     writeTimingToGraph();
   }
@@ -375,6 +378,42 @@ LrRebuffer::applyBufferingToDb()
     best_vinfo_ = VirtualBufferInfo{};
   }
   return count;
+}
+
+void
+LrRebuffer::syncNewBufferParasitics(const BufferedNetPtr& tree)
+{
+  if (!tree) return;
+  using BnetType = rsz::BufferedNetType;
+  switch (tree->type()) {
+    case BnetType::buffer: {
+      sta::Instance *buf_inst = tree->bufInst();
+      if (buf_inst) {
+        sta::LibertyPort *in_port, *out_port;
+        tree->bufferCell()->bufferPorts(in_port, out_port);
+        const sta::Pin *out_pin = network_->findPin(buf_inst, out_port);
+        if (out_pin) {
+          const sta::Net *net = network_->net(out_pin);
+          if (net) {
+            estimate_parasitics_->estimateWireParasiticNoDeleteNetwork(net);
+            local_sta_->syncParasiticNetworkFromGlobal(net);
+          }
+        }
+      }
+      syncNewBufferParasitics(tree->ref());
+      break;
+    }
+    case BnetType::junction:
+      syncNewBufferParasitics(tree->ref());
+      syncNewBufferParasitics(tree->ref2());
+      break;
+    case BnetType::wire:
+    case BnetType::via:
+      syncNewBufferParasitics(tree->ref());
+      break;
+    default:
+      break;
+  }
 }
 
 void
@@ -416,7 +455,8 @@ LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
 
     // Compute RAT and AAT of the local graph
     local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
-    localAnnotateLoadSlacks(bnet, drvr_pt_vertex);
+    // localAnnotateLoadSlacks removed: slack annotation on BnetPtr nodes
+    // is only used for debug prints, not cost computation.
     annotateLoadLMs(drvr_pt_vertex, bnet);
     auto t_setup_end = std::chrono::steady_clock::now();
 
@@ -459,74 +499,6 @@ LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
   }
 }
 
-void
-LrRebuffer::localAnnotateLoadSlacks(const BnetPtr& tree, PtVertex &drvr_pt_vertex)
-{
-  for (auto rf_index : sta::RiseFall::rangeIndex()) {
-    arrival_paths_[rf_index] = nullptr;
-  }
-  PtGraph *pt_graph = visitor_->ptGraph();
-
-  visitTree(
-      [&](auto& recurse, int level, const BnetPtr& node) -> int {
-        switch (node->type()) {
-          case BnetType::via:
-          case BnetType::wire:
-          case BnetType::buffer:
-            return recurse(node->ref());
-          case BnetType::junction:
-            return recurse(node->ref()) + recurse(node->ref2());
-          case BnetType::load: {
-            const sta::Pin* load_pin = node->loadPin();
-            sta::Vertex* vertex = graph_->pinLoadVertex(load_pin);
-            PtVertex *pt_vertex = pt_graph->ptVertex(vertex);
-            sta::Path* req_path
-                = local_sta_->ptVertexWorstSlackPath(*pt_vertex, sta::MinMax::max());
-            sta::Path* arrival_path = req_path;
-
-            while (req_path && arrival_path->vertex(sta_) != drvr_pt_vertex.vertex()) {
-              arrival_path = arrival_path->prevPath();
-              if (!arrival_path) {
-                printf("LrRebuffer::annotateLoadSlacks: no arrival path from root to load %s\n",
-                       network_->pathName(load_pin));
-                break;
-              }
-            }
-
-            if (!arrival_path) {
-              node->setSlackTransition(nullptr);
-              node->setSlack(FixedDelay::INF);
-            } else {
-              const sta::RiseFall* rf = req_path->transition(sta_);
-              node->setSlackTransition(rf->asRiseFallBoth());
-              sta::Delay slack_value = req_path->required() - arrival_path->arrival();
-              if (sta::delayInf(slack_value)
-                  || slack_value > 100.0 || slack_value < -100.0) {
-                node->setSlack(FixedDelay::INF);
-              } else {
-                node->setSlack(FixedDelay(slack_value, resizer_));
-              }
-
-              if (arrival_paths_[rf->index()] == nullptr) {
-                arrival_paths_[rf->index()] = arrival_path;
-              } else {
-                // If there are multiple loads, we use the critial
-                // path among them to do driver delay calculation.
-                if (arrival_path->slack(this) < arrival_paths_[rf->index()]->slack(this)) {
-                  arrival_paths_[rf->index()] = arrival_path;
-                }
-              }
-            }
-            return 1;
-          }
-          default:
-            printf("LrRebuffer::annotateLoadSlacks: Warning: unhandled BufferedNet type %d\n",
-                   static_cast<int>(node->type()));
-            return 0;
-        }
-      },
-      tree);
-}
 
 static std::optional<int> findWireLayer(BnetPtr node)
 {
@@ -2172,6 +2144,17 @@ LrRebuffer::buildSyntheticParasitics(VertexId drvr_vertex_id,
   };
 
   walk(option, drvr_vertex_id);
+}
+
+void
+LrRebuffer::cleanupVirtualBuffer()
+{
+  if (!best_vinfo_.vertex_ids.empty()) {
+    removeVirtualBuffer(best_vinfo_);
+  }
+  best_vinfo_ = VirtualBufferInfo{};
+  best_bnet_ = nullptr;
+  best_cost_ = std::numeric_limits<float>::max();
 }
 
 void

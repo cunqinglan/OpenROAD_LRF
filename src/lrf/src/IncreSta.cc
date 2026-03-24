@@ -791,6 +791,7 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff,
       &swappable_cells_cache_, &inst_info_map_);
   visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+  visitor->setPruningControl(&pruning_control_);
   visitor->setMoveType(MoveType::Resizing);
   // visitor ownership is transferred to TaskArranger::visitOrdered.
   local_sta_->runResize(resizer, visitor);
@@ -803,6 +804,12 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
   double wns_after_resize = sta_->worstSlack(MinMax::max());
   printf("After parallel LR resize, TNS: %e, WNS: %e\n", tns_after_resize, wns_after_resize);
   printf("parallel resize time: %f s\n", diff_resize.count());
+
+  // --- Pruning: update iteration counter and detect K ---
+  pruning_control_.iteration++;
+  printf("Pruning: iteration %d, enabled=%d, K=%d\n",
+         pruning_control_.iteration, pruning_control_.enabled, pruning_control_.K);
+  fflush(stdout);
 
   if (isPowerOptimizationMode()) {
     ParallelLrVisitor *critical_path_visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
