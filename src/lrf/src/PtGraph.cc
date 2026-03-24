@@ -131,6 +131,12 @@ PtGraph::reset()
   // resize(1) preserves capacity so subsequent push_back reuses memory.
   pt_vertices_.resize(1);
   pt_edges_.resize(1);
+  // Reset sentinel edge/vertex links to avoid stale references.
+  pt_vertices_[0].out_edges_ = pt_edge_id_null;
+  pt_vertices_[0].in_edges_ = pt_edge_id_null;
+  pt_edges_[0].vertex_out_next_ = pt_edge_id_null;
+  pt_edges_[0].vertex_out_prev_ = pt_edge_id_null;
+  pt_edges_[0].vertex_in_link_ = pt_edge_id_null;
   sorted_vertex_ids_.clear();
   roots_.clear();
   vertex_map_.clear();
