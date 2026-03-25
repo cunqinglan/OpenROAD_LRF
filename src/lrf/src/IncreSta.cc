@@ -1086,6 +1086,166 @@ IncreSta::parallelResizeByArrayWithPrecheck(
          std::chrono::duration<double>(end_total - start_total).count());
 }
 
+std::vector<size_t>
+IncreSta::precedingResizeCheckV2(rsz::Resizer *resizer, float avg_delay,
+                                 float avg_power, float PT_tradeoff,
+                                 float top_ratio)
+{
+  printf("IncreSta::precedingResizeCheckV2 start\n");
+  auto start_total = std::chrono::high_resolution_clock::now();
+
+  // Ensure prerequisites
+  local_sta_->initParallel();
+  if (!equiv_cell_array_built_)
+    makeEquivCellArray();
+  if (!swap_cell_leakage_presaved_)
+    preSaveLibCellLeakage();
+
+  Slack wns = sta_->worstSlack(MinMax::max());
+  TaskArranger *task_arranger = local_sta_->taskArranger();
+
+  // Pre-allocate results with 1:1 mapping to TaskArranger vertices.
+  std::vector<ResizeBenefit> results(task_arranger->vertexCount());
+  for (size_t i = 0; i < results.size(); i++)
+    results[i] = {nullptr, -std::numeric_limits<float>::infinity(), i};
+
+  // Create ParallelVisitor with ResizePrecheckOperator
+  auto *visitor = new ParallelVisitor(sta_, local_sta_, resizer);
+
+  auto precheck_op = std::make_unique<ResizePrecheckOperator>(sta_, local_sta_);
+  precheck_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+  precheck_op->setInstInfoMap(&inst_info_map_);
+  visitor->setResizeOperator(std::move(precheck_op));
+
+  visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &inst_info_map_);
+  visitor->setPrecheckResults(&results);
+
+  // Run embarrassingly parallel precheck (no conflict graph)
+  task_arranger->visitAll(visitor);
+
+  // Sort by cost_change descending
+  std::sort(results.begin(), results.end(),
+            [](const ResizeBenefit &a, const ResizeBenefit &b) {
+              return a.cost_change > b.cost_change;
+            });
+
+  // Count positive before filtering (for logging)
+  size_t positive_count = 0;
+  for (const auto &r : results) {
+    if (r.cost_change > 0.0f)
+      positive_count++;
+  }
+  printf("PrecheckV2: %zu/%zu instances have positive benefit\n",
+         positive_count, results.size());
+
+  // Filter: keep top_ratio fraction, remove non-positive
+  size_t top_n = static_cast<size_t>(results.size() * top_ratio);
+  results.resize(top_n);
+  results.erase(
+    std::remove_if(results.begin(), results.end(),
+                   [](const ResizeBenefit &b) { return b.cost_change <= 0.0f; }),
+    results.end());
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_total = end_total - start_total;
+
+  // Extract vertex indices
+  std::vector<size_t> selected_ids;
+  selected_ids.reserve(results.size());
+
+  // Print top results (cap at 20 for display)
+  size_t print_n = std::min(results.size(), static_cast<size_t>(20));
+  printf("Selected %zu instances (top_ratio=%.2f), top %zu:\n",
+         results.size(), top_ratio, print_n);
+  for (size_t i = 0; i < results.size(); i++) {
+    selected_ids.push_back(results[i].vertex_idx);
+    if (i < print_n) {
+      printf("  [%zu] %s  cost_change=%.6f  vertex_idx=%zu\n", i,
+             network_->pathName(results[i].inst),
+             results[i].cost_change, results[i].vertex_idx);
+    }
+  }
+  printf("precedingResizeCheckV2 total time: %f s\n", diff_total.count());
+  fflush(stdout);
+
+  return selected_ids;
+}
+
+void
+IncreSta::parallelResizeByArrayWithPrecheckV2(
+    rsz::Resizer *resizer, float avg_delay, float avg_power,
+    float PT_tradeoff, float top_ratio)
+{
+  auto start_total = std::chrono::high_resolution_clock::now();
+
+  // Ensure swappable cells cache and leakage data are populated
+  if (!swap_cell_presaved_) {
+    makeSwappableCellsCache(resizer);
+  }
+  if (!swap_cell_leakage_presaved_) {
+    preSaveLibCellLeakage();
+  }
+
+  // Phase 1: Precheck — returns filtered top instances sorted by benefit
+  auto t_precheck_start = std::chrono::high_resolution_clock::now();
+  auto vertex_ids = precedingResizeCheckV2(resizer, avg_delay, avg_power,
+                                           PT_tradeoff, top_ratio);
+  auto t_precheck_end = std::chrono::high_resolution_clock::now();
+  double precheck_sec = std::chrono::duration<double>(t_precheck_end - t_precheck_start).count();
+
+  // Phase 2: Mark selected instances
+  TaskArranger *task_arranger = local_sta_->taskArranger();
+  task_arranger->markSelectedInstances(vertex_ids);
+
+  // Phase 3: Resize (only selected instances visited in runTask)
+  Slack wns = sta_->worstSlack(MinMax::max());
+  auto t_resize_start = std::chrono::high_resolution_clock::now();
+
+  auto *visitor = new ParallelVisitor(sta_, local_sta_, resizer);
+  auto resize_op = std::make_unique<ResizeOperator>(sta_, local_sta_);
+  resize_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+  visitor->setResizeOperator(std::move(resize_op));
+  visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &inst_info_map_);
+
+  local_sta_->runResize(resizer, visitor);
+  auto t_resize_end = std::chrono::high_resolution_clock::now();
+  double resize_sec = std::chrono::duration<double>(t_resize_end - t_resize_start).count();
+
+  sta_->updateTiming(true);
+  sta_->findRequireds();
+  double tns = sta_->totalNegativeSlack(MinMax::max());
+  double wns_after = sta_->worstSlack(MinMax::max());
+  printf("After V2 parallel LR resize with precheck, TNS: %e, WNS: %e\n", tns, wns_after);
+  printf("  precheck time: %.3f s, resize time: %.3f s, ratio: %.2f\n",
+         precheck_sec, resize_sec,
+         resize_sec > 0 ? precheck_sec / resize_sec : 0.0);
+
+  if (isPowerOptimizationMode()) {
+    ParallelVisitor *cp_visitor = new ParallelVisitor(sta_, local_sta_, resizer);
+    std::unique_ptr<ResizeOperator> cp_resize_op =
+        std::make_unique<ResizeOperator>(sta_, local_sta_);
+    cp_resize_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+    cp_visitor->setResizeOperator(std::move(cp_resize_op));
+    cp_visitor->init(avg_delay, avg_power, wns_after, PT_tradeoff, &inst_info_map_);
+    std::chrono::high_resolution_clock::time_point start_cps =
+        std::chrono::high_resolution_clock::now();
+    LrSizer lr_sizer(sta_, lr_helper_, cp_visitor);
+    lr_sizer.criticalPathSizing();
+    std::chrono::high_resolution_clock::time_point end_cps =
+        std::chrono::high_resolution_clock::now();
+    printf("After critical path sizing, TNS: %e, WNS: %e\n",
+           sta_->totalNegativeSlack(MinMax::max()),
+           (double)sta_->worstSlack(MinMax::max()));
+    printf("critical path sizing time: %f s\n",
+           std::chrono::duration<double>(end_cps - start_cps).count());
+    delete cp_visitor;
+  }
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  printf("parallelResizeByArrayWithPrecheckV2 total time %.3f s\n",
+         std::chrono::duration<double>(end_total - start_total).count());
+}
+
 // Screen buffering candidates: collect gates with negative late slack,
 // sort by Cout/Cin ratio descending, return top_n vertex indices.
 std::vector<size_t>

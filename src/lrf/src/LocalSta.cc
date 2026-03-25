@@ -1954,7 +1954,7 @@ LocalSta::legalCheckBeforeSwap(sta::Instance *inst,
 }
 
 bool
-LocalSta::legalCheckAfterSwap(sta::Instance *inst, 
+LocalSta::legalCheckAfterSwap(sta::Instance *inst,
                               sta::LibertyCell *to_lib_cell,
                               const sta::Corner *corner,
                               const sta::MinMax *min_max,
@@ -1976,6 +1976,38 @@ LocalSta::legalCheckAfterSwap(sta::Instance *inst,
       if (pin_slew > slew_limit) {
         delete pin_iter;
         return false;
+      }
+      // Check fanout load pin slew limits.
+      // The ref cell's output slew propagates through wire to fanout loads;
+      // each load cell may have a different (stricter) input slew limit.
+      sta::Vertex *drvr_vertex = graph_->pinDrvrVertex(pin);
+      if (drvr_vertex) {
+        sta::VertexOutEdgeIterator out_iter(drvr_vertex, graph_);
+        while (out_iter.hasNext()) {
+          sta::Edge *edge = out_iter.next();
+          if (!edge->isWire())
+            continue;
+          sta::Vertex *load_vertex = edge->to(graph_);
+          sta::Pin *load_pin = load_vertex->pin();
+          sta::LibertyPort *load_port = network_->libertyPort(load_pin);
+          if (!load_port)
+            continue;
+          // Get load cell's input slew limit
+          float load_slew_limit;
+          bool exists;
+          load_port->slewLimit(sta::MinMax::max(), load_slew_limit, exists);
+          if (!exists) {
+            load_port->libertyLibrary()->defaultMaxSlew(load_slew_limit, exists);
+            if (!exists)
+              continue;  // no limit defined
+          }
+          // Get slew at load pin from PtGraph
+          float load_slew = getPinSlew(load_pin, corner, min_max, pt_graph);
+          if (load_slew > load_slew_limit) {
+            delete pin_iter;
+            return false;
+          }
+        }
       }
     }
     // Check input load legality.

@@ -106,6 +106,16 @@ public:
                                          float avg_power, float PT_tradeoff,
                                          float top_ratio = 0.3);
 
+  // V2 (new framework) precheck: uses ParallelVisitor + ResizePrecheckOperator.
+  std::vector<size_t> precedingResizeCheckV2(
+      rsz::Resizer *resizer, float avg_delay, float avg_power,
+      float PT_tradeoff, float top_ratio = 0.3);
+
+  // V2 resize with precheck: precedingResizeCheckV2 + parallelResizeByArrayV2.
+  void parallelResizeByArrayWithPrecheckV2(rsz::Resizer *resizer, float avg_delay,
+                                           float avg_power, float PT_tradeoff,
+                                           float top_ratio = 0.3);
+
   // APIs for power optimization
   void ensureActivities();  // Access power of one of the instances will trigger global activity calculation
   void makeSwappableCellsCache(rsz::Resizer *resizer);

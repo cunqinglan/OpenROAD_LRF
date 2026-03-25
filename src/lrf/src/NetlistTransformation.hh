@@ -195,6 +195,7 @@ public:
             std::unordered_map<sta::Instance*, LocalCellInfo*> *inst_info_map);
 
   virtual bool visit(sta::Instance *inst, sta::VertexId vid);
+  bool singleGateSizing(sta::Instance *inst);
   void visitSlewOnly(sta::Instance *inst);
   virtual void applyChangesToDb(rsz::Resizer *resizer);
   virtual ParallelVisitor *copy() const;
@@ -205,6 +206,12 @@ public:
   void setCombinedOperator(std::unique_ptr<CombinedOperator> op);
 
   void setTaskArranger(TaskArranger *ta) { task_arranger_ = ta; }
+
+  // Precheck mode: when set, visit() stores cost in results vector
+  // indexed by vertex ID instead of applying changes to DB.
+  void setPrecheckResults(std::vector<ResizeBenefit> *results) {
+    precheck_results_ = results;
+  }
 
   // Context configuration
   void setAverageDelay(float v) { eval_ctx_.average_delay = v; }
@@ -238,6 +245,7 @@ protected:
   std::unique_ptr<ResizeOperator> resize_op_;
   std::unique_ptr<BufferOperator> buffer_op_;
   std::unique_ptr<CombinedOperator> combined_op_;
+  std::vector<ResizeBenefit> *precheck_results_ = nullptr;
 
   std::map<std::string, double> runtime_map_ = {
     {"visit", 0.0},

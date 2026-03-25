@@ -52,6 +52,7 @@ ParallelLrVisitor::ParallelLrVisitor(sta::dbSta *db_sta, LocalSta *local_sta,
 
 ParallelLrVisitor::~ParallelLrVisitor()
 {
+  delete pt_graph_;
   delete arc_delay_calc_;
   delete rebuffer_;
 }
@@ -78,7 +79,7 @@ ParallelLrVisitor::checkVisitorStatus() const
 float
 ParallelLrVisitor::swapCost(float delay_lm_sum, float power)
 {
-  float swap_cost = 100 * delay_lm_sum / average_delay_ 
+  float swap_cost = PT_tradeoff_ * delay_lm_sum / average_delay_
                     + power / average_leakage_;
   return swap_cost;
 }
@@ -125,7 +126,9 @@ ParallelLrVisitor::trySwap(sta::Instance *inst)
     //      legal_equiv_cells.size());
     // fflush(stdout);
     auto start_pt_graph_construction = std::chrono::high_resolution_clock::now();
-    pt_graph_ = local_sta_->makePtGraph(inst, false);
+    delete pt_graph_;
+  pt_graph_ = new PtGraph(db_sta_);
+  local_sta_->makePtGraph(pt_graph_, inst);
     pt_graph_->pruneInsignificantSiblings();
     auto end_pt_graph_construction = std::chrono::high_resolution_clock::now();
     runtime_map_["pt_graph_construction"] += std::chrono::duration<double>(end_pt_graph_construction - start_pt_graph_construction).count();
@@ -250,7 +253,9 @@ ParallelLrVisitor::trySwapByArray(sta::Instance *inst, int col_padding, int row_
 
   // Build PtGraph
   auto start_pt = std::chrono::high_resolution_clock::now();
-  pt_graph_ = local_sta_->makePtGraph(inst, false);
+  delete pt_graph_;
+  pt_graph_ = new PtGraph(db_sta_);
+  local_sta_->makePtGraph(pt_graph_, inst);
   pt_graph_->pruneInsignificantSiblings();
   auto end_pt = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
@@ -410,7 +415,9 @@ ParallelLrVisitor::trySwapByArrayPruned(sta::Instance *inst, int col_padding, in
 
   // --- Build PtGraph ---
   auto start_pt = std::chrono::high_resolution_clock::now();
-  pt_graph_ = local_sta_->makePtGraph(inst, false);
+  delete pt_graph_;
+  pt_graph_ = new PtGraph(db_sta_);
+  local_sta_->makePtGraph(pt_graph_, inst);
   pt_graph_->pruneInsignificantSiblings();
   auto end_pt = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
@@ -575,7 +582,8 @@ ParallelLrVisitor::trySwapPrecheck(sta::Instance *inst, int col_padding, int row
 
   // Build PtGraph
   auto t_pt_start = std::chrono::high_resolution_clock::now();
-  PtGraph *pt_graph = local_sta_->makePtGraph(inst, false);
+  PtGraph *pt_graph = new PtGraph(db_sta_);
+  local_sta_->makePtGraph(pt_graph, inst);
   pt_graph->pruneInsignificantSiblings();
   auto t_pt_end = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
@@ -641,7 +649,7 @@ ParallelLrVisitor::trySwapPrecheck(sta::Instance *inst, int col_padding, int row
 
   // Derive best cost from cached results — no second STA pass needed.
   if (ori_cost == std::numeric_limits<float>::max()) {
-    // pt_graph is owned by local_sta_->local_graphs_, do NOT delete here
+    delete pt_graph;
     return 0.0f;
   }
 
@@ -666,7 +674,7 @@ ParallelLrVisitor::trySwapPrecheck(sta::Instance *inst, int col_padding, int row
   runtime_map_["precheck"] +=
       std::chrono::duration<double>(t_end - t_start).count();
 
-  // pt_graph is owned by local_sta_->local_graphs_, do NOT delete here
+  delete pt_graph;
   return ori_cost - best_cost;  // positive = beneficial
 }
 
@@ -826,7 +834,9 @@ ParallelLrVisitor::trySwapV1(sta::Instance *inst)
     //      legal_equiv_cells.size());
     // fflush(stdout);
 
-    pt_graph_ = local_sta_->makePtGraph(inst, false);
+    delete pt_graph_;
+  pt_graph_ = new PtGraph(db_sta_);
+  local_sta_->makePtGraph(pt_graph_, inst);
     pt_graph_->pruneInsignificantSiblings();
 
     best_cell_ = ori_cell;
@@ -937,7 +947,9 @@ ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
 void
 ParallelLrVisitor::visitSlewOnly(sta::Instance *inst)
 {
-  pt_graph_ = local_sta_->makePtGraph(inst, false);
+  delete pt_graph_;
+  pt_graph_ = new PtGraph(db_sta_);
+  local_sta_->makePtGraph(pt_graph_, inst);
   local_sta_->findLocalDelays(pt_graph_, arc_delay_calc_);
   local_sta_->findLocalArrivals(pt_graph_);
   local_sta_->findLocalRequireds(pt_graph_);
@@ -988,7 +1000,9 @@ ParallelLrVisitor::visit(sta::Instance *inst,
          legal_equiv_cells.size());
     fflush(stdout);
 
-    pt_graph_ = local_sta_->makePtGraph(inst, false);
+    delete pt_graph_;
+  pt_graph_ = new PtGraph(db_sta_);
+  local_sta_->makePtGraph(pt_graph_, inst);
     pt_graph_->pruneInsignificantSiblings();
     // Compute Original delays
     DelayLmSumResult original_result = local_sta_->
@@ -1328,7 +1342,9 @@ ParallelLrVisitor::tryBuffering(sta::Instance *inst)
   // 3. If cost improved, keep the buffer insertion
   // 4. Submmit the buffer insertion
   visited_instances_.push_back(db_sta_->network()->pathName(inst));
-  pt_graph_ = local_sta_->makePtGraph(inst, false);
+  delete pt_graph_;
+  pt_graph_ = new PtGraph(db_sta_);
+  local_sta_->makePtGraph(pt_graph_, inst);
   if (rebuffer_ == nullptr) {
     throw std::runtime_error(
         "ParallelLrVisitor::tryBuffering: rebuffer_ is null; "
@@ -1414,7 +1430,9 @@ BufferSensitivityVisitor::BufferSensitivityVisitor(
 bool
 BufferSensitivityVisitor::visit(sta::Instance *inst, sta::VertexId vid)
 {
-  pt_graph_ = local_sta_->makePtGraph(inst, false);
+  delete pt_graph_;
+  pt_graph_ = new PtGraph(db_sta_);
+  local_sta_->makePtGraph(pt_graph_, inst);
   if (rebuffer_ == nullptr) {
     throw std::runtime_error(
         "BufferSensitivityVisitor::visit: rebuffer_ is null; "
@@ -1533,7 +1551,9 @@ CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_paddi
 
   // ---- Build PtGraph (shared for resize + buffering) ----
   auto start_pt = std::chrono::high_resolution_clock::now();
-  pt_graph_ = local_sta_->makePtGraph(inst, false);
+  delete pt_graph_;
+  pt_graph_ = new PtGraph(db_sta_);
+  local_sta_->makePtGraph(pt_graph_, inst);
   pt_graph_->pruneInsignificantSiblings();
   auto end_pt = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
@@ -1639,7 +1659,9 @@ CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_paddi
 
       // Rebuild PtGraph for each buffering candidate to avoid stale
       // STA edge/vertex pointers after virtualReplaceCell.
-      pt_graph_ = local_sta_->makePtGraph(inst, false);
+      delete pt_graph_;
+  pt_graph_ = new PtGraph(db_sta_);
+  local_sta_->makePtGraph(pt_graph_, inst);
       pt_graph_->pruneInsignificantSiblings();
       local_sta_->increAndGetLocalTimingCost(
           pt_graph_, arc_delay_calc_, top2[k].cell);

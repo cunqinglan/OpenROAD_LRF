@@ -125,7 +125,7 @@ protected:
   sta::Instance *ref_inst_;
   LocalSta *local_sta_;
   rsz::Resizer *resizer_;
-  PtGraph *pt_graph_;
+  PtGraph *pt_graph_ = nullptr;
   sta::ArcDelayCalc *arc_delay_calc_;
   sta::Slack slack_before_swap_;
   std::vector<std::string> visited_instances_;
