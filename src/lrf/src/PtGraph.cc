@@ -618,6 +618,38 @@ PtGraph::updateTimingArcSets()
   }
 }
 
+sta::LibertyCell *
+PtVertex::libertyCell() const
+{
+  if (liberty_cell_)
+    return liberty_cell_;
+  if (liberty_port_)
+    return liberty_port_->libertyCell();
+  return nullptr;
+}
+
+void
+PtGraph::updateRefPorts()
+{
+  if (!ref_lib_cell_)
+    return;
+  for (PtVertex &ptv : pt_vertices_) {
+    if (ptv.type() != PtVertexType::RefInput
+        && ptv.type() != PtVertexType::RefOutput)
+      continue;
+    sta::LibertyPort *old_port = ptv.libertyPort();
+    if (!old_port) {
+      printf("ERROR: PtGraph::updateRefPorts: PtVertex %u has no liberty port\n",
+             ptv.objectIdx());
+      fflush(stdout);
+      continue;
+    }
+    sta::LibertyPort *new_port = ref_lib_cell_->findLibertyPort(old_port->name());
+    if (new_port)
+      ptv.setLibertyPort(new_port);
+  }
+}
+
 sta::TagGroup *
 PtGraph::tagGroup(const PtVertex &pt_vertex)
 {
@@ -1152,7 +1184,12 @@ PtGraph::annotateVerticesType()
         fflush(stdout);
         continue;
       }
-      ptVertex(it->second).setType(PtVertexType::RefInput);
+      PtVertex &ref_in = ptVertex(it->second);
+      ref_in.setType(PtVertexType::RefInput);
+      if (!ref_in.libertyPort()) {
+        sta::LibertyPort *lp = sta_->network()->libertyPort(pin);
+        ref_in.setLibertyPort(lp);
+      }
 
       PtVertexInEdgeIterator in_edge_iter(it->second, this);
       while (in_edge_iter.hasNext()) {
@@ -1171,7 +1208,12 @@ PtGraph::annotateVerticesType()
         fflush(stdout);
         continue;
       }
-      ptVertex(it->second).setType(PtVertexType::RefOutput);
+      PtVertex &ref_out = ptVertex(it->second);
+      ref_out.setType(PtVertexType::RefOutput);
+      if (!ref_out.libertyPort()) {
+        sta::LibertyPort *lp = sta_->network()->libertyPort(pin);
+        ref_out.setLibertyPort(lp);
+      }
     }
   }
   delete pin_iter;

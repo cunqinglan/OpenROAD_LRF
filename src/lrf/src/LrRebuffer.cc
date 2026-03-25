@@ -7,7 +7,6 @@
 #include <chrono>
 #include "PtPiElmore.hh"
 #include "rsz/Resizer.hh"
-#include "est/EstimateParasitics.h"
 #include "LocalSta.hh"
 #include "LocalReduceParasitic.hh"
 #include "ParallelVisitor.hh"
@@ -368,7 +367,7 @@ LrRebuffer::applyBufferingToDb()
   odb::dbNet* const db_net = db_network_->flatNet(drvr_pin_);
   int count = exportBufferTree(best_bnet_, db_network_->dbToSta(db_net), 1, nullptr, "rebuffer");
   if (count > 0) {
-    syncNewBufferParasitics(best_bnet_);
+    persistBufferParasitics();
     writeLmsToGraph();
     writeTimingToGraph();
   }
@@ -381,39 +380,51 @@ LrRebuffer::applyBufferingToDb()
 }
 
 void
-LrRebuffer::syncNewBufferParasitics(const BufferedNetPtr& tree)
+LrRebuffer::persistBufferParasitics()
 {
-  if (!tree) return;
+  if (!best_bnet_ || !drvr_pin_)
+    return;
+
+  // Helper: estimate network and sync to local parasitic network map.
+  // PiElmore reduction is done lazily when parasitics are queried.
+  auto persistNet = [&](const sta::Net *net) {
+    if (!net) return;
+    estimate_parasitics_->estimateWireParasiticNoDeleteNetwork(net);
+    local_sta_->syncParasiticNetworkFromGlobal(net);
+  };
+
+  // Persist parasitics for each buffer's output net.
   using BnetType = rsz::BufferedNetType;
-  switch (tree->type()) {
-    case BnetType::buffer: {
-      sta::Instance *buf_inst = tree->bufInst();
-      if (buf_inst) {
-        sta::LibertyPort *in_port, *out_port;
-        tree->bufferCell()->bufferPorts(in_port, out_port);
-        const sta::Pin *out_pin = network_->findPin(buf_inst, out_port);
-        if (out_pin) {
-          const sta::Net *net = network_->net(out_pin);
-          if (net) {
-            estimate_parasitics_->estimateWireParasiticNoDeleteNetwork(net);
-            local_sta_->syncParasiticNetworkFromGlobal(net);
-          }
+  std::function<void(const BufferedNetPtr&)> walkTree;
+  walkTree = [&](const BufferedNetPtr& node) {
+    if (!node) return;
+    switch (node->type()) {
+      case BnetType::buffer: {
+        sta::Instance *buf_inst = node->bufInst();
+        if (buf_inst) {
+          sta::LibertyPort *in_port, *out_port;
+          node->bufferCell()->bufferPorts(in_port, out_port);
+          const sta::Pin *out_pin = network_->findPin(buf_inst, out_port);
+          if (out_pin)
+            persistNet(network_->net(out_pin));
         }
+        walkTree(node->ref());
+        break;
       }
-      syncNewBufferParasitics(tree->ref());
-      break;
+      case BnetType::junction:
+        walkTree(node->ref());
+        walkTree(node->ref2());
+        break;
+      case BnetType::wire: case BnetType::via:
+        walkTree(node->ref());
+        break;
+      default: break;
     }
-    case BnetType::junction:
-      syncNewBufferParasitics(tree->ref());
-      syncNewBufferParasitics(tree->ref2());
-      break;
-    case BnetType::wire:
-    case BnetType::via:
-      syncNewBufferParasitics(tree->ref());
-      break;
-    default:
-      break;
-  }
+  };
+  walkTree(best_bnet_);
+
+  // Also rebuild original driver's net (topology changed by buffer insertion).
+  persistNet(network_->net(drvr_pin_));
 }
 
 void
@@ -2109,7 +2120,14 @@ LrRebuffer::buildSyntheticParasitics(VertexId drvr_vertex_id,
 
         for (const auto &load : loads) {
           auto it = node_elmore.find(load.node_id);
-          float elmore = (it != node_elmore.end()) ? it->second : 0.0f;
+          float elmore = 0.0f;
+          if (it != node_elmore.end()) {
+            elmore = it->second;
+          } else {
+            printf("Warning: buildSyntheticParasitics: Elmore DFS did not reach "
+                   "load node %u for drvr vertex %u, defaulting to 0\n",
+                   load.node_id, (unsigned)current_drvr_id);
+          }
           pt_pi.addLoad(load.vertex_id, load.pin, elmore);
         }
         delete syn_net;
