@@ -93,10 +93,9 @@ protected:
   // After exportBufferTree physically inserts buffers, write the LMs from
   // the BnetPtr tree back onto the corresponding real graph wire edges.
   void writeLmsToGraph();
-  // After physical buffer insertion, estimate parasitic for each new buffer's
-  // output net and sync into local_parasitic_network_map_ so that subsequent
-  // PtGraphs can build PtPiElmore via recomputePtParasitics.
-  void syncNewBufferParasitics(const rsz::BufferedNetPtr& tree);
+  // After physical buffer insertion, rebuild parasitic networks for new buffer
+  // nets via est and reduce to PiElmore in local parasitic maps.
+  void persistBufferParasitics();
   // Write timing (slew, arrival, required, arc delay) from PtGraph virtual
   // buffer vertices/edges to the corresponding real graph vertices/edges.
   void writeTimingToGraph();
