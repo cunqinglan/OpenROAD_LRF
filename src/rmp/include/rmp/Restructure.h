@@ -109,7 +109,8 @@ class Restructure
                            float percentage = -1.0f,
                            float max_percentage = -1.0f,
                            float slack_threshold = std::numeric_limits<float>::max(),
-                           bool run_detailed_placement = false);
+                           bool run_detailed_placement = false,
+                           bool verbose = false);
 
  private:
   void deleteComponents();

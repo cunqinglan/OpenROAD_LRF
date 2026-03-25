@@ -39,7 +39,8 @@ class PositionDrivenStrategy : public ExtractLocalWindow
              float percentage = -1.0f,
              float max_percentage = -1.0f,
              float slack_threshold = std::numeric_limits<float>::max(),
-             bool run_detailed_placement = false);
+             bool run_detailed_placement = false,
+             bool verbose = false);
 
   sta::Slack evaluateSolution(abc::Map_MappingSolution_t* pSolution,
                               abc::Map_Man_t* pMan,
@@ -80,6 +81,7 @@ class PositionDrivenStrategy : public ExtractLocalWindow
 
   cut::LogicCut candidate_cut_;
   cut::LogicCut worst_cut_;
+  bool verbose_ = false;
 };
 
 }  // namespace rmp

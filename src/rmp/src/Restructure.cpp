@@ -786,7 +786,8 @@ void Restructure::positionDrivenRemap(sta::Corner* corner,
                                       float percentage,
                                       float max_percentage,
                                       float slack_threshold,
-                                      bool run_detailed_placement)
+                                      bool run_detailed_placement,
+                                      bool verbose)
 {
   time_t start_time, end_time;
   time(&start_time);
@@ -803,7 +804,7 @@ void Restructure::positionDrivenRemap(sta::Corner* corner,
   // Create and run the position-driven strategy
   PositionDrivenStrategy strategy(logger_);
   strategy.remap(remapper, percentage, max_percentage, slack_threshold,
-                 run_detailed_placement);
+                 run_detailed_placement, verbose);
   time(&end_time);
   double elapsed_time = difftime(end_time, start_time);
   logger_->report("Position-driven remap completed in {:.2f} seconds.", elapsed_time);
