@@ -181,7 +181,10 @@ sta::Vertex* PositionDrivenStrategy::getFarthestOutputVertex(
 //   percentage >= 0  : take top N% (min 1)
 //   max_percentage >= 0 && slack_threshold < FLT_MAX/2 : filter by threshold, cap at N%
 //   otherwise        : return just the single worst endpoint
-static std::vector<sta::Vertex*> selectCandidateEndpoints(
+// Returns endpoint pins (not vertices) sorted worst-slack-first.
+// Pins live in the network, not the timing graph, so they remain valid
+// after Sta::networkChanged() deletes and rebuilds the graph.
+static std::vector<sta::Pin*> selectCandidateEndpoints(
     sta::dbSta* sta,
     rsz::Resizer* resizer,
     float percentage,
@@ -189,7 +192,7 @@ static std::vector<sta::Vertex*> selectCandidateEndpoints(
     float slack_threshold)
 {
   sta::dbNetwork* network = sta->getDbNetwork();
-  std::vector<sta::Vertex*> all_endpoints;
+  std::vector<sta::Pin*> all_pins;
   for (sta::Vertex* vertex : *sta->endpoints()) {
     sta::Pin* pin = vertex->pin();
     const sta::PortDirection* direction = network->direction(pin);
@@ -206,24 +209,27 @@ static std::vector<sta::Vertex*> selectCandidateEndpoints(
         continue;
       }
     }
-    all_endpoints.push_back(vertex);
+    all_pins.push_back(pin);
   }
 
-  if (all_endpoints.empty()) {
+  if (all_pins.empty()) {
     return {};
   }
 
-  // Precompute slack once per vertex to avoid repeated STA queries during sort.
-  using VertexSlackPair = std::pair<sta::Vertex*, sta::Slack>;
-  std::vector<VertexSlackPair> endpoint_slacks;
-  endpoint_slacks.reserve(all_endpoints.size());
-  for (sta::Vertex* v : all_endpoints) {
-    endpoint_slacks.emplace_back(v, sta->vertexSlack(v, sta::MinMax::max()));
+  // Precompute slack once per pin to avoid repeated STA queries during sort.
+  using PinSlackPair = std::pair<sta::Pin*, sta::Slack>;
+  std::vector<PinSlackPair> endpoint_slacks;
+  endpoint_slacks.reserve(all_pins.size());
+  for (sta::Pin* p : all_pins) {
+    sta::Vertex* v = sta->graph()->pinLoadVertex(p);
+    sta::Slack slack = v ? sta->vertexSlack(v, sta::MinMax::max())
+                         : std::numeric_limits<sta::Slack>::infinity();
+    endpoint_slacks.emplace_back(p, slack);
   }
 
   // Sort ascending by slack (most negative = worst first).
   std::sort(endpoint_slacks.begin(), endpoint_slacks.end(),
-    [](const VertexSlackPair& a, const VertexSlackPair& b) {
+    [](const PinSlackPair& a, const PinSlackPair& b) {
       return a.second < b.second;
     });
 
@@ -236,7 +242,7 @@ static std::vector<sta::Vertex*> selectCandidateEndpoints(
         std::ceil(static_cast<float>(endpoint_slacks.size()) * percentage / 100.0f));
     n = std::max(n, size_t(1));
     n = std::min(n, endpoint_slacks.size());
-    std::vector<sta::Vertex*> result;
+    std::vector<sta::Pin*> result;
     result.reserve(n);
     for (size_t i = 0; i < n; ++i) {
       result.push_back(endpoint_slacks[i].first);
@@ -249,13 +255,13 @@ static std::vector<sta::Vertex*> selectCandidateEndpoints(
     // capped at max_percentage of the total endpoint count.
     size_t max_n = static_cast<size_t>(
         std::floor(static_cast<float>(endpoint_slacks.size()) * max_percentage / 100.0f));
-    std::vector<sta::Vertex*> result;
-    for (const auto& [v, slack] : endpoint_slacks) {
+    std::vector<sta::Pin*> result;
+    for (const auto& [p, slack] : endpoint_slacks) {
       if (result.size() >= max_n) {
         break;
       }
       if (slack < slack_threshold) {
-        result.push_back(v);
+        result.push_back(p);
       } else {
         break;  // sorted: no further endpoint will be below threshold
       }
@@ -285,11 +291,16 @@ std::vector<sta::Vertex*> PositionDrivenStrategy::getWorstVertices(
   sta->search()->endpointsInvalid();
 
   cut::LogicExtractorFactory logic_extractor(sta, remapper.getLogger());
-  auto candidate_vertices = selectCandidateEndpoints(
+  auto candidate_pins = selectCandidateEndpoints(
       sta, remapper.getResizer(), percentage, max_percentage, slack_threshold);
 
-  for (sta::Vertex* negative_endpoint : candidate_vertices) {
-    logic_extractor.AppendEndpoint(negative_endpoint);
+  for (sta::Pin* endpoint_pin : candidate_pins) {
+    sta::Vertex* v = nullptr;
+    sta::Vertex* bidir_v = nullptr;
+    graph->pinVertices(endpoint_pin, v, bidir_v);
+    if (v) {
+      logic_extractor.AppendEndpoint(v);
+    }
   }
   abc_library_ = remapper.getAbcLibrary();
   cut::LogicCut bad_cut = logic_extractor.BuildLogicCut(*abc_library_);
@@ -1156,12 +1167,12 @@ bool PositionDrivenStrategy::remapOneCut(
         remapper.getNameGenerator(),
         logger_);
 
-    evaluateSolution(
-        pSolutionBest,
-        map_man,
-        logic_network.get(),
-        candidate_cut,
-        remapper);
+    // Place the newly inserted cells near the cut centroid.
+    // Skip evaluateSolution() in the parent — STA graph operations
+    // (networkChanged/updateTiming/repairSetup) are fragile and can crash.
+    // The children already evaluated solutions safely via fork(); the parent
+    // only needs the netlist and placement changes.
+    remapper.performIncreDpl(candidate_cut, remapper.getDpl());
 
     logger_->info(utl::RES, 364, "Best solution permanently applied.");
     applied = true;
@@ -1181,35 +1192,70 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
   sta::dbSta* sta = remapper.getSta();
   sta::dbNetwork* network = sta->getDbNetwork();
 
+  logger_->info(utl::RES, 408, "[remap] enter");
+
   // Invalidate timing so selectCandidateEndpoints sees fresh slacks.
   sta->graphDelayCalc()->delaysInvalid();
   sta->search()->arrivalsInvalid();
   sta->search()->endpointsInvalid();
 
+  logger_->info(utl::RES, 409, "[remap] after invalidation, before selectCandidateEndpoints");
+
   // Get all candidate endpoints sorted by slack (worst first).
-  auto candidate_endpoints = selectCandidateEndpoints(
+  // Store pins (not vertices): Sta::networkChanged() deletes and rebuilds the
+  // timing graph on each successful remap, invalidating all Vertex* pointers.
+  // Pins live in the network and survive graph rebuilds.
+  auto candidate_pins = selectCandidateEndpoints(
       sta, remapper.getResizer(), percentage, max_percentage, slack_threshold);
 
-  if (candidate_endpoints.empty()) {
+  logger_->info(utl::RES, 410, "[remap] after selectCandidateEndpoints, got {} pins",
+                candidate_pins.size());
+
+  if (candidate_pins.empty()) {
     logger_->warn(utl::RES, 334, "No candidate endpoints found.");
     return;
   }
 
   logger_->info(utl::RES, 400,
                 "Found {} candidate endpoints to process iteratively.",
-                candidate_endpoints.size());
+                candidate_pins.size());
 
   int remapped_count = 0;
 
-  for (size_t ep_idx = 0; ep_idx < candidate_endpoints.size(); ++ep_idx) {
-    sta::Vertex* endpoint = candidate_endpoints[ep_idx];
+  for (size_t ep_idx = 0; ep_idx < candidate_pins.size(); ++ep_idx) {
+    sta::Pin* endpoint_pin = candidate_pins[ep_idx];
+
+    logger_->info(utl::RES, 411, "[remap] iter {}: before graph lookup", ep_idx);
+
+    // Look up a fresh vertex each iteration.  evaluateSolution() calls
+    // sta->networkChanged() which deletes graph_ and rebuilds it via
+    // updateTiming(), so any Vertex* held across iterations would be dangling.
+    sta::Graph* iter_graph = sta->ensureGraph();
+    if (iter_graph == nullptr) {
+      logger_->warn(utl::RES, 412,
+                    "Iteration {}: graph is null after ensureGraph, skipping.",
+                    ep_idx + 1);
+      continue;
+    }
+    sta::Vertex* endpoint = nullptr;
+    sta::Vertex* bidir_ep = nullptr;
+    iter_graph->pinVertices(endpoint_pin, endpoint, bidir_ep);
+    if (endpoint == nullptr) {
+      logger_->warn(utl::RES, 407,
+                    "Iteration {}: endpoint pin has no vertex, skipping.",
+                    ep_idx + 1);
+      continue;
+    }
+
+    logger_->info(utl::RES, 413, "[remap] iter {}: before vertexSlack", ep_idx);
     const Slack ep_slack = sta->vertexSlack(endpoint, sta::MinMax::max());
 
     logger_->info(utl::RES, 401,
                   "=== Iteration {}/{}: endpoint {} (slack={:.4e}) ===",
-                  ep_idx + 1, candidate_endpoints.size(),
+                  ep_idx + 1, candidate_pins.size(),
                   endpoint->name(network), ep_slack);
 
+    logger_->info(utl::RES, 414, "[remap] iter {}: before getWorstVerticesForEndpoint", ep_idx);
     // Get worst vertices along this endpoint's critical path.
     std::vector<sta::Vertex*> worst_vertices =
         getWorstVerticesForEndpoint(remapper, endpoint);
@@ -1221,21 +1267,25 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
       continue;
     }
 
+    logger_->info(utl::RES, 415, "[remap] iter {}: before remapOneCut ({} vertices)", ep_idx, worst_vertices.size());
     bool applied = remapOneCut(remapper, worst_vertices);
+    logger_->info(utl::RES, 416, "[remap] iter {}: after remapOneCut, applied={}", ep_idx, applied);
 
     if (applied) {
       remapped_count++;
 
-      // Invalidate timing for next iteration so paths reflect the changes.
-      sta->graphDelayCalc()->delaysInvalid();
-      sta->search()->arrivalsInvalid();
-      sta->search()->endpointsInvalid();
+      // The netlist was modified by InsertAbcMapSolution but the STA graph
+      // is now stale.  Delete it so the next iteration (or post-loop code)
+      // will get a fresh graph via ensureGraph().  We intentionally do NOT
+      // call updateTiming() here — all heavy STA work stays in fork()ed
+      // children to avoid crashes from graph rebuild / deep recursion.
+      sta->networkChanged();
     }
   }
 
   logger_->info(utl::RES, 403,
-                "Iterative remap complete: {}/{} endpoints successfully remapped.",
-                remapped_count, candidate_endpoints.size());
+                "Iterative remap complete: {}/{} pins successfully remapped.",
+                remapped_count, candidate_pins.size());
 
   // Optionally run full detailed placement to resolve any overlaps from
   // iterative cell insertions, then improve wirelength with local optimizations.
@@ -1244,24 +1294,25 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
     if (dpl) {
       logger_->info(utl::RES, 404,
                     "Running detailed placement to resolve overlaps...");
-      // Passing 0 for max_displacement uses tool defaults (500 sites x,
-      // 100 sites y) per the Opendp API, allowing cells to move enough
-      // to resolve any overlaps introduced by cell insertion/remapping.
       dpl->detailedPlacement(/*max_displacement_x=*/0,
                              /*max_displacement_y=*/0);
       logger_->info(utl::RES, 405,
                     "Running placement improvement for wirelength optimization...");
-      // Passing 0 for max_displacement uses tool defaults (unlimited within
-      // the grid bounds) per the Opendp API.
       dpl->improvePlacement(/*seed=*/42,
                             /*max_displacement_x=*/0,
                             /*max_displacement_y=*/0);
-
-      // Recompute timing after placement changes.
-      sta->graphDelayCalc()->delaysInvalid();
-      sta->search()->arrivalsInvalid();
-      sta->search()->endpointsInvalid();
     }
+  }
+
+  // Rebuild the STA graph and timing ONCE at the very end, after all
+  // netlist and placement changes are complete.  All heavy STA work during
+  // the loop was done in fork()ed children; only this final rebuild runs
+  // in the parent.
+  if (remapped_count > 0) {
+    logger_->info(utl::RES, 417, "[remap] rebuilding STA graph after {} remaps", remapped_count);
+    sta->networkChanged();
+    sta->updateTiming(false);
+    logger_->info(utl::RES, 418, "[remap] STA rebuild complete");
   }
 }
 
@@ -1478,7 +1529,7 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
   for (sta::Net* output_net : candidate_cut.primary_outputs()) {
     sta::NetPinIterator* pin_iter = network->pinIterator(output_net);
     while (pin_iter->hasNext()) {
-      sta::Pin* pin = pin_iter->next();
+      const sta::Pin* pin = pin_iter->next();
       if (network->direction(pin)->isAnyOutput()) {
         cut_output_pins.push_back(pin);
         break;
@@ -1502,9 +1553,11 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
   sta::Vertex* worst_vertex = nullptr;
   int endpoint_count = fanout_endpoints.size();
 
-  sta::Graph* graph = sta->graph();
+  sta::Graph* graph = sta->ensureGraph();
   for (const sta::Pin* pin : fanout_endpoints) {
-    sta::Vertex* vertex = graph->pinDrvrVertex(pin);
+    sta::Vertex* vertex = nullptr;
+    sta::Vertex* bidir = nullptr;
+    graph->pinVertices(pin, vertex, bidir);
     if (!vertex)
       continue;
     sta::Slack slack = sta->vertexSlack(vertex, sta::MinMax::max());
@@ -1525,9 +1578,12 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
     // Recompute timing after size-up
     sta->networkChanged();
     sta->updateTiming(false);
+    graph = sta->ensureGraph();
     worst_slack = std::numeric_limits<sta::Slack>::infinity();
     for (const sta::Pin* pin : fanout_endpoints) {
-      sta::Vertex* vertex = graph->pinDrvrVertex(pin);
+      sta::Vertex* vertex = nullptr;
+      sta::Vertex* bidir2 = nullptr;
+      graph->pinVertices(pin, vertex, bidir2);
       if (!vertex)
         continue;
       sta::Slack slack = sta->vertexSlack(vertex, sta::MinMax::max());

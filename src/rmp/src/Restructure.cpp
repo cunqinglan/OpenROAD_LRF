@@ -64,6 +64,7 @@ Restructure::Restructure(utl::Logger* logger,
                          gpl::Replace* replace,
                          dpl::Opendp* opendp)
 {
+  logger_ = logger;
   db_ = db;
   open_sta_ = open_sta;
   resizer_ = resizer;
