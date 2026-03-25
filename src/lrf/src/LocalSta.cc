@@ -1575,16 +1575,13 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
     return;
   }
 
-  // Recompute failed
-  printf("Error: localParasiticLoad: recompute failed for pin %s, using fallback\n",
-         drvr_pin ? network_->name(drvr_pin) : "(virtual)");
-  fflush(stdout);
-
   // Virtual driver or driver with virtual buffer downstream
   if (!drvr_pin || drvr_pt_vertex.hasVirtualBuffer()) {
     load_cap = computeVirtualLoadCap(drvr_pt_vertex, rf, dcalc_ap, pt_graph);
     return;
   }
+
+  // Fallback for uncomputed parasitic of real drivers.
   if (network_->net(drvr_pin) == nullptr) {
     load_cap = 0.0;
   } else {
@@ -1594,6 +1591,10 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
     netCaps(drvr_pin, rf, dcalc_ap, multi_drvr_net,
           pin_cap, wire_cap, fanout, has_net_load);
     load_cap = pin_cap + wire_cap;
+    // Recompute failed
+    printf("Error: localParasiticLoad: recompute failed for pin %s, using fallback\n",
+          drvr_pin ? network_->name(drvr_pin) : "(virtual)");
+    fflush(stdout);
   }
 }
 
