@@ -943,6 +943,49 @@ TaskArranger::visitAll(ParallelLrVisitor *visitor)
 }
 
 void
+TaskArranger::visitAll(ParallelVisitor *visitor)
+{
+  // Clean up old visitors if any
+  for (auto v : visitors_v2_) delete v;
+  visitors_v2_.clear();
+
+  printf("visitAll (V2): %zu combinational instances out of %zu total, %u threads\n",
+         num_com_, vertices_.size(), thread_count_);
+  fflush(stdout);
+
+  // Create visitor copies for each thread
+  visitors_v2_.reserve(thread_count_);
+  visitors_v2_.push_back(visitor);
+  for (size_t i = 1; i < thread_count_; i++) {
+    visitors_v2_.emplace_back(visitor->copy());
+  }
+
+  // Dispatch all combinational instances (no dependency graph)
+  const size_t total = vertices_.size();
+  for (size_t i = 0; i < total; i++) {
+    if (vertices_[i].type() != VertexType::COMBINATIONAL)
+      continue;
+    InstVertex *iv = &vertices_[i];
+    VertexId vid = static_cast<VertexId>(i);
+    if (!dispatch_queue_) {
+      visitors_v2_[0]->visit(iv->inst(), vid);
+    } else {
+      dispatch_queue_->dispatch([this, iv, vid](int tid) {
+        visitors_v2_[tid]->visit(iv->inst(), vid);
+      });
+    }
+  }
+  finishTasks();
+
+  // Cleanup visitors
+  for (auto v : visitors_v2_) {
+    v->printRuntimeProfile();
+    delete v;
+  }
+  visitors_v2_.clear();
+}
+
+void
 TaskArranger::markSelectedInstances(const std::vector<size_t> &vertex_ids)
 {
   // Reset all vertices to skip, then mark selected for resize

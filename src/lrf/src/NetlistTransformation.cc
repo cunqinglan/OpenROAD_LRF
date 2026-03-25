@@ -25,7 +25,7 @@ namespace lrf {
 float
 EvalContext::swapCost(float delay_lm_sum, float power) const
 {
-  return 100.0f * delay_lm_sum / average_delay
+  return PT_tradeoff * delay_lm_sum / average_delay
        + power / average_leakage;
 }
 
@@ -132,6 +132,12 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
                          EvalContext &ctx)
 {
   MoveOption result;
+
+  // Skip dont_touch instances
+  odb::dbInst *db_inst = db_sta_->getDbNetwork()->staToDb(inst);
+  if (db_inst && db_inst->isDoNotTouch())
+    return result;
+
   sta::LibertyCell *ori_cell = db_sta_->network()->libertyCell(inst);
   if (!ori_cell)
     return result;
@@ -554,6 +560,7 @@ ParallelVisitor::ParallelVisitor(sta::dbSta *db_sta, LocalSta *local_sta,
 
 ParallelVisitor::~ParallelVisitor()
 {
+  delete pt_graph_;
   delete eval_ctx_.arc_delay_calc;
 }
 
@@ -597,9 +604,11 @@ ParallelVisitor::visit(sta::Instance *inst, sta::VertexId vid)
   auto start_time = std::chrono::steady_clock::now();
   best_move_ = MoveOption{};
 
-  // Build PtGraph
+  // Build PtGraph (visitor-owned, freed at next visit or destructor)
   auto start_pt = std::chrono::high_resolution_clock::now();
-  pt_graph_ = local_sta_->makePtGraph(inst, false);
+  delete pt_graph_;
+  pt_graph_ = new PtGraph(db_sta_);
+  local_sta_->makePtGraph(pt_graph_, inst);
   pt_graph_->pruneInsignificantSiblings();
   auto end_pt = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
@@ -624,16 +633,39 @@ ParallelVisitor::visit(sta::Instance *inst, sta::VertexId vid)
   else if (do_buffer && buffer_op_)
     best_move_ = buffer_op_->evaluate(pt_graph_, inst, eval_ctx_);
 
+  // Precheck mode: store cost in results vector, don't apply to DB
+  if (precheck_results_ && vid != sta::object_id_null) {
+    float cost_change = (best_move_.cost < std::numeric_limits<float>::max())
+                            ? best_move_.cost : 0.0f;
+    (*precheck_results_)[vid] = {inst, cost_change, static_cast<size_t>(vid)};
+    auto end_time = std::chrono::steady_clock::now();
+    runtime_map_["precheck"] +=
+        std::chrono::duration<double>(end_time - start_time).count();
+    return false;  // no DB changes in precheck
+  }
+
   auto end_time = std::chrono::steady_clock::now();
   runtime_map_["visit"] +=
       std::chrono::duration<double>(end_time - start_time).count();
   return best_move_.hasChange();
 }
 
+bool
+ParallelVisitor::singleGateSizing(sta::Instance *inst)
+{
+  if (visit(inst, sta::object_id_null)) {
+    applyChangesToDb(nullptr);
+    return true;
+  }
+  return false;
+}
+
 void
 ParallelVisitor::visitSlewOnly(sta::Instance *inst)
 {
-  pt_graph_ = local_sta_->makePtGraph(inst, false);
+  delete pt_graph_;
+  pt_graph_ = new PtGraph(db_sta_);
+  local_sta_->makePtGraph(pt_graph_, inst);
   local_sta_->findLocalDelays(pt_graph_, eval_ctx_.arc_delay_calc);
   local_sta_->findLocalArrivals(pt_graph_);
   local_sta_->findLocalRequireds(pt_graph_);
@@ -735,6 +767,7 @@ ParallelVisitor::copy() const
   v->eval_ctx_.average_leakage = eval_ctx_.average_leakage;
   v->eval_ctx_.PT_tradeoff = eval_ctx_.PT_tradeoff;
   v->task_arranger_ = task_arranger_;
+  v->precheck_results_ = precheck_results_;
 
   if (resize_op_) {
     auto cloned = resize_op_->copy();
