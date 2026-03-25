@@ -11,7 +11,8 @@
 #include <string>
 #include <vector>
 #include <cerrno>         // errno, EINTR
-#include <unistd.h>       // fork, pipe, _exit, read, write, close
+#include <fcntl.h>        // open, O_WRONLY
+#include <unistd.h>       // fork, pipe, _exit, read, write, close, dup, dup2
 #include <sys/wait.h>     // waitpid
 #include <omp.h>          // omp_set_num_threads
 
@@ -973,6 +974,18 @@ bool PositionDrivenStrategy::remapOneCut(
   }
   setCandidateCut(candidate_cut);
 
+  // When not verbose, redirect stdout to suppress ABC output.
+  int saved_stdout = -1;
+  if (!verbose_) {
+    fflush(stdout);
+    saved_stdout = dup(STDOUT_FILENO);
+    int devnull = open("/dev/null", O_WRONLY);
+    if (devnull >= 0) {
+      dup2(devnull, STDOUT_FILENO);
+      close(devnull);
+    }
+  }
+
   // Build the ABC network from the candidate cut.
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> mapped_abc_network(
       candidate_cut.BuildMappedAbcNetwork(
@@ -982,12 +995,23 @@ bool PositionDrivenStrategy::remapOneCut(
       &abc::Abc_NtkDelete);
 
   if (mapped_abc_network == nullptr) {
+    // Restore stdout before returning.
+    if (saved_stdout >= 0) {
+      fflush(stdout);
+      dup2(saved_stdout, STDOUT_FILENO);
+      close(saved_stdout);
+    }
     logger_->error(utl::RES, 335, "Failed to build ABC network from candidate cut.");
     return false;
   }
 
   auto library = static_cast<abc::Mio_Library_t*>(mapped_abc_network.get()->pManFunc);
   if (library == nullptr) {
+    if (saved_stdout >= 0) {
+      fflush(stdout);
+      dup2(saved_stdout, STDOUT_FILENO);
+      close(saved_stdout);
+    }
     logger_->error(utl::RES, 341, "ABC network does not have an associated library.");
     return false;
   }
@@ -999,6 +1023,11 @@ bool PositionDrivenStrategy::remapOneCut(
       &abc::Abc_NtkDelete);
 
   if (logic_network == nullptr) {
+    if (saved_stdout >= 0) {
+      fflush(stdout);
+      dup2(saved_stdout, STDOUT_FILENO);
+      close(saved_stdout);
+    }
     logger_->error(utl::RES, 340, "Failed to convert ABC network to logic form.");
     return false;
   }
@@ -1009,7 +1038,7 @@ bool PositionDrivenStrategy::remapOneCut(
 
   // Enumerate all possible mapping solutions using ABC.
   int nMaxSolutions = 80;
-  int fVerbose = 1;
+  int fVerbose = verbose_ ? 1 : 0;
 
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> strashed_network(
       abc::Abc_NtkStrash(logic_network.get(), 0, 0, 0),
@@ -1019,6 +1048,13 @@ bool PositionDrivenStrategy::remapOneCut(
       strashed_network.get(),
       nMaxSolutions,
       fVerbose);
+
+  // Restore stdout after ABC calls.
+  if (saved_stdout >= 0) {
+    fflush(stdout);
+    dup2(saved_stdout, STDOUT_FILENO);
+    close(saved_stdout);
+  }
 
   if (pMan == nullptr) {
     logger_->warn(utl::RES, 353, "ABC mapping enumeration returned no solutions.");
@@ -1056,8 +1092,9 @@ bool PositionDrivenStrategy::remapOneCut(
       continue;
     }
 
-    if (!res.log.empty())
+    if (!res.log.empty()){
       logger_->reportLiteral(res.log);
+    }
 
     abc::Map_MappingSolutionSetEvalResult(
         res.pSolution, static_cast<float>(res.slack));
@@ -1117,8 +1154,9 @@ bool PositionDrivenStrategy::remapOneCut(
           continue;
         }
 
-        if (!res.log.empty())
+        if (!res.log.empty()){
           logger_->reportLiteral(res.log);
+        }
 
         abc::Map_MappingSolutionSetEvalResult(
             res.pSolution, static_cast<float>(res.slack));
@@ -1157,6 +1195,18 @@ bool PositionDrivenStrategy::remapOneCut(
         "Best solution found (index {}) with worst slack = {:.4e}",
         best_solution_index + 1, best_slack);
 
+    // Suppress ABC output when not verbose.
+    int saved_stdout2 = -1;
+    if (!verbose_) {
+      fflush(stdout);
+      saved_stdout2 = dup(STDOUT_FILENO);
+      int devnull = open("/dev/null", O_WRONLY);
+      if (devnull >= 0) {
+        dup2(devnull, STDOUT_FILENO);
+        close(devnull);
+      }
+    }
+
     candidate_cut.InsertAbcMapSolution(
         pSolutionBest,
         map_man,
@@ -1166,6 +1216,12 @@ bool PositionDrivenStrategy::remapOneCut(
         sta,
         remapper.getNameGenerator(),
         logger_);
+
+    if (saved_stdout2 >= 0) {
+      fflush(stdout);
+      dup2(saved_stdout2, STDOUT_FILENO);
+      close(saved_stdout2);
+    }
 
     // Place the newly inserted cells near the cut centroid.
     // Skip evaluateSolution() in the parent — STA graph operations
@@ -1188,7 +1244,9 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
                                     float percentage,
                                     float max_percentage,
                                     float slack_threshold,
-                                    bool run_detailed_placement) {
+                                    bool run_detailed_placement,
+                                    bool verbose) {
+  verbose_ = verbose;
   sta::dbSta* sta = remapper.getSta();
   sta::dbNetwork* network = sta->getDbNetwork();
 
@@ -1219,6 +1277,9 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
   logger_->info(utl::RES, 400,
                 "Found {} candidate endpoints to process iteratively.",
                 candidate_pins.size());
+
+  // Maximum number of worst vertices to attempt fixing per endpoint.
+  const size_t max_vertices_per_endpoint = 5;
 
   int remapped_count = 0;
 
@@ -1267,19 +1328,81 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
       continue;
     }
 
-    logger_->info(utl::RES, 415, "[remap] iter {}: before remapOneCut ({} vertices)", ep_idx, worst_vertices.size());
-    bool applied = remapOneCut(remapper, worst_vertices);
-    logger_->info(utl::RES, 416, "[remap] iter {}: after remapOneCut, applied={}", ep_idx, applied);
+    logger_->info(utl::RES, 415, "[remap] iter {}: attempting to fix up to {} vertices out of {}",
+                  ep_idx, max_vertices_per_endpoint, worst_vertices.size());
 
-    if (applied) {
-      remapped_count++;
+    // Try to remap worst vertices for this endpoint one at a time.
+    // After each successful remap, InsertAbcMapSolution deletes/replaces
+    // instances, invalidating all Vertex* AND Pin* in the cut neighbourhood.
+    // We must re-derive the worst vertices from the (surviving) endpoint pin
+    // after every successful remap.
+    int ep_remapped = 0;
+    int ep_attempted = 0;
+    while (ep_remapped < static_cast<int>(max_vertices_per_endpoint)) {
+      // (Re-)derive worst vertices from the endpoint pin.
+      // On the first pass we already have them; on subsequent passes we
+      // need a fresh graph and fresh vertex list.
+      if (ep_attempted > 0) {
+        sta::Graph* vg = sta->ensureGraph();
+        if (vg == nullptr) {
+          logger_->warn(utl::RES, 419,
+                        "[remap] iter {}: graph null after remap {}, stopping.",
+                        ep_idx, ep_remapped);
+          break;
+        }
+        sta::Vertex* fresh_ep = nullptr;
+        sta::Vertex* bidir_ep2 = nullptr;
+        vg->pinVertices(endpoint_pin, fresh_ep, bidir_ep2);
+        if (fresh_ep == nullptr) {
+          logger_->warn(utl::RES, 420,
+                        "[remap] iter {}: endpoint lost vertex after remap {}, stopping.",
+                        ep_idx, ep_remapped);
+          break;
+        }
+        worst_vertices = getWorstVerticesForEndpoint(remapper, fresh_ep);
+        if (worst_vertices.empty()) {
+          break;
+        }
+      }
 
-      // The netlist was modified by InsertAbcMapSolution but the STA graph
-      // is now stale.  Delete it so the next iteration (or post-loop code)
-      // will get a fresh graph via ensureGraph().  We intentionally do NOT
-      // call updateTiming() here — all heavy STA work stays in fork()ed
-      // children to avoid crashes from graph rebuild / deep recursion.
-      sta->networkChanged();
+      // Skip the first ep_attempted vertices (already tried in prior passes).
+      // After a successful remap the list is re-derived, so previously-remapped
+      // instances are gone and the new list starts fresh — reset the skip count.
+      // We only need to skip when the previous attempt was NOT applied (the
+      // vertex was not remapable and still appears in the re-derived list).
+      // Use a simple approach: try only the first vertex in the list each time.
+      // If it's not remapable, skip it by erasing and retry; if the list is
+      // exhausted, stop.
+
+      std::vector<sta::Vertex*> single_vertex = { worst_vertices[0] };
+      logger_->info(utl::RES, 417,
+                    "[remap] iter {}: remapOneCut attempt {} (ep_remapped={})",
+                    ep_idx, ep_attempted + 1, ep_remapped);
+      bool applied = remapOneCut(remapper, single_vertex);
+      logger_->info(utl::RES, 416, "[remap] iter {}: after remapOneCut, applied={}",
+                    ep_idx, applied);
+      ep_attempted++;
+
+      if (applied) {
+        remapped_count++;
+        ep_remapped++;
+        sta->networkChanged();
+      } else {
+        // This vertex was not remapable; remove it and try the next one.
+        worst_vertices.erase(worst_vertices.begin());
+        if (worst_vertices.empty()) {
+          break;
+        }
+        // Don't increment ep_attempted again — we'll retry with the new front
+        // without re-deriving, since the netlist hasn't changed.
+        continue;
+      }
+    }
+
+    if (ep_remapped > 0) {
+      logger_->info(utl::RES, 418,
+                    "[remap] iter {}: remapped {} vertices for this endpoint.",
+                    ep_idx, ep_remapped);
     }
   }
 
