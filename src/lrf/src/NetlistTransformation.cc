@@ -262,10 +262,16 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     }
   }
 
+  struct CandResult {
+    float cost  = std::numeric_limits<float>::max();
+    float slack = 0.0f;
+  };
+  std::vector<CandResult> cand_results(candidates.size());
+
   float ori_cost = std::numeric_limits<float>::max();
   float ori_slack = 0.0f;
-  float best_cost = std::numeric_limits<float>::max();
 
+  // Pass 1: evaluate all candidates, record (cost, slack)
   for (size_t i = 0; i < candidates.size(); i++) {
     sta::LibertyCell *cand = candidates[i];
 
@@ -287,15 +293,12 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
 
     float cost = ctx.swapCost(delay_lm_sum, leakage);
     float slack = local_sta_->localSlackAroundRef(pt_graph);
+    cand_results[i] = {cost, slack};
 
     if (cand == ori_cell) {
       ori_cost = cost;
       ori_slack = slack;
     }
-
-    if (cand != ori_cell && cost < best_cost
-        && slack >= ori_slack * slack_margin_)
-      best_cost = cost;
   }
 
   auto end_eval = std::chrono::high_resolution_clock::now();
@@ -308,8 +311,19 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   if (ori_cost == std::numeric_limits<float>::max())
     return result;
 
+  // Pass 2: find best cost with correct ori_slack for slack protection
+  float best_cost = ori_cost;
+  for (size_t i = 0; i < candidates.size(); i++) {
+    if (candidates[i] == ori_cell)
+      continue;
+    const CandResult &r = cand_results[i];
+    if (r.cost == std::numeric_limits<float>::max())
+      continue;  // was skipped (illegal)
+    if (r.cost < best_cost && r.slack >= ori_slack * slack_margin_)
+      best_cost = r.cost;
+  }
+
   if (best_cost < ori_cost) {
-    // Positive benefit stored in cost field (type stays NONE)
     result.cost = ori_cost - best_cost;
   }
   return result;
@@ -560,7 +574,6 @@ ParallelVisitor::ParallelVisitor(sta::dbSta *db_sta, LocalSta *local_sta,
 
 ParallelVisitor::~ParallelVisitor()
 {
-  delete pt_graph_;
   delete eval_ctx_.arc_delay_calc;
 }
 
@@ -606,15 +619,14 @@ ParallelVisitor::visit(sta::Instance *inst, sta::VertexId vid)
 
   // Build PtGraph (visitor-owned, freed at next visit or destructor)
   auto start_pt = std::chrono::high_resolution_clock::now();
-  delete pt_graph_;
-  pt_graph_ = new PtGraph(db_sta_);
-  local_sta_->makePtGraph(pt_graph_, inst);
+  pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
   pt_graph_->pruneInsignificantSiblings();
   auto end_pt = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
       std::chrono::duration<double>(end_pt - start_pt).count();
 
-  eval_ctx_.pt_graph = pt_graph_;
+  eval_ctx_.pt_graph = pt_graph_.get();
 
   // Determine operations from move_mask
   bool do_resize = true;
@@ -627,11 +639,11 @@ ParallelVisitor::visit(sta::Instance *inst, sta::VertexId vid)
 
   // Route to operator
   if (do_resize && do_buffer && combined_op_)
-    best_move_ = combined_op_->evaluate(pt_graph_, inst, eval_ctx_);
+    best_move_ = combined_op_->evaluate(pt_graph_.get(), inst, eval_ctx_);
   else if (do_resize && resize_op_)
-    best_move_ = resize_op_->evaluate(pt_graph_, inst, eval_ctx_);
+    best_move_ = resize_op_->evaluate(pt_graph_.get(), inst, eval_ctx_);
   else if (do_buffer && buffer_op_)
-    best_move_ = buffer_op_->evaluate(pt_graph_, inst, eval_ctx_);
+    best_move_ = buffer_op_->evaluate(pt_graph_.get(), inst, eval_ctx_);
 
   // Precheck mode: store cost in results vector, don't apply to DB
   if (precheck_results_ && vid != sta::object_id_null) {
@@ -663,12 +675,11 @@ ParallelVisitor::singleGateSizing(sta::Instance *inst)
 void
 ParallelVisitor::visitSlewOnly(sta::Instance *inst)
 {
-  delete pt_graph_;
-  pt_graph_ = new PtGraph(db_sta_);
-  local_sta_->makePtGraph(pt_graph_, inst);
-  local_sta_->findLocalDelays(pt_graph_, eval_ctx_.arc_delay_calc);
-  local_sta_->findLocalArrivals(pt_graph_);
-  local_sta_->findLocalRequireds(pt_graph_);
+  pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
+  local_sta_->findLocalDelays(pt_graph_.get(), eval_ctx_.arc_delay_calc);
+  local_sta_->findLocalArrivals(pt_graph_.get());
+  local_sta_->findLocalRequireds(pt_graph_.get());
   updateTimingFromPtGraph();
 }
 

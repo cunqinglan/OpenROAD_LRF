@@ -8,6 +8,7 @@
 #include "lrf/LrfClass.hh"
 
 #include <unordered_map>
+#include <memory>
 
 namespace sta {
   class ArcDelayCalc;
@@ -55,9 +56,9 @@ public:
   bool checkVisitorStatus() const;
   void operator()(sta::Instance *inst) { visit(inst, sta::object_id_null); }
   void printVisitedInstNames() const;
-  PtGraph *ptGraph() const { return pt_graph_; }
+  PtGraph *ptGraph() const { return pt_graph_.get(); }
   LrRebuffer *rebuffer() const { return rebuffer_; }
-  void setPtGraph(PtGraph *pt_graph) { pt_graph_ = pt_graph; }
+  void setPtGraph(PtGraph *pt_graph);
   sta::Instance *refInst() const { return ref_inst_; }
   sta::LibertyCell *bestCell() const { return best_cell_; }
   void init(float averge_delay, float average_power, float wns, 
@@ -125,7 +126,7 @@ protected:
   sta::Instance *ref_inst_;
   LocalSta *local_sta_;
   rsz::Resizer *resizer_;
-  PtGraph *pt_graph_ = nullptr;
+  std::unique_ptr<PtGraph> pt_graph_;
   sta::ArcDelayCalc *arc_delay_calc_;
   sta::Slack slack_before_swap_;
   std::vector<std::string> visited_instances_;
