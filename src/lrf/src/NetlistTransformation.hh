@@ -220,7 +220,7 @@ public:
 
   // Results
   const MoveOption &bestMove() const { return best_move_; }
-  PtGraph *ptGraph() const { return pt_graph_; }
+  PtGraph *ptGraph() const { return pt_graph_.get(); }
   sta::LibertyCell *bestCell() const { return best_move_.target_cell; }
   EvalContext &evalContext() { return eval_ctx_; }
 
@@ -237,7 +237,7 @@ protected:
   sta::dbSta *db_sta_;
   LocalSta *local_sta_;
   rsz::Resizer *resizer_;
-  PtGraph *pt_graph_ = nullptr;
+  std::unique_ptr<PtGraph> pt_graph_;
   EvalContext eval_ctx_;
   MoveOption best_move_;
   TaskArranger *task_arranger_ = nullptr;

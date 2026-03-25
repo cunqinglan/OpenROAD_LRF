@@ -52,9 +52,14 @@ ParallelLrVisitor::ParallelLrVisitor(sta::dbSta *db_sta, LocalSta *local_sta,
 
 ParallelLrVisitor::~ParallelLrVisitor()
 {
-  delete pt_graph_;
   delete arc_delay_calc_;
   delete rebuffer_;
+}
+
+void
+ParallelLrVisitor::setPtGraph(PtGraph *pt_graph)
+{
+  pt_graph_.reset(pt_graph);
 }
 
 bool 
@@ -126,9 +131,8 @@ ParallelLrVisitor::trySwap(sta::Instance *inst)
     //      legal_equiv_cells.size());
     // fflush(stdout);
     auto start_pt_graph_construction = std::chrono::high_resolution_clock::now();
-    delete pt_graph_;
-  pt_graph_ = new PtGraph(db_sta_);
-  local_sta_->makePtGraph(pt_graph_, inst);
+    pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
     pt_graph_->pruneInsignificantSiblings();
     auto end_pt_graph_construction = std::chrono::high_resolution_clock::now();
     runtime_map_["pt_graph_construction"] += std::chrono::duration<double>(end_pt_graph_construction - start_pt_graph_construction).count();
@@ -144,7 +148,7 @@ ParallelLrVisitor::trySwap(sta::Instance *inst)
         throw std::runtime_error("ParallelLrVisitor::visit found non-equivalent cell in equiv_cells");
       }
 
-  if (!local_sta_->legalCheckBeforeSwap(inst, equiv_cell, nullptr, nullptr, pt_graph_)
+  if (!local_sta_->legalCheckBeforeSwap(inst, equiv_cell, nullptr, nullptr, pt_graph_.get())
         && !(equiv_cell == ori_cell)) {
     cnt++;
     continue;
@@ -152,15 +156,15 @@ ParallelLrVisitor::trySwap(sta::Instance *inst)
   
       float leakage = (*inst_info_map_)[inst]->cell_leakages[cnt];
       float delay_lm_sum = local_sta_->
-        increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, equiv_cell).delay_lm_sum;
-  if (!local_sta_->legalCheckAfterSwap(inst, equiv_cell, nullptr, nullptr, pt_graph_) 
+        increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, equiv_cell).delay_lm_sum;
+  if (!local_sta_->legalCheckAfterSwap(inst, equiv_cell, nullptr, nullptr, pt_graph_.get()) 
         && !(equiv_cell == ori_cell)) {
     cnt++;
     continue;
   }
       float swapped_cost = swapCost(delay_lm_sum, leakage);
       sta::Slack swapped_slack = 
-                      local_sta_->localSlackAroundRef(pt_graph_);
+                      local_sta_->localSlackAroundRef(pt_graph_.get());
       vec_cost_slack[cnt * 2] = swapped_cost;
       vec_cost_slack[cnt * 2 + 1] = swapped_slack;
       if (equiv_cell == ori_cell) {
@@ -201,7 +205,7 @@ ParallelLrVisitor::trySwap(sta::Instance *inst)
     }
     // First compute the final timing after choosing best cell
     if (best_cell_ != equiv_cells->at(equiv_cells->size() - 1)) 
-      local_sta_->increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, best_cell_);
+      local_sta_->increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, best_cell_);
     return true;
   }
   printf("ParallelLrVisitor::visit no liberty cell for instance %s\n",
@@ -253,9 +257,8 @@ ParallelLrVisitor::trySwapByArray(sta::Instance *inst, int col_padding, int row_
 
   // Build PtGraph
   auto start_pt = std::chrono::high_resolution_clock::now();
-  delete pt_graph_;
-  pt_graph_ = new PtGraph(db_sta_);
-  local_sta_->makePtGraph(pt_graph_, inst);
+  pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
   pt_graph_->pruneInsignificantSiblings();
   auto end_pt = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
@@ -282,7 +285,7 @@ ParallelLrVisitor::trySwapByArray(sta::Instance *inst, int col_padding, int row_
   for (size_t i = 0; i < candidates.size(); i++) {
     sta::LibertyCell *cand = candidates[i];
 
-    if (!local_sta_->legalCheckBeforeSwap(inst, cand, nullptr, nullptr, pt_graph_)
+    if (!local_sta_->legalCheckBeforeSwap(inst, cand, nullptr, nullptr, pt_graph_.get())
         && cand != ori_cell)
       continue;
 
@@ -298,14 +301,14 @@ ParallelLrVisitor::trySwapByArray(sta::Instance *inst, int col_padding, int row_
     }
 
     float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
-        pt_graph_, arc_delay_calc_, cand).delay_lm_sum;
+        pt_graph_.get(), arc_delay_calc_, cand).delay_lm_sum;
 
-    if (!local_sta_->legalCheckAfterSwap(inst, cand, nullptr, nullptr, pt_graph_)
+    if (!local_sta_->legalCheckAfterSwap(inst, cand, nullptr, nullptr, pt_graph_.get())
         && cand != ori_cell)
       continue;
 
     float swapped_cost = swapCost(delay_lm_sum, leakage);
-    sta::Slack swapped_slack = local_sta_->localSlackAroundRef(pt_graph_);
+    sta::Slack swapped_slack = local_sta_->localSlackAroundRef(pt_graph_.get());
     vec_cost_slack[i * 2] = swapped_cost;
     vec_cost_slack[i * 2 + 1] = swapped_slack;
     if (cand == ori_cell)
@@ -332,7 +335,7 @@ ParallelLrVisitor::trySwapByArray(sta::Instance *inst, int col_padding, int row_
 
   // Recompute final timing for best cell
   if (best_cell_ != candidates.back())
-    local_sta_->increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, best_cell_);
+    local_sta_->increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, best_cell_);
   return true;
 }
 
@@ -415,9 +418,8 @@ ParallelLrVisitor::trySwapByArrayPruned(sta::Instance *inst, int col_padding, in
 
   // --- Build PtGraph ---
   auto start_pt = std::chrono::high_resolution_clock::now();
-  delete pt_graph_;
-  pt_graph_ = new PtGraph(db_sta_);
-  local_sta_->makePtGraph(pt_graph_, inst);
+  pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
   pt_graph_->pruneInsignificantSiblings();
   auto end_pt = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
@@ -443,7 +445,7 @@ ParallelLrVisitor::trySwapByArrayPruned(sta::Instance *inst, int col_padding, in
   for (size_t i = 0; i < candidates.size(); i++) {
     sta::LibertyCell *cand = candidates[i];
 
-    if (!local_sta_->legalCheckBeforeSwap(inst, cand, nullptr, nullptr, pt_graph_)
+    if (!local_sta_->legalCheckBeforeSwap(inst, cand, nullptr, nullptr, pt_graph_.get())
         && cand != ori_cell)
       continue;
 
@@ -458,14 +460,14 @@ ParallelLrVisitor::trySwapByArrayPruned(sta::Instance *inst, int col_padding, in
     }
 
     float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
-        pt_graph_, arc_delay_calc_, cand).delay_lm_sum;
+        pt_graph_.get(), arc_delay_calc_, cand).delay_lm_sum;
 
-    if (!local_sta_->legalCheckAfterSwap(inst, cand, nullptr, nullptr, pt_graph_)
+    if (!local_sta_->legalCheckAfterSwap(inst, cand, nullptr, nullptr, pt_graph_.get())
         && cand != ori_cell)
       continue;
 
     float swapped_cost = swapCost(delay_lm_sum, leakage);
-    sta::Slack swapped_slack = local_sta_->localSlackAroundRef(pt_graph_);
+    sta::Slack swapped_slack = local_sta_->localSlackAroundRef(pt_graph_.get());
     vec_cost_slack[i * 2] = swapped_cost;
     vec_cost_slack[i * 2 + 1] = swapped_slack;
     if (cand == ori_cell)
@@ -535,7 +537,7 @@ ParallelLrVisitor::trySwapByArrayPruned(sta::Instance *inst, int col_padding, in
   resize_change_count_++;
 
   if (best_cell_ != candidates.back())
-    local_sta_->increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, best_cell_);
+    local_sta_->increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, best_cell_);
   return true;
 }
 
@@ -834,9 +836,8 @@ ParallelLrVisitor::trySwapV1(sta::Instance *inst)
     //      legal_equiv_cells.size());
     // fflush(stdout);
 
-    delete pt_graph_;
-  pt_graph_ = new PtGraph(db_sta_);
-  local_sta_->makePtGraph(pt_graph_, inst);
+    pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
     pt_graph_->pruneInsignificantSiblings();
 
     best_cell_ = ori_cell;
@@ -848,10 +849,10 @@ ParallelLrVisitor::trySwapV1(sta::Instance *inst)
       sta::LibertyCell *equiv_cell = equiv_cell_pair.first;
       float leakage = cell_info.cell_leakages[equiv_cell_pair.second.first][equiv_cell_pair.second.second]; 
       float delay_lm_sum = local_sta_->
-        increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, equiv_cell).delay_lm_sum;
+        increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, equiv_cell).delay_lm_sum;
       float swapped_cost = swapCost(delay_lm_sum, leakage);
       sta::Slack swapped_slack = 
-                      local_sta_->localSlackAroundRef(pt_graph_);
+                      local_sta_->localSlackAroundRef(pt_graph_.get());
       vec_cost_slack[cnt * 2] = swapped_cost;
       vec_cost_slack[cnt * 2 + 1] = swapped_slack;
       if (equiv_cell == ori_cell) {
@@ -890,7 +891,7 @@ ParallelLrVisitor::trySwapV1(sta::Instance *inst)
     }
     // First compute the final timing after choosing best cell
     if (best_cell_ != legal_equiv_cells[legal_equiv_cells.size() - 1].first) 
-      local_sta_->increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, best_cell_);
+      local_sta_->increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, best_cell_);
     return true;
   } 
   printf("ParallelLrVisitor::visit no liberty cell for instance %s\n",
@@ -947,12 +948,11 @@ ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
 void
 ParallelLrVisitor::visitSlewOnly(sta::Instance *inst)
 {
-  delete pt_graph_;
-  pt_graph_ = new PtGraph(db_sta_);
-  local_sta_->makePtGraph(pt_graph_, inst);
-  local_sta_->findLocalDelays(pt_graph_, arc_delay_calc_);
-  local_sta_->findLocalArrivals(pt_graph_);
-  local_sta_->findLocalRequireds(pt_graph_);
+  pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
+  local_sta_->findLocalDelays(pt_graph_.get(), arc_delay_calc_);
+  local_sta_->findLocalArrivals(pt_graph_.get());
+  local_sta_->findLocalRequireds(pt_graph_.get());
   updateTimingFromPtGraph();
 }
 
@@ -1000,15 +1000,14 @@ ParallelLrVisitor::visit(sta::Instance *inst,
          legal_equiv_cells.size());
     fflush(stdout);
 
-    delete pt_graph_;
-  pt_graph_ = new PtGraph(db_sta_);
-  local_sta_->makePtGraph(pt_graph_, inst);
+    pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
     pt_graph_->pruneInsignificantSiblings();
     // Compute Original delays
     DelayLmSumResult original_result = local_sta_->
-                initAndGetLocalTimingCost(pt_graph_, arc_delay_calc_);
+                initAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_);
     // Initialize the slack before swap
-    slack_before_swap_ = local_sta_->localSlackAroundRef(pt_graph_);
+    slack_before_swap_ = local_sta_->localSlackAroundRef(pt_graph_.get());
     printf("Original delay_lm_sum %f, slack %f for instance %s with cell %s\n",
            original_result.delay_lm_sum * 1e12,
            slack_before_swap_ * 1e12,
@@ -1017,7 +1016,7 @@ ParallelLrVisitor::visit(sta::Instance *inst,
     // Record original timing
     // GraphTiming orig_cell_timing;
     // orig_cell_timing.cell = ori_cell;
-    // recordGraphTimingFromPtGraph(db_sta_, pt_graph_, orig_cell_timing);
+    // recordGraphTimingFromPtGraph(db_sta_, pt_graph_.get(), orig_cell_timing);
     // timing_record.liberty_timing_map[std::string(ori_cell->name())] = orig_cell_timing;
     
     best_cell_ = ori_cell;
@@ -1033,17 +1032,17 @@ ParallelLrVisitor::visit(sta::Instance *inst,
       fflush(stdout);
 
       DelayLmSumResult swapped_result = local_sta_->
-        increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, equiv_cell);
+        increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, equiv_cell);
 
       LocalCost swapped_cost = swapped_result.delay_lm_sum;
       sta::Slack swapped_slack = 
-                      local_sta_->localSlackAroundRef(pt_graph_);
+                      local_sta_->localSlackAroundRef(pt_graph_.get());
       
       GraphTiming cell_type_timing;
       cell_type_timing.cell = equiv_cell;
       // Record timing after computing slack (to ensure full propagation)
 
-      recordGraphTimingFromPtGraph(db_sta_, pt_graph_, cell_type_timing, true);
+      recordGraphTimingFromPtGraph(db_sta_, pt_graph_.get(), cell_type_timing, true);
       timing_record.liberty_timing_map[std::string(equiv_cell->name())] = cell_type_timing;
 
       // Do local slack check
@@ -1342,9 +1341,8 @@ ParallelLrVisitor::tryBuffering(sta::Instance *inst)
   // 3. If cost improved, keep the buffer insertion
   // 4. Submmit the buffer insertion
   visited_instances_.push_back(db_sta_->network()->pathName(inst));
-  delete pt_graph_;
-  pt_graph_ = new PtGraph(db_sta_);
-  local_sta_->makePtGraph(pt_graph_, inst);
+  pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
   if (rebuffer_ == nullptr) {
     throw std::runtime_error(
         "ParallelLrVisitor::tryBuffering: rebuffer_ is null; "
@@ -1430,9 +1428,8 @@ BufferSensitivityVisitor::BufferSensitivityVisitor(
 bool
 BufferSensitivityVisitor::visit(sta::Instance *inst, sta::VertexId vid)
 {
-  delete pt_graph_;
-  pt_graph_ = new PtGraph(db_sta_);
-  local_sta_->makePtGraph(pt_graph_, inst);
+  pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
   if (rebuffer_ == nullptr) {
     throw std::runtime_error(
         "BufferSensitivityVisitor::visit: rebuffer_ is null; "
@@ -1551,9 +1548,8 @@ CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_paddi
 
   // ---- Build PtGraph (shared for resize + buffering) ----
   auto start_pt = std::chrono::high_resolution_clock::now();
-  delete pt_graph_;
-  pt_graph_ = new PtGraph(db_sta_);
-  local_sta_->makePtGraph(pt_graph_, inst);
+  pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
   pt_graph_->pruneInsignificantSiblings();
   auto end_pt = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
@@ -1577,7 +1573,7 @@ CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_paddi
 
   for (size_t i = 0; i < candidates.size(); i++) {
     sta::LibertyCell *cand = candidates[i];
-    if (!local_sta_->legalCheckBeforeSwap(inst, cand, nullptr, nullptr, pt_graph_)
+    if (!local_sta_->legalCheckBeforeSwap(inst, cand, nullptr, nullptr, pt_graph_.get())
         && cand != ori_cell)
       continue;
 
@@ -1592,14 +1588,14 @@ CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_paddi
     }
 
     float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
-        pt_graph_, arc_delay_calc_, cand).delay_lm_sum;
+        pt_graph_.get(), arc_delay_calc_, cand).delay_lm_sum;
 
-    if (!local_sta_->legalCheckAfterSwap(inst, cand, nullptr, nullptr, pt_graph_)
+    if (!local_sta_->legalCheckAfterSwap(inst, cand, nullptr, nullptr, pt_graph_.get())
         && cand != ori_cell)
       continue;
 
     float cost = swapCost(delay_lm_sum, leakage);
-    float slack = local_sta_->localSlackAroundRef(pt_graph_);
+    float slack = local_sta_->localSlackAroundRef(pt_graph_.get());
     vec_cost_slack[i * 2] = cost;
     vec_cost_slack[i * 2 + 1] = slack;
     if (cand == ori_cell)
@@ -1659,12 +1655,11 @@ CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_paddi
 
       // Rebuild PtGraph for each buffering candidate to avoid stale
       // STA edge/vertex pointers after virtualReplaceCell.
-      delete pt_graph_;
-  pt_graph_ = new PtGraph(db_sta_);
-  local_sta_->makePtGraph(pt_graph_, inst);
+      pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
       pt_graph_->pruneInsignificantSiblings();
       local_sta_->increAndGetLocalTimingCost(
-          pt_graph_, arc_delay_calc_, top2[k].cell);
+          pt_graph_.get(), arc_delay_calc_, top2[k].cell);
 
       // Re-collect driver info from fresh PtGraph
       drvr_infos.clear();
@@ -1705,7 +1700,7 @@ CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_paddi
     best_cell_ = best_buf_resize_cell;
     // Recompute buffering for the winning cell (to get bestBnet in correct state)
     local_sta_->increAndGetLocalTimingCost(
-        pt_graph_, arc_delay_calc_, best_buf_resize_cell);
+        pt_graph_.get(), arc_delay_calc_, best_buf_resize_cell);
     rebuffer_->rebufferPin(drvr_infos[0].pin,
                            pt_graph_->ptVertex(drvr_infos[0].vid));
     return true;
@@ -1714,7 +1709,7 @@ CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_paddi
     decision_ = Decision::ResizeOnly;
     best_cell_ = best_resize_cell;
     local_sta_->increAndGetLocalTimingCost(
-        pt_graph_, arc_delay_calc_, best_resize_cell);
+        pt_graph_.get(), arc_delay_calc_, best_resize_cell);
     return true;
   }
 
