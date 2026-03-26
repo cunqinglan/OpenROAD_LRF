@@ -859,7 +859,7 @@ IncreSta::parallelResizeByArrayV2(rsz::Resizer *resizer, float avg_delay,
 
   auto resize_op = std::make_unique<ResizeOperator>(sta_, local_sta_);
   resize_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
-  visitor->setResizeOperator(std::move(resize_op));
+  visitor->setOperator(std::move(resize_op));
 
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &inst_info_map_);
 
@@ -894,16 +894,14 @@ IncreSta::parallelBufferingV2(rsz::Resizer *resizer, float PT_tradeoff,
   local_sta_->initParallel();
   TaskArranger *task_arranger = local_sta_->taskArranger();
 
-  // Screen buffering candidates
-  std::vector<size_t> selected = bufferingVerticesCandidate(top_n);
+  // Screen buffering candidates via sensitivity-based evaluation
+  std::vector<size_t> selected = bufferingVerticesCandidateBySensitivityV2(
+      resizer, avg_delay, avg_leakage, top_n);
   if (selected.empty()) {
     printf("No buffering candidates found. Skipping.\n");
     return;
   }
   task_arranger->markSelectedInstances(selected);
-
-  // Initialize global preamble (serial, once)
-  LrRebufferV2::initGlobalPreamble(sta_, resizer);
 
   // Create V2 visitor with BufferOperator only
   auto *visitor = new ParallelVisitor(sta_, local_sta_, resizer);
@@ -911,7 +909,7 @@ IncreSta::parallelBufferingV2(rsz::Resizer *resizer, float PT_tradeoff,
 
   auto buffer_op = std::make_unique<BufferOperator>(
       sta_, local_sta_, resizer, &visitor->evalContext());
-  visitor->setBufferOperator(std::move(buffer_op));
+  visitor->setOperator(std::move(buffer_op));
   visitor->init(avg_delay, avg_leakage, wns, PT_tradeoff, nullptr);
 
   // Mark all selected instances for buffer-only
@@ -1115,7 +1113,7 @@ IncreSta::precedingResizeCheckV2(rsz::Resizer *resizer, float avg_delay,
   auto precheck_op = std::make_unique<ResizePrecheckOperator>(sta_, local_sta_);
   precheck_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
   precheck_op->setInstInfoMap(&inst_info_map_);
-  visitor->setResizeOperator(std::move(precheck_op));
+  visitor->setOperator(std::move(precheck_op));
 
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &inst_info_map_);
   visitor->setPrecheckResults(&results);
@@ -1204,7 +1202,7 @@ IncreSta::parallelResizeByArrayWithPrecheckV2(
   auto *visitor = new ParallelVisitor(sta_, local_sta_, resizer);
   auto resize_op = std::make_unique<ResizeOperator>(sta_, local_sta_);
   resize_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
-  visitor->setResizeOperator(std::move(resize_op));
+  visitor->setOperator(std::move(resize_op));
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &inst_info_map_);
 
   local_sta_->runResize(resizer, visitor);
@@ -1225,7 +1223,7 @@ IncreSta::parallelResizeByArrayWithPrecheckV2(
     std::unique_ptr<ResizeOperator> cp_resize_op =
         std::make_unique<ResizeOperator>(sta_, local_sta_);
     cp_resize_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
-    cp_visitor->setResizeOperator(std::move(cp_resize_op));
+    cp_visitor->setOperator(std::move(cp_resize_op));
     cp_visitor->init(avg_delay, avg_power, wns_after, PT_tradeoff, &inst_info_map_);
     std::chrono::high_resolution_clock::time_point start_cps =
         std::chrono::high_resolution_clock::now();
@@ -1407,6 +1405,74 @@ IncreSta::bufferingVerticesCandidateBySensitivity(
   return selected_ids;
 }
 
+std::vector<size_t>
+IncreSta::bufferingVerticesCandidateBySensitivityV2(
+    rsz::Resizer *resizer, float avg_delay, float avg_leakage, int top_n)
+{
+  printf("IncreSta::bufferingVerticesCandidateBySensitivityV2 start\n");
+  auto start_total = std::chrono::high_resolution_clock::now();
+
+  local_sta_->initParallel();
+  Slack wns = sta_->worstSlack(MinMax::max());
+  TaskArranger *task_arranger = local_sta_->taskArranger();
+
+  // Initialize LrRebufferV2 global preamble
+  LrRebufferV2::initGlobalPreamble(sta_, resizer);
+
+  // Pre-allocate results
+  std::vector<ResizeBenefit> results(task_arranger->vertexCount());
+  for (size_t i = 0; i < results.size(); i++)
+    results[i] = {nullptr, -std::numeric_limits<float>::infinity(), i};
+
+  // Create ParallelVisitor with BufferSensitivityOperator.
+  // No task_arranger needed: dispatch infers buffer route from operator config.
+  ParallelVisitor *visitor = new ParallelVisitor(sta_, local_sta_, resizer);
+  std::unique_ptr<BufferSensitivityOperator> sens_op =
+      std::make_unique<BufferSensitivityOperator>(
+          sta_, local_sta_, resizer, &visitor->evalContext());
+  visitor->setOperator(std::move(sens_op));
+  visitor->init(avg_delay, avg_leakage, wns, 100.0f, nullptr);
+  visitor->setPrecheckResults(&results);
+
+  // Dispatch all instances in parallel (no conflict graph)
+  task_arranger->visitAll(visitor);
+
+  // Sort by sensitivity descending
+  std::sort(results.begin(), results.end(),
+            [](const ResizeBenefit &a, const ResizeBenefit &b) {
+              return a.cost_change > b.cost_change;
+            });
+
+  // Filter non-positive sensitivity
+  results.erase(
+      std::remove_if(results.begin(), results.end(),
+                     [](const ResizeBenefit &b) { return b.cost_change <= 0.0f; }),
+      results.end());
+
+  // Take top_n
+  size_t keep = std::min(static_cast<size_t>(top_n), results.size());
+  results.resize(keep);
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  double total_sec = std::chrono::duration<double>(end_total - start_total).count();
+
+  std::vector<size_t> selected_ids;
+  selected_ids.reserve(keep);
+  size_t print_n = std::min(keep, static_cast<size_t>(20));
+  printf("SensitivityV2 screening: %zu instances with positive sensitivity, "
+         "selected top %zu (%.3f s)\n", results.size(), keep, total_sec);
+  for (size_t i = 0; i < keep; i++) {
+    selected_ids.push_back(results[i].vertex_idx);
+    if (i < print_n) {
+      printf("  [%zu] %s  sensitivity=%.6e  vertex_idx=%zu\n", i,
+             network_->pathName(results[i].inst),
+             results[i].cost_change, results[i].vertex_idx);
+    }
+  }
+
+  return selected_ids;
+}
+
 // Apply buffering to the top_n most critical vertices (by Cout/Cin ratio
 // among negative-slack gates) in parallel.
 void
@@ -1427,9 +1493,10 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
   local_sta_->initParallel();
   TaskArranger *task_arranger = local_sta_->taskArranger();
 
-  // Phase 1: Screen — select top_n candidates by Cout/Cin ratio
+  // Phase 1: Screen — select top_n candidates by sensitivity
   auto t_screen_start = std::chrono::high_resolution_clock::now();
-  std::vector<size_t> selected = bufferingVerticesCandidate(top_n);
+  std::vector<size_t> selected = bufferingVerticesCandidateBySensitivity(
+      resizer, avg_delay, avg_leakage, top_n);
   auto t_screen_end = std::chrono::high_resolution_clock::now();
   double screen_sec = std::chrono::duration<double>(t_screen_end - t_screen_start).count();
 
@@ -1535,6 +1602,72 @@ IncreSta::parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
 
   auto end_total = std::chrono::high_resolution_clock::now();
   printf("IncreSta::parallelResizeAndBuffering total time %.3f s\n",
+         std::chrono::duration<double>(end_total - start_total).count());
+}
+
+void
+IncreSta::parallelResizeAndBufferingV2(rsz::Resizer *resizer, float avg_delay,
+                                       float avg_power, float PT_tradeoff,
+                                       int buffer_top_n)
+{
+  printf("IncreSta::parallelResizeAndBufferingV2 start\n");
+  auto start_total = std::chrono::high_resolution_clock::now();
+
+  local_sta_->initParallel();
+  Slack wns = sta_->worstSlack(MinMax::max());
+
+  if (!swap_cell_presaved_)
+    makeSwappableCellsCache(resizer);
+  if (!swap_cell_leakage_presaved_)
+    preSaveLibCellLeakage();
+  makeEquivCellArray();
+
+  // Screen buffering candidates and annotate on InstVertex
+  TaskArranger *task_arranger = local_sta_->taskArranger();
+  std::vector<size_t> buf_candidates = bufferingVerticesCandidate(buffer_top_n);
+  printf("Buffer candidates: %zu (of %zu total)\n",
+         buf_candidates.size(), task_arranger->vertexCount());
+
+  // All instances get resize; buffer candidates also get buffer bit
+  for (size_t i = 0; i < task_arranger->vertexCount(); i++)
+    task_arranger->vertex(i)->move_mask_ = InstVertex::kMoveResize;
+  for (size_t vid : buf_candidates)
+    task_arranger->vertex(vid)->move_mask_ |= InstVertex::kMoveBuffer;
+
+  // Initialize global STA/Resizer state for buffering (serial preamble)
+  LrRebufferV2::initGlobalPreamble(sta_, resizer);
+
+  // Create ParallelVisitor with CombinedOperator
+  auto start_resize = std::chrono::high_resolution_clock::now();
+  auto *visitor = new ParallelVisitor(sta_, local_sta_, resizer);
+  visitor->setTaskArranger(task_arranger);
+
+  auto combined_op = std::make_unique<CombinedOperator>(
+      sta_, local_sta_, resizer, &visitor->evalContext());
+  combined_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+  visitor->setOperator(std::move(combined_op));
+
+  visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &inst_info_map_);
+
+  local_sta_->runResize(resizer, visitor);
+
+  // If any buffers were inserted, mark graph dirty for next pass
+  task_arranger->markDirty();
+
+  auto end_resize = std::chrono::high_resolution_clock::now();
+  printf("parallelResizeAndBufferingV2 pass time: %.3f s\n",
+         std::chrono::duration<double>(end_resize - start_resize).count());
+
+  sta_->updateTiming(true);
+  sta_->findRequireds();
+
+  double tns_after = sta_->totalNegativeSlack(MinMax::max());
+  double wns_after = sta_->worstSlack(MinMax::max());
+  printf("After parallelResizeAndBufferingV2, TNS: %e, WNS: %e\n",
+         tns_after, wns_after);
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  printf("IncreSta::parallelResizeAndBufferingV2 total time %.3f s\n",
          std::chrono::duration<double>(end_total - start_total).count());
 }
 

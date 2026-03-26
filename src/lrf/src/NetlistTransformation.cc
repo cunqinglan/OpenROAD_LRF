@@ -51,6 +51,27 @@ MoveOption::updateIfBetter(Type t, float c, float s,
 }
 
 // ═══════════════════════════════════════════════════════════
+// updateTimingFromPtGraph — free function
+// ═══════════════════════════════════════════════════════════
+
+void
+updateTimingFromPtGraph(PtGraph *pt_graph)
+{
+  for (VertexId vertex_id : pt_graph->sortedVertexIds()) {
+    PtVertex &pt_vertex = pt_graph->ptVertex(vertex_id);
+    if (!pt_vertex.vertex())
+      continue;
+    PtVertexType type = pt_vertex.type();
+    if (type == PtVertexType::RefInput
+     || type == PtVertexType::RefOutput
+     || type == PtVertexType::SiblingLoad) {
+      pt_graph->writeSlewToGraph(pt_vertex, pt_vertex.vertex());
+      pt_graph->writePathsToGraph(pt_vertex, pt_vertex.vertex());
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
 // ResizeOperator
 // ═══════════════════════════════════════════════════════════
 
@@ -208,6 +229,104 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   return result;
 }
 
+std::vector<MoveOption>
+ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
+                             EvalContext &ctx, int n)
+{
+  std::vector<MoveOption> results;
+
+  // Skip dont_touch instances
+  odb::dbInst *db_inst = db_sta_->getDbNetwork()->staToDb(inst);
+  if (db_inst && db_inst->isDoNotTouch())
+    return results;
+
+  sta::LibertyCell *ori_cell = db_sta_->network()->libertyCell(inst);
+  if (!ori_cell)
+    return results;
+
+  std::vector<sta::LibertyCell*> candidates = collectCandidates(ori_cell);
+  if (candidates.size() < 2)
+    return results;
+
+  auto start_eval = std::chrono::high_resolution_clock::now();
+
+  // Pass 1: evaluate all candidates, store (cost, slack) pairs
+  std::vector<float> vec_cost_slack(candidates.size() * 2,
+                                    std::numeric_limits<float>::max());
+  float slack_before = 0.0f;
+
+  for (size_t i = 0; i < candidates.size(); i++) {
+    sta::LibertyCell *cand = candidates[i];
+
+    if (!local_sta_->legalCheckBeforeSwap(inst, cand, nullptr, nullptr, pt_graph)
+        && cand != ori_cell)
+      continue;
+
+    float leakage = lookupLeakage(inst, cand);
+    float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
+        pt_graph, ctx.arc_delay_calc, cand).delay_lm_sum;
+
+    if (!local_sta_->legalCheckAfterSwap(inst, cand, nullptr, nullptr, pt_graph)
+        && cand != ori_cell)
+      continue;
+
+    float cost = ctx.swapCost(delay_lm_sum, leakage);
+    float slack = local_sta_->localSlackAroundRef(pt_graph);
+    vec_cost_slack[i * 2] = cost;
+    vec_cost_slack[i * 2 + 1] = slack;
+
+    if (cand == ori_cell)
+      slack_before = slack;
+  }
+
+  auto end_eval = std::chrono::high_resolution_clock::now();
+  if (ctx.runtime_map) {
+    (*ctx.runtime_map)["equiv_cell_check"] +=
+        std::chrono::duration<double>(end_eval - start_eval).count();
+    (*ctx.runtime_map)["equiv_cell_count"] += candidates.size();
+  }
+
+  // Pass 2: collect top-N (with slack margin check), sorted ascending by cost
+  struct CandEntry {
+    float cost;
+    sta::LibertyCell *cell;
+  };
+  std::vector<CandEntry> valid;
+  float ori_cost = std::numeric_limits<float>::max();
+
+  for (size_t i = 0; i < candidates.size(); i++) {
+    float cost = vec_cost_slack[i * 2];
+    float slack = vec_cost_slack[i * 2 + 1];
+    if (candidates[i] == ori_cell) {
+      ori_cost = cost;
+      continue;
+    }
+    if (cost >= std::numeric_limits<float>::max())
+      continue;
+    if (slack < slack_before * slack_margin_)
+      continue;
+    valid.push_back({cost, candidates[i]});
+  }
+
+  std::sort(valid.begin(), valid.end(),
+            [](const CandEntry &a, const CandEntry &b) {
+              return a.cost < b.cost;
+            });
+
+  int count = std::min(n, static_cast<int>(valid.size()));
+  for (int i = 0; i < count; i++) {
+    if (valid[i].cost < ori_cost) {
+      MoveOption mo;
+      mo.type = MoveOption::RESIZE_ONLY;
+      mo.cost = valid[i].cost;
+      mo.target_cell = valid[i].cell;
+      results.push_back(mo);
+    }
+  }
+
+  return results;
+}
+
 std::unique_ptr<LrOperator>
 ResizeOperator::copy() const
 {
@@ -219,6 +338,34 @@ ResizeOperator::copy() const
   op->col_padding_ = col_padding_;
   op->row_padding_ = row_padding_;
   return op;
+}
+
+void
+ResizeOperator::apply(const MoveOption &move, PtGraph *pt_graph,
+                      std::map<std::string, double> &runtime_map)
+{
+  auto start = std::chrono::steady_clock::now();
+  if (move.target_cell && pt_graph->refInstance()) {
+    sta::LibertyCell *from_cell =
+        db_sta_->network()->libertyCell(pt_graph->refInstance());
+    if (!sta::equivCellPorts(from_cell, move.target_cell)
+        || !sta::equivCellFuncs(from_cell, move.target_cell)) {
+      printf("ResizeOperator::apply skipping %s: "
+             "port/function mismatch\n",
+             db_sta_->network()->pathName(pt_graph->refInstance()));
+      fflush(stdout);
+      return;
+    }
+    db_sta_->replaceCell(pt_graph->refInstance(), move.target_cell);
+  }
+  auto mid = std::chrono::steady_clock::now();
+  runtime_map["swap"] += std::chrono::duration<double>(mid - start).count();
+  updateTimingFromPtGraph(pt_graph);
+  auto end = std::chrono::steady_clock::now();
+  runtime_map["writeTimingToDb"] +=
+      std::chrono::duration<double>(end - start).count();
+  runtime_map["applyDb"] +=
+      std::chrono::duration<double>(end - start).count();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -412,6 +559,20 @@ BufferOperator::copy() const
   return op;
 }
 
+void
+BufferOperator::apply(const MoveOption &move, PtGraph *pt_graph,
+                      std::map<std::string, double> &runtime_map)
+{
+  auto start = std::chrono::steady_clock::now();
+  if (rebuffer_) {
+    int count = rebuffer_->applyBufferingToDb();
+    runtime_map["buffer_count"] += count;
+  }
+  auto end = std::chrono::steady_clock::now();
+  runtime_map["applyDb"] +=
+      std::chrono::duration<double>(end - start).count();
+}
+
 // ═══════════════════════════════════════════════════════════
 // BufferSensitivityOperator
 // ═══════════════════════════════════════════════════════════
@@ -485,6 +646,98 @@ CombinedOperator::setSlackMargin(float margin)
 }
 
 MoveOption
+CombinedOperator::tryBufferingOnCandidates(
+    PtGraph *pt_graph, sta::Instance *inst, EvalContext &ctx,
+    const std::vector<MoveOption> &resize_candidates,
+    sta::LibertyCell *ori_cell, float ori_cost)
+{
+  MoveOption result;
+  LrRebufferV2 *rebuffer = buffer_op_ ? buffer_op_->rebuffer() : nullptr;
+  if (!rebuffer)
+    return result;
+
+  // Collect RefOutput driver pin
+  sta::Pin *drvr_pin = nullptr;
+  VertexId drvr_vid = sta::object_id_null;
+  for (size_t i = 0; i < pt_graph->vertexCount(); i++) {
+    PtVertex &pv = pt_graph->ptVertex(i);
+    if (pv.vertex() && pv.type() == PtVertexType::RefOutput) {
+      drvr_pin = pv.vertex()->pin();
+      drvr_vid = pv.objectIdx();
+      break;
+    }
+  }
+  if (!drvr_pin || drvr_vid == sta::object_id_null)
+    return result;
+
+  // Phase 2a: Build buffer tree + 2 rounds coarse (cell-independent, cached)
+  ctx.pt_graph = pt_graph;
+  rsz::BufferedNetPtr cached_bnet = rebuffer->prepareBufferOptions(
+      drvr_pin, pt_graph->ptVertex(drvr_vid));
+  if (!cached_bnet)
+    return result;
+
+  // Build candidate list: top-N resize cells + original cell
+  struct BufCandidate {
+    sta::LibertyCell *cell;
+    bool is_original;
+  };
+  std::vector<BufCandidate> buf_candidates;
+  for (auto &mo : resize_candidates)
+    buf_candidates.push_back({mo.target_cell, false});
+  buf_candidates.push_back({ori_cell, true});
+
+  float best_buf_cost = std::numeric_limits<float>::max();
+  sta::LibertyCell *best_buf_cell = nullptr;
+  bool best_buf_is_original = false;
+
+  // Phase 2b: For each candidate, evaluate precisely
+  for (auto &bc : buf_candidates) {
+    if (!bc.cell)
+      continue;
+
+    local_sta_->increAndGetLocalTimingCost(
+        pt_graph, ctx.arc_delay_calc, bc.cell);
+
+    rebuffer->evaluateBufferOnCandidate(drvr_vid, cached_bnet);
+
+    if (rebuffer->bestBnet()) {
+      float cost = rebuffer->bestCost();
+      if (cost < best_buf_cost) {
+        best_buf_cost = cost;
+        best_buf_cell = bc.cell;
+        best_buf_is_original = bc.is_original;
+      }
+    }
+    rebuffer->cleanupVirtualBuffer();
+  }
+
+  if (!best_buf_cell || best_buf_cost >= ori_cost)
+    return result;
+
+  // Re-evaluate the winner to populate best_bnet_ for applyChangesToDb
+  local_sta_->increAndGetLocalTimingCost(
+      pt_graph, ctx.arc_delay_calc, best_buf_cell);
+  rebuffer->evaluateBufferOnCandidate(drvr_vid, cached_bnet);
+
+  if (!rebuffer->bestBnet()) {
+    rebuffer->cleanupVirtualBuffer();
+    return result;
+  }
+
+  if (best_buf_is_original) {
+    result.type = MoveOption::BUFFER_ONLY;
+    result.target_cell = nullptr;
+  } else {
+    result.type = MoveOption::COMBINED;
+    result.target_cell = best_buf_cell;
+  }
+  result.cost = best_buf_cost;
+  result.buffer_tree = rebuffer->bestBnet();
+  return result;
+}
+
+MoveOption
 CombinedOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
                            EvalContext &ctx)
 {
@@ -493,8 +746,17 @@ CombinedOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   if (!ori_cell)
     return best;
 
-  // Phase 1: evaluate resize candidates
-  MoveOption resize_result = resize_op_->evaluate(pt_graph, inst, ctx);
+  // Route based on allow_resize/allow_buffer flags from TaskArranger move mask
+  if (ctx.allow_resize && !ctx.allow_buffer)
+    return resize_op_->evaluate(pt_graph, inst, ctx);
+  if (!ctx.allow_resize && ctx.allow_buffer)
+    return buffer_op_->evaluate(pt_graph, inst, ctx);
+  if (!ctx.allow_resize && !ctx.allow_buffer)
+    return best;
+
+  // Both allowed: full combined path
+  // ── Phase 1: Evaluate resize candidates, get top-2 ──
+  std::vector<MoveOption> top_n = resize_op_->evaluateTopN(pt_graph, inst, ctx, 2);
 
   // Compute original cost
   float ori_cost;
@@ -505,37 +767,25 @@ CombinedOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     ori_cost = ctx.swapCost(delay_lm_sum, leakage);
   }
 
-  if (resize_result.hasChange() && resize_result.cost < ori_cost)
-    best = resize_result;
+  // Best resize-only candidate
+  if (!top_n.empty() && top_n[0].cost < ori_cost)
+    best = top_n[0];
 
-  // Phase 2: try buffering on best resized cell (or original)
+  // ── Phase 2: Two-phase buffering on top-2 candidates ──
   auto start_buf = std::chrono::high_resolution_clock::now();
 
-  sta::LibertyCell *buf_base_cell =
-      best.hasChange() ? best.target_cell : ori_cell;
+  MoveOption buf_result = tryBufferingOnCandidates(
+      pt_graph, inst, ctx, top_n, ori_cell, ori_cost);
 
-  local_sta_->increAndGetLocalTimingCost(pt_graph, ctx.arc_delay_calc,
-                                         buf_base_cell);
-
-  MoveOption buf_result = buffer_op_->evaluate(pt_graph, inst, ctx);
-
-  auto end_buf = std::chrono::high_resolution_clock::now();
   if (ctx.runtime_map) {
+    auto end_buf = std::chrono::high_resolution_clock::now();
     (*ctx.runtime_map)["buffer_insertion"] +=
         std::chrono::duration<double>(end_buf - start_buf).count();
   }
 
-  if (buf_result.hasChange() && buf_result.cost < best.cost
-      && buf_result.cost < ori_cost) {
-    if (buf_base_cell == ori_cell) {
-      best.type = MoveOption::BUFFER_ONLY;
-    } else {
-      best.type = MoveOption::COMBINED;
-      best.target_cell = buf_base_cell;
-    }
-    best.cost = buf_result.cost;
-    best.buffer_tree = buf_result.buffer_tree;
-  }
+  // ── Phase 3: Decision — pick best among resize-only vs buffer results ──
+  if (buf_result.hasChange() && buf_result.cost < best.cost)
+    best = buf_result;
 
   // Ensure PtGraph in correct state for the winner
   if (best.hasChange() && best.target_cell) {
@@ -546,18 +796,47 @@ CombinedOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   return best;
 }
 
+void
+CombinedOperator::setEvalContext(EvalContext *ctx)
+{
+  if (buffer_op_)
+    buffer_op_->setEvalContext(ctx);
+}
+
 std::unique_ptr<LrOperator>
 CombinedOperator::copy() const
 {
   auto op = std::make_unique<CombinedOperator>(
       db_sta_, local_sta_,
       buffer_op_ ? buffer_op_->resizer() : nullptr,
-      nullptr);
+      nullptr);  // ctx=nullptr; caller must call setEvalContext() after
   op->resize_op_->setEquivCellArray(resize_op_->equiv_cell_array_,
                                     resize_op_->equiv_cell_pos_map_);
   op->resize_op_->setInstInfoMap(resize_op_->inst_info_map_);
   op->resize_op_->setSlackMargin(resize_op_->slack_margin_);
+  op->resize_op_->setColPadding(resize_op_->col_padding_);
+  op->resize_op_->setRowPadding(resize_op_->row_padding_);
   return op;
+}
+
+void
+CombinedOperator::apply(const MoveOption &move, PtGraph *pt_graph,
+                         std::map<std::string, double> &runtime_map)
+{
+  switch (move.type) {
+    case MoveOption::RESIZE_ONLY:
+      resize_op_->apply(move, pt_graph, runtime_map);
+      break;
+    case MoveOption::BUFFER_ONLY:
+      buffer_op_->apply(move, pt_graph, runtime_map);
+      break;
+    case MoveOption::COMBINED:
+      resize_op_->apply(move, pt_graph, runtime_map);
+      buffer_op_->apply(move, pt_graph, runtime_map);
+      break;
+    case MoveOption::NONE:
+      break;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -600,14 +879,10 @@ ParallelVisitor::init(float average_delay, float average_power, float wns,
   printf("slack_margin: %f\n", slack_margin);
   fflush(stdout);
 
-  // Propagate to operators
-  if (resize_op_) {
-    resize_op_->setSlackMargin(slack_margin);
-    resize_op_->setInstInfoMap(inst_info_map);
-  }
-  if (combined_op_) {
-    combined_op_->setSlackMargin(slack_margin);
-    combined_op_->setInstInfoMap(inst_info_map);
+  // Propagate to operator via virtual interface
+  if (operator_) {
+    operator_->setSlackMargin(slack_margin);
+    operator_->setInstInfoMap(inst_info_map);
   }
 }
 
@@ -628,22 +903,19 @@ ParallelVisitor::visit(sta::Instance *inst, sta::VertexId vid)
 
   eval_ctx_.pt_graph = pt_graph_.get();
 
-  // Determine operations from move_mask
-  bool do_resize = true;
-  bool do_buffer = false;
+  // Set move mask from TaskArranger if available
   if (task_arranger_ && vid != sta::object_id_null) {
     auto *v = task_arranger_->vertex(vid);
-    do_resize = v->doResize();
-    do_buffer = v->doBuffer();
+    eval_ctx_.allow_resize = v->doResize();
+    eval_ctx_.allow_buffer = v->doBuffer();
+  } else {
+    eval_ctx_.allow_resize = true;
+    eval_ctx_.allow_buffer = true;
   }
 
-  // Route to operator
-  if (do_resize && do_buffer && combined_op_)
-    best_move_ = combined_op_->evaluate(pt_graph_.get(), inst, eval_ctx_);
-  else if (do_resize && resize_op_)
-    best_move_ = resize_op_->evaluate(pt_graph_.get(), inst, eval_ctx_);
-  else if (do_buffer && buffer_op_)
-    best_move_ = buffer_op_->evaluate(pt_graph_.get(), inst, eval_ctx_);
+  // Evaluate via operator
+  if (operator_)
+    best_move_ = operator_->evaluate(pt_graph_.get(), inst, eval_ctx_);
 
   // Precheck mode: store cost in results vector, don't apply to DB
   if (precheck_results_ && vid != sta::object_id_null) {
@@ -680,94 +952,15 @@ ParallelVisitor::visitSlewOnly(sta::Instance *inst)
   local_sta_->findLocalDelays(pt_graph_.get(), eval_ctx_.arc_delay_calc);
   local_sta_->findLocalArrivals(pt_graph_.get());
   local_sta_->findLocalRequireds(pt_graph_.get());
-  updateTimingFromPtGraph();
+  updateTimingFromPtGraph(pt_graph_.get());
 }
 
 void
 ParallelVisitor::applyChangesToDb(rsz::Resizer *resizer)
 {
   std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
-  switch (best_move_.type) {
-    case MoveOption::RESIZE_ONLY:
-      applyResizeToDb(resizer);
-      break;
-    case MoveOption::BUFFER_ONLY:
-      applyBufferingToDb(resizer);
-      break;
-    case MoveOption::COMBINED:
-      applyResizeToDb(resizer);
-      applyBufferingToDb(resizer);
-      break;
-    case MoveOption::NONE:
-      break;
-  }
-}
-
-void
-ParallelVisitor::applyResizeToDb(rsz::Resizer *resizer)
-{
-  auto start = std::chrono::steady_clock::now();
-  if (best_move_.target_cell && pt_graph_->refInstance()) {
-    sta::LibertyCell *from_cell =
-        db_sta_->network()->libertyCell(pt_graph_->refInstance());
-    if (!sta::equivCellPorts(from_cell, best_move_.target_cell)
-        || !sta::equivCellFuncs(from_cell, best_move_.target_cell)) {
-      printf("ParallelVisitor::applyResizeToDb skipping %s: "
-             "port/function mismatch\n",
-             db_sta_->network()->pathName(pt_graph_->refInstance()));
-      fflush(stdout);
-      return;
-    }
-    db_sta_->replaceCell(pt_graph_->refInstance(), best_move_.target_cell);
-  }
-  auto mid = std::chrono::steady_clock::now();
-  runtime_map_["swap"] += std::chrono::duration<double>(mid - start).count();
-  updateTimingFromPtGraph();
-  auto end = std::chrono::steady_clock::now();
-  runtime_map_["writeTimingToDb"] +=
-      std::chrono::duration<double>(end - start).count();
-  runtime_map_["applyDb"] +=
-      std::chrono::duration<double>(end - start).count();
-}
-
-void
-ParallelVisitor::applyBufferingToDb(rsz::Resizer *resizer)
-{
-  auto start = std::chrono::steady_clock::now();
-  LrRebufferV2 *rebuffer = nullptr;
-  if (buffer_op_)
-    rebuffer = buffer_op_->rebuffer();
-  if (!rebuffer)
-    return;
-  int count = rebuffer->applyBufferingToDb();
-  auto end = std::chrono::steady_clock::now();
-  runtime_map_["applyDb"] +=
-      std::chrono::duration<double>(end - start).count();
-  runtime_map_["buffer_count"] += count;
-}
-
-void
-ParallelVisitor::updateTimingFromPtGraph()
-{
-  for (VertexId vertex_id : pt_graph_->sortedVertexIds()) {
-    updateVertexInfo(vertex_id);
-  }
-}
-
-void
-ParallelVisitor::updateVertexInfo(sta::VertexId vertex_id)
-{
-  PtVertex &pt_vertex = pt_graph_->ptVertex(vertex_id);
-  if (!pt_vertex.vertex())
-    return;
-  sta::Vertex *sta_vertex = pt_vertex.vertex();
-  PtVertexType type = pt_vertex.type();
-  if (type == PtVertexType::RefInput
-   || type == PtVertexType::RefOutput
-   || type == PtVertexType::SiblingLoad) {
-    pt_graph_->writeSlewToGraph(pt_vertex, sta_vertex);
-    pt_graph_->writePathsToGraph(pt_vertex, sta_vertex);
-  }
+  if (operator_)
+    operator_->apply(best_move_, pt_graph_.get(), runtime_map_);
 }
 
 ParallelVisitor *
@@ -780,40 +973,11 @@ ParallelVisitor::copy() const
   v->task_arranger_ = task_arranger_;
   v->precheck_results_ = precheck_results_;
 
-  if (resize_op_) {
-    auto cloned = resize_op_->copy();
-    v->resize_op_.reset(static_cast<ResizeOperator*>(cloned.release()));
-  }
-  if (buffer_op_) {
-    auto cloned = buffer_op_->copy();
-    auto *buf_op = static_cast<BufferOperator*>(cloned.release());
-    buf_op->setEvalContext(&v->eval_ctx_);
-    v->buffer_op_.reset(buf_op);
-  }
-  if (combined_op_) {
-    auto cloned = combined_op_->copy();
-    v->combined_op_.reset(static_cast<CombinedOperator*>(cloned.release()));
-    // TODO: CombinedOperator's internal buffer_op also needs ctx update
+  if (operator_) {
+    v->operator_ = operator_->copy();
+    v->operator_->setEvalContext(&v->eval_ctx_);
   }
   return v;
-}
-
-void
-ParallelVisitor::setResizeOperator(std::unique_ptr<ResizeOperator> op)
-{
-  resize_op_ = std::move(op);
-}
-
-void
-ParallelVisitor::setBufferOperator(std::unique_ptr<BufferOperator> op)
-{
-  buffer_op_ = std::move(op);
-}
-
-void
-ParallelVisitor::setCombinedOperator(std::unique_ptr<CombinedOperator> op)
-{
-  combined_op_ = std::move(op);
 }
 
 void

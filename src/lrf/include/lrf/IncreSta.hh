@@ -85,6 +85,11 @@ public:
                                   float avg_power, float PT_tradeoff,
                                   int buffer_top_n = 100);
 
+  // V2: Single-pass resize + buffering using CombinedOperator + ParallelVisitor.
+  void parallelResizeAndBufferingV2(rsz::Resizer *resizer, float avg_delay,
+                                    float avg_power, float PT_tradeoff,
+                                    int buffer_top_n = 100);
+
   // Screen buffering candidates: collect gates with negative late slack,
   // sort by output_cap / input_cap ratio descending, return top_n vertex ids.
   std::vector<size_t> bufferingVerticesCandidate(int top_n);
@@ -92,6 +97,10 @@ public:
   // Sensitivity-based buffering candidate screening (parallel).
   // Uses the unified sensitivity formula on each net's buffer tree.
   std::vector<size_t> bufferingVerticesCandidateBySensitivity(
+      rsz::Resizer *resizer, float avg_delay, float avg_leakage, int top_n);
+
+  // V2: sensitivity screening via ParallelVisitor + BufferSensitivityOperator.
+  std::vector<size_t> bufferingVerticesCandidateBySensitivityV2(
       rsz::Resizer *resizer, float avg_delay, float avg_leakage, int top_n);
 
   // Preceding resize check: evaluate resize benefit for all instances

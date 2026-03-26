@@ -510,6 +510,74 @@ LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
   }
 }
 
+////////////////////////////////////////////////////////////////
+// Two-phase buffering for CombinedVisitor cache reuse
+////////////////////////////////////////////////////////////////
+
+rsz::BufferedNetPtr
+LrRebuffer::prepareBufferOptions(const sta::Pin *drvr_pin,
+                                 PtVertex &drvr_pt_vertex)
+{
+  // Reset state
+  best_bnet_ = nullptr;
+  best_cost_ = std::numeric_limits<float>::max();
+  if (!best_vinfo_.vertex_ids.empty()) {
+    removeVirtualBuffer(best_vinfo_);
+  }
+  best_vinfo_ = VirtualBufferInfo{};
+
+  if (network_->isTopLevelPort(drvr_pin))
+    return nullptr;
+
+  PtGraph *pt_graph = visitor_->ptGraph();
+  sta::LibertyCell *cur_lib_cell = pt_graph->refGate();
+  drvr_port_ = cur_lib_cell->findLibertyPort(network_->portName(drvr_pin));
+  drvr_pin_ = drvr_pin;
+  sta::Net *net = network_->net(drvr_pin);
+  if (!net || !drvr_port_ || hasTopLevelOutputPort(net))
+    return nullptr;
+
+  setPin(const_cast<sta::Pin*>(drvr_pin));
+
+  // Step 1: Build Steiner tree (cell-independent)
+  BufferedNetPtr bnet = resizer_->makeBufferedNet(drvr_pin, corner_);
+  if (!bnet)
+    return nullptr;
+
+  // Step 2: Annotate LMs on tree nodes (cell-independent)
+  local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
+  annotateLoadLMs(drvr_pt_vertex, bnet);
+
+  // Step 3: 2 rounds of coarse bufferForTiming (cell-independent heuristic)
+  VertexId drvr_vid = drvr_pt_vertex.objectIdx();
+  const bool allow_topology_rewrite = true;
+  for (int i = 0; i < 2; i++) {
+    bnet = bufferForTiming(drvr_vid, bnet, allow_topology_rewrite,
+                           /*last_iteration=*/false);
+    if (!bnet)
+      return nullptr;
+  }
+
+  return bnet;  // caller caches this for evaluateBufferOnCandidate
+}
+
+void
+LrRebuffer::evaluateBufferOnCandidate(sta::VertexId drvr_vid,
+                                      const rsz::BufferedNetPtr &prepared_bnet)
+{
+  // Run 1 round of precise bufferForTiming on the current PtGraph state.
+  // PtGraph should already reflect the resize candidate via virtualReplaceCell
+  // + increAndGetLocalTimingCost before calling this.
+  const bool allow_topology_rewrite = true;
+  BufferedNetPtr result = bufferForTiming(drvr_vid, prepared_bnet,
+                                         allow_topology_rewrite,
+                                         /*last_iteration=*/true);
+  if (result) {
+    best_bnet_ = result;
+    // best_cost_ is set inside bufferForTiming → evaluateOption
+  }
+}
+
 
 static std::optional<int> findWireLayer(BnetPtr node)
 {
