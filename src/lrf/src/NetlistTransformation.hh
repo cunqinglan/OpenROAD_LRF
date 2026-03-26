@@ -43,6 +43,8 @@ struct EvalContext {
   float average_delay = 1.0f;
   float average_leakage = 1.0f;
   float PT_tradeoff = 100.0f;
+  bool allow_resize = true;
+  bool allow_buffer = true;
   std::map<std::string, double> *runtime_map = nullptr;
 
   float swapCost(float delay_lm_sum, float power) const;
@@ -68,15 +70,26 @@ struct MoveOption {
                       rsz::BufferedNetPtr bnet);
 };
 
+// Helper: write slew+paths from PtGraph vertices to sta::Graph.
+void updateTimingFromPtGraph(PtGraph *pt_graph);
+
 // ═══════════════════════════════════════════════════════════
-// Layer 3: LrOperator — stateless operator interface
+// Layer 3: LrOperator — operator interface
 // ═══════════════════════════════════════════════════════════
 class LrOperator {
 public:
   virtual ~LrOperator() = default;
   virtual MoveOption evaluate(PtGraph *pt_graph, sta::Instance *inst,
                               EvalContext &ctx) = 0;
+  virtual void apply(const MoveOption &move, PtGraph *pt_graph,
+                     std::map<std::string, double> &runtime_map) {}
   virtual std::unique_ptr<LrOperator> copy() const = 0;
+
+  // Configuration (override in subclasses that need them)
+  virtual void setEquivCellArray(LibertyCellArray *, PosMap *) {}
+  virtual void setInstInfoMap(std::unordered_map<sta::Instance*, LocalCellInfo*> *) {}
+  virtual void setSlackMargin(float) {}
+  virtual void setEvalContext(EvalContext *) {}
 };
 
 // ─── ResizeOperator ──────────────────────────────────────
@@ -85,11 +98,17 @@ public:
   ResizeOperator(sta::dbSta *db_sta, LocalSta *local_sta);
   MoveOption evaluate(PtGraph *pt_graph, sta::Instance *inst,
                       EvalContext &ctx) override;
+  // Return top-N resize candidates (sorted by cost, ascending).
+  // Used by CombinedOperator to try buffering on multiple candidates.
+  std::vector<MoveOption> evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
+                                       EvalContext &ctx, int n);
+  void apply(const MoveOption &move, PtGraph *pt_graph,
+             std::map<std::string, double> &runtime_map) override;
   std::unique_ptr<LrOperator> copy() const override;
 
-  void setEquivCellArray(LibertyCellArray *array, PosMap *pos_map);
-  void setInstInfoMap(std::unordered_map<sta::Instance*, LocalCellInfo*> *map);
-  void setSlackMargin(float margin) { slack_margin_ = margin; }
+  void setEquivCellArray(LibertyCellArray *array, PosMap *pos_map) override;
+  void setInstInfoMap(std::unordered_map<sta::Instance*, LocalCellInfo*> *map) override;
+  void setSlackMargin(float margin) override { slack_margin_ = margin; }
   void setColPadding(int p) { col_padding_ = p; }
   void setRowPadding(int p) { row_padding_ = p; }
 
@@ -121,6 +140,8 @@ public:
   using ResizeOperator::ResizeOperator;
   MoveOption evaluate(PtGraph *pt_graph, sta::Instance *inst,
                       EvalContext &ctx) override;
+  void apply(const MoveOption &, PtGraph *,
+             std::map<std::string, double> &) override {}
   std::unique_ptr<LrOperator> copy() const override;
 };
 
@@ -131,12 +152,14 @@ public:
                  rsz::Resizer *resizer, EvalContext *ctx);
   MoveOption evaluate(PtGraph *pt_graph, sta::Instance *inst,
                       EvalContext &ctx) override;
+  void apply(const MoveOption &move, PtGraph *pt_graph,
+             std::map<std::string, double> &runtime_map) override;
   std::unique_ptr<LrOperator> copy() const override;
 
   LrRebufferV2 *rebuffer() { return rebuffer_.get(); }
   rsz::Resizer *resizer() { return resizer_; }
   // Update the EvalContext pointer (called after copy() when new visitor's ctx is ready)
-  void setEvalContext(EvalContext *ctx);
+  void setEvalContext(EvalContext *ctx) override;
 
 protected:
   sta::dbSta *db_sta_;
@@ -153,6 +176,8 @@ public:
   using BufferOperator::BufferOperator;
   MoveOption evaluate(PtGraph *pt_graph, sta::Instance *inst,
                       EvalContext &ctx) override;
+  void apply(const MoveOption &, PtGraph *,
+             std::map<std::string, double> &) override {}
   std::unique_ptr<LrOperator> copy() const override;
 };
 
@@ -163,13 +188,25 @@ public:
                    rsz::Resizer *resizer, EvalContext *ctx);
   MoveOption evaluate(PtGraph *pt_graph, sta::Instance *inst,
                       EvalContext &ctx) override;
+  void apply(const MoveOption &move, PtGraph *pt_graph,
+             std::map<std::string, double> &runtime_map) override;
   std::unique_ptr<LrOperator> copy() const override;
 
-  void setEquivCellArray(LibertyCellArray *array, PosMap *pos_map);
-  void setInstInfoMap(std::unordered_map<sta::Instance*, LocalCellInfo*> *map);
-  void setSlackMargin(float margin);
+  void setEquivCellArray(LibertyCellArray *array, PosMap *pos_map) override;
+  void setInstInfoMap(std::unordered_map<sta::Instance*, LocalCellInfo*> *map) override;
+  void setSlackMargin(float margin) override;
+  void setEvalContext(EvalContext *ctx) override;
+  LrRebufferV2 *rebuffer() { return buffer_op_ ? buffer_op_->rebuffer() : nullptr; }
 
 private:
+  // Two-phase buffering: try buffering on each candidate cell, return
+  // the best buffer result. Returns MoveOption with type==NONE if no
+  // buffering improvement found.
+  MoveOption tryBufferingOnCandidates(
+      PtGraph *pt_graph, sta::Instance *inst, EvalContext &ctx,
+      const std::vector<MoveOption> &resize_candidates,
+      sta::LibertyCell *ori_cell, float ori_cost);
+
   std::unique_ptr<ResizeOperator> resize_op_;
   std::unique_ptr<BufferOperator> buffer_op_;
   sta::dbSta *db_sta_;
@@ -189,7 +226,7 @@ public:
   virtual ~ParallelVisitor();
 
   // Initialize visitor: compute slack_margin from WNS/clock_period,
-  // set average_delay/leakage, configure operators.
+  // set average_delay/leakage, configure operator.
   void init(float average_delay, float average_power, float wns,
             float PT_tradeoff,
             std::unordered_map<sta::Instance*, LocalCellInfo*> *inst_info_map);
@@ -200,10 +237,8 @@ public:
   virtual void applyChangesToDb(rsz::Resizer *resizer);
   virtual ParallelVisitor *copy() const;
 
-  // Operator setup
-  void setResizeOperator(std::unique_ptr<ResizeOperator> op);
-  void setBufferOperator(std::unique_ptr<BufferOperator> op);
-  void setCombinedOperator(std::unique_ptr<CombinedOperator> op);
+  // Single operator slot — the visitor only calls evaluate/apply on this.
+  void setOperator(std::unique_ptr<LrOperator> op) { operator_ = std::move(op); }
 
   void setTaskArranger(TaskArranger *ta) { task_arranger_ = ta; }
 
@@ -229,11 +264,6 @@ public:
   const std::map<std::string, double> &runtimeMap() const { return runtime_map_; }
 
 protected:
-  void updateTimingFromPtGraph();
-  void updateVertexInfo(sta::VertexId vertex_id);
-  void applyResizeToDb(rsz::Resizer *resizer);
-  void applyBufferingToDb(rsz::Resizer *resizer);
-
   sta::dbSta *db_sta_;
   LocalSta *local_sta_;
   rsz::Resizer *resizer_;
@@ -241,10 +271,7 @@ protected:
   EvalContext eval_ctx_;
   MoveOption best_move_;
   TaskArranger *task_arranger_ = nullptr;
-
-  std::unique_ptr<ResizeOperator> resize_op_;
-  std::unique_ptr<BufferOperator> buffer_op_;
-  std::unique_ptr<CombinedOperator> combined_op_;
+  std::unique_ptr<LrOperator> operator_;
   std::vector<ResizeBenefit> *precheck_results_ = nullptr;
 
   std::map<std::string, double> runtime_map_ = {

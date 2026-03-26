@@ -1630,7 +1630,7 @@ CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_paddi
     }
   }
 
-  // ---- Phase 2: Try buffering on top-2 resized cells ----
+  // ---- Phase 2: Prepare buffer options once, evaluate on top-2 candidates ----
   auto start_buf = std::chrono::high_resolution_clock::now();
 
   // Collect driver pin info (before rebufferPin may reallocate vertices)
@@ -1642,30 +1642,39 @@ CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_paddi
       drvr_infos.push_back({pv.vertex()->pin(), pv.objectIdx()});
   }
 
-  // Try buffering on each of the top-2 resize candidates, keep the best
   float best_buf_cost = std::numeric_limits<float>::max();
   sta::LibertyCell *best_buf_resize_cell = nullptr;
   bool buf_valid = false;
 
   if (drvr_infos.size() == 1) {
-    for (int k = 0; k < 2; k++) {
-      if (top2[k].cell == nullptr
-          || top2[k].cost >= std::numeric_limits<float>::max())
-        continue;
+    // Phase 2a: Build buffer tree + 2 rounds coarse (cell-independent, cached)
+    rsz::BufferedNetPtr cached_bnet = rebuffer_->prepareBufferOptions(
+        drvr_infos[0].pin, pt_graph_->ptVertex(drvr_infos[0].vid));
 
-      local_sta_->increAndGetLocalTimingCost(
-          pt_graph_.get(), arc_delay_calc_, top2[k].cell);
-      rebuffer_->rebufferPin(drvr_infos[0].pin,
-                             pt_graph_->ptVertex(drvr_infos[0].vid));
-      if (rebuffer_->bestBnet()) {
-        float cost = rebuffer_->bestCost();
-        if (cost < best_buf_cost) {
-          best_buf_cost = cost;
-          best_buf_resize_cell = top2[k].cell;
-          buf_valid = true;
+    if (cached_bnet) {
+      // Phase 2b: For each top-2 candidate, evaluate precisely
+      for (int k = 0; k < 2; k++) {
+        if (top2[k].cell == nullptr
+            || top2[k].cost >= std::numeric_limits<float>::max())
+          continue;
+
+        // Set PtGraph to this resize candidate's timing
+        local_sta_->increAndGetLocalTimingCost(
+            pt_graph_.get(), arc_delay_calc_, top2[k].cell);
+
+        // 1 round precise evaluation (reuses cached buffer tree)
+        rebuffer_->evaluateBufferOnCandidate(drvr_infos[0].vid, cached_bnet);
+
+        if (rebuffer_->bestBnet()) {
+          float cost = rebuffer_->bestCost();
+          if (cost < best_buf_cost) {
+            best_buf_cost = cost;
+            best_buf_resize_cell = top2[k].cell;
+            buf_valid = true;
+          }
         }
+        rebuffer_->cleanupVirtualBuffer();
       }
-      rebuffer_->cleanupVirtualBuffer();
     }
   }
 
@@ -1679,19 +1688,21 @@ CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_paddi
   sta::LibertyCell *best_resize_cell = top2[0].cell;
 
   if (buf_valid && best_buf_cost < best_resize_cost) {
-    // Resize + buffer wins — recompute to get bestBnet in correct state
+    // Resize + buffer wins — recompute precise evaluation for the winner
     best_cell_ = best_buf_resize_cell;
     local_sta_->increAndGetLocalTimingCost(
         pt_graph_.get(), arc_delay_calc_, best_buf_resize_cell);
-    rebuffer_->rebufferPin(drvr_infos[0].pin,
-                           pt_graph_->ptVertex(drvr_infos[0].vid));
+    rebuffer_->evaluateBufferOnCandidate(drvr_infos[0].vid,
+        rebuffer_->bestBnet());
     if (rebuffer_->bestBnet()) {
       decision_ = Decision::ResizeAndBuffer;
       return true;
     }
     // Recompute failed — fall through to resize-only check
     rebuffer_->cleanupVirtualBuffer();
-  } else if (best_resize_cell != ori_cell && best_resize_cost < ori_cost) {
+  }
+
+  if (best_resize_cell != ori_cell && best_resize_cost < ori_cost) {
     // Resize only wins
     decision_ = Decision::ResizeOnly;
     best_cell_ = best_resize_cell;

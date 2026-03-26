@@ -58,6 +58,24 @@ public:
   const rsz::BufferedNetPtr& bestBnet() const { return best_bnet_; }
   float bestCost() const { return best_cost_; }
 
+  // ── Two-phase buffering for CombinedVisitor cache reuse ──
+  //
+  // Phase A (cell-independent): build Steiner tree, annotate LMs, run 2 rounds
+  // of coarse bufferForTiming.  The returned BnetPtr encodes the buffer option
+  // list and can be reused across multiple resize candidates.
+  // Sets drvr_pin_/drvr_port_ for subsequent evaluateBufferOnCandidate calls.
+  // Returns nullptr if buffering is not applicable.
+  rsz::BufferedNetPtr prepareBufferOptions(const sta::Pin *drvr_pin,
+                                           PtVertex &drvr_pt_vertex);
+
+  // Phase B (cell-dependent): given a prepared BnetPtr from prepareBufferOptions,
+  // run 1 round of precise bufferForTiming on the current PtGraph state
+  // (after virtualReplaceCell for a specific resize candidate).
+  // Updates best_bnet_/best_cost_ if a better option is found.
+  // Must call cleanupVirtualBuffer() after each candidate.
+  void evaluateBufferOnCandidate(sta::VertexId drvr_vid,
+                                 const rsz::BufferedNetPtr &prepared_bnet);
+
   // Sensitivity-based precheck: compute max S(v,e) over all buffer points
   // on the driving net. Does NOT insert any buffers.
   // Returns the maximum sensitivity score (positive = buffering is beneficial).

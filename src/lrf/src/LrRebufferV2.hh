@@ -35,6 +35,23 @@ public:
                               PtVertex &drvr_pt_vertex,
                               float avg_delay, float avg_leakage);
 
+  // ── Two-phase buffering for CombinedOperator cache reuse ──
+  //
+  // Phase A (cell-independent): build Steiner tree, annotate LMs, run 2 rounds
+  // of coarse bufferForTiming.  The returned BnetPtr encodes the buffer option
+  // list and can be reused across multiple resize candidates.
+  rsz::BufferedNetPtr prepareBufferOptions(const sta::Pin *drvr_pin,
+                                           PtVertex &drvr_pt_vertex);
+
+  // Phase B (cell-dependent): given a prepared BnetPtr from prepareBufferOptions,
+  // run 1 round of precise bufferForTiming on the current PtGraph state.
+  // Updates best_bnet_/best_cost_ if a better option is found.
+  // Must call cleanupVirtualBuffer() after each candidate.
+  void evaluateBufferOnCandidate(sta::VertexId drvr_vid,
+                                 const rsz::BufferedNetPtr &prepared_bnet);
+
+  void cleanupVirtualBuffer();
+
 protected:
   void localAnnotateLoadSlacks(const rsz::BufferedNetPtr& tree, PtVertex &drvr_pt_vertex);
   float computeBufferAddedCost(float buffer_delay_seconds,
