@@ -807,6 +807,242 @@ std::vector<sta::Vertex*> PositionDrivenStrategy::getWorstVerticesForEndpoint(
   return result;
 }
 
+// ---------------------------------------------------------------------------
+// buildGateCloneCut
+//
+// Called when the extracted cut for bad_instance is too large (> kMaxCutInstances).
+// Instead of skipping, we:
+//   1. Clone bad_instance (same cell, same input connections).
+//   2. Collect fanout instances of bad_instance on its output net, sorted by
+//      worst slack first.
+//   3. Reconnect the worst-slack fanouts to the clone's new output net, growing
+//      the cut until it reaches max_cut_instances.
+//   4. The resulting LogicCut = {clone} ∪ {selected fanouts}.
+//
+// The original bad_instance keeps the remaining (better-slack) fanouts, so
+// the netlist remains functionally correct regardless of whether ABC improves
+// the clone cut.
+//
+// Returns an empty LogicCut({},{},{}) when gate cloning is not applicable
+// (e.g. multi-output driver, no fanout instances).
+// ---------------------------------------------------------------------------
+cut::LogicCut PositionDrivenStrategy::buildGateCloneCut(
+    sta::Instance* bad_instance,
+    SeqRemapper& remapper,
+    size_t max_cut_instances)
+{
+  const cut::LogicCut empty_cut({}, {}, {});
+
+  sta::dbSta*     sta     = remapper.getSta();
+  sta::dbNetwork* network = sta->getDbNetwork();
+
+  sta::LibertyCell* cell = network->libertyCell(bad_instance);
+  if (!cell) {
+    logger_->warn(utl::RES, 426,
+        "[GateClone] bad_instance has no LibertyCell, skipping.");
+    return empty_cut;
+  }
+
+  // -----------------------------------------------------------------------
+  // Step 1: Find the single output pin/net of bad_instance.
+  // We only support single-output drivers for simplicity.
+  // -----------------------------------------------------------------------
+  sta::Net*  original_out_net = nullptr;
+  sta::Port* out_port         = nullptr;
+  {
+    int out_count = 0;
+    std::unique_ptr<sta::InstancePinIterator> pit(
+        network->pinIterator(bad_instance));
+    while (pit->hasNext()) {
+      sta::Pin* pin = pit->next();
+      if (!network->direction(pin)->isAnyOutput()) continue;
+      if (++out_count > 1) {
+        logger_->info(utl::RES, 427,
+            "[GateClone] bad_instance has multiple output pins, skipping.");
+        return empty_cut;
+      }
+      original_out_net = network->net(pin);
+      out_port         = network->port(pin);
+    }
+  }
+  if (!original_out_net || !out_port) {
+    logger_->info(utl::RES, 428,
+        "[GateClone] bad_instance has no output net, skipping.");
+    return empty_cut;
+  }
+
+  // -----------------------------------------------------------------------
+  // Step 2: Collect fanout instances (input pins driven by original_out_net),
+  //         skip top-level ports.
+  // -----------------------------------------------------------------------
+  // pair = (fanout instance, the input pin on that instance)
+  std::vector<std::pair<sta::Instance*, sta::Pin*>> fanouts;
+  {
+    std::unique_ptr<sta::NetPinIterator> npit(
+        network->pinIterator(original_out_net));
+    while (npit->hasNext()) {
+      const sta::Pin* cp = npit->next();
+      if (network->direction(cp)->isAnyOutput()) continue;  // skip driver
+      if (network->isTopLevelPort(cp)) continue;
+      sta::Instance* fi = network->instance(cp);
+      if (!fi || fi == bad_instance) continue;
+      fanouts.emplace_back(fi, const_cast<sta::Pin*>(cp));
+    }
+  }
+  if (fanouts.empty()) {
+    logger_->info(utl::RES, 429,
+        "[GateClone] bad_instance has no fanout instances, skipping.");
+    return empty_cut;
+  }
+
+  // -----------------------------------------------------------------------
+  // Step 3: Sort fanouts by worst slack (most negative first).
+  // -----------------------------------------------------------------------
+  sta::Graph* graph = sta->graph();
+  if (graph) {
+    std::sort(fanouts.begin(), fanouts.end(),
+        [&](const auto& a, const auto& b) {
+          sta::Vertex* va = nullptr, *vb_v = nullptr, *dummy = nullptr;
+          graph->pinVertices(a.second, va, dummy);
+          graph->pinVertices(b.second, vb_v, dummy);
+          sta::Slack sa = va    ? sta->vertexSlack(va,   sta::MinMax::max())
+                                : sta::INF;
+          sta::Slack sb = vb_v  ? sta->vertexSlack(vb_v, sta::MinMax::max())
+                                : sta::INF;
+          return sa < sb;
+        });
+  }
+
+  // -----------------------------------------------------------------------
+  // Step 4: Create clone instance at the same location as bad_instance.
+  // -----------------------------------------------------------------------
+  odb::dbInst* db_bad = network->staToDb(bad_instance);
+  odb::Point   loc    = db_bad->getLocation();
+  sta::Instance* parent = network->parent(bad_instance);
+
+  std::string clone_name =
+      remapper.getNameGenerator().GetUniqueName("gate_clone");
+  sta::Instance* clone =
+      network->makeInstance(cell, clone_name.c_str(), parent);
+  if (!clone) {
+    logger_->warn(utl::RES, 430,
+        "[GateClone] Failed to create clone instance, skipping.");
+    return empty_cut;
+  }
+
+  // Place the clone at the same location as the original.
+  odb::dbInst* db_clone = network->staToDb(clone);
+  db_clone->setLocation(loc.x(), loc.y());
+
+  logger_->info(utl::RES, 431,
+      "[GateClone] Created clone {} of {}.",
+      network->name(clone), network->name(bad_instance));
+
+  // Connect clone input pins to the same nets as bad_instance.
+  {
+    std::unique_ptr<sta::InstancePinIterator> pit(
+        network->pinIterator(bad_instance));
+    while (pit->hasNext()) {
+      sta::Pin* pin = pit->next();
+      if (!network->direction(pin)->isInput()) continue;
+      sta::Net* net = network->net(pin);
+      if (!net) continue;
+      sta::LibertyPort* lport = network->libertyPort(pin);
+      if (!lport) continue;
+      sta->connectPin(clone, lport, net);
+    }
+  }
+
+  // Create a new output net for the clone and connect its output pin.
+  sta::Net* clone_out_net = network->makeNet(parent);
+  sta->connectPin(clone, out_port, clone_out_net);
+
+  // -----------------------------------------------------------------------
+  // Step 5: Reconnect worst-slack fanouts to clone's output net.
+  //         Grow the cut until it reaches max_cut_instances.
+  // -----------------------------------------------------------------------
+  sta::InstanceSet cut_insts(network);
+  cut_insts.insert(clone);
+
+  for (auto& [fanout_inst, input_pin] : fanouts) {
+    if (cut_insts.size() >= max_cut_instances) break;
+    sta::Port* load_port = network->port(input_pin);
+    sta->disconnectPin(input_pin);
+    sta->connectPin(fanout_inst, load_port, clone_out_net);
+    cut_insts.insert(fanout_inst);
+  }
+
+  logger_->info(utl::RES, 432,
+      "[GateClone] Cut has {} instances ({} fanouts reconnected).",
+      cut_insts.size(), cut_insts.size() - 1);
+
+  // -----------------------------------------------------------------------
+  // Step 6: Compute PIs and POs of the cut.
+  //   PI: net connected to an input pin of a cut instance, not driven by
+  //       any other cut instance.
+  //   PO: net connected to an output pin of a cut instance that has at
+  //       least one load outside the cut.
+  // -----------------------------------------------------------------------
+  std::set<sta::Net*> pi_set, po_set;
+
+  for (const sta::Instance* inst : cut_insts) {
+    std::unique_ptr<sta::InstancePinIterator> pit(
+        network->pinIterator(inst));
+    while (pit->hasNext()) {
+      sta::Pin* pin = pit->next();
+      sta::Net* net = network->net(pin);
+      if (!net) continue;
+
+      if (network->direction(pin)->isInput()) {
+        // PI unless driven by another cut instance.
+        bool driven_within = false;
+        std::unique_ptr<sta::NetPinIterator> npit(
+            network->pinIterator(net));
+        while (npit->hasNext()) {
+          const sta::Pin* cp = npit->next();
+          if (cp == pin) continue;
+          if (!network->direction(cp)->isAnyOutput()) continue;
+          sta::Instance* drv = network->instance(cp);
+          if (cut_insts.hasKey(drv)) { driven_within = true; break; }
+        }
+        if (!driven_within) pi_set.insert(net);
+
+      } else if (network->direction(pin)->isAnyOutput()) {
+        // PO if it drives at least one load outside the cut.
+        bool has_ext_load = false;
+        std::unique_ptr<sta::NetPinIterator> npit(
+            network->pinIterator(net));
+        while (npit->hasNext()) {
+          const sta::Pin* cp = npit->next();
+          if (cp == pin) continue;
+          if (!network->direction(cp)->isInput()) continue;
+          sta::Instance* ld = network->instance(cp);
+          if (!ld || !cut_insts.hasKey(ld)) {
+            has_ext_load = true;
+            break;
+          }
+        }
+        if (has_ext_load) po_set.insert(net);
+      }
+    }
+  }
+
+  std::vector<sta::Net*> pis(pi_set.begin(), pi_set.end());
+  std::vector<sta::Net*> pos(po_set.begin(), po_set.end());
+
+  if (pos.empty()) {
+    logger_->warn(utl::RES, 433,
+        "[GateClone] No primary outputs found in clone cut, skipping.");
+    return empty_cut;
+  }
+
+  logger_->info(utl::RES, 434,
+      "[GateClone] Cut: {} instances, {} PIs, {} POs.",
+      cut_insts.size(), pis.size(), pos.size());
+
+  return cut::LogicCut(std::move(pis), std::move(pos), std::move(cut_insts));
+}
+
 bool PositionDrivenStrategy::remapOneCut(
     SeqRemapper& remapper,
     std::vector<sta::Vertex*>& worst_vertices) {
@@ -973,11 +1209,29 @@ bool PositionDrivenStrategy::remapOneCut(
     return false;
   }
 
-  // Guard against cuts that are too large for ABC enumeration — combinatorial
-  // explosion can cause the mapper to hang.
+  // If the cut is too large for ABC enumeration, try gate cloning instead.
+  // Gate cloning splits bad_instance's fanout load: a clone drives the worst-
+  // slack fanouts (forming the candidate cut), the original keeps the rest.
+  const size_t kMaxCutInstances = 10;
   const size_t kMaxCutPIs = 20;
-  if (candidate_cut.primary_inputs().size() > kMaxCutPIs) {
+
+  if (candidate_cut.cut_instances().size() > kMaxCutInstances) {
     logger_->info(utl::RES, 421,
+        "Candidate cut has {} instances (limit {}), attempting gate cloning.",
+        candidate_cut.cut_instances().size(), kMaxCutInstances);
+
+    cut::LogicCut clone_cut =
+        buildGateCloneCut(bad_instance, remapper, kMaxCutInstances);
+
+    if (clone_cut.cut_instances().size() <= 1) {
+      logger_->warn(utl::RES, 424,
+          "Gate cloning produced no valid cut, skipping.");
+      return false;
+    }
+    candidate_cut = std::move(clone_cut);
+
+  } else if (candidate_cut.primary_inputs().size() > kMaxCutPIs) {
+    logger_->info(utl::RES, 425,
         "Candidate cut has {} PIs (limit {}), skipping to avoid ABC enumeration hang.",
         candidate_cut.primary_inputs().size(), kMaxCutPIs);
     return false;
@@ -1636,19 +1890,71 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
   sta::dbSta* sta = remapper.getSta();
   utl::Logger* logger = remapper.getLogger();
 
-  // Run DPL to legalize placement of newly inserted cut instances.
-  // Each call is either in an isolated child (fork-based evaluation) or
-  // in the parent for the final permanent apply.
-  remapper.performIncreDpl(candidate_cut, remapper.getDpl());
+  sta::dbNetwork* network = sta->getDbNetwork();
 
-  // Recompute timing from the current network state.
-  // updateTiming(false) does an incremental update: arrivals + required times.
-  // findDelays() alone only computes gate delays, not required times/slack.
-  sta->networkChanged();
+  // Place new (unplaced) cut instances at the PI/PO centroid without
+  // calling DPL. DPL notifies the parasitics system that wire lengths changed
+  // (EstimateParasitics::parasiticsInvalid), which sets parasitics_invalid_.
+  // updateTiming() then constructs an IncrementalParasiticsGuard that checks
+  // this flag and throws EST-0104. Instead we replicate the centroid-placement
+  // steps of performIncreDpl (compute centroid → setLocation) and mark
+  // instances PLACED directly, skipping the incrementalDetailedPlacement call.
+  {
+    long sum_x = 0, sum_y = 0;
+    int count = 0;
+    auto accumulate = [&](sta::Net* net, bool want_driver) {
+      std::unique_ptr<sta::NetPinIterator> npit(network->pinIterator(net));
+      while (npit->hasNext()) {
+        const sta::Pin* pin = npit->next();
+        if (network->direction(pin)->isAnyOutput() != want_driver) {
+          continue;
+        }
+        if (network->isTopLevelPort(pin)) {
+          continue;
+        }
+        sta::Instance* inst = network->instance(pin);
+        odb::dbInst* db = inst ? network->staToDb(inst) : nullptr;
+        if (!db) {
+          continue;
+        }
+        int x, y;
+        db->getLocation(x, y);
+        sum_x += x;
+        sum_y += y;
+        ++count;
+      }
+    };
+    for (sta::Net* net : candidate_cut.primary_inputs()) {
+      accumulate(net, /*want_driver=*/true);
+    }
+    for (sta::Net* net : candidate_cut.primary_outputs()) {
+      accumulate(net, /*want_driver=*/false);
+    }
+    odb::Point centroid = (count > 0)
+        ? odb::Point(sum_x / count, sum_y / count)
+        : odb::Point(0, 0);
+
+    for (const sta::Instance* sta_inst : candidate_cut.cut_instances()) {
+      odb::dbInst* db = network->staToDb(sta_inst);
+      if (!db) {
+        continue;
+      }
+      if (db->getPlacementStatus() == odb::dbPlacementStatus::NONE) {
+        db->setLocation(centroid.x(), centroid.y());
+        db->setPlacementStatus(odb::dbPlacementStatus::PLACED);
+      }
+    }
+  }
+
+  // Invalidate delays so updateTiming recomputes from the new netlist.
+  // Use delaysInvalid() instead of networkChanged() — the latter rebuilds the
+  // full graph (slow and triggers parasitics callbacks); delaysInvalid() only
+  // marks gate/wire delays stale, sufficient for ranking solutions by slack.
+  sta->graphDelayCalc()->delaysInvalid();
+  sta->search()->arrivalsInvalid();
   sta->updateTiming(false);
 
   // Collect output pins of the cut to find affected endpoints
-  sta::dbNetwork* network = sta->getDbNetwork();
   sta::PinSeq cut_output_pins;
   for (sta::Net* output_net : candidate_cut.primary_outputs()) {
     sta::NetPinIterator* pin_iter = network->pinIterator(output_net);

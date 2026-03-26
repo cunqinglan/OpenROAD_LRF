@@ -72,6 +72,15 @@ class PositionDrivenStrategy : public ExtractLocalWindow
   bool remapOneCut(
       SeqRemapper& remapper,
       std::vector<sta::Vertex*>& worst_vertices);
+
+  // Build a candidate cut for gate cloning when the extracted cut is too large.
+  // Clones bad_instance, redirects up to max_cut_instances of its fanout
+  // instances (sorted worst-slack first) to the clone's output, and returns
+  // a LogicCut over {clone} ∪ {selected fanouts}.
+  // Returns an empty cut ({},{},{}) if gate cloning is not applicable.
+  cut::LogicCut buildGateCloneCut(sta::Instance* bad_instance,
+                                  SeqRemapper& remapper,
+                                  size_t max_cut_instances);
   void extractCandidateCutAroundVertex(SeqRemapper& remapper);
   cut::LogicCut getCandidateCut() const {
     return candidate_cut_;
