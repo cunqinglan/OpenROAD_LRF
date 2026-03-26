@@ -213,10 +213,12 @@ int definReader::errors()
 
 void definReader::skipWires()
 {
+  _skip_wires = true;
   _netR->skipWires();
 }
 void definReader::skipConnections()
 {
+  _skip_connections = true;
   _netR->skipConnections();
 }
 void definReader::skipSpecialWires()
@@ -1831,6 +1833,12 @@ void definReader::readChip(std::vector<dbLib*>& libs,
                            const bool issue_callback)
 {
   init();
+  if (_skip_connections) {
+    _netR->skipConnections();
+  }
+  if (_skip_wires) {
+    _netR->skipWires();
+  }
   setLibs(libs);
   chip_ = chip;
   if (chip_ == nullptr) {
