@@ -1653,24 +1653,8 @@ CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_paddi
           || top2[k].cost >= std::numeric_limits<float>::max())
         continue;
 
-      // Rebuild PtGraph for each buffering candidate to avoid stale
-      // STA edge/vertex pointers after virtualReplaceCell.
-      pt_graph_.reset(new PtGraph(db_sta_));
-  local_sta_->makePtGraph(pt_graph_.get(), inst);
-      pt_graph_->pruneInsignificantSiblings();
       local_sta_->increAndGetLocalTimingCost(
           pt_graph_.get(), arc_delay_calc_, top2[k].cell);
-
-      // Re-collect driver info from fresh PtGraph
-      drvr_infos.clear();
-      for (size_t i = 0; i < pt_graph_->vertexCount(); i++) {
-        PtVertex &pv = pt_graph_->ptVertex(i);
-        if (pv.vertex() && pv.type() == PtVertexType::RefOutput)
-          drvr_infos.push_back({pv.vertex()->pin(), pv.objectIdx()});
-      }
-      if (drvr_infos.empty())
-        continue;
-
       rebuffer_->rebufferPin(drvr_infos[0].pin,
                              pt_graph_->ptVertex(drvr_infos[0].vid));
       if (rebuffer_->bestBnet()) {
@@ -1695,15 +1679,18 @@ CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_paddi
   sta::LibertyCell *best_resize_cell = top2[0].cell;
 
   if (buf_valid && best_buf_cost < best_resize_cost) {
-    // Resize + buffer wins
-    decision_ = Decision::ResizeAndBuffer;
+    // Resize + buffer wins — recompute to get bestBnet in correct state
     best_cell_ = best_buf_resize_cell;
-    // Recompute buffering for the winning cell (to get bestBnet in correct state)
     local_sta_->increAndGetLocalTimingCost(
         pt_graph_.get(), arc_delay_calc_, best_buf_resize_cell);
     rebuffer_->rebufferPin(drvr_infos[0].pin,
                            pt_graph_->ptVertex(drvr_infos[0].vid));
-    return true;
+    if (rebuffer_->bestBnet()) {
+      decision_ = Decision::ResizeAndBuffer;
+      return true;
+    }
+    // Recompute failed — fall through to resize-only check
+    rebuffer_->cleanupVirtualBuffer();
   } else if (best_resize_cell != ori_cell && best_resize_cost < ori_cost) {
     // Resize only wins
     decision_ = Decision::ResizeOnly;

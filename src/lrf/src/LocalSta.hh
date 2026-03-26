@@ -89,14 +89,6 @@ public:
                           float &load_cap,
                           const Parasitic *&parasitic,
                           PtGraph *pt_graph);
-  // Pin-only version: always uses original parasitic (no virtual buffer check).
-  // Used by ViolationCheck where virtual buffers are never present.
-  void localParasiticLoad(const Pin *drvr_pin,
-                          const RiseFall *rf,
-                          const DcalcAnalysisPt *dcalc_ap,
-                          const MultiDrvrNet *multi_drvr_net,
-                          float &load_cap,
-                          const Parasitic *&parasitic) const;
 
   // print informations of local graphs for debug purpose
   void printLocalParasitics(PtGraph *pt_graph) const;
@@ -114,10 +106,14 @@ public:
   // Functions for ERC check
   float getPinMaxSlewLimit(sta::Pin *pin, sta::LibertyCell *cell);
   float getPinMaxCapLimit(sta::Pin *pin, sta::LibertyCell *lib_cell);
+  float getPortMaxSlewLimit(sta::LibertyPort *port);
+  float getPortMaxCapLimit(sta::LibertyPort *port);
+  sta::LibertyPort *findTargetPort(const PtVertex &ptv,
+                                   sta::LibertyCell *to_lib_cell) const;
   float getPinSlew(sta::Pin *pin, const sta::Corner *corner,
                      const sta::MinMax *min_max, PtGraph *pt_graph);
-  float getNetCap(sta::Net *net, const sta::Corner *corner,
-                  const sta::MinMax *min_max, PtGraph *pt_graph);
+  float getLoadCap(PtVertex &drvr_pt_vertex, const sta::Corner *corner,
+                   const sta::MinMax *min_max, PtGraph *pt_graph);
   bool legalCheckBeforeSwap(sta::Instance *inst, 
                             sta::LibertyCell *to_lib_cell,
                             const sta::Corner *corner,
@@ -143,16 +139,6 @@ public:
                  float &limit1,
                  float &slack1) const;
 
-  void localCheckCapacitance(const sta::Pin *pin,
-                              const sta::LibertyCell *lib_cell,
-                              const sta::Corner *corner,
-                              const sta::MinMax *min_max,
-                              // Return values
-                              const sta::Corner *&corner1,
-                              const sta::RiseFall *&rf1,
-                              float &capacitance1,
-                              float &limit1,
-                              float &slack1) const;
   sta::Path *ptVertexWorstSlackPath(PtVertex &pt_vertex, const sta::MinMax *min_max) const;
 
   // Public API for operators
@@ -235,44 +221,6 @@ protected:
                           // Return values
                           float &limit,
                           bool &exists) const;
-
-  void localCheckCapacitance1(const sta::Pin *pin,
-                               const sta::LibertyCell *lib_cell,
-                               const sta::Corner *corner,
-                               const sta::MinMax *min_max,
-                               // Return values
-                               const sta::Corner *&corner1,
-                               const sta::RiseFall *&rf1,
-                               float &capacitance1,
-                               float &limit1,
-                               float &slack1) const;
-
-  void localFindCapLimit(const sta::Pin *pin,
-                         const sta::LibertyCell *lib_cell,
-                         const sta::Corner *corner,
-                         const sta::MinMax *min_max,
-                         // Return values
-                         float &limit,
-                         bool &exists) const;
-
-  void localCheckCapacitance(const sta::Pin *pin,
-                              const sta::LibertyCell *lib_cell,
-                              const sta::Corner *corner,
-                              const sta::MinMax *min_max,
-                              const sta::RiseFall *rf,
-                              float limit,
-                              // Return values
-                              const sta::Corner *&corner1,
-                              const sta::RiseFall *&rf1,
-                              float &capacitance1,
-                              float &slack1,
-                              float &limit1) const;
-
-  void connectedCap(const Pin *drvr_pin,
-                     const sta::RiseFall *rf,
-                     const sta::Corner *corner,
-                     const sta::MinMax *min_max,
-                     float &load_cap) const;
 
   sta::ClockSet clockDomains(const sta::Vertex *vertex) const;
 
