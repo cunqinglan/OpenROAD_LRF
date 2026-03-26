@@ -40,6 +40,7 @@ proc read_lef { args } {
 
 sta::define_cmd_args "read_def" {[-floorplan_initialize|-incremental]\
                                    [-continue_on_errors]\
+                                   [-skip_connections]\
                                    [-tech name] \
                                    [-chip chip_name] \
                                    filename}
@@ -47,7 +48,7 @@ sta::define_cmd_args "read_def" {[-floorplan_initialize|-incremental]\
 proc read_def { args } {
   sta::parse_key_args "read_def" args keys {-tech -chip} \
     flags {-floorplan_initialize -incremental \
-           -order_wires -continue_on_errors}
+           -order_wires -continue_on_errors -skip_connections}
   sta::check_argc_eq1 "read_def" $args
   set filename [file nativename [lindex $args 0]]
   if { ![file exists $filename] } {
@@ -73,6 +74,7 @@ proc read_def { args } {
   set continue_on_errors [info exists flags(-continue_on_errors)]
   set floorplan_init [info exists flags(-floorplan_initialize)]
   set incremental [info exists flags(-incremental)]
+  set skip_connections [info exists flags(-skip_connections)]
   if { $floorplan_init + $incremental > 1 } {
     utl::error ORD 16 "Options -incremental and -floorplan_initialization\
       are mutually exclusive."
@@ -90,7 +92,7 @@ proc read_def { args } {
     }
   }
   ord::read_def_cmd $filename $continue_on_errors $floorplan_init \
-    $incremental $chip
+    $incremental $skip_connections $chip
 }
 
 sta::define_cmd_args "write_def" {[-version version] filename}
