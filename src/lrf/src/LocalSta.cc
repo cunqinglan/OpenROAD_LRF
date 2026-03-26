@@ -152,7 +152,7 @@ LocalSta::collectLocalFanoutVertices(sta::Vertex *drvr_vertex,
   VertexOutEdgeIterator edge_iter(drvr_vertex, graph_);
   while (edge_iter.hasNext()) {
     Edge *out_edge = edge_iter.next();
-    if (!out_edge->isWire())
+    if (!out_edge->isWire() || !search_pred_->searchThru(out_edge))
       continue;
     Vertex *load_vertex = out_edge->to(graph_);
     if (!network_->isLoad(load_vertex->pin()))
@@ -222,7 +222,8 @@ LocalSta::collectLocalFaninSiblingVertices(Vertex *load_vertex,
     if (load_pin == load_vertex->pin())
       continue;
     Vertex *sibling_load_vertex = graph_->pinLoadVertex(load_pin);
-    if (sibling_load_vertex) {
+    if (sibling_load_vertex
+        && search_pred_->searchFrom(sibling_load_vertex)) {
       local_vertices.insert(sibling_load_vertex);
       // Collect sibling driver vertices, skip check edges and latch edges
       VertexOutEdgeIterator in_inst_edge_iter(sibling_load_vertex, graph_);
