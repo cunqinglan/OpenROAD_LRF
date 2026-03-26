@@ -49,6 +49,7 @@ public:
   // When do virtual ref cell swap, update timing arc sets of all edges of
   // the ref instance.
   void updateTimingArcSets();
+  void updateRefPorts();
   sta::TagGroup *tagGroup(const PtVertex &pt_vertex);
 
   sta::EdgeId makeEdge(sta::Edge *edge, sta::VertexId pt_from, sta::VertexId pt_to);
@@ -74,22 +75,14 @@ public:
   }
   PtVertex *ptVertex(const sta::Vertex *vertex) {
     auto it = vertex_map_.find(vertex);
-    if (it == vertex_map_.end()) {
-      printf("PtGraph::ptVertex: vertex %s not found in map\n",
-             vertex->to_string(sta_).c_str());
-             fflush(stdout);
+    if (it == vertex_map_.end())
       return nullptr;
-    }
     return &pt_vertices_[it->second];
   }
   const PtVertex *ptVertex(const sta::Vertex *vertex) const {
     auto it = vertex_map_.find(vertex);
-    if (it == vertex_map_.end()) {
-      printf("PtGraph::ptVertex const: vertex %s not found in map\n",
-             vertex->to_string(sta_).c_str());
-      fflush(stdout);
+    if (it == vertex_map_.end())
       return nullptr;
-    }
     return &pt_vertices_[it->second];
   }
 
@@ -315,7 +308,8 @@ public:
   sta::Vertex *vertex() const { return vertex_; }
   bool hasBase() const { return vertex_ != nullptr; }
   sta::LibertyPort *libertyPort() const { return liberty_port_; }
-  sta::LibertyCell *libertyCell() const { return liberty_cell_; }
+  void setLibertyPort(sta::LibertyPort *port) { liberty_port_ = port; }
+  sta::LibertyCell *libertyCell() const;
   float level() const { return level_; }
   void setLevel(float lvl) { level_ = lvl; }
   sta::Slew *slews() { return slews_.empty() ? nullptr : slews_.data(); }
