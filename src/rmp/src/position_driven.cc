@@ -972,6 +972,17 @@ bool PositionDrivenStrategy::remapOneCut(
         "All candidate vertices produced cuts with <= 1 instance, nothing to remap.");
     return false;
   }
+
+  // Guard against cuts that are too large for ABC enumeration — combinatorial
+  // explosion can cause the mapper to hang.
+  const size_t kMaxCutPIs = 20;
+  if (candidate_cut.primary_inputs().size() > kMaxCutPIs) {
+    logger_->info(utl::RES, 421,
+        "Candidate cut has {} PIs (limit {}), skipping to avoid ABC enumeration hang.",
+        candidate_cut.primary_inputs().size(), kMaxCutPIs);
+    return false;
+  }
+
   setCandidateCut(candidate_cut);
 
   // When not verbose, redirect stdout to suppress ABC output.
@@ -1337,12 +1348,12 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
     // We must re-derive the worst vertices from the (surviving) endpoint pin
     // after every successful remap.
     int ep_remapped = 0;
-    int ep_attempted = 0;
+    bool need_rederive = false;
+
     while (ep_remapped < static_cast<int>(max_vertices_per_endpoint)) {
-      // (Re-)derive worst vertices from the endpoint pin.
-      // On the first pass we already have them; on subsequent passes we
-      // need a fresh graph and fresh vertex list.
-      if (ep_attempted > 0) {
+      // Re-derive worst vertices after a successful remap invalidated
+      // the old pointers.
+      if (need_rederive) {
         sta::Graph* vg = sta->ensureGraph();
         if (vg == nullptr) {
           logger_->warn(utl::RES, 419,
@@ -1360,42 +1371,32 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
           break;
         }
         worst_vertices = getWorstVerticesForEndpoint(remapper, fresh_ep);
-        if (worst_vertices.empty()) {
-          break;
-        }
+        need_rederive = false;
       }
 
-      // Skip the first ep_attempted vertices (already tried in prior passes).
-      // After a successful remap the list is re-derived, so previously-remapped
-      // instances are gone and the new list starts fresh — reset the skip count.
-      // We only need to skip when the previous attempt was NOT applied (the
-      // vertex was not remapable and still appears in the re-derived list).
-      // Use a simple approach: try only the first vertex in the list each time.
-      // If it's not remapable, skip it by erasing and retry; if the list is
-      // exhausted, stop.
+      if (worst_vertices.empty()) {
+        break;
+      }
 
+      // Try the first vertex in the list.
       std::vector<sta::Vertex*> single_vertex = { worst_vertices[0] };
       logger_->info(utl::RES, 417,
-                    "[remap] iter {}: remapOneCut attempt {} (ep_remapped={})",
-                    ep_idx, ep_attempted + 1, ep_remapped);
+                    "[remap] iter {}: remapOneCut (ep_remapped={}, remaining={})",
+                    ep_idx, ep_remapped, worst_vertices.size());
       bool applied = remapOneCut(remapper, single_vertex);
       logger_->info(utl::RES, 416, "[remap] iter {}: after remapOneCut, applied={}",
                     ep_idx, applied);
-      ep_attempted++;
 
       if (applied) {
         remapped_count++;
         ep_remapped++;
         sta->networkChanged();
+        // All pointers are now stale; re-derive on next iteration.
+        need_rederive = true;
       } else {
         // This vertex was not remapable; remove it and try the next one.
+        // Netlist is unchanged so remaining pointers are still valid.
         worst_vertices.erase(worst_vertices.begin());
-        if (worst_vertices.empty()) {
-          break;
-        }
-        // Don't increment ep_attempted again — we'll retry with the new front
-        // without re-deriving, since the netlist hasn't changed.
-        continue;
       }
     }
 
@@ -1432,10 +1433,10 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
   // the loop was done in fork()ed children; only this final rebuild runs
   // in the parent.
   if (remapped_count > 0) {
-    logger_->info(utl::RES, 417, "[remap] rebuilding STA graph after {} remaps", remapped_count);
+    logger_->info(utl::RES, 422, "[remap] rebuilding STA graph after {} remaps", remapped_count);
     sta->networkChanged();
     sta->updateTiming(false);
-    logger_->info(utl::RES, 418, "[remap] STA rebuild complete");
+    logger_->info(utl::RES, 423, "[remap] STA rebuild complete");
   }
 }
 
