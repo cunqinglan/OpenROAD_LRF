@@ -134,12 +134,30 @@ class Timing
                                  bool ratcons = false,
                                  float PT_tradeoff = 100.0,
                                  const char *lr_helper_method = "LRHelper");
+  void testParallelResizeByArrayV2(size_t max_resize_num,
+                                   size_t iterations,
+                                   size_t num_no_improve_tolerance,
+                                   bool ratcons = false,
+                                   float PT_tradeoff = 100.0,
+                                   const char *lr_helper_method = "LRHelper");
+  void testParallelResizeByArrayWithBufferingV2(size_t max_resize_num,
+                                   size_t iterations,
+                                   size_t num_no_improve_tolerance,
+                                   bool ratcons = false,
+                                   float PT_tradeoff = 100.0,
+                                   const char *lr_helper_method = "LRHelper");
   void testParallelResizeByArrayWithBuffering(size_t max_resize_num,
                                               size_t iterations,
                                               size_t num_no_improve_tolerance,
                                               bool ratcons = false,
                                               float PT_tradeoff = 100.0,
                                               const char *lr_helper_method = "RapidLRHelper");
+  void testCombinedResizeBuffering(size_t max_resize_num,
+                                             size_t iterations,
+                                             size_t num_no_improve_tolerance,
+                                             bool ratcons = false,
+                                             float PT_tradeoff = 100.0,
+                                             const char *lr_helper_method = "RapidLRHelper");
   void testParallelResizeByArrayWithPrecheck(size_t max_resize_num,
                                              size_t iterations,
                                              size_t num_no_improve_tolerance,
@@ -147,6 +165,20 @@ class Timing
                                              float PT_tradeoff = 100.0,
                                              const char *lr_helper_method = "RapidLRHelper",
                                              float top_ratio = 0.3);
+  void testParallelResizeByArrayWithPrecheckV2(size_t max_resize_num,
+                                               size_t iterations,
+                                               size_t num_no_improve_tolerance,
+                                               bool ratcons = false,
+                                               float PT_tradeoff = 100.0,
+                                               const char *lr_helper_method = "RapidLRHelper",
+                                               float top_ratio = 0.3);
+  void testParallelResizeByArrayWithPrecheckBufferingV2(size_t max_resize_num,
+                                               size_t iterations,
+                                               size_t num_no_improve_tolerance,
+                                               bool ratcons = false,
+                                               float PT_tradeoff = 100.0,
+                                               const char *lr_helper_method = "RapidLRHelper",
+                                               float top_ratio = 0.3);
   void testParallelResizeByArrayWithPrecheckBuffering(size_t max_resize_num,
                                              size_t iterations,
                                              size_t num_no_improve_tolerance,
