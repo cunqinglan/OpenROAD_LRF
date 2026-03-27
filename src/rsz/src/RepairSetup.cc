@@ -270,7 +270,7 @@ bool RepairSetup::repairSetup(const float setup_slack_margin,
   }
 
   if (num_threads > 1) {
-    logger_->info(RSZ, 201, "Using batch mode with {} threads.", num_threads);
+    logger_->info(RSZ, 204, "Using batch mode with {} threads.", num_threads);
     bool batched_result = repairSetupBatched(
         violating_ends, setup_slack_margin, max_passes,
         max_end_count, initial_tns, num_threads, verbose, max_iterations);
