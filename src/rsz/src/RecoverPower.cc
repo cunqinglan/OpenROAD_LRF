@@ -111,17 +111,17 @@ bool RecoverPower::recoverPower(const float recover_power_percent, bool verbose,
   printProgress(0, false, false);
 
   if (num_threads > 1) {
-    logger_->info(RSZ, 202, "Using batch mode with {} threads for power recovery.", num_threads);
+    logger_->info(RSZ, 205, "Using batch mode with {} threads for power recovery.", num_threads);
     bool batched = recoverPowerBatched(
         ends_with_slack, max_end_count, worst_slack_before, num_threads, verbose);
 
     printProgress(max_end_count, true, true);
     bad_vertices_.clear();
     if (resize_count_ > 0) {
-      logger_->info(RSZ, 141, "Resized {} instances.", resize_count_);
+      logger_->info(RSZ, 206, "Resized {} instances.", resize_count_);
     }
     if (resizer_->overMaxArea()) {
-      logger_->error(RSZ, 125, "max utilization reached.");
+      logger_->error(RSZ, 207, "max utilization reached.");
     }
     return batched;
   }
@@ -612,7 +612,7 @@ bool RecoverPower::recoverPowerBatched(
       } else {
         ++failed_move_threshold;
         if (failed_move_threshold > failed_move_threshold_limit_) {
-          logger_->info(RSZ, 142,
+          logger_->info(RSZ, 208,
                         "{} successive tries yielded negative slack. Ending "
                         "power recovery",
                         failed_move_threshold_limit_);

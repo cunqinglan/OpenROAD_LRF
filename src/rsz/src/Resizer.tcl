@@ -358,7 +358,7 @@ proc repair_timing { args } {
   if { [info exists keys(-threads)] } {
     set num_threads $keys(-threads)
     if { $num_threads < 1 } {
-      utl::error RSZ 200 "-threads must be >= 1"
+      utl::error RSZ 203 "-threads must be >= 1"
     }
   }
 
