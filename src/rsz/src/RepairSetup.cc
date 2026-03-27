@@ -1275,7 +1275,6 @@ bool RepairSetup::repairSetupBatched(
     const bool verbose,
     const int max_iterations)
 {
-  constexpr int digits = 3;
   int num_viols = violating_ends.size();
   int opto_iteration = 0;
   float prev_tns = initial_tns;

@@ -330,7 +330,8 @@ class Resizer : public sta::dbStaState, public sta::dbNetworkObserver
                    bool skip_buffer_removal,
                    bool skip_last_gasp,
                    bool skip_vt_swap,
-                   bool skip_crit_vt_swap);
+                   bool skip_crit_vt_swap,
+                   int num_threads = 1);
   // For testing.
   void repairSetup(const sta::Pin* end_pin);
   // For testing.
@@ -361,7 +362,8 @@ class Resizer : public sta::dbStaState, public sta::dbNetworkObserver
   ////////////////////////////////////////////////////////////////
   bool recoverPower(float recover_power_percent,
                     bool match_cell_footprint,
-                    bool verbose);
+                    bool verbose,
+                    int num_threads = 1);
 
   ////////////////////////////////////////////////////////////////
   void swapArithModules(int path_count,
@@ -800,6 +802,8 @@ class Resizer : public sta::dbStaState, public sta::dbNetworkObserver
   void journalBegin();
   void journalEnd();
   void journalRestore();
+  // Commit ECO without timing update (for batch mode).
+  void journalEndLite();
   void journalMakeBuffer(sta::Instance* buffer);
 
   ////////////////////////////////////////////////////////////////
