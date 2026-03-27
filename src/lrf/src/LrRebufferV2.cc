@@ -880,6 +880,10 @@ LrRebufferV2::bufferForTiming(VertexId drvr_vertex_id,
   if (last_iteration) {
     local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
     origial_slack = local_sta_->localSlackOnSinks(pt_graph);
+    static int dbg_bft_count = 0;
+    if (++dbg_bft_count <= 10)
+      printf("[DBG-BFT] pin=%s top_opts=%zu origial_slack=%.3e last_iter=%d\n",
+             network_->name(pin_), top_opts.size(), origial_slack, last_iteration);
   }
   for (const BnetPtr& p : top_opts) {
     LMValue cost = last_iteration
@@ -979,6 +983,14 @@ LrRebufferV2::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
   float thresh = original_slack;
   if (slack_after > thresh) {
     total_cost = eval_ctx_->swapCost(delay_lm_sum, option->leakage());
+  }
+
+  static int dbg_eval_count = 0;
+  if (++dbg_eval_count <= 20) {
+    printf("[DBG-EVAL] pin=%s slack_after=%.3e original_slack=%.3e pass=%d "
+           "hasViol=%d vinfo_failed=%d\n",
+           network_->name(pin_), slack_after, original_slack,
+           slack_after > thresh, hasViolation(option, max_slew), vinfo.failed);
   }
 
   removeVirtualBuffer(vinfo);

@@ -163,7 +163,35 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   if (!ori_cell)
     return result;
 
-  std::vector<sta::LibertyCell*> candidates = collectCandidates(ori_cell);
+  // --- Determine pruning mode ---
+  enum class EvalMode { FULL, PRUNED, REORDER };
+  EvalMode mode = EvalMode::FULL;
+  CellPruningState *pstate = nullptr;
+
+  if (pruning_control_ && pruning_control_->enabled) {
+    auto it = pruning_control_->state.find(inst);
+    if (it != pruning_control_->state.end() && !it->second.ordered_cells.empty()) {
+      pstate = &it->second;
+      pstate->iters_since_reorder++;
+      if (pstate->iters_since_reorder >= pstate->M) {
+        mode = EvalMode::REORDER;
+      } else {
+        bool has_ori = false;
+        for (auto *c : pstate->ordered_cells) {
+          if (c == ori_cell) { has_ori = true; break; }
+        }
+        mode = has_ori ? EvalMode::PRUNED : EvalMode::REORDER;
+      }
+    }
+  }
+
+  // --- Build candidate list ---
+  std::vector<sta::LibertyCell*> candidates;
+  if (mode == EvalMode::PRUNED) {
+    candidates = pstate->ordered_cells;
+  } else {
+    candidates = collectCandidates(ori_cell);
+  }
   if (candidates.size() < 2)
     return result;
 
@@ -211,6 +239,45 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     float slack = vec_cost_slack[i * 2 + 1];
     result.updateIfBetter(MoveOption::RESIZE_ONLY, cost, slack,
                           slack_before, slack_margin_, candidates[i], nullptr);
+  }
+
+  // --- Update pruning state (FULL or REORDER: evaluated full neighborhood) ---
+  if (pruning_control_ && mode != EvalMode::PRUNED) {
+    std::vector<std::pair<float, sta::LibertyCell*>> cost_cells;
+    for (size_t i = 0; i < candidates.size(); i++) {
+      float cost = vec_cost_slack[i * 2];
+      float slack = vec_cost_slack[i * 2 + 1];
+      if (cost < std::numeric_limits<float>::max()
+          && slack >= slack_before * slack_margin_) {
+        cost_cells.push_back({cost, candidates[i]});
+      }
+    }
+    std::sort(cost_cells.begin(), cost_cells.end());
+
+    size_t keep = std::max(static_cast<size_t>(2),
+                           static_cast<size_t>(cost_cells.size() * pruning_control_->P));
+    keep = std::min(keep, cost_cells.size());
+
+    CellPruningState &ps = pruning_control_->state[inst];
+
+    // Adaptive M: large jump in ori_cell rank → diverging → reorder sooner
+    if (mode == EvalMode::REORDER) {
+      int jump = static_cast<int>(cost_cells.size());
+      for (size_t i = 0; i < cost_cells.size(); i++) {
+        if (cost_cells[i].second == ori_cell) {
+          jump = static_cast<int>(i);
+          break;
+        }
+      }
+      ps.M = (jump <= static_cast<int>(keep))
+           ? std::min(ps.M + 1, 10)   // converging
+           : std::max(ps.M - 1, 1);   // diverging
+    }
+
+    ps.ordered_cells.clear();
+    for (size_t i = 0; i < keep; i++)
+      ps.ordered_cells.push_back(cost_cells[i].second);
+    ps.iters_since_reorder = 0;
   }
 
   // If best is the original cell, no change
@@ -337,6 +404,7 @@ ResizeOperator::copy() const
   op->slack_margin_ = slack_margin_;
   op->col_padding_ = col_padding_;
   op->row_padding_ = row_padding_;
+  op->pruning_control_ = pruning_control_;
   return op;
 }
 
@@ -674,8 +742,11 @@ CombinedOperator::tryBufferingOnCandidates(
   ctx.pt_graph = pt_graph;
   rsz::BufferedNetPtr cached_bnet = rebuffer->prepareBufferOptions(
       drvr_pin, pt_graph->ptVertex(drvr_vid));
-  if (!cached_bnet)
+  if (!cached_bnet) {
+    printf("[DBG-BUF] %s: prepareBufferOptions returned null\n",
+           db_sta_->network()->pathName(inst));
     return result;
+  }
 
   // Build candidate list: top-N resize cells + original cell
   struct BufCandidate {
@@ -703,11 +774,17 @@ CombinedOperator::tryBufferingOnCandidates(
 
     if (rebuffer->bestBnet()) {
       float cost = rebuffer->bestCost();
+      printf("[DBG-BUF] %s: cell=%s is_orig=%d buf_cost=%.3e ori_cost=%.3e\n",
+             db_sta_->network()->pathName(inst), bc.cell->name(),
+             bc.is_original, cost, ori_cost);
       if (cost < best_buf_cost) {
         best_buf_cost = cost;
         best_buf_cell = bc.cell;
         best_buf_is_original = bc.is_original;
       }
+    } else {
+      printf("[DBG-BUF] %s: cell=%s evaluateBufferOnCandidate -> null bestBnet\n",
+             db_sta_->network()->pathName(inst), bc.cell->name());
     }
     rebuffer->cleanupVirtualBuffer();
   }
@@ -757,6 +834,11 @@ CombinedOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   // Both allowed: full combined path
   // ── Phase 1: Evaluate resize candidates, get top-2 ──
   std::vector<MoveOption> top_n = resize_op_->evaluateTopN(pt_graph, inst, ctx, 2);
+  static int dbg_combined_count = 0;
+  if (++dbg_combined_count <= 5)
+    printf("[DBG-COMBINED] %s: top_n.size=%zu allow_resize=%d allow_buffer=%d\n",
+           db_sta_->network()->pathName(inst), top_n.size(),
+           ctx.allow_resize, ctx.allow_buffer);
 
   // Compute original cost
   float ori_cost;
@@ -927,6 +1009,11 @@ ParallelVisitor::visit(sta::Instance *inst, sta::VertexId vid)
         std::chrono::duration<double>(end_time - start_time).count();
     return false;  // no DB changes in precheck
   }
+
+  // Track visit/change counts for pruning K detection
+  resize_visit_count_++;
+  if (best_move_.hasChange())
+    resize_change_count_++;
 
   auto end_time = std::chrono::steady_clock::now();
   runtime_map_["visit"] +=

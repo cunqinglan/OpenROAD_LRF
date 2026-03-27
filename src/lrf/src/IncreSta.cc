@@ -859,6 +859,7 @@ IncreSta::parallelResizeByArrayV2(rsz::Resizer *resizer, float avg_delay,
 
   auto resize_op = std::make_unique<ResizeOperator>(sta_, local_sta_);
   resize_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+  resize_op->setPruningControl(&pruning_control_);
   visitor->setOperator(std::move(resize_op));
 
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &inst_info_map_);
@@ -874,6 +875,12 @@ IncreSta::parallelResizeByArrayV2(rsz::Resizer *resizer, float avg_delay,
   double wns_after = sta_->worstSlack(sta::MinMax::max());
   printf("After V2 parallel resize, TNS: %e, WNS: %e\n", tns_after, wns_after);
   printf("parallel resize time: %f s\n", diff_resize.count());
+
+  // Pruning: update iteration counter (K detection done in TaskArranger)
+  pruning_control_.iteration++;
+  printf("Pruning: iteration %d, enabled=%d, K=%d\n",
+         pruning_control_.iteration, pruning_control_.enabled, pruning_control_.K);
+  fflush(stdout);
 
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_total = end_total - start_total;
@@ -1202,6 +1209,7 @@ IncreSta::parallelResizeByArrayWithPrecheckV2(
   auto *visitor = new ParallelVisitor(sta_, local_sta_, resizer);
   auto resize_op = std::make_unique<ResizeOperator>(sta_, local_sta_);
   resize_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+  resize_op->setPruningControl(&pruning_control_);
   visitor->setOperator(std::move(resize_op));
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &inst_info_map_);
 
@@ -1218,11 +1226,18 @@ IncreSta::parallelResizeByArrayWithPrecheckV2(
          precheck_sec, resize_sec,
          resize_sec > 0 ? precheck_sec / resize_sec : 0.0);
 
+  // Pruning: update iteration counter and detect K
+  pruning_control_.iteration++;
+  printf("Pruning: iteration %d, enabled=%d, K=%d\n",
+         pruning_control_.iteration, pruning_control_.enabled, pruning_control_.K);
+  fflush(stdout);
+
   if (isPowerOptimizationMode()) {
     ParallelVisitor *cp_visitor = new ParallelVisitor(sta_, local_sta_, resizer);
     std::unique_ptr<ResizeOperator> cp_resize_op =
         std::make_unique<ResizeOperator>(sta_, local_sta_);
     cp_resize_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+    cp_resize_op->setPruningControl(&pruning_control_);
     cp_visitor->setOperator(std::move(cp_resize_op));
     cp_visitor->init(avg_delay, avg_power, wns_after, PT_tradeoff, &inst_info_map_);
     std::chrono::high_resolution_clock::time_point start_cps =

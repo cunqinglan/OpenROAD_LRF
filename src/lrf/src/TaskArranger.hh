@@ -205,6 +205,11 @@ public:
   // Aggregate change stats from all visitors and update PruningControl.
   // Must be called before visitors are deleted.
   void updatePruningStats();
+  void updatePruningStatsV2(PruningControl *pruning_control = nullptr);
+
+  // Last aggregated V2 change stats (valid after visitOrdered returns)
+  int lastV2VisitCount() const { return last_v2_visit_count_; }
+  int lastV2ChangeCount() const { return last_v2_change_count_; }
 
   void setMaxResizeNum(size_t max_resize_num) { max_resize_num_ = max_resize_num; }
   size_t vertexCount() const { return vertices_.size(); }
@@ -251,6 +256,10 @@ protected:
   // Topology validation
   bool enable_topology_check_ = false;
   std::unique_ptr<TopologyChecker> topology_checker_;
+
+  // Aggregated V2 visit/change counts (set by updatePruningStatsV2)
+  int last_v2_visit_count_ = 0;
+  int last_v2_change_count_ = 0;
 
 private:
   friend class InstVertexOutEdgeIterator;

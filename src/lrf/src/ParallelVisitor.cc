@@ -1651,7 +1651,10 @@ CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_paddi
     rsz::BufferedNetPtr cached_bnet = rebuffer_->prepareBufferOptions(
         drvr_infos[0].pin, pt_graph_->ptVertex(drvr_infos[0].vid));
 
-    if (cached_bnet) {
+    if (!cached_bnet) {
+      printf("[DBG-BUF] %s: prepareBufferOptions returned null\n",
+             db_sta_->network()->pathName(inst));
+    } else {
       // Phase 2b: For each top-2 candidate, evaluate precisely
       for (int k = 0; k < 2; k++) {
         if (top2[k].cell == nullptr
@@ -1667,15 +1670,25 @@ CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_paddi
 
         if (rebuffer_->bestBnet()) {
           float cost = rebuffer_->bestCost();
+          printf("[DBG-BUF] %s: k=%d cell=%s buf_cost=%.3e resize_cost=%.3e ori_cost=%.3e\n",
+                 db_sta_->network()->pathName(inst), k,
+                 top2[k].cell->name(), cost, top2[k].cost, ori_cost);
           if (cost < best_buf_cost) {
             best_buf_cost = cost;
             best_buf_resize_cell = top2[k].cell;
             buf_valid = true;
           }
+        } else {
+          printf("[DBG-BUF] %s: k=%d cell=%s evaluateBufferOnCandidate returned null bestBnet\n",
+                 db_sta_->network()->pathName(inst), k,
+                 top2[k].cell->name());
         }
         rebuffer_->cleanupVirtualBuffer();
       }
     }
+  } else {
+    printf("[DBG-BUF] %s: skipped (drvr_infos.size()=%zu, need 1)\n",
+           db_sta_->network()->pathName(inst), drvr_infos.size());
   }
 
   auto end_buf = std::chrono::high_resolution_clock::now();

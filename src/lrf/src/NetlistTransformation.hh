@@ -90,6 +90,7 @@ public:
   virtual void setInstInfoMap(std::unordered_map<sta::Instance*, LocalCellInfo*> *) {}
   virtual void setSlackMargin(float) {}
   virtual void setEvalContext(EvalContext *) {}
+  virtual PruningControl *pruningControl() const { return nullptr; }
 };
 
 // ─── ResizeOperator ──────────────────────────────────────
@@ -111,6 +112,8 @@ public:
   void setSlackMargin(float margin) override { slack_margin_ = margin; }
   void setColPadding(int p) { col_padding_ = p; }
   void setRowPadding(int p) { row_padding_ = p; }
+  void setPruningControl(PruningControl *prune_control) { pruning_control_ = prune_control; }
+  PruningControl *pruningControl() const override { return pruning_control_; }
 
   friend class CombinedOperator;
 
@@ -130,6 +133,7 @@ protected:
   float slack_margin_ = 0.0f;
   int col_padding_ = 3;
   int row_padding_ = 1;
+  PruningControl *pruning_control_ = nullptr;
 };
 
 // ─── ResizePrecheckOperator ──────────────────────────────
@@ -241,6 +245,9 @@ public:
   void setOperator(std::unique_ptr<LrOperator> op) { operator_ = std::move(op); }
 
   void setTaskArranger(TaskArranger *ta) { task_arranger_ = ta; }
+  PruningControl *pruningControl() const {
+    return operator_ ? operator_->pruningControl() : nullptr;
+  }
 
   // Precheck mode: when set, visit() stores cost in results vector
   // indexed by vertex ID instead of applying changes to DB.
@@ -259,6 +266,10 @@ public:
   sta::LibertyCell *bestCell() const { return best_move_.target_cell; }
   EvalContext &evalContext() { return eval_ctx_; }
 
+  // Pruning stats (aggregated across threads)
+  int resizeVisitCount() const { return resize_visit_count_; }
+  int resizeChangeCount() const { return resize_change_count_; }
+
   // Profiling
   void printRuntimeProfile() const;
   const std::map<std::string, double> &runtimeMap() const { return runtime_map_; }
@@ -273,6 +284,8 @@ protected:
   TaskArranger *task_arranger_ = nullptr;
   std::unique_ptr<LrOperator> operator_;
   std::vector<ResizeBenefit> *precheck_results_ = nullptr;
+  int resize_visit_count_ = 0;
+  int resize_change_count_ = 0;
 
   std::map<std::string, double> runtime_map_ = {
     {"visit", 0.0},
