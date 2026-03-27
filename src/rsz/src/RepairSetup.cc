@@ -1288,11 +1288,17 @@ bool RepairSetup::repairSetupBatched(
   const int actual_end_count
       = std::min(max_end_count, static_cast<int>(violating_ends.size()));
 
+  // Cap batch size to avoid stale-timing rollbacks.
+  // STA thread_count (set via set_thread_count) is unchanged and still
+  // governs internal parallelism in findRequireds / BFS.
+  static constexpr int max_batch_size = 8;
+  const int effective_batch = std::min(num_threads, max_batch_size);
+
   est::IncrementalParasiticsGuard guard(estimate_parasitics_);
 
   for (int batch_start = 0; batch_start < actual_end_count;) {
     const int batch_end
-        = std::min(batch_start + num_threads, actual_end_count);
+        = std::min(batch_start + effective_batch, actual_end_count);
     const int batch_size = batch_end - batch_start;
 
     // Phase 1: Parallel pre-analysis
