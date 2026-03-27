@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "db_sta/dbSta.hh"
+#include "rmp/RemapConfig.hh"
 #include "rsz/Resizer.hh"
 #include "sta/Corner.hh"
 #include "sta/Delay.hh"
@@ -110,7 +111,8 @@ class Restructure
                            float max_percentage = -1.0f,
                            float slack_threshold = std::numeric_limits<float>::max(),
                            bool run_detailed_placement = false,
-                           bool verbose = false);
+                           bool verbose = false,
+                           RemapConfig config = {});
 
  private:
   void deleteComponents();

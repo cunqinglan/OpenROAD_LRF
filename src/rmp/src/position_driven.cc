@@ -560,7 +560,7 @@ std::vector<sta::Vertex*> PositionDrivenStrategy::getWorstVertices(
   // Build result vector (deduplicated, preserving order).
   std::vector<sta::Vertex*> result;
   std::set<sta::Vertex*> seen;
-  const size_t max_candidates = 100;
+  const size_t max_candidates = config_.max_candidates;
   for (auto& [v, d] : vertex_delays) {
     if (result.size() >= max_candidates) break;
     if (seen.insert(v).second) {
@@ -792,7 +792,7 @@ std::vector<sta::Vertex*> PositionDrivenStrategy::getWorstVerticesForEndpoint(
 
   std::vector<sta::Vertex*> result;
   std::set<sta::Vertex*> seen;
-  const size_t max_candidates = 100;
+  const size_t max_candidates = config_.max_candidates;
   for (auto& [v, d] : vertex_delays) {
     if (result.size() >= max_candidates) break;
     if (seen.insert(v).second) {
@@ -1212,8 +1212,8 @@ bool PositionDrivenStrategy::remapOneCut(
   // If the cut is too large for ABC enumeration, try gate cloning instead.
   // Gate cloning splits bad_instance's fanout load: a clone drives the worst-
   // slack fanouts (forming the candidate cut), the original keeps the rest.
-  const size_t kMaxCutInstances = 10;
-  const size_t kMaxCutPIs = 20;
+  const size_t kMaxCutInstances = config_.max_cut_instances;
+  const size_t kMaxCutPIs       = config_.max_cut_pis;
 
   if (candidate_cut.cut_instances().size() > kMaxCutInstances) {
     logger_->info(utl::RES, 421,
@@ -1302,7 +1302,7 @@ bool PositionDrivenStrategy::remapOneCut(
       abc::Abc_NtkNodeNum(logic_network.get()));
 
   // Enumerate all possible mapping solutions using ABC.
-  int nMaxSolutions = 80;
+  int nMaxSolutions = config_.max_solutions;
   int fVerbose = verbose_ ? 1 : 0;
 
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> strashed_network(
@@ -1382,9 +1382,9 @@ bool PositionDrivenStrategy::remapOneCut(
                evaluated_count);
 
   // UCT iterative phase
-  const int nBatchSize = 20;
-  const int nRounds = 5;
-  const double uctC = 1.414;
+  const int nBatchSize  = config_.uct_batch_size;
+  const int nRounds     = config_.uct_rounds;
+  const double uctC     = config_.uct_c;
 
   abc::Map_ManSetMaxSolutions(map_man, nMaxSolutions + nBatchSize * nRounds);
   abc::Map_UctMan_t* pUct = abc::Map_UctBegin(map_man, uctC);
@@ -1488,12 +1488,50 @@ bool PositionDrivenStrategy::remapOneCut(
       close(saved_stdout2);
     }
 
-    // Place the newly inserted cells near the cut centroid.
-    // Skip evaluateSolution() in the parent — STA graph operations
-    // (networkChanged/updateTiming/repairSetup) are fragile and can crash.
-    // The children already evaluated solutions safely via fork(); the parent
-    // only needs the netlist and placement changes.
-    remapper.performIncreDpl(candidate_cut, remapper.getDpl());
+    // Place newly inserted (unplaced) cells at the PI/PO centroid.
+    // Do NOT call performIncreDpl — it invokes DPL which calls
+    // EstimateParasitics::parasiticsInvalid, causing EST-0104 on the
+    // next updateTiming().  Instead, compute centroid and set locations
+    // directly.
+    {
+      long sum_x = 0, sum_y = 0;
+      int cnt = 0;
+      auto accum = [&](sta::Net* net, bool want_driver) {
+        std::unique_ptr<sta::NetPinIterator> npit(network->pinIterator(net));
+        while (npit->hasNext()) {
+          const sta::Pin* pin = npit->next();
+          if (network->direction(pin)->isAnyOutput() != want_driver)
+            continue;
+          if (network->isTopLevelPort(pin))
+            continue;
+          sta::Instance* inst = network->instance(pin);
+          odb::dbInst* db = inst ? network->staToDb(inst) : nullptr;
+          if (!db)
+            continue;
+          int x, y;
+          db->getLocation(x, y);
+          sum_x += x;
+          sum_y += y;
+          ++cnt;
+        }
+      };
+      for (sta::Net* net : candidate_cut.primary_inputs())
+        accum(net, /*want_driver=*/true);
+      for (sta::Net* net : candidate_cut.primary_outputs())
+        accum(net, /*want_driver=*/false);
+      odb::Point centroid = (cnt > 0)
+          ? odb::Point(sum_x / cnt, sum_y / cnt)
+          : odb::Point(0, 0);
+      for (const sta::Instance* sta_inst : candidate_cut.cut_instances()) {
+        odb::dbInst* db = network->staToDb(sta_inst);
+        if (!db)
+          continue;
+        if (db->getPlacementStatus() == odb::dbPlacementStatus::NONE) {
+          db->setLocation(centroid.x(), centroid.y());
+          db->setPlacementStatus(odb::dbPlacementStatus::PLACED);
+        }
+      }
+    }
 
     logger_->info(utl::RES, 364, "Best solution permanently applied.");
     applied = true;
@@ -1510,8 +1548,10 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
                                     float max_percentage,
                                     float slack_threshold,
                                     bool run_detailed_placement,
-                                    bool verbose) {
+                                    bool verbose,
+                                    RemapConfig config) {
   verbose_ = verbose;
+  config_  = config;
   sta::dbSta* sta = remapper.getSta();
   sta::dbNetwork* network = sta->getDbNetwork();
 
@@ -1543,8 +1583,7 @@ void PositionDrivenStrategy::remap(SeqRemapper& remapper,
                 "Found {} candidate endpoints to process iteratively.",
                 candidate_pins.size());
 
-  // Maximum number of worst vertices to attempt fixing per endpoint.
-  const size_t max_vertices_per_endpoint = 5;
+  const size_t max_vertices_per_endpoint = config_.max_vertices_per_endpoint;
 
   int remapped_count = 0;
 

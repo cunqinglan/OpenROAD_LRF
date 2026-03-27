@@ -3,6 +3,7 @@
 #include <string>
 
 #include "cut/logic_cut.h"
+#include "rmp/RemapConfig.hh"
 #include "Strategy.hh"
 
 
@@ -40,7 +41,8 @@ class PositionDrivenStrategy : public ExtractLocalWindow
              float max_percentage = -1.0f,
              float slack_threshold = std::numeric_limits<float>::max(),
              bool run_detailed_placement = false,
-             bool verbose = false);
+             bool verbose = false,
+             RemapConfig config = {});
 
   sta::Slack evaluateSolution(abc::Map_MappingSolution_t* pSolution,
                               abc::Map_Man_t* pMan,
@@ -91,6 +93,7 @@ class PositionDrivenStrategy : public ExtractLocalWindow
   cut::LogicCut candidate_cut_;
   cut::LogicCut worst_cut_;
   bool verbose_ = false;
+  RemapConfig config_;
 };
 
 }  // namespace rmp
