@@ -1624,10 +1624,11 @@ IncreSta::parallelResizeAndBufferingV2(rsz::Resizer *resizer, float avg_delay,
     preSaveLibCellLeakage();
   makeEquivCellArray();
 
-  // Screen buffering candidates and annotate on InstVertex
+  // Screen buffering candidates by sensitivity and annotate on InstVertex
   TaskArranger *task_arranger = local_sta_->taskArranger();
-  std::vector<size_t> buf_candidates = bufferingVerticesCandidate(buffer_top_n);
-  printf("Buffer candidates: %zu (of %zu total)\n",
+  std::vector<size_t> buf_candidates = bufferingVerticesCandidateBySensitivityV2(
+      resizer, avg_delay, avg_power, buffer_top_n);
+  printf("Buffer candidates (sensitivity): %zu (of %zu total)\n",
          buf_candidates.size(), task_arranger->vertexCount());
 
   // All instances get resize; buffer candidates also get buffer bit
