@@ -544,7 +544,7 @@ printSinkCriticality(const sta::Pin* drvr_pin,
   
   // printf("\nMax criticality: %.6f\n", max_crit);
   // printf("===================================================\n\n");
-  fflush(stdout);
+  // fflush(stdout);
 }
 
 est::SteinerTree*

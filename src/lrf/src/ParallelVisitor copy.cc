@@ -69,13 +69,13 @@ ParallelLrVisitor::visit(sta::Instance *inst)
     if (equiv_cells == nullptr) {
       // printf("Warning: ParallelLrVisitor::visit no equiv cells cached for %s, regenerating\n",
              // ori_cell->name());
-      fflush(stdout);
+      // fflush(stdout);
       db_sta_->equivCells(ori_cell);
     }
     if (equiv_cells == nullptr) {
       // printf("ParallelLrVisitor::visit no equiv cells for %s\n",
              // ori_cell->name());
-      fflush(stdout);
+      // fflush(stdout);
       return false;
     } 
     // Examine if all equiv cells are legal
@@ -88,7 +88,7 @@ ParallelLrVisitor::visit(sta::Instance *inst)
     if (legal_equiv_cells.size() < 2) {
       // printf("ParallelLrVisitor::visit no legal equiv cells for %s\n",
              // ori_cell->name());
-      fflush(stdout);
+      // fflush(stdout);
       return false;
     }
 
@@ -146,7 +146,7 @@ ParallelLrVisitor::visit(sta::Instance *inst)
   } 
   // printf("ParallelLrVisitor::visit no liberty cell for instance %s\n",
          // db_sta_->network()->pathName(inst));
-  fflush(stdout);
+  // fflush(stdout);
   return false;
 }
 
@@ -170,7 +170,7 @@ ParallelLrVisitor::visit(sta::Instance *inst,
     if (equiv_cells == nullptr) {
       // printf("ParallelLrVisitor::visit no equiv cells for %s\n",
              // ori_cell->name());
-      fflush(stdout);
+      // fflush(stdout);
       return false;
     } 
     // Examine if all equiv cells are legal
@@ -183,7 +183,7 @@ ParallelLrVisitor::visit(sta::Instance *inst,
     if (legal_equiv_cells.size() < 2) {
       // printf("ParallelLrVisitor::visit no legal equiv cells for %s\n",
              // ori_cell->name());
-      fflush(stdout);
+      // fflush(stdout);
       return false;
     }
 
@@ -191,7 +191,7 @@ ParallelLrVisitor::visit(sta::Instance *inst,
          // db_sta_->network()->pathName(inst),
          // db_sta_->network()->libertyCell(inst)->name(),
          // legal_equiv_cells.size());
-    fflush(stdout);
+    // fflush(stdout);
 
     pt_graph_ = local_sta_->makePtGraph(inst, false);
     // Compute Original delays
@@ -238,7 +238,7 @@ ParallelLrVisitor::visit(sta::Instance *inst,
              // equiv_cell->name(),
              // slack_before_swap_ * 1e12,
              // swapped_slack * 1e12);
-      fflush(stdout);
+      // fflush(stdout);
       if (swapped_cost < best_result.delay_lm_sum
           && swapped_slack >= slack_before_swap_ * 1.1 ) {
         best_cell_ = equiv_cell;
@@ -257,7 +257,7 @@ ParallelLrVisitor::visit(sta::Instance *inst,
   } 
   // printf("Warning: ParallelLrVisitor::visit no liberty cell for instance %s\n",
          // db_sta_->network()->pathName(inst));
-  fflush(stdout);
+  // fflush(stdout);
   return false;
 }
 
@@ -293,7 +293,7 @@ ParallelLrVisitor::applyChangesToDb(rsz::Resizer *resizer)
               // db_sta_->network()->pathName(pt_graph_->refInstance()),
               // from_lib_cell->name(),
               // best_cell_->name());
-      fflush(stdout);
+      // fflush(stdout);
       return;
     }
     // printf("ParallelLrVisitor::applyChangesToDb swapping instance %s from cell %s to cell %s\n",
@@ -390,7 +390,7 @@ ParallelLrVisitor::recordGraphTimingFromPtGraphPara(sta::dbSta* sta, PtGraph *pt
 {
   // printf("LocalSta::Recording Graph Timing from PtGraph for cell %s\n", 
           // graph_timing.cell ? graph_timing.cell->name() : "nullptr");
-  fflush(stdout);
+  // fflush(stdout);
   // First copy slews and paths from pt_graph's vertex to graph_timing
   for (PtVertex &pt_vertex : pt_graph->ptVertices()) {
     if (!pt_vertex.vertex()) continue;

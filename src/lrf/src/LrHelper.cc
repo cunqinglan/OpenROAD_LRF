@@ -348,7 +348,7 @@ LRHelper::distributeLmOutToIn(Vertex *vertex,
                // in_edge->to_string(graph_).c_str(),
                // dcalc_ap->corner()->name(),
                // dcalc_ap->delayMinMax()->to_string().c_str());
-               fflush(stdout);
+               // fflush(stdout);
         continue;
       }
       for (TimingArc *arc : in_edge->timingArcSet()->arcs()) {
@@ -522,7 +522,7 @@ LRHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta, DcalcAnalys
             // delay_minmax->to_string().c_str(),
             // lms[lm_idx],
             // from_aat * 1.0e12, to_rat * 1.0e12, delay * 1.0e12);
-    fflush(stdout);
+    // fflush(stdout);
     lms[lm_idx] = 0.0;
   }
 }
@@ -591,7 +591,7 @@ LRHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, DcalcAnalysisPt con
             // delay_minmax->to_string().c_str(),
             // lms[lm_idx], origin,
             // from_aat * 1.0e12, to_aat * 1.0e12, delay * 1.0e12);
-    fflush(stdout);
+    // fflush(stdout);
     lms[lm_idx] = 0.0;
   }
 }
@@ -687,8 +687,8 @@ LRHelper::parallelComputeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_map)
   }
 
   if (thread_count_ <= 1 || !dispatch_queue_) {
-    printf("[ERROR] parallelComputeInLmSums called with thread_count_=%d, dispatch_queue_=%p\n",
-           thread_count_, (void*)dispatch_queue_);
+    // printf("[ERROR] parallelComputeInLmSums called with thread_count_=%d, dispatch_queue_=%p\n",
+           // thread_count_, (void*)dispatch_queue_);
   }
 
   // Chunk vertices across threads.
@@ -736,13 +736,13 @@ LRHelper::parallelComputeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_map)
 bool
 LRHelper::parallelCheckKKTForAllVertices()
 {
-  printf("LRHelper::parallelCheckKKTForAllVertices()\n");
-  fflush(stdout);
+  // printf("LRHelper::parallelCheckKKTForAllVertices()\n");
+  // fflush(stdout);
 
   const size_t n = sorted_lm_vertices_.size();
   if (thread_count_ <= 1 || !dispatch_queue_) {
-    printf("[ERROR] parallelCheckKKTForAllVertices called with thread_count_=%d, dispatch_queue_=%p\n",
-           thread_count_, (void*)dispatch_queue_);
+    // printf("[ERROR] parallelCheckKKTForAllVertices called with thread_count_=%d, dispatch_queue_=%p\n",
+           // thread_count_, (void*)dispatch_queue_);
   }
 
   std::atomic<bool> all_satisfied(true);
@@ -836,19 +836,19 @@ LRHelper::parallelCheckKKTForAllVertices()
   }
   dispatch_queue_->finishTasks();
 
-  printf("LRHelper::parallelCheckKKTForAllVertices(): max LM (%s) & min LM (%s) value encountered: %.6f, %.6f\n",
-         global_max_lm_edge ? global_max_lm_edge->to_string(graph_).c_str() : "N/A",
-         global_min_lm_edge ? global_min_lm_edge->to_string(graph_).c_str() : "N/A",
-         global_max_lm, global_min_lm);
-  fflush(stdout);
+  // printf("LRHelper::parallelCheckKKTForAllVertices(): max LM (%s) & min LM (%s) value encountered: %.6f, %.6f\n",
+         // global_max_lm_edge ? global_max_lm_edge->to_string(graph_).c_str() : "N/A",
+         // global_min_lm_edge ? global_min_lm_edge->to_string(graph_).c_str() : "N/A",
+         // global_max_lm, global_min_lm);
+  // fflush(stdout);
   return all_satisfied.load();
 }
 
 bool
 LRHelper::parallelKKTProjection(Sta *sta)
 {
-  printf("LRHelper::parallelKKTProjection() with %d threads\n", thread_count_);
-  fflush(stdout);
+  // printf("LRHelper::parallelKKTProjection() with %d threads\n", thread_count_);
+  // fflush(stdout);
 
   // Fallback to serial if single-threaded
   if (thread_count_ <= 1 || !dispatch_queue_)
@@ -887,25 +887,25 @@ LRHelper::parallelKKTProjection(Sta *sta)
   // Step 4: Parallel KKT check
   bool kkt_satisfied = parallelCheckKKTForAllVertices();
   if (kkt_satisfied) {
-    printf("LRHelper::parallelKKTProjection(): KKT conditions satisfied\n");
+    // printf("LRHelper::parallelKKTProjection(): KKT conditions satisfied\n");
   } else {
-    printf("LRHelper::parallelKKTProjection(): KKT conditions NOT satisfied\n");
+    // printf("LRHelper::parallelKKTProjection(): KKT conditions NOT satisfied\n");
   }
-  fflush(stdout);
+  // fflush(stdout);
   return kkt_satisfied;
 }
 
 void
 LRHelper::parallelUpdateAllEdgeLms(Sta *sta)
 {
-  printf("Size of sorted_lm_vertices_: %zu\n", sorted_lm_vertices_.size());
-  printf("Using LRHelper strategy: %s (parallel, %d threads)\n",
-         strategyName().c_str(), thread_count_);
-  fflush(stdout);
+  // printf("Size of sorted_lm_vertices_: %zu\n", sorted_lm_vertices_.size());
+  // printf("Using LRHelper strategy: %s (parallel, %d threads)\n",
+         // strategyName().c_str(), thread_count_);
+  // fflush(stdout);
 
   if (thread_count_ <= 1 || !dispatch_queue_) {
-    printf("[ERROR] parallelUpdateAllEdgeLms called with thread_count_=%d, dispatch_queue_=%p\n",
-           thread_count_, (void*)dispatch_queue_);
+    // printf("[ERROR] parallelUpdateAllEdgeLms called with thread_count_=%d, dispatch_queue_=%p\n",
+           // thread_count_, (void*)dispatch_queue_);
   }
 
   sta->findRequireds();

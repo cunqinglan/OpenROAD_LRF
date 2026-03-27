@@ -314,11 +314,12 @@ read_def_cmd(const char *filename,
              bool continue_on_errors,
              bool floorplan_init,
              bool incremental,
+             bool skip_connections,
              odb::dbChip* chip)
 {
   OpenRoad *ord = getOpenRoad();
   ord->readDef(filename, chip, continue_on_errors,
-               floorplan_init, incremental);
+               floorplan_init, incremental, skip_connections);
 }
 
 void

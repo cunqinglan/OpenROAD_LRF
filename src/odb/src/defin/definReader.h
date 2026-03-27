@@ -256,6 +256,8 @@ class definReader : public definBase
   std::unique_ptr<definPinProps> _pin_propsR;
   std::vector<definBase*> _interfaces;
   bool _continue_on_errors{false};
+  bool _skip_connections{false};
+  bool _skip_wires{false};
   std::string _block_name;
   std::string version_;
   char hier_delimiter_{0};

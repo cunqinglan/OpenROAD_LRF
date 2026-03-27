@@ -57,8 +57,8 @@ LocalSta::LocalSta(sta::dbSta *sta) :
   pred_(new SearchMEEPred(sta)),
   search_pred_(new SearchPredNonLatch2(sta))
 {
-  printf("LocalSta::LocalSta created\n");
-  fflush(stdout);
+  // printf("LocalSta::LocalSta created\n");
+  // fflush(stdout);
   parasitics_set_ = false;
 }
 
@@ -172,11 +172,11 @@ LocalSta::collectLocalFanoutVertices(sta::Vertex *drvr_vertex,
         continue;
       }
       if (!network_->isDriver(out_driver_vertex->pin())) {
-        printf("Warining: LocalSta::collectLocalFanoutVertices: from driver %s vertex %s of edge %s is not a driver\n",
-                drvr_vertex->to_string(graph_).c_str(),
-               out_driver_vertex->to_string(graph_).c_str(),
-               in_inst_edge->to_string(graph_).c_str());
-        fflush(stdout);
+        // printf("Warining: LocalSta::collectLocalFanoutVertices: from driver %s vertex %s of edge %s is not a driver\n",
+                // drvr_vertex->to_string(graph_).c_str(),
+               // out_driver_vertex->to_string(graph_).c_str(),
+               // in_inst_edge->to_string(graph_).c_str());
+        // fflush(stdout);
         continue;
       }
       // We avoid collecting latches in the local graph.
@@ -237,8 +237,8 @@ LocalSta::collectLocalFaninSiblingVertices(Vertex *load_vertex,
         if (search_pred_->searchThru(sibling_inst_edge) && 
                         search_pred_->searchTo(sibling_drvr_vertex)) {
           if (!network_->isDriver(sibling_drvr_vertex->pin())) {
-            printf("Warining: LocalSta::collectLocalFaninSiblingVertices: vertex %s is not a driver\n",
-                  sibling_drvr_vertex->to_string(graph_).c_str());
+            // printf("Warining: LocalSta::collectLocalFaninSiblingVertices: vertex %s is not a driver\n",
+                  // sibling_drvr_vertex->to_string(graph_).c_str());
             continue;
           }
           
@@ -253,30 +253,30 @@ void
 LocalSta::collectLocalFanouts(Pin *drvr_pin, InstanceSet &local_instances)
 {
   if (graph_ == nullptr) {
-    printf("LocalSta::collectLocalFanouts graph pointer is nullptr\n");
-    fflush(stdout);
+    // printf("LocalSta::collectLocalFanouts graph pointer is nullptr\n");
+    // fflush(stdout);
     return;
   }
 
   if (drvr_pin == nullptr) {
-    printf("LocalSta::collectLocalFanouts drvr_pin is nullptr\n");
-    fflush(stdout);
+    // printf("LocalSta::collectLocalFanouts drvr_pin is nullptr\n");
+    // fflush(stdout);
     return;
   }
 
   VertexId vertex_id = network_->vertexId(drvr_pin);
   if (vertex_id == vertex_id_null) {
-    printf("LocalSta::collectLocalFanouts vertex_id is 0 for pin %s\n",
-           network_->name(drvr_pin));
-    fflush(stdout);
+    // printf("LocalSta::collectLocalFanouts vertex_id is 0 for pin %s\n",
+           // network_->name(drvr_pin));
+    // fflush(stdout);
     return;
   }
 
   Vertex *vertex = graph_->pinDrvrVertex(drvr_pin);
   if (vertex == nullptr) {
-    printf("LocalSta::collectLocalFanouts vertex is nullptr for pin %s\n",
-           network_->name(drvr_pin));
-    fflush(stdout);
+    // printf("LocalSta::collectLocalFanouts vertex is nullptr for pin %s\n",
+           // network_->name(drvr_pin));
+    // fflush(stdout);
     return;
   }
 
@@ -506,6 +506,20 @@ LocalSta::makePtGraph(Instance *inst, bool update_timing_first)
 }
 
 void
+LocalSta::rebuildPtGraph(PtGraph *pt_graph, Instance *inst,
+                          bool update_timing_first)
+{
+  pt_graph->reset();
+  makePtGraph(pt_graph, inst);
+  if (update_timing_first) {
+    Level top_level = pt_graph->topVertexLevel();
+    findDelays(top_level);
+    search_->findArrivals(top_level);
+    pt_graph->initVertexAndEdges();
+  }
+}
+
+void
 LocalSta::topoSortVertices(PtGraph *pt_graph)
 {
   pt_graph->topoSortVertices();
@@ -565,7 +579,7 @@ LocalSta::seedDrvrSlew(PtVertex &pt_drvr_vertex, PtGraph *pt_graph,
 	drive->driveCell(rf, cnst_min_max, drvr_cell, from_port,
 			 from_slews, to_port);
   if (drvr_cell) {
-    printf("Warning: LocalSta::seedDrvrSlew: Input drive seeding not implemented yet\n");
+    // printf("Warning: LocalSta::seedDrvrSlew: Input drive seeding not implemented yet\n");
     // if (from_port == nullptr) {
     //   from_port = driveCellDefaultFromPort(drvr_cell, to_port);
     // }
@@ -601,9 +615,9 @@ LocalSta::seedNoDrvrCellSlew(PtVertex &pt_drvr_vertex,
   else {
     // Top level bidirect driver uses load slew unless
     // bidirect instance paths are disabled.
-    printf("Warning: LocalSta::seedNoDrvrCellSlew: Input drive slew not found for pin %s\n",
-           network_->name(drvr_pin));
-           fflush(stdout);
+    // printf("Warning: LocalSta::seedNoDrvrCellSlew: Input drive slew not found for pin %s\n",
+           // network_->name(drvr_pin));
+           // fflush(stdout);
   }
   Delay drive_delay = delay_zero;
   float drive_res;
@@ -893,11 +907,11 @@ LocalSta::findDriverEdgeDelays(PtVertex &drvr_pt_vertex,
   // If both vertices belong to ref instance, use ref cell's timing
   TimingArcSet *ref_arc_set = pt_edge.timingArcSet();
   if (ref_arc_set == nullptr){
-    printf("ERROR findDriverEdgeDelays: timingArcSet is nullptr for edge %u "
-           "(from %u to %u), type=%d, hasBase=%d, isWire=%d\n",
-           pt_edge.objectIdx(), pt_edge.ptFromId(), pt_edge.ptToId(),
-           (int)pt_edge.type(), (int)pt_edge.hasBase(), (int)pt_edge.isWire());
-    fflush(stdout);
+    // printf("ERROR findDriverEdgeDelays: timingArcSet is nullptr for edge %u "
+           // "(from %u to %u), type=%d, hasBase=%d, isWire=%d\n",
+           // pt_edge.objectIdx(), pt_edge.ptFromId(), pt_edge.ptToId(),
+           // (int)pt_edge.type(), (int)pt_edge.hasBase(), (int)pt_edge.isWire());
+    // fflush(stdout);
     throw std::runtime_error("LocalSta::findDriverEdgeDelays: timingArcSet is nullptr");
   }
   
@@ -968,8 +982,8 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
       // ArcDcalcArg dcalc_args = makeArcDcalcArgs(drvr_pt_vertex,
                                   // multi_drvr_net, pt_edge, arc,
                                   // dcalc_ap, arc_delay_calc, pt_graph);
-      printf("LocalSta::findDriverArcDelays multi-driver net not implemented\n");
-      fflush(stdout);
+      // printf("LocalSta::findDriverArcDelays multi-driver net not implemented\n");
+      // fflush(stdout);
     }
     arc_delay_calc->finishDrvrPin();
   }
@@ -1521,12 +1535,12 @@ LocalSta::localSlackOnSinks(PtGraph *pt_graph)
     sta::TagGroup *pt_tg = search_->tagGroup(pt_vertex.tagGroupIndex());
     sta::TagGroup *sta_tg = search_->tagGroup(sta_vertex);
     if (!pt_tg || !sta_tg || pt_tg->index() != sta_tg->index()) {
-      printf("Warning: localSlackOnSinks: tag group mismatch on vertex %s "
-             "(pt_tg=%p idx=%d, sta_tg=%p idx=%d)\n",
-             sta_vertex->to_string(graph_).c_str(),
-             pt_tg, pt_tg ? (int)pt_tg->index() : -1,
-             sta_tg, sta_tg ? (int)sta_tg->index() : -1);
-      fflush(stdout);
+      // printf("Warning: localSlackOnSinks: tag group mismatch on vertex %s "
+             // "(pt_tg=%p idx=%d, sta_tg=%p idx=%d)\n",
+             // sta_vertex->to_string(graph_).c_str(),
+             // pt_tg, pt_tg ? (int)pt_tg->index() : -1,
+             // sta_tg, sta_tg ? (int)sta_tg->index() : -1);
+      // fflush(stdout);
       continue;
     }
 
@@ -1649,12 +1663,12 @@ LocalSta::printParasitics(PtGraph *pt_graph) const
             arc_delay_calc_->findParasitic(vertex->pin(), rf, dcalc_ap);
           float load_cap = local_parasitics_->capacitance(parasitic);
           if (parasitic != nullptr) {
-            printf("LOCALSTA::printLocalParasitics: Pin %s, RF %s, AP %u, with cap %f\n",
-                   network_->name(vertex->pin()),
-                   rf->to_string().c_str(),
-                   dcalc_ap->index(),
-                   load_cap * 1.0e15);
-            fflush(stdout);
+            // printf("LOCALSTA::printLocalParasitics: Pin %s, RF %s, AP %u, with cap %f\n",
+                   // network_->name(vertex->pin()),
+                   // rf->to_string().c_str(),
+                   // dcalc_ap->index(),
+                   // load_cap * 1.0e15);
+            // fflush(stdout);
           }
         }
       }
@@ -1671,14 +1685,14 @@ LocalSta::printLocalArrivals(PtGraph *pt_graph) const
     PtVertexPathIterator path_iter(pt_vertex, this);
     while (path_iter.hasNext()) {
       Path *path = path_iter.next();
-      printf("%s::printLocalArrivals: Vertex %s arrival path: %s, arrival = %f\n",
-             debug_label_.c_str(),
-             pt_vertex.vertex()->to_string(graph_).c_str(),
-             path->to_string(sta_).c_str(),
-             path->arrival() * 1.0e12);
+      // printf("%s::printLocalArrivals: Vertex %s arrival path: %s, arrival = %f\n",
+             // debug_label_.c_str(),
+             // pt_vertex.vertex()->to_string(graph_).c_str(),
+             // path->to_string(sta_).c_str(),
+             // path->arrival() * 1.0e12);
     }
   }
-  fflush(stdout);
+  // fflush(stdout);
 }
 
 void 
@@ -1690,14 +1704,14 @@ LocalSta::printLocalRequireds(PtGraph *pt_graph) const
     PtVertexPathIterator path_iter(pt_vertex, this);
     while (path_iter.hasNext()) {
       Path *path = path_iter.next();
-      printf("%s::printLocalRequireds: Vertex %s required path: %s, required = %f\n",
-             debug_label_.c_str(),
-             pt_vertex.vertex()->to_string(graph_).c_str(),
-             path->to_string(sta_).c_str(),
-             path->required() * 1.0e12);
+      // printf("%s::printLocalRequireds: Vertex %s required path: %s, required = %f\n",
+             // debug_label_.c_str(),
+             // pt_vertex.vertex()->to_string(graph_).c_str(),
+             // path->to_string(sta_).c_str(),
+             // path->required() * 1.0e12);
     }
   }
-  fflush(stdout);
+  // fflush(stdout);
 }
 
 void 
@@ -1715,19 +1729,19 @@ LocalSta::printLocalTiming(PtGraph *pt_graph) const
     PtVertexPathIterator path_iter(pt_vertex, this);
     while (path_iter.hasNext()) {
       Path *path = path_iter.next();
-      printf("  Path: %s, arrival = %f, required = %f\n",
-             path->to_string(sta_).c_str(),
-             path->arrival() * 1.0e12,
-             path->required() * 1.0e12);
+      // printf("  Path: %s, arrival = %f, required = %f\n",
+             // path->to_string(sta_).c_str(),
+             // path->arrival() * 1.0e12,
+             // path->required() * 1.0e12);
     }
   }
-  fflush(stdout);
+  // fflush(stdout);
 }
 
 void
 LocalSta::printLocalSlews(PtGraph *pt_graph) const
 {
-  printf("LocalSta::printLocalSlews: \n");
+  // printf("LocalSta::printLocalSlews: \n");
   for (auto& pt_vertex : pt_graph->ptVertices()) {
     if (pt_vertex.type() == PtVertexType::Sentinel)
       continue;
@@ -1745,7 +1759,7 @@ LocalSta::printLocalSlews(PtGraph *pt_graph) const
       }
     }
   }
-  fflush(stdout);
+  // fflush(stdout);
 }
 
 /////////////////////////////////////////////////////
@@ -1763,9 +1777,9 @@ LocalSta::getPinMaxSlewLimit(sta::Pin *pin, sta::LibertyCell *lib_cell)
     throw std::runtime_error("LocalSta::getPinMaxSlewLimit: sta_port is nullptr");
   odb::dbMTerm *db_iterm = network->staToDb(sta_port);
   if (db_iterm == nullptr) {
-    printf("LocalSta::getPinMaxSlewLimit: db_iterm is nullptr for port %s of pin %s\n",
-           port_name,
-           network->name(pin));
+    // printf("LocalSta::getPinMaxSlewLimit: db_iterm is nullptr for port %s of pin %s\n",
+           // port_name,
+           // network->name(pin));
     // If DB mapping fails, try to get limit from Liberty port directly
     sta::LibertyLibrary *lib = network->defaultLibertyLibrary();
     bool max_slew_exists;
@@ -1789,8 +1803,8 @@ LocalSta::getPinMaxSlewLimit(sta::Pin *pin, sta::LibertyCell *lib_cell)
         max_slew = INF;
     }
   } else {
-    printf("LocalSta::getPinMaxSlewLimit: Supply pin %s, setting max_slew to INF\n",
-           network->name(pin));
+    // printf("LocalSta::getPinMaxSlewLimit: Supply pin %s, setting max_slew to INF\n",
+           // network->name(pin));
     max_slew = INF;
   }
   return max_slew;
@@ -1809,9 +1823,9 @@ LocalSta::getPinMaxCapLimit(sta::Pin *pin, sta::LibertyCell *lib_cell)
     throw std::runtime_error("LocalSta::getPinMaxCapLimit: sta_port is nullptr");
   odb::dbMTerm *db_iterm = network->staToDb(sta_port);
   if (db_iterm == nullptr) {
-    printf("LocalSta::getPinMaxCapLimit: db_iterm is nullptr for port %s of pin %s\n",
-           port_name,
-           network->name(pin));
+    // printf("LocalSta::getPinMaxCapLimit: db_iterm is nullptr for port %s of pin %s\n",
+           // port_name,
+           // network->name(pin));
     // If DB mapping fails, try to get limit from Liberty port directly
     sta::LibertyLibrary *lib = network->defaultLibertyLibrary();
     float max_cap = 0.0;
@@ -2073,7 +2087,10 @@ void
 LRSInstanceVisitor::visit(Instance *inst)
 {
   inst_ = inst;
-  local_graph_ = new PtGraph(local_sta_->getSta());
+  if (!local_graph_)
+    local_graph_ = new PtGraph(local_sta_->getSta());
+  else
+    local_graph_->reset();
   local_sta_->makePtGraph(local_graph_, inst_);
 }
 
