@@ -1188,8 +1188,8 @@ LocalSta::computeVirtualLoadCap(PtVertex &drvr_pt_vertex,
     // printf("[DEBUG computeVirtualLoadCap] drvr_port=%s self_cap=%.6f pF\n",
     //        drvr_port->name(), dcap * 1e12);
   } else {
-    printf("[WARNING computeVirtualLoadCap] drvr_port=NULL (pin=%p)\n",
-           (void*)drvr_pin);
+    // printf("[WARNING computeVirtualLoadCap] drvr_port=NULL (pin=%p)\n",
+           // (void*)drvr_pin);
   }
 
   // Downstream load pin capacitances
@@ -1611,9 +1611,9 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
           pin_cap, wire_cap, fanout, has_net_load);
     load_cap = pin_cap + wire_cap;
     // Recompute failed
-    printf("Error: localParasiticLoad: recompute failed for pin %s, using fallback\n",
-          drvr_pin ? network_->name(drvr_pin) : "(virtual)");
-    fflush(stdout);
+    // printf("Error: localParasiticLoad: recompute failed for pin %s, using fallback\n",
+          // drvr_pin ? network_->name(drvr_pin) : "(virtual)");
+    // fflush(stdout);
   }
 }
 
@@ -1633,13 +1633,13 @@ LocalSta::printLocalParasitics(PtGraph *pt_graph) const
           PtPiElmore *pt_pi = pt_graph->findPtParasitic(
               pt_vertex.objectIdx(), rf, dcalc_ap->index());
           if (pt_pi) {
-            printf("%s::printLocalParasitics: Pin %s, RF %s, AP %u, with cap %f\n",
-                   debug_label_.c_str(),
-                   network_->name(vertex->pin()),
-                   rf->to_string().c_str(),
-                   dcalc_ap->index(),
-                   pt_pi->capacitance() * 1.0e15);
-            fflush(stdout);
+            // printf("%s::printLocalParasitics: Pin %s, RF %s, AP %u, with cap %f\n",
+                   // debug_label_.c_str(),
+                   // network_->name(vertex->pin()),
+                   // rf->to_string().c_str(),
+                   // dcalc_ap->index(),
+                   // pt_pi->capacitance() * 1.0e15);
+            // fflush(stdout);
           }
         }
       }

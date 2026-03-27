@@ -5,10 +5,10 @@
 namespace lrf {
 
 LocalCellInfo::~LocalCellInfo() {
-  if (cell_leakages) {
+  if (cell_leakages && owns_leakages) {
     delete[] cell_leakages;
-    cell_leakages = nullptr;
   }
+  cell_leakages = nullptr;
 }
 
 } // namespace lrf

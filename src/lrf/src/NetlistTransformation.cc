@@ -350,10 +350,10 @@ ResizeOperator::apply(const MoveOption &move, PtGraph *pt_graph,
         db_sta_->network()->libertyCell(pt_graph->refInstance());
     if (!sta::equivCellPorts(from_cell, move.target_cell)
         || !sta::equivCellFuncs(from_cell, move.target_cell)) {
-      printf("ResizeOperator::apply skipping %s: "
-             "port/function mismatch\n",
-             db_sta_->network()->pathName(pt_graph->refInstance()));
-      fflush(stdout);
+      // printf("ResizeOperator::apply skipping %s: "
+             // "port/function mismatch\n",
+             // db_sta_->network()->pathName(pt_graph->refInstance()));
+      // fflush(stdout);
       return;
     }
     db_sta_->replaceCell(pt_graph->refInstance(), move.target_cell);
@@ -510,7 +510,7 @@ BufferOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
 {
   MoveOption result;
   if (!rebuffer_) {
-    printf("Error: BufferOperator's rebuffer is not initialized.\n");
+    // printf("Error: BufferOperator's rebuffer is not initialized.\n");
     return result;
   }
       
@@ -876,8 +876,8 @@ ParallelVisitor::init(float average_delay, float average_power, float wns,
   float slack_margin = (wns >= 0.0f)
       ? 1.05f
       : std::max(-std::min(wns, 0.0f) / clock_period + 1.0f, 1.05f);
-  printf("slack_margin: %f\n", slack_margin);
-  fflush(stdout);
+  // printf("slack_margin: %f\n", slack_margin);
+  // fflush(stdout);
 
   // Propagate to operator via virtual interface
   if (operator_) {
@@ -983,15 +983,15 @@ ParallelVisitor::copy() const
 void
 ParallelVisitor::printRuntimeProfile() const
 {
-  printf("ParallelVisitor Runtime Profile:\n");
+  // printf("ParallelVisitor Runtime Profile:\n");
   for (const auto &entry : runtime_map_) {
-    printf("  %s: %.6f seconds\n", entry.first.c_str(), entry.second);
+    // printf("  %s: %.6f seconds\n", entry.first.c_str(), entry.second);
   }
   double equiv_count = runtime_map_.at("equiv_cell_count");
   double equiv_time = runtime_map_.at("equiv_cell_check");
   if (equiv_count > 0) {
-    printf("  Average equiv cell check time: %.9f seconds\n",
-           equiv_time / equiv_count);
+    // printf("  Average equiv cell check time: %.9f seconds\n",
+           // equiv_time / equiv_count);
   }
 }
 

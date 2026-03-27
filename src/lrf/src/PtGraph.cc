@@ -663,9 +663,9 @@ PtGraph::updateRefPorts()
       continue;
     sta::LibertyPort *old_port = ptv.libertyPort();
     if (!old_port) {
-      printf("ERROR: PtGraph::updateRefPorts: PtVertex %u has no liberty port\n",
-             ptv.objectIdx());
-      fflush(stdout);
+      // printf("ERROR: PtGraph::updateRefPorts: PtVertex %u has no liberty port\n",
+             // ptv.objectIdx());
+      // fflush(stdout);
       continue;
     }
     sta::LibertyPort *new_port = ref_lib_cell_->findLibertyPort(old_port->name());

@@ -144,6 +144,7 @@ public:
   ~LocalCellInfo();
   sta::LibertyCellSeq *equiv_cells = nullptr;
   float *cell_leakages = nullptr;
+  bool owns_leakages = true;  // false when sharing per-cell-type cached array
 };
 
 class ParallelLocalCellInfo {
