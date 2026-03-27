@@ -1488,50 +1488,51 @@ bool PositionDrivenStrategy::remapOneCut(
       close(saved_stdout2);
     }
 
+    remapper.performIncreDpl(candidate_cut, remapper.getDpl());
     // Place newly inserted (unplaced) cells at the PI/PO centroid.
     // Do NOT call performIncreDpl — it invokes DPL which calls
     // EstimateParasitics::parasiticsInvalid, causing EST-0104 on the
     // next updateTiming().  Instead, compute centroid and set locations
     // directly.
-    {
-      long sum_x = 0, sum_y = 0;
-      int cnt = 0;
-      auto accum = [&](sta::Net* net, bool want_driver) {
-        std::unique_ptr<sta::NetPinIterator> npit(network->pinIterator(net));
-        while (npit->hasNext()) {
-          const sta::Pin* pin = npit->next();
-          if (network->direction(pin)->isAnyOutput() != want_driver)
-            continue;
-          if (network->isTopLevelPort(pin))
-            continue;
-          sta::Instance* inst = network->instance(pin);
-          odb::dbInst* db = inst ? network->staToDb(inst) : nullptr;
-          if (!db)
-            continue;
-          int x, y;
-          db->getLocation(x, y);
-          sum_x += x;
-          sum_y += y;
-          ++cnt;
-        }
-      };
-      for (sta::Net* net : candidate_cut.primary_inputs())
-        accum(net, /*want_driver=*/true);
-      for (sta::Net* net : candidate_cut.primary_outputs())
-        accum(net, /*want_driver=*/false);
-      odb::Point centroid = (cnt > 0)
-          ? odb::Point(sum_x / cnt, sum_y / cnt)
-          : odb::Point(0, 0);
-      for (const sta::Instance* sta_inst : candidate_cut.cut_instances()) {
-        odb::dbInst* db = network->staToDb(sta_inst);
-        if (!db)
-          continue;
-        if (db->getPlacementStatus() == odb::dbPlacementStatus::NONE) {
-          db->setLocation(centroid.x(), centroid.y());
-          db->setPlacementStatus(odb::dbPlacementStatus::PLACED);
-        }
-      }
-    }
+    // {
+    //   long sum_x = 0, sum_y = 0;
+    //   int cnt = 0;
+    //   auto accum = [&](sta::Net* net, bool want_driver) {
+    //     std::unique_ptr<sta::NetPinIterator> npit(network->pinIterator(net));
+    //     while (npit->hasNext()) {
+    //       const sta::Pin* pin = npit->next();
+    //       if (network->direction(pin)->isAnyOutput() != want_driver)
+    //         continue;
+    //       if (network->isTopLevelPort(pin))
+    //         continue;
+    //       sta::Instance* inst = network->instance(pin);
+    //       odb::dbInst* db = inst ? network->staToDb(inst) : nullptr;
+    //       if (!db)
+    //         continue;
+    //       int x, y;
+    //       db->getLocation(x, y);
+    //       sum_x += x;
+    //       sum_y += y;
+    //       ++cnt;
+    //     }
+    //   };
+    //   for (sta::Net* net : candidate_cut.primary_inputs())
+    //     accum(net, /*want_driver=*/true);
+    //   for (sta::Net* net : candidate_cut.primary_outputs())
+    //     accum(net, /*want_driver=*/false);
+    //   odb::Point centroid = (cnt > 0)
+    //       ? odb::Point(sum_x / cnt, sum_y / cnt)
+    //       : odb::Point(0, 0);
+    //   for (const sta::Instance* sta_inst : candidate_cut.cut_instances()) {
+    //     odb::dbInst* db = network->staToDb(sta_inst);
+    //     if (!db)
+    //       continue;
+    //     if (db->getPlacementStatus() == odb::dbPlacementStatus::NONE) {
+    //       db->setLocation(centroid.x(), centroid.y());
+    //       db->setPlacementStatus(odb::dbPlacementStatus::PLACED);
+    //     }
+    //   }
+    // }
 
     logger_->info(utl::RES, 364, "Best solution permanently applied.");
     applied = true;

@@ -548,10 +548,21 @@ void SeqRemapper::performIncreDpl(cut::LogicCut& logic_cut, dpl::Opendp* dpl)
     db_inst->setPlacementStatus(odb::dbPlacementStatus::NONE);
   }
 
-  // Step 3: Run incremental detailed placement — only places unplaced cells,
-  //         treats all existing placed cells as obstacles in the grid.
-  dpl->incrementalDetailedPlacement(/*max_displacement_x=*/0,
-                                    /*max_displacement_y=*/0);
+  // Step 3: Legalize each new cut instance in place — snaps to the nearest
+  //         legal row/site and resolves overlaps locally, like rsz does after
+  //         cell insertion.
+  for (const sta::Instance* sta_inst : logic_cut.cut_instances()) {
+    odb::dbInst* db_inst = network->staToDb(sta_inst);
+    if (db_inst == nullptr) {
+      continue;
+    }
+    dpl->legalCellPos(db_inst);
+  }
+
+  // // Step 3: Run incremental detailed placement — only places unplaced cells,
+  // //         treats all existing placed cells as obstacles in the grid.
+  // dpl->incrementalDetailedPlacement(/*max_displacement_x=*/0,
+  //                                   /*max_displacement_y=*/0);
 
   logger_->info(utl::RES, 338, "Incremental detailed placement completed");
 }
