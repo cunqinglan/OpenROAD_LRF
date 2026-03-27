@@ -3,6 +3,7 @@
 #include <thread>
 
 #include "TaskArranger.hh"
+#include "NetlistTransformation.hh"
 #include "TopologyChecker.hh"
 #include "search/Levelize.hh"
 #include "sta/ObjectTable.hh"
@@ -841,6 +842,7 @@ void
 TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer,
                            ParallelLrVisitor *visitor)
 {
+  use_v2_visitors_ = false;
   if (incremental_)
     reinit();
   // Clear previous visit records
@@ -872,6 +874,11 @@ TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *r
   }
   finishTasks();
   
+  // Aggregate change stats from all thread visitors and detect K
+  // (first iteration where change_rate < threshold). Must run before
+  // visitors are deleted since it reads their counters.
+  updatePruningStats();
+
   int cnt = 0;
   for (auto v : visitors_) {
     // printf("Visitor %d runtime profile:\n", cnt);
@@ -936,14 +943,56 @@ TaskArranger::visitAll(ParallelLrVisitor *visitor)
 }
 
 void
+TaskArranger::visitAll(ParallelVisitor *visitor)
+{
+  // Clean up old visitors if any
+  for (auto v : visitors_v2_) delete v;
+  visitors_v2_.clear();
+
+  printf("visitAll (V2): %zu combinational instances out of %zu total, %u threads\n",
+         num_com_, vertices_.size(), thread_count_);
+  fflush(stdout);
+
+  // Create visitor copies for each thread
+  visitors_v2_.reserve(thread_count_);
+  visitors_v2_.push_back(visitor);
+  for (size_t i = 1; i < thread_count_; i++) {
+    visitors_v2_.emplace_back(visitor->copy());
+  }
+
+  // Dispatch all combinational instances (no dependency graph)
+  const size_t total = vertices_.size();
+  for (size_t i = 0; i < total; i++) {
+    if (vertices_[i].type() != VertexType::COMBINATIONAL)
+      continue;
+    InstVertex *iv = &vertices_[i];
+    VertexId vid = static_cast<VertexId>(i);
+    if (!dispatch_queue_) {
+      visitors_v2_[0]->visit(iv->inst(), vid);
+    } else {
+      dispatch_queue_->dispatch([this, iv, vid](int tid) {
+        visitors_v2_[tid]->visit(iv->inst(), vid);
+      });
+    }
+  }
+  finishTasks();
+
+  // Cleanup visitors
+  for (auto v : visitors_v2_) {
+    v->printRuntimeProfile();
+    delete v;
+  }
+  visitors_v2_.clear();
+}
+
+void
 TaskArranger::markSelectedInstances(const std::vector<size_t> &vertex_ids)
 {
-  // Reset all vertices to unselected
+  // Reset all vertices to skip, then mark selected for resize
   for (auto &v : vertices_)
-    v.selected_ = false;
-  // Mark only the top instances from precheck as selected
+    v.move_mask_ = 0;
   for (size_t idx : vertex_ids)
-    vertices_[idx].selected_ = true;
+    vertices_[idx].move_mask_ = InstVertex::kMoveResize;
 }
 
 void
@@ -962,22 +1011,31 @@ TaskArranger::createTask(InstVertex* inst_vertex)
   if (!dispatch_queue_) {
     if (thread_count_ == 1) {
       // Single-threaded execution
-      runTask(visitors_[0], inst_vertex);
+      if (use_v2_visitors_)
+        runTask(visitors_v2_[0], inst_vertex);
+      else
+        runTask(visitors_[0], inst_vertex);
       return;
     } else {
       throw std::runtime_error("Dispatch queue is null in multi-threaded mode.");
     }
   }
   dispatch_queue_->dispatch([inst_vertex, this](int id) {
-    runTask(visitors_[id], inst_vertex);
+    if (use_v2_visitors_)
+      runTask(visitors_v2_[id], inst_vertex);
+    else
+      runTask(visitors_[id], inst_vertex);
   });
 }
 
 void
 TaskArranger::runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex)
 {
-  // Only visit selected instances; unselected ones just cascade dependencies
-  if (inst_vertex->selected_) {
+  if (inst_vertex->move_mask_ == 0) {
+    // Non-selected: lightweight slew-only pass to keep timing fresh
+    // for downstream selected instances. No cell evaluation.
+    visitor->visitSlewOnly(inst_vertex->inst());
+  } else {
     // Topology validation: check if this vertex is ready to visit
     if (enable_topology_check_ && topology_checker_) {
       topology_checker_->onVisit(inst_vertex, std::this_thread::get_id());
@@ -1005,6 +1063,37 @@ TaskArranger::runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex)
   for (VertexId zero_ref_id : zero_ref_vertices) {
     InstVertex* zero_ref_vertex = vertex(zero_ref_id);
     createTask(zero_ref_vertex);
+  }
+}
+
+void
+TaskArranger::updatePruningStats()
+{
+  if (visitors_.empty())
+    return;
+  PruningControl *pc = visitors_[0]->pruningControl();
+  if (!pc)
+    return;
+
+  int total_visit = 0, total_change = 0;
+  for (auto *v : visitors_) {
+    total_visit += v->resizeVisitCount();
+    total_change += v->resizeChangeCount();
+  }
+  if (total_visit == 0)
+    return;
+
+  float change_rate = static_cast<float>(total_change) / total_visit;
+  printf("Pruning: change_rate=%.4f (%d/%d), iteration=%d, enabled=%d, K=%d\n",
+         change_rate, total_change, total_visit,
+         pc->iteration, pc->enabled, pc->K);
+  fflush(stdout);
+
+  if (pc->K == -1 && change_rate < pc->change_threshold) {
+    pc->K = pc->iteration;
+    pc->enabled = true;
+    printf("Pruning: K detected at iteration %d, pruning enabled\n", pc->K);
+    fflush(stdout);
   }
 }
 
@@ -1139,6 +1228,88 @@ TaskArranger::printTopologyViolations() const
     topology_checker_->printViolations();
   } else {
     // printf("Topology checker not initialized. Call enableTopologyCheck(true) before visitOrdered().\n");
+  }
+}
+
+////////////////////////////////////////////////////////////////
+// ParallelVisitor overloads (NetlistTransformation framework)
+////////////////////////////////////////////////////////////////
+
+void
+TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta,
+                           rsz::Resizer *resizer,
+                           ParallelVisitor *visitor)
+{
+  use_v2_visitors_ = true;
+  if (incremental_)
+    reinit();
+  clearVisitedInstVertices();
+  resizer_ = resizer;
+
+  if (enable_topology_check_) {
+    printf("Topology check enabled.\n");
+    topology_checker_ = std::make_unique<TopologyChecker>(this);
+  }
+
+  for (auto v : visitors_v2_) delete v;
+  visitors_v2_.clear();
+
+  std::vector<InstVertex*> zero_ref_vertices;
+  getZeroRefComInstVertices(zero_ref_vertices);
+
+  visitors_v2_.reserve(thread_count_);
+  visitors_v2_.push_back(visitor);
+  printf("Visit with %u threads\n", thread_count_);
+  fflush(stdout);
+  for (size_t i = 1; i < thread_count_; i++) {
+    visitors_v2_.emplace_back(visitor->copy());
+  }
+  for (size_t i = 0; i < zero_ref_vertices.size(); i++) {
+    createTask(zero_ref_vertices[i]);
+  }
+  finishTasks();
+
+  int cnt = 0;
+  for (auto v : visitors_v2_) {
+    v->printRuntimeProfile();
+    delete v;
+    cnt++;
+  }
+  visitors_v2_.clear();
+
+  if (enable_topology_check_ && topology_checker_) {
+    topology_checker_->printViolations();
+    topology_checker_.reset();
+  }
+
+  incremental_ = true;
+}
+
+void
+TaskArranger::runTask(ParallelVisitor *visitor, InstVertex* inst_vertex)
+{
+  if (inst_vertex->move_mask_ == 0) {
+    visitor->visitSlewOnly(inst_vertex->inst());
+  } else {
+    if (enable_topology_check_ && topology_checker_) {
+      topology_checker_->onVisit(inst_vertex, std::this_thread::get_id());
+    }
+
+    if (visitor->visit(inst_vertex->inst(), inst_vertex->objectIdx()))
+    {
+      if (enable_topology_check_ && topology_checker_) {
+        topology_checker_->onBeforeModify(inst_vertex, std::this_thread::get_id());
+      }
+      visitor->applyChangesToDb(resizer_);
+      if (enable_topology_check_ && topology_checker_) {
+        topology_checker_->onAfterModify(inst_vertex, std::this_thread::get_id());
+      }
+    }
+  }
+  std::set<VertexId> zero_ref_vertices = decreOutRefCount(inst_vertex);
+  for (VertexId zero_ref_id : zero_ref_vertices) {
+    InstVertex* zero_ref_vertex = vertex(zero_ref_id);
+    createTask(zero_ref_vertex);
   }
 }
 

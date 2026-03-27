@@ -49,6 +49,7 @@ public:
   // When do virtual ref cell swap, update timing arc sets of all edges of
   // the ref instance.
   void updateTimingArcSets();
+  void updateRefPorts();
   sta::TagGroup *tagGroup(const PtVertex &pt_vertex);
 
   sta::EdgeId makeEdge(sta::Edge *edge, sta::VertexId pt_from, sta::VertexId pt_to);
@@ -74,22 +75,14 @@ public:
   }
   PtVertex *ptVertex(const sta::Vertex *vertex) {
     auto it = vertex_map_.find(vertex);
-    if (it == vertex_map_.end()) {
-      // printf("PtGraph::ptVertex: vertex %s not found in map\n",
-             // vertex->to_string(sta_).c_str());
-             fflush(stdout);
+    if (it == vertex_map_.end())
       return nullptr;
-    }
     return &pt_vertices_[it->second];
   }
   const PtVertex *ptVertex(const sta::Vertex *vertex) const {
     auto it = vertex_map_.find(vertex);
-    if (it == vertex_map_.end()) {
-      printf("PtGraph::ptVertex const: vertex %s not found in map\n",
-             vertex->to_string(sta_).c_str());
-      fflush(stdout);
+    if (it == vertex_map_.end())
       return nullptr;
-    }
     return &pt_vertices_[it->second];
   }
 
@@ -137,6 +130,14 @@ public:
   // Output informations of the PtGraph for debug purpose
   std::string to_string();
   void printGraph(bool dot_format = false);
+  // Prune insignificant sibling arcs (LM < threshold_ratio of total)
+  // to reduce cell evaluation runtime.  Sibling arcs are second-order
+  // gate edges between sibling vertices on the fanin side.  Pruned
+  // edges are marked sibling_skipped and excluded from delay computation
+  // (findDriverDelays1), arrival/required propagation (localVisitFanin/
+  // FanoutPaths), and LRS cost computation (delayLmSum).
+  void pruneInsignificantSiblings(float threshold_ratio = 0.01f);
+
   void printGraph(const char *output_path, bool dot_format = false);
   void printDelays();
   void printSlews();
@@ -251,6 +252,11 @@ public:
   const LMValue *arcLms() const;
   void setArcLms(const std::vector<LMValue> &lms);
 
+  // Sibling arc skipping: insignificant sibling arcs can be excluded
+  // from cost computation and delay evaluation to reduce runtime.
+  bool isSiblingSkipped() const { return sibling_skipped_; }
+  void setSiblingSkipped(bool v) { sibling_skipped_ = v; }
+
 protected:
   void setArcDelays(sta::ArcDelay *arc_delay, size_t delay_count);
   void copyInfoFromEdge(size_t ap_count);
@@ -259,6 +265,7 @@ protected:
   std::vector<sta::ArcDelay> arc_delays_;
   std::vector<LMValue> arc_lms_;
   bool is_wire_{false};
+  bool sibling_skipped_{false};
   sta::EdgeId vertex_out_next_{};
   sta::EdgeId vertex_out_prev_{};
   sta::EdgeId vertex_in_link_{};
@@ -274,6 +281,7 @@ private:
   friend class PtVertexInEdgeIterator;
   friend class PtVertexOutEdgeIterator;
   friend class LrRebuffer;
+  friend class LrRebufferV2;
 };
 
 class PtVertex {
@@ -300,7 +308,8 @@ public:
   sta::Vertex *vertex() const { return vertex_; }
   bool hasBase() const { return vertex_ != nullptr; }
   sta::LibertyPort *libertyPort() const { return liberty_port_; }
-  sta::LibertyCell *libertyCell() const { return liberty_cell_; }
+  void setLibertyPort(sta::LibertyPort *port) { liberty_port_ = port; }
+  sta::LibertyCell *libertyCell() const;
   float level() const { return level_; }
   void setLevel(float lvl) { level_ = lvl; }
   sta::Slew *slews() { return slews_.empty() ? nullptr : slews_.data(); }
@@ -357,6 +366,7 @@ private:
   friend class PtVertexOutEdgeIterator;
   friend class LocalSta;
   friend class LrRebuffer;
+  friend class LrRebufferV2;
 };
 
 class PtVertexInEdgeIterator {
