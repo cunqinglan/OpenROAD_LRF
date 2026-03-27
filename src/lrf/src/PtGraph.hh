@@ -62,6 +62,7 @@ public:
   void initVirtualPaths(PtVertex &virtual_vertex, PtVertex &source_vertex);
   void deleteEdge(sta::EdgeId edge_id);
   void deleteVertex(sta::VertexId vertex_id);
+  void reset();
   void reserveVertices(size_t count) { pt_vertices_.reserve(count); }
   void reserveEdges(size_t count) { pt_edges_.reserve(count); }
   size_t vertexCount() const { return pt_vertices_.size(); }

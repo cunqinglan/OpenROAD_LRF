@@ -143,9 +143,9 @@ LocalParasitics::findLocalParasiticNetwork(const Net *net, const ParasiticAnalys
     if (!parasitic_array) {
       const char *unconnected_net_name = "UNCONNECTED";
       if (!network_->name(net) || !strstr(network_->name(net), unconnected_net_name)) {
-        printf("Error: LocalParasitics::findLocalParasiticNetwork: No parasitic array found for net %s\n",
-                network_->name(net));
-        fflush(stdout);
+        // printf("Error: LocalParasitics::findLocalParasiticNetwork: No parasitic array found for net %s\n",
+                // network_->name(net));
+        // fflush(stdout);
       }
       return nullptr;
     }
@@ -153,16 +153,16 @@ LocalParasitics::findLocalParasiticNetwork(const Net *net, const ParasiticAnalys
     if (!parasitic) {
       parasitic = parasitic_array[ap->indexMax()];
       if (parasitic == nullptr) {
-        printf("Error: LocalParasitics::findLocalParasiticNetwork: No parasitic found for net %s\n",
-               network_->name(net));
-        fflush(stdout);
+        // printf("Error: LocalParasitics::findLocalParasiticNetwork: No parasitic found for net %s\n",
+               // network_->name(net));
+        // fflush(stdout);
         return nullptr;
       }
     }
     return parasitic;
   }
-  printf("Error: LocalParasitics::findLocalParasiticNetwork: local_parasitic_network_map_ is empty\n");
-  fflush(stdout);
+  // printf("Error: LocalParasitics::findLocalParasiticNetwork: local_parasitic_network_map_ is empty\n");
+  // fflush(stdout);
   return nullptr;
 }
 
