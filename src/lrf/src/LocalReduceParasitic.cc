@@ -188,20 +188,21 @@ LocalReduceToPi::localPinCapacitance(ParasiticNode *node)
   if (pin) {
     Port *port = network_->port(pin);
     LibertyPort *lib_port = network_->libertyPort(port);
-    // const char *pin_name = network_->portName(pin);
-    const PtVertex &pt_vertex = pt_graph_->pinToPtVertex(pin);
-    if (pt_vertex.type() == PtVertexType::RefInput
-        || pt_vertex.type() == PtVertexType::RefOutput) {
-      // printf("pin %s is ref %s pin\n", network_->pathName(pin), pt_vertex.type() == PtVertexType::RefInput ? "input" : "output");
+    // Look up PtVertex safely (nullptr if not in PtGraph)
+    sta::Vertex *sta_vtx = graph_->pinLoadVertex(pin);
+    const PtVertex *pt_vp = (sta_vtx && pt_graph_)
+        ? pt_graph_->ptVertex(sta_vtx) : nullptr;
+    if (pt_vp && (pt_vp->type() == PtVertexType::RefInput
+                  || pt_vp->type() == PtVertexType::RefOutput)) {
       if (lib_port) {
         if (!includes_pin_caps_) {
-          pin_cap = pt_graph_->getRefPinCapacitance(pt_vertex, rf_, corner_, min_max_);
+          pin_cap = pt_graph_->getRefPinCapacitance(*pt_vp, rf_, corner_, min_max_);
           pin_caps_one_value_ &= lib_port->capacitanceIsOneValue();
         }
       } else if (network_->isTopLevelPort(pin))
         pin_cap = sdc_->portExtCap(port, rf_, corner_, min_max_);
     }
-    else  {
+    else {
       if (lib_port) {
         if (!includes_pin_caps_) {
           pin_cap = sdc_->pinCapacitance(pin, rf_, corner_, min_max_);
@@ -352,11 +353,6 @@ LocalReduceToPiElmore::reduceElmoreDfsToPt(const Pin *drvr_pin,
       sta::Vertex *load_vertex = graph_->pinLoadVertex(pin);
       const PtVertex *pt_v = load_vertex
           ? pt_graph_->ptVertex(load_vertex) : nullptr;
-      if (!pt_v) {
-        // printf("Warning: reduceElmoreDfsToPt: load pin %s not found in PtGraph\n",
-               // network_->pathName(pin));
-        // fflush(stdout);
-      }
       VertexId vid = pt_v ? pt_v->objectIdx() : sta::object_id_null;
       result.addLoad(vid, pin, elmore);
     }

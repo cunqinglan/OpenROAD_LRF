@@ -3,7 +3,6 @@
 #include <mutex>
 
 #include "LocalParasitics.hh"
-#include "parasitics/ReduceParasitics.hh"
 #include "parasitics/ConcreteParasitics.hh"
 #include "parasitics/ConcreteParasiticsPvt.hh"
 #include "sta/DcalcAnalysisPt.hh"
@@ -12,13 +11,13 @@
 #include "sta/Sdc.hh"
 
 #include "LocalReduceParasitic.hh"
-#include "LocalParasitics.hh"
 #include "PtPiElmore.hh"
 
 namespace lrf {
 
 // Global mutex to protect access to OpenDB/STA objects which may not be thread-safe
 std::mutex g_odb_sta_access_mutex;
+
 using sta::Parasitic;
 using sta::ParasiticNode;
 using sta::Pin;
@@ -34,26 +33,16 @@ LocalParasitics::LocalParasitics(StaState* state, bool parallelism_exists) :
   parallelism_exists_(parallelism_exists),
   copy_helper_(new ParasiticCopyHelper(state))
 {
-  // Pre-assign space for local driver parasitics
   initParasiticMapFromBase();
 }
 
 LocalParasitics::~LocalParasitics()
 {
-  for (auto &entry : local_drvr_parasitic_map_) {
-    ConcreteParasitic **parasitic_array = entry.second;
-    int ap_count = corners_->parasiticAnalysisPtCount();
-    int ap_rf_count = ap_count * RiseFall::index_count;
-    for (int i = 0; i < ap_rf_count; i++) {
-      delete parasitic_array[i];
-    }
-    delete [] parasitic_array;
-  }
   delete copy_helper_;
 }
 
-void 
-LocalParasitics::initParasiticMapFromBase() 
+void
+LocalParasitics::initParasiticMapFromBase()
 {
   if (!corners_) {
     // printf("DEBUG: LocalParasitics::initParasiticMapFromBase: corners_ is null\n");
@@ -62,134 +51,8 @@ LocalParasitics::initParasiticMapFromBase()
   }
 
   ConcreteParasitics *global = dynamic_cast<ConcreteParasitics*>(parasitics_);
-
   if (global != nullptr) {
-    if (!global->drvr_parasitic_map_.empty()) {
-      for (const auto& [pin, array] : global->drvr_parasitic_map_) {
-        int ap_count = corners_->parasiticAnalysisPtCount();
-        int ap_rf_count = ap_count * RiseFall::index_count;
-        ConcreteParasitic **local_array = new ConcreteParasitic*[ap_rf_count];
-        for (int i = 0; i < ap_rf_count; i++){
-          if (array && array[i]) {
-            if (array[i]->isPiElmore()) {
-              ConcretePiElmore *pi_elmore = dynamic_cast<ConcretePiElmore*>(array[i]);
-              if (pi_elmore && copy_helper_)
-                  local_array[i] = copy_helper_->getCopy(pi_elmore);
-              else 
-                  local_array[i] = nullptr;
-            } else {
-               local_array[i] = nullptr;
-            }
-          } else
-            local_array[i] = nullptr;
-        }
-        local_drvr_parasitic_map_[pin] = local_array;
-      }
-    }
     local_parasitic_network_map_ = global->parasitic_network_map_;
-  }
-}
-
-Parasitic *
-LocalParasitics::reduceToLocalPiElmore(const Parasitic *parasitic_network,
-                                       const Pin *drvr_pin,
-                                       const RiseFall *rf,
-                                       const Corner *corner,
-                                       const PtGraph *pt_graph,
-                                //  In fact, cnst_min_max = dcalc.minmax()
-                                //  ap = dcalc.parasiticAnalysisPt()
-                                       const MinMax *cnst_min_max,
-                                       const ParasiticAnalysisPt *ap)
-{
-  ParasiticNode *drvr_node =
-    parasitics_->findParasiticNode(parasitic_network, drvr_pin);
-  if (drvr_node) {
-    return makeLocalPiElmore(parasitic_network, drvr_pin, drvr_node,
-                             ap->couplingCapFactor(), rf,
-                             corner,  pt_graph, cnst_min_max, ap);
-  }
-  return nullptr;
-}
-
-Parasitic *
-LocalParasitics::makeLocalPiElmore(const Parasitic *parasitic_network,
-                                   const Pin *drvr_pin,
-                                   ParasiticNode *drvr_node,
-                                   float coupling_cap_factor,
-                                   const RiseFall *rf,
-                                   const Corner *corner,
-                                   const PtGraph *pt_graph,
-                                   const MinMax *min_max,
-                                   const ParasiticAnalysisPt *ap)
-{
-  // Protect access to OpenDB/STA network objects which may have internal state
-  std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
-  float c2, rpi, c1;
-  LocalReduceToPiElmore reducer(this, pt_graph);
-  reducer.reduceToPi(parasitic_network, drvr_pin, drvr_node,
-                     coupling_cap_factor, rf, corner, min_max, ap,
-                     c2, rpi, c1);
-
-  ConcreteParasitic **parasitic_array = 
-    local_drvr_parasitic_map_.findKey(drvr_pin);
-  if (!parasitic_array) {
-    if (parallelism_exists_) {
-      throw std::runtime_error("Error: LocalParasitics::makeLocalPiElmore: Do not use it where parallelism exists\n");
-    }
-    int ap_count = corners_->parasiticAnalysisPtCount();
-    int ap_rf_count = ap_count * RiseFall::index_count;
-    parasitic_array = new ConcreteParasitic*[ap_rf_count];
-    for (int i = 0; i < ap_rf_count; i++)
-      parasitic_array[i] = nullptr;
-    local_drvr_parasitic_map_[drvr_pin] = parasitic_array;
-  }
-  int ap_rf_index = parasiticAnalysisPtIndex(ap, rf);
-  ConcreteParasitic *existing_parasitic = parasitic_array[ap_rf_index];
-  ConcretePiElmore *local_pi_elmore = nullptr;
-  if (existing_parasitic) {
-    if (!existing_parasitic->isPiElmore()) {
-      // printf("Error: Existing parasitic is not PiElmore\n");
-      // fflush(stdout);
-      return nullptr;
-    }
-    local_pi_elmore = dynamic_cast<ConcretePiElmore*>(existing_parasitic);
-    local_pi_elmore->setPiModel(c2, rpi, c1);
-  }
-  else {
-    local_pi_elmore = new ConcretePiElmore(c2, rpi, c1);
-    parasitic_array[ap_rf_index] = local_pi_elmore;
-  }
-  
-  reducer.reduceElmoreDfs(drvr_pin, drvr_node, 0, 0.0, local_pi_elmore);
-  return local_pi_elmore;
-}
-
-void 
-LocalParasitics::recomputeLocalParasitics(PtGraph *pt_graph)
-{
-  for (const auto &pt_vertex: pt_graph->ptVertices()) {
-    if (pt_vertex.type() == PtVertexType::RefDriver
-        || pt_vertex.type() == PtVertexType::RefOutput) {
-      const Net *net = findParasiticNet(pt_vertex.vertex()->pin());
-      for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
-    ParasiticAnalysisPt *ap = dcalc_ap->parasiticAnalysisPt();
-    // Use global parasitics to find the parasitic network
-    Parasitic *drvr_parsitic_network = 
-        findLocalParasiticNetwork(net, ap);
-    if (drvr_parsitic_network) {
-      reduceLocalParasitic(drvr_parsitic_network, pt_graph, pt_vertex, 
-                           dcalc_ap);
-    } else {
-      // For rst nets, PI nets or special nets, there may be no parasitic network
-      // if (network_->name(net) != "(null)")
-      // printf("Warning: LocalParasitics::recomputeLocalParasitics: No parasitic network found for driver net %s.\n"
-      //         "              This net drives vertex %s\n",
-      //        network_->name(net),
-      //        network_->name(pt_vertex.vertex()->pin()));
-      // fflush(stdout);
-    }
-      }
-    }
   }
 }
 
@@ -261,11 +124,21 @@ LocalParasitics::recomputeSinglePtParasitic(PtGraph *pt_graph, VertexId drvr_vid
   }
 }
 
+void
+LocalParasitics::syncParasiticNetworkFromGlobal(const Net *net)
+{
+  ConcreteParasitics *global = dynamic_cast<ConcreteParasitics*>(parasitics_);
+  if (!global) return;
+  ConcreteParasiticNetwork **array = global->parasitic_network_map_.findKey(net);
+  if (array)
+    local_parasitic_network_map_[net] = array;
+}
+
 Parasitic *
 LocalParasitics::findLocalParasiticNetwork(const Net *net, const ParasiticAnalysisPt *ap) const
 {
   if (!local_parasitic_network_map_.empty()) {
-    ConcreteParasiticNetwork **parasitic_array = 
+    ConcreteParasiticNetwork **parasitic_array =
       local_parasitic_network_map_.findKey(net);
     if (!parasitic_array) {
       const char *unconnected_net_name = "UNCONNECTED";
@@ -293,24 +166,8 @@ LocalParasitics::findLocalParasiticNetwork(const Net *net, const ParasiticAnalys
   return nullptr;
 }
 
-void 
-LocalParasitics::reduceLocalParasitic(
-                          Parasitic* parasitic_network,
-                          PtGraph *pt_graph, 
-                          const PtVertex &pt_drvr_vertex,
-                          const DcalcAnalysisPt *dcalc_ap)
-{
-  ParasiticAnalysisPt *ap = dcalc_ap->parasiticAnalysisPt();
-  const Pin *drvr_pin = pt_drvr_vertex.vertex()->pin();
-  for (const RiseFall *rf : RiseFall::range()) {
-    reduceToLocalPiElmore(parasitic_network, drvr_pin, rf,
-                          dcalc_ap->corner(), 
-                          pt_graph, dcalc_ap->constraintMinMax(), ap);
-  }
-}
-
-float 
-LocalParasitics::pinCapacitance(const Pin *pin, 
+float
+LocalParasitics::pinCapacitance(const Pin *pin,
                                 const RiseFall *rf,
                                 const Corner *corner,
                                 const MinMax *min_max) const
@@ -329,7 +186,7 @@ LocalParasitics::pinCapacitance(const Pin *pin,
 }
 
 float
-LocalParasitics::pinCapacitance(const ParasiticNode *node, 
+LocalParasitics::pinCapacitance(const ParasiticNode *node,
                                 const RiseFall *rf,
                                 const Corner *corner,
                                 const MinMax *min_max) const
@@ -346,39 +203,6 @@ LocalParasitics::pinCapacitance(const ParasiticNode *node,
       pin_cap = sdc_->portExtCap(port, rf, corner, min_max);
   }
   return pin_cap;
-}
-
-Parasitic *
-LocalParasitics::findLocalParasitic(const Pin *drvr_pin, const RiseFall *rf, const DcalcAnalysisPt *ap)
-{
-  ParasiticAnalysisPt *parasitic_ap = ap->parasiticAnalysisPt();
-  if (!local_drvr_parasitic_map_.empty()) {
-    int ap_rf_index = parasiticAnalysisPtIndex(parasitic_ap, rf);
-    ConcreteParasitic **parasitic_array = 
-      local_drvr_parasitic_map_.findKey(drvr_pin);
-    
-    if (!parasitic_array) {
-      // printf("Error: LocalParasitics::findLocalParasitic: No parasitic array found for driver pin %s\n",
-      //        network_->name(drvr_pin));
-      // fflush(stdout);
-      return nullptr;
-    }
-    ConcreteParasitic *parasitic = parasitic_array[ap_rf_index];
-    if (!parasitic) {
-      // printf("Error: LocalParasitics::findLocalParasitic: No parasitic found for driver pin %s\n",
-             // network_->name(drvr_pin));
-      // fflush(stdout);
-      return nullptr;
-    }
-    if (!parasitic->isPiElmore()) {
-      // printf("Error: LocalParasitics::findLocalParasitic: Parasitic is not PiElmore for driver pin %s\n",
-             // network_->name(drvr_pin));
-      // fflush(stdout);
-      return nullptr;
-    }
-    return parasitic;
-  }
-  return nullptr;
 }
 
 ////////////////////////////////////////////////////////
