@@ -3,6 +3,7 @@
 #include "LrSizer.hh"
 #include "LrHelper.hh"
 #include "ParallelVisitor.hh"
+#include "NetlistTransformation.hh"
 #include "sta/PathExpanded.hh"
 #include "sta/Sdc.hh"
 #include <vector>
@@ -10,10 +11,18 @@
 
 namespace lrf {
 
-LrSizer::LrSizer(sta::dbSta* sta, LRHelper *lr_helper, 
+LrSizer::LrSizer(sta::dbSta* sta, LRHelper *lr_helper,
       ParallelLrVisitor *visitor)
   : lr_helper_(lr_helper),
     visitor_(visitor)
+{
+  dbStaState::init(sta);
+}
+
+LrSizer::LrSizer(sta::dbSta* sta, LRHelper *lr_helper,
+      ParallelVisitor *visitor)
+  : lr_helper_(lr_helper),
+    visitor_v2_(visitor)
 {
   dbStaState::init(sta);
 }
@@ -127,7 +136,10 @@ LrSizer::sizeCriticalPathGates(sta::Path* path_end)
       if (network_->libertyCell(inst)->hasSequentials()) {
         continue;
       }
-      if (singleGateSizing(inst, visitor_)) {
+      bool sized = visitor_v2_
+          ? singleGateSizing(inst, visitor_v2_)
+          : singleGateSizing(inst, visitor_);
+      if (sized) {
         gates_sized++;
       }
     }
@@ -139,6 +151,15 @@ LrSizer::sizeCriticalPathGates(sta::Path* path_end)
 
 bool
 LrSizer::singleGateSizing(sta::Instance* inst, ParallelLrVisitor *visitor)
+{
+  if (inst == nullptr) {
+    return false;
+  }
+  return visitor->singleGateSizing(inst);
+}
+
+bool
+LrSizer::singleGateSizing(sta::Instance* inst, ParallelVisitor *visitor)
 {
   if (inst == nullptr) {
     return false;
