@@ -256,13 +256,15 @@ sta::define_cmd_args "repair_timing" {[-setup] [-hold]\
                                         [-max_utilization util] \
                                         [-match_cell_footprint] \
                                         [-max_repairs_per_pass max_repairs_per_pass]\
+                                        [-threads num_threads]\
                                         [-verbose]}
 
 proc repair_timing { args } {
   sta::parse_key_args "repair_timing" args \
     keys {-setup_margin -hold_margin -slack_margin \
             -libraries -max_utilization -max_buffer_percent -sequence \
-            -recover_power -repair_tns -max_passes -max_iterations -max_repairs_per_pass} \
+            -recover_power -repair_tns -max_passes -max_iterations \
+            -max_repairs_per_pass -threads} \
     flags {-setup -hold -allow_setup_violations -skip_pin_swap -skip_gate_cloning \
              -skip_size_down -skip_buffering -skip_buffer_removal -skip_last_gasp \
              -skip_vt_swap -skip_crit_vt_swap -match_cell_footprint -verbose}
@@ -352,6 +354,14 @@ proc repair_timing { args } {
     set max_repairs_per_pass $keys(-max_repairs_per_pass)
   }
 
+  set num_threads 1
+  if { [info exists keys(-threads)] } {
+    set num_threads $keys(-threads)
+    if { $num_threads < 1 } {
+      utl::error RSZ 200 "-threads must be >= 1"
+    }
+  }
+
   sta::check_argc_eq0 "repair_timing" $args
   est::check_parasitics
 
@@ -359,14 +369,14 @@ proc repair_timing { args } {
   set repaired_setup 0
   set repaired_hold 0
   if { $recover_power_percent >= 0 } {
-    set recovered_power [rsz::recover_power $recover_power_percent $match_cell_footprint $verbose]
+    set recovered_power [rsz::recover_power $recover_power_percent $match_cell_footprint $verbose $num_threads]
   } else {
     if { $setup } {
       set repaired_setup [rsz::repair_setup $setup_margin $repair_tns_end_percent $max_passes \
         $max_iterations $max_repairs_per_pass $match_cell_footprint $verbose \
         $sequence \
         $skip_pin_swap $skip_gate_cloning $skip_size_down $skip_buffering \
-        $skip_buffer_removal $skip_last_gasp $skip_vt_swap $skip_crit_vt_swap]
+        $skip_buffer_removal $skip_last_gasp $skip_vt_swap $skip_crit_vt_swap $num_threads]
     }
     if { $hold } {
       set repaired_hold [rsz::repair_hold $setup_margin $hold_margin \
