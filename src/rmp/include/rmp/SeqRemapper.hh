@@ -106,6 +106,7 @@ class SeqRemapper : public sta::dbStaState
   utl::Logger* getLogger() const { return logger_; };
   gpl::Replace* getGpl() const { return gpl_; };
   dpl::Opendp* getDpl() const { return dpl_; };
+  est::EstimateParasitics* getEstimateParasitics() const { return est_; }
   float getSlackThreshold() const { return slack_threshold_; }
   cut::AbcLibrary *getAbcLibrary() { return abc_library_; }
   utl::UniqueName& getNameGenerator() { return name_generator_; }
