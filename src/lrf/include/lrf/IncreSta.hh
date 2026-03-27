@@ -69,10 +69,26 @@ public:
                       float PT_tradeoff);
   void parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float avg_power,
                       float PT_tradeoff);
+  // New framework (NetlistTransformation) resize entry point
+  void parallelResizeByArrayV2(rsz::Resizer *resizer, float avg_delay, float avg_power,
+                      float PT_tradeoff);
   void setMaxResizeNum(size_t max_resize_num);
 
   void parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
                          int top_n = 100);
+  void parallelBufferingV2(rsz::Resizer *resizer, float PT_tradeoff,
+                           int top_n = 100);
+
+  // Single-pass resize + buffering: for buffer candidates, evaluate
+  // resize then try buffering on the best resized cell.
+  void parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
+                                  float avg_power, float PT_tradeoff,
+                                  int buffer_top_n = 100);
+
+  // V2: Single-pass resize + buffering using CombinedOperator + ParallelVisitor.
+  void parallelResizeAndBufferingV2(rsz::Resizer *resizer, float avg_delay,
+                                    float avg_power, float PT_tradeoff,
+                                    int buffer_top_n = 100);
 
   // Screen buffering candidates: collect gates with negative late slack,
   // sort by output_cap / input_cap ratio descending, return top_n vertex ids.
@@ -81,6 +97,10 @@ public:
   // Sensitivity-based buffering candidate screening (parallel).
   // Uses the unified sensitivity formula on each net's buffer tree.
   std::vector<size_t> bufferingVerticesCandidateBySensitivity(
+      rsz::Resizer *resizer, float avg_delay, float avg_leakage, int top_n);
+
+  // V2: sensitivity screening via ParallelVisitor + BufferSensitivityOperator.
+  std::vector<size_t> bufferingVerticesCandidateBySensitivityV2(
       rsz::Resizer *resizer, float avg_delay, float avg_leakage, int top_n);
 
   // Preceding resize check: evaluate resize benefit for all instances
@@ -94,6 +114,16 @@ public:
   void parallelResizeByArrayWithPrecheck(rsz::Resizer *resizer, float avg_delay,
                                          float avg_power, float PT_tradeoff,
                                          float top_ratio = 0.3);
+
+  // V2 (new framework) precheck: uses ParallelVisitor + ResizePrecheckOperator.
+  std::vector<size_t> precedingResizeCheckV2(
+      rsz::Resizer *resizer, float avg_delay, float avg_power,
+      float PT_tradeoff, float top_ratio = 0.3);
+
+  // V2 resize with precheck: precedingResizeCheckV2 + parallelResizeByArrayV2.
+  void parallelResizeByArrayWithPrecheckV2(rsz::Resizer *resizer, float avg_delay,
+                                           float avg_power, float PT_tradeoff,
+                                           float top_ratio = 0.3);
 
   // APIs for power optimization
   void ensureActivities();  // Access power of one of the instances will trigger global activity calculation
@@ -131,6 +161,7 @@ protected:
   LibertyCellArray equiv_cell_array_;
   PosMap equiv_cell_pos_map_;
   bool equiv_cell_array_built_ = false;
+  PruningControl pruning_control_;
 };
 
 } // namespace lrf
