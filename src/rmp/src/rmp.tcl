@@ -178,11 +178,21 @@ sta::define_cmd_args "position_driven_remap" {
   [-slack_threshold slack_threshold]
   [-detailed_placement]
   [-verbose]
+  [-max_vertices_per_endpoint n]
+  [-max_cut_instances n]
+  [-max_cut_pis n]
+  [-max_solutions n]
+  [-uct_batch_size n]
+  [-uct_rounds n]
+  [-uct_c c]
+  [-max_candidates n]
 }
 
 proc position_driven_remap { args } {
   sta::parse_key_args "position_driven_remap" args \
-    keys {-corner -percentage -max_percentage -slack_threshold} \
+    keys {-corner -percentage -max_percentage -slack_threshold
+          -max_vertices_per_endpoint -max_cut_instances -max_cut_pis
+          -max_solutions -uct_batch_size -uct_rounds -uct_c -max_candidates} \
     flags {-detailed_placement -verbose}
   set corner [sta::parse_corner keys]
 
@@ -206,6 +216,43 @@ proc position_driven_remap { args } {
     set has_threshold 1
   }
 
+  # RemapConfig defaults (must match RemapConfig struct defaults in RemapConfig.hh)
+  set max_vertices_per_endpoint 5
+  set max_cut_instances         10
+  set max_cut_pis               20
+  set max_solutions             80
+  set uct_batch_size            20
+  set uct_rounds                5
+  set uct_c                     1.414
+  set max_candidates            100
+
+  if { [info exists keys(-max_vertices_per_endpoint)] } {
+    set max_vertices_per_endpoint $keys(-max_vertices_per_endpoint)
+  }
+  if { [info exists keys(-max_cut_instances)] } {
+    set max_cut_instances $keys(-max_cut_instances)
+  }
+  if { [info exists keys(-max_cut_pis)] } {
+    set max_cut_pis $keys(-max_cut_pis)
+  }
+  if { [info exists keys(-max_solutions)] } {
+    set max_solutions $keys(-max_solutions)
+  }
+  if { [info exists keys(-uct_batch_size)] } {
+    set uct_batch_size $keys(-uct_batch_size)
+  }
+  if { [info exists keys(-uct_rounds)] } {
+    set uct_rounds $keys(-uct_rounds)
+  }
+  if { [info exists keys(-uct_c)] } {
+    set uct_c $keys(-uct_c)
+  }
+  if { [info exists keys(-max_candidates)] } {
+    set max_candidates $keys(-max_candidates)
+  }
+
   rmp::position_driven_remap_cmd $corner $percentage $max_percentage \
-      $slack_threshold $has_threshold $run_dpl $verbose
+      $slack_threshold $has_threshold $run_dpl $verbose \
+      $max_vertices_per_endpoint $max_cut_instances $max_cut_pis \
+      $max_solutions $uct_batch_size $uct_rounds $uct_c $max_candidates
 }
