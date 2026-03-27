@@ -17,6 +17,7 @@
 #include "lrf/TestLrf.hh"
 #include "ParallelLibData.hh"
 #include "LrRebuffer.hh"
+#include "TaskArranger.hh"
 #include "db_sta/dbNetwork.hh"
 
 #include <vector>
@@ -55,6 +56,12 @@ ParallelLrVisitor::~ParallelLrVisitor()
   delete rebuffer_;
 }
 
+void
+ParallelLrVisitor::setPtGraph(PtGraph *pt_graph)
+{
+  pt_graph_.reset(pt_graph);
+}
+
 bool 
 ParallelLrVisitor::checkVisitorStatus() const
 {
@@ -77,7 +84,7 @@ ParallelLrVisitor::checkVisitorStatus() const
 float
 ParallelLrVisitor::swapCost(float delay_lm_sum, float power)
 {
-  float swap_cost = 100 * delay_lm_sum / average_delay_ 
+  float swap_cost = PT_tradeoff_ * delay_lm_sum / average_delay_
                     + power / average_leakage_;
   return swap_cost;
 }
@@ -124,10 +131,12 @@ ParallelLrVisitor::trySwap(sta::Instance *inst)
     //      legal_equiv_cells.size());
     // fflush(stdout);
     auto start_pt_graph_construction = std::chrono::high_resolution_clock::now();
-    pt_graph_ = local_sta_->makePtGraph(inst, false);
+    pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
+    pt_graph_->pruneInsignificantSiblings();
     auto end_pt_graph_construction = std::chrono::high_resolution_clock::now();
     runtime_map_["pt_graph_construction"] += std::chrono::duration<double>(end_pt_graph_construction - start_pt_graph_construction).count();
-    
+
     std::chrono::time_point<std::chrono::high_resolution_clock> start_equiv_cell_check = std::chrono::high_resolution_clock::now();
     best_cell_ = ori_cell;
     bool orig_inequiv = false;
@@ -139,7 +148,7 @@ ParallelLrVisitor::trySwap(sta::Instance *inst)
         throw std::runtime_error("ParallelLrVisitor::visit found non-equivalent cell in equiv_cells");
       }
 
-  if (!local_sta_->legalCheckBeforeSwap(inst, equiv_cell, nullptr, nullptr, pt_graph_)
+  if (!local_sta_->legalCheckBeforeSwap(inst, equiv_cell, nullptr, nullptr, pt_graph_.get())
         && !(equiv_cell == ori_cell)) {
     cnt++;
     continue;
@@ -147,15 +156,15 @@ ParallelLrVisitor::trySwap(sta::Instance *inst)
   
       float leakage = (*inst_info_map_)[inst]->cell_leakages[cnt];
       float delay_lm_sum = local_sta_->
-        increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, equiv_cell).delay_lm_sum;
-  if (!local_sta_->legalCheckAfterSwap(inst, equiv_cell, nullptr, nullptr, pt_graph_) 
+        increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, equiv_cell).delay_lm_sum;
+  if (!local_sta_->legalCheckAfterSwap(inst, equiv_cell, nullptr, nullptr, pt_graph_.get()) 
         && !(equiv_cell == ori_cell)) {
     cnt++;
     continue;
   }
       float swapped_cost = swapCost(delay_lm_sum, leakage);
       sta::Slack swapped_slack = 
-                      local_sta_->localSlackAroundRef(pt_graph_);
+                      local_sta_->localSlackAroundRef(pt_graph_.get());
       vec_cost_slack[cnt * 2] = swapped_cost;
       vec_cost_slack[cnt * 2 + 1] = swapped_slack;
       if (equiv_cell == ori_cell) {
@@ -196,7 +205,7 @@ ParallelLrVisitor::trySwap(sta::Instance *inst)
     }
     // First compute the final timing after choosing best cell
     if (best_cell_ != equiv_cells->at(equiv_cells->size() - 1)) 
-      local_sta_->increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, best_cell_);
+      local_sta_->increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, best_cell_);
     return true;
   }
   printf("ParallelLrVisitor::visit no liberty cell for instance %s\n",
@@ -248,7 +257,9 @@ ParallelLrVisitor::trySwapByArray(sta::Instance *inst, int col_padding, int row_
 
   // Build PtGraph
   auto start_pt = std::chrono::high_resolution_clock::now();
-  pt_graph_ = local_sta_->makePtGraph(inst, false);
+  pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
+  pt_graph_->pruneInsignificantSiblings();
   auto end_pt = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
       std::chrono::duration<double>(end_pt - start_pt).count();
@@ -274,7 +285,7 @@ ParallelLrVisitor::trySwapByArray(sta::Instance *inst, int col_padding, int row_
   for (size_t i = 0; i < candidates.size(); i++) {
     sta::LibertyCell *cand = candidates[i];
 
-    if (!local_sta_->legalCheckBeforeSwap(inst, cand, nullptr, nullptr, pt_graph_)
+    if (!local_sta_->legalCheckBeforeSwap(inst, cand, nullptr, nullptr, pt_graph_.get())
         && cand != ori_cell)
       continue;
 
@@ -290,14 +301,14 @@ ParallelLrVisitor::trySwapByArray(sta::Instance *inst, int col_padding, int row_
     }
 
     float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
-        pt_graph_, arc_delay_calc_, cand).delay_lm_sum;
+        pt_graph_.get(), arc_delay_calc_, cand).delay_lm_sum;
 
-    if (!local_sta_->legalCheckAfterSwap(inst, cand, nullptr, nullptr, pt_graph_)
+    if (!local_sta_->legalCheckAfterSwap(inst, cand, nullptr, nullptr, pt_graph_.get())
         && cand != ori_cell)
       continue;
 
     float swapped_cost = swapCost(delay_lm_sum, leakage);
-    sta::Slack swapped_slack = local_sta_->localSlackAroundRef(pt_graph_);
+    sta::Slack swapped_slack = local_sta_->localSlackAroundRef(pt_graph_.get());
     vec_cost_slack[i * 2] = swapped_cost;
     vec_cost_slack[i * 2 + 1] = swapped_slack;
     if (cand == ori_cell)
@@ -324,7 +335,209 @@ ParallelLrVisitor::trySwapByArray(sta::Instance *inst, int col_padding, int row_
 
   // Recompute final timing for best cell
   if (best_cell_ != candidates.back())
-    local_sta_->increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, best_cell_);
+    local_sta_->increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, best_cell_);
+  return true;
+}
+
+bool
+ParallelLrVisitor::trySwapByArrayPruned(sta::Instance *inst, int col_padding, int row_padding)
+{
+  best_cell_ = nullptr;
+  visited_instances_.push_back(db_sta_->network()->pathName(inst));
+  sta::LibertyCell *ori_cell = db_sta_->network()->libertyCell(inst);
+  if (!ori_cell)
+    return false;
+
+  auto pos_it = equiv_cell_pos_map_->find(ori_cell);
+  if (pos_it == equiv_cell_pos_map_->end())
+    return false;
+
+  const CellArrayPos &pos = pos_it->second;
+  const int cur_row = pos.row;
+  const int cur_col = pos.col;
+  const int group_start = pos.group_start;
+  const int group_end = pos.group_end;
+
+  // --- Determine evaluation mode ---
+  //   FULL:    first time, no pruning history → full neighborhood, store ordering
+  //   PRUNED:  have stored ordering and M not yet elapsed → use pruned candidates
+  //   REORDER: M elapsed or ori_cell missing from pruned set → full neighborhood, update ordering & adapt M
+  enum class EvalMode { FULL, PRUNED, REORDER };
+  EvalMode mode = EvalMode::FULL;
+  CellPruningState *pstate = nullptr;
+
+  if (pruning_control_ && pruning_control_->enabled) {
+    auto it = pruning_control_->state.find(inst);
+    if (it != pruning_control_->state.end() && !it->second.ordered_cells.empty()) {
+      pstate = &it->second;
+      pstate->iters_since_reorder++;
+      if (pstate->iters_since_reorder >= pstate->M) {
+        mode = EvalMode::REORDER;
+      } else {
+        bool has_ori = false;
+        for (auto *c : pstate->ordered_cells) {
+          if (c == ori_cell) { has_ori = true; break; }
+        }
+        if (has_ori) {
+          mode = EvalMode::PRUNED;
+        } else {
+          // ori_cell was changed to something outside pruned set (e.g. criticalPathSizing)
+          // Normal jump logic will naturally penalize M since ori_cell will rank poorly.
+          printf("trySwapByArrayPruned: WARNING: ori_cell %s not in pruned set for %s, forcing reorder\n",
+                 ori_cell->name(), db_sta_->network()->pathName(inst));
+          fflush(stdout);
+          mode = EvalMode::REORDER;
+        }
+      }
+    }
+  }
+
+  // --- Build candidate list ---
+  std::vector<sta::LibertyCell*> candidates;
+  if (mode == EvalMode::PRUNED) {
+    candidates = pstate->ordered_cells;
+  } else {
+    // FULL or REORDER: search full neighborhood
+    const int num_cols = static_cast<int>((*equiv_cell_array_)[cur_row].size());
+    for (int dr = -row_padding; dr <= row_padding; dr++) {
+      int r = cur_row + dr;
+      if (r < group_start || r >= group_end)
+        continue;
+      for (int dc = -col_padding; dc <= col_padding; dc++) {
+        int c = cur_col + dc;
+        if (c >= 0 && c < num_cols) {
+          sta::LibertyCell *cell = (*equiv_cell_array_)[r][c];
+          if (cell)
+            candidates.push_back(cell);
+        }
+      }
+    }
+  }
+  if (candidates.size() < 2)
+    return false;
+
+  // --- Build PtGraph ---
+  auto start_pt = std::chrono::high_resolution_clock::now();
+  pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
+  pt_graph_->pruneInsignificantSiblings();
+  auto end_pt = std::chrono::high_resolution_clock::now();
+  runtime_map_["pt_graph_construction"] +=
+      std::chrono::duration<double>(end_pt - start_pt).count();
+
+  // --- Evaluate each candidate ---
+  auto start_eval = std::chrono::high_resolution_clock::now();
+  best_cell_ = ori_cell;
+  float best_cost = std::numeric_limits<float>::max();
+  std::vector<float> vec_cost_slack(candidates.size() * 2,
+                                    std::numeric_limits<float>::max());
+
+  LocalCellInfo *cell_info = nullptr;
+  sta::LibertyCellSeq *full_equiv_cells = nullptr;
+  if (inst_info_map_) {
+    auto info_it = inst_info_map_->find(inst);
+    if (info_it != inst_info_map_->end()) {
+      cell_info = info_it->second;
+      full_equiv_cells = cell_info->equiv_cells;
+    }
+  }
+
+  for (size_t i = 0; i < candidates.size(); i++) {
+    sta::LibertyCell *cand = candidates[i];
+
+    if (!local_sta_->legalCheckBeforeSwap(inst, cand, nullptr, nullptr, pt_graph_.get())
+        && cand != ori_cell)
+      continue;
+
+    float leakage = 0.0f;
+    if (cell_info && full_equiv_cells) {
+      for (size_t j = 0; j < full_equiv_cells->size(); j++) {
+        if ((*full_equiv_cells)[j] == cand) {
+          leakage = cell_info->cell_leakages[j];
+          break;
+        }
+      }
+    }
+
+    float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
+        pt_graph_.get(), arc_delay_calc_, cand).delay_lm_sum;
+
+    if (!local_sta_->legalCheckAfterSwap(inst, cand, nullptr, nullptr, pt_graph_.get())
+        && cand != ori_cell)
+      continue;
+
+    float swapped_cost = swapCost(delay_lm_sum, leakage);
+    sta::Slack swapped_slack = local_sta_->localSlackAroundRef(pt_graph_.get());
+    vec_cost_slack[i * 2] = swapped_cost;
+    vec_cost_slack[i * 2 + 1] = swapped_slack;
+    if (cand == ori_cell)
+      slack_before_swap_ = swapped_slack;
+  }
+
+  auto end_eval = std::chrono::high_resolution_clock::now();
+  runtime_map_["equiv_cell_check"] +=
+      std::chrono::duration<double>(end_eval - start_eval).count();
+  runtime_map_["equiv_cell_count"] += candidates.size();
+
+  // --- Pick best ---
+  for (size_t i = 0; i < candidates.size(); i++) {
+    float cost = vec_cost_slack[i * 2];
+    float slack = vec_cost_slack[i * 2 + 1];
+    if (cost < best_cost && slack >= slack_before_swap_ * slack_margin_) {
+      best_cell_ = candidates[i];
+      best_cost = cost;
+    }
+  }
+
+  // --- Update pruning state (FULL or REORDER: evaluated full neighborhood) ---
+  if (pruning_control_ && mode != EvalMode::PRUNED) {
+    // Sort candidates by cost, filtered by slack constraint to prevent
+    // timing-violating cells from polluting the pruned set.
+    std::vector<std::pair<float, sta::LibertyCell*>> cost_cells;
+    for (size_t i = 0; i < candidates.size(); i++) {
+      float cost = vec_cost_slack[i * 2];
+      float slack = vec_cost_slack[i * 2 + 1];
+      if (cost < std::numeric_limits<float>::max()
+          && slack >= slack_before_swap_ * slack_margin_) {
+        cost_cells.push_back({cost, candidates[i]});
+      }
+    }
+    std::sort(cost_cells.begin(), cost_cells.end());
+
+    size_t keep = std::max(static_cast<size_t>(2),
+                           static_cast<size_t>(cost_cells.size() * pruning_control_->P));
+    keep = std::min(keep, cost_cells.size());
+
+    CellPruningState &ps = pruning_control_->state[inst];
+
+    // Adaptive M: find where ori_cell (= last iteration's optimal) ranks in
+    // the new ordering. Large jump → diverging → reorder more often.
+    if (mode == EvalMode::REORDER) {
+      int jump = static_cast<int>(cost_cells.size());
+      for (size_t i = 0; i < cost_cells.size(); i++) {
+        if (cost_cells[i].second == ori_cell) {
+          jump = static_cast<int>(i);
+          break;
+        }
+      }
+      ps.M = (jump <= static_cast<int>(keep))
+           ? std::min(ps.M + 1, 10)   // converging
+           : std::max(ps.M - 1, 1);   // diverging
+    }
+
+    ps.ordered_cells.clear();
+    for (size_t i = 0; i < keep; i++)
+      ps.ordered_cells.push_back(cost_cells[i].second);
+    ps.iters_since_reorder = 0;
+  }
+
+  if (best_cell_ == ori_cell)
+    return false;
+
+  resize_change_count_++;
+
+  if (best_cell_ != candidates.back())
+    local_sta_->increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, best_cell_);
   return true;
 }
 
@@ -371,7 +584,9 @@ ParallelLrVisitor::trySwapPrecheck(sta::Instance *inst, int col_padding, int row
 
   // Build PtGraph
   auto t_pt_start = std::chrono::high_resolution_clock::now();
-  PtGraph *pt_graph = local_sta_->makePtGraph(inst, false);
+  PtGraph *pt_graph = new PtGraph(db_sta_);
+  local_sta_->makePtGraph(pt_graph, inst);
+  pt_graph->pruneInsignificantSiblings();
   auto t_pt_end = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
       std::chrono::duration<double>(t_pt_end - t_pt_start).count();
@@ -436,7 +651,7 @@ ParallelLrVisitor::trySwapPrecheck(sta::Instance *inst, int col_padding, int row
 
   // Derive best cost from cached results — no second STA pass needed.
   if (ori_cost == std::numeric_limits<float>::max()) {
-    // pt_graph is owned by local_sta_->local_graphs_, do NOT delete here
+    delete pt_graph;
     return 0.0f;
   }
 
@@ -461,7 +676,7 @@ ParallelLrVisitor::trySwapPrecheck(sta::Instance *inst, int col_padding, int row
   runtime_map_["precheck"] +=
       std::chrono::duration<double>(t_end - t_start).count();
 
-  // pt_graph is owned by local_sta_->local_graphs_, do NOT delete here
+  delete pt_graph;
   return ori_cost - best_cost;  // positive = beneficial
 }
 
@@ -621,8 +836,10 @@ ParallelLrVisitor::trySwapV1(sta::Instance *inst)
     //      legal_equiv_cells.size());
     // fflush(stdout);
 
-    pt_graph_ = local_sta_->makePtGraph(inst, false);
-    
+    pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
+    pt_graph_->pruneInsignificantSiblings();
+
     best_cell_ = ori_cell;
     float best_cost = std::numeric_limits<float>::max();
     std::vector<float> vec_cost_slack(legal_equiv_cells.size() * 2, std::numeric_limits<float>::max());
@@ -632,10 +849,10 @@ ParallelLrVisitor::trySwapV1(sta::Instance *inst)
       sta::LibertyCell *equiv_cell = equiv_cell_pair.first;
       float leakage = cell_info.cell_leakages[equiv_cell_pair.second.first][equiv_cell_pair.second.second]; 
       float delay_lm_sum = local_sta_->
-        increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, equiv_cell).delay_lm_sum;
+        increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, equiv_cell).delay_lm_sum;
       float swapped_cost = swapCost(delay_lm_sum, leakage);
       sta::Slack swapped_slack = 
-                      local_sta_->localSlackAroundRef(pt_graph_);
+                      local_sta_->localSlackAroundRef(pt_graph_.get());
       vec_cost_slack[cnt * 2] = swapped_cost;
       vec_cost_slack[cnt * 2 + 1] = swapped_slack;
       if (equiv_cell == ori_cell) {
@@ -674,7 +891,7 @@ ParallelLrVisitor::trySwapV1(sta::Instance *inst)
     }
     // First compute the final timing after choosing best cell
     if (best_cell_ != legal_equiv_cells[legal_equiv_cells.size() - 1].first) 
-      local_sta_->increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, best_cell_);
+      local_sta_->increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, best_cell_);
     return true;
   } 
   printf("ParallelLrVisitor::visit no liberty cell for instance %s\n",
@@ -693,7 +910,9 @@ ParallelLrVisitor::visit(sta::Instance *inst, sta::VertexId /*vid*/)
       if (!checkVisitorStatus()) {
         throw std::runtime_error("ParallelLrVisitor::visit visitor status invalid");
       }
-      if (equiv_cell_array_ && equiv_cell_pos_map_) {
+      if (equiv_cell_array_ && equiv_cell_pos_map_ && pruning_control_) {
+        success = trySwapByArrayPruned(inst);
+      } else if (equiv_cell_array_ && equiv_cell_pos_map_) {
         success = trySwapByArray(inst);
       } else if (parallel_lib_data_) {
         success = trySwapV1(inst);
@@ -726,7 +945,18 @@ ParallelLrVisitor::singleGateSizing(sta::Instance *inst)
   return false;
 }
 
-bool 
+void
+ParallelLrVisitor::visitSlewOnly(sta::Instance *inst)
+{
+  pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
+  local_sta_->findLocalDelays(pt_graph_.get(), arc_delay_calc_);
+  local_sta_->findLocalArrivals(pt_graph_.get());
+  local_sta_->findLocalRequireds(pt_graph_.get());
+  updateTimingFromPtGraph();
+}
+
+bool
 ParallelLrVisitor::visit(sta::Instance *inst,
                              TimingRecord &timing_record)
 {
@@ -770,12 +1000,14 @@ ParallelLrVisitor::visit(sta::Instance *inst,
          legal_equiv_cells.size());
     fflush(stdout);
 
-    pt_graph_ = local_sta_->makePtGraph(inst, false);
+    pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
+    pt_graph_->pruneInsignificantSiblings();
     // Compute Original delays
     DelayLmSumResult original_result = local_sta_->
-                initAndGetLocalTimingCost(pt_graph_, arc_delay_calc_);
+                initAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_);
     // Initialize the slack before swap
-    slack_before_swap_ = local_sta_->localSlackAroundRef(pt_graph_);
+    slack_before_swap_ = local_sta_->localSlackAroundRef(pt_graph_.get());
     printf("Original delay_lm_sum %f, slack %f for instance %s with cell %s\n",
            original_result.delay_lm_sum * 1e12,
            slack_before_swap_ * 1e12,
@@ -784,7 +1016,7 @@ ParallelLrVisitor::visit(sta::Instance *inst,
     // Record original timing
     // GraphTiming orig_cell_timing;
     // orig_cell_timing.cell = ori_cell;
-    // recordGraphTimingFromPtGraph(db_sta_, pt_graph_, orig_cell_timing);
+    // recordGraphTimingFromPtGraph(db_sta_, pt_graph_.get(), orig_cell_timing);
     // timing_record.liberty_timing_map[std::string(ori_cell->name())] = orig_cell_timing;
     
     best_cell_ = ori_cell;
@@ -800,17 +1032,17 @@ ParallelLrVisitor::visit(sta::Instance *inst,
       fflush(stdout);
 
       DelayLmSumResult swapped_result = local_sta_->
-        increAndGetLocalTimingCost(pt_graph_, arc_delay_calc_, equiv_cell);
+        increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, equiv_cell);
 
       LocalCost swapped_cost = swapped_result.delay_lm_sum;
       sta::Slack swapped_slack = 
-                      local_sta_->localSlackAroundRef(pt_graph_);
+                      local_sta_->localSlackAroundRef(pt_graph_.get());
       
       GraphTiming cell_type_timing;
       cell_type_timing.cell = equiv_cell;
       // Record timing after computing slack (to ensure full propagation)
 
-      recordGraphTimingFromPtGraph(db_sta_, pt_graph_, cell_type_timing, true);
+      recordGraphTimingFromPtGraph(db_sta_, pt_graph_.get(), cell_type_timing, true);
       timing_record.liberty_timing_map[std::string(equiv_cell->name())] = cell_type_timing;
 
       // Do local slack check
@@ -857,6 +1089,7 @@ ParallelLrVisitor::copy() const
   new_visitor->setParallelLibData(parallel_lib_data_);
   new_visitor->setEquivCellArray(equiv_cell_array_, equiv_cell_pos_map_);
   new_visitor->setClockPeriod(clock_period_);
+  new_visitor->setPruningControl(pruning_control_);
   new_visitor->setMoveType(move_type_);  // also creates LrRebuffer if needed
   return new_visitor;
 }
@@ -970,13 +1203,14 @@ ParallelLrVisitor::updateVertexInfo(sta::VertexId vertex_id)
   PtVertex &pt_vertex = pt_graph_->ptVertex(vertex_id);
   if (!pt_vertex.vertex())
     return;
-  if (pt_vertex.type() != PtVertexType::RefInput
-   && pt_vertex.type() != PtVertexType::RefOutput) {
-    return;
-  }
   sta::Vertex *sta_vertex = pt_vertex.vertex();
-  pt_graph_->writeSlewToGraph(pt_vertex, sta_vertex);
-  pt_graph_->writePathsToGraph(pt_vertex, sta_vertex);
+  PtVertexType type = pt_vertex.type();
+  if (type == PtVertexType::RefInput
+   || type == PtVertexType::RefOutput
+   || type == PtVertexType::SiblingLoad) {
+    pt_graph_->writeSlewToGraph(pt_vertex, sta_vertex);
+    pt_graph_->writePathsToGraph(pt_vertex, sta_vertex);
+  }
 }
 
 void 
@@ -1107,7 +1341,8 @@ ParallelLrVisitor::tryBuffering(sta::Instance *inst)
   // 3. If cost improved, keep the buffer insertion
   // 4. Submmit the buffer insertion
   visited_instances_.push_back(db_sta_->network()->pathName(inst));
-  pt_graph_ = local_sta_->makePtGraph(inst, false);
+  pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
   if (rebuffer_ == nullptr) {
     throw std::runtime_error(
         "ParallelLrVisitor::tryBuffering: rebuffer_ is null; "
@@ -1193,7 +1428,8 @@ BufferSensitivityVisitor::BufferSensitivityVisitor(
 bool
 BufferSensitivityVisitor::visit(sta::Instance *inst, sta::VertexId vid)
 {
-  pt_graph_ = local_sta_->makePtGraph(inst, false);
+  pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
   if (rebuffer_ == nullptr) {
     throw std::runtime_error(
         "BufferSensitivityVisitor::visit: rebuffer_ is null; "
@@ -1231,6 +1467,285 @@ BufferSensitivityVisitor::copy() const
   v->setPTTradeoff(PT_tradeoff_);
   v->setClockPeriod(clock_period_);
   v->setMoveType(MoveType::BufferInsertion);
+  return v;
+}
+
+////////////////////////////////////////////////////////////////
+// CombinedVisitor
+////////////////////////////////////////////////////////////////
+
+CombinedVisitor::CombinedVisitor(sta::dbSta *db_sta, LocalSta *local_sta,
+                                 rsz::Resizer *resizer,
+                                 TaskArranger *task_arranger)
+  : ParallelLrVisitor(db_sta, local_sta, resizer),
+    task_arranger_(task_arranger)
+{
+  rebuffer_ = new LrRebuffer(resizer, this);
+  rebuffer_->init();
+}
+
+bool
+CombinedVisitor::visit(sta::Instance *inst, sta::VertexId vid)
+{
+  auto start_time = std::chrono::steady_clock::now();
+  decision_ = Decision::NoChange;
+  combined_resize_cell_ = nullptr;
+
+  bool is_buffer = (vid != sta::object_id_null)
+                   && task_arranger_->vertex(vid)->doBuffer();
+  bool success;
+  if (is_buffer) {
+    success = tryCombined(inst);
+  } else {
+    success = trySwapByArray(inst);
+    if (success)
+      decision_ = Decision::ResizeOnly;
+  }
+
+  auto end_time = std::chrono::steady_clock::now();
+  runtime_map_["visit"] += std::chrono::duration<double>(end_time - start_time).count();
+  return success;
+}
+
+bool
+CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_padding)
+{
+  visited_instances_.push_back(db_sta_->network()->pathName(inst));
+  sta::LibertyCell *ori_cell = db_sta_->network()->libertyCell(inst);
+  if (!ori_cell)
+    return false;
+
+  // ---- Locate in equiv cell array ----
+  if (!equiv_cell_array_ || !equiv_cell_pos_map_)
+    return false;
+  auto pos_it = equiv_cell_pos_map_->find(ori_cell);
+  if (pos_it == equiv_cell_pos_map_->end())
+    return false;
+
+  const CellArrayPos &pos = pos_it->second;
+  const int cur_row = pos.row;
+  const int cur_col = pos.col;
+  const int group_start = pos.group_start;
+  const int group_end = pos.group_end;
+  const int num_cols = static_cast<int>((*equiv_cell_array_)[cur_row].size());
+
+  // ---- Collect resize candidates ----
+  std::vector<sta::LibertyCell*> candidates;
+  for (int dr = -row_padding; dr <= row_padding; dr++) {
+    int r = cur_row + dr;
+    if (r < group_start || r >= group_end) continue;
+    for (int dc = -col_padding; dc <= col_padding; dc++) {
+      int c = cur_col + dc;
+      if (c >= 0 && c < num_cols) {
+        sta::LibertyCell *cell = (*equiv_cell_array_)[r][c];
+        if (cell)
+          candidates.push_back(cell);
+      }
+    }
+  }
+  if (candidates.size() < 2)
+    return false;
+
+  // ---- Build PtGraph (shared for resize + buffering) ----
+  auto start_pt = std::chrono::high_resolution_clock::now();
+  pt_graph_.reset(new PtGraph(db_sta_));
+  local_sta_->makePtGraph(pt_graph_.get(), inst);
+  pt_graph_->pruneInsignificantSiblings();
+  auto end_pt = std::chrono::high_resolution_clock::now();
+  runtime_map_["pt_graph_construction"] +=
+      std::chrono::duration<double>(end_pt - start_pt).count();
+
+  // ---- Phase 1: Evaluate all resize candidates (same as trySwapByArray) ----
+  auto start_eval = std::chrono::high_resolution_clock::now();
+
+  LocalCellInfo *cell_info = nullptr;
+  sta::LibertyCellSeq *full_equiv_cells = nullptr;
+  if (inst_info_map_) {
+    auto info_it = inst_info_map_->find(inst);
+    if (info_it != inst_info_map_->end()) {
+      cell_info = info_it->second;
+      full_equiv_cells = cell_info->equiv_cells;
+    }
+  }
+
+  std::vector<float> vec_cost_slack(candidates.size() * 2,
+                                    std::numeric_limits<float>::max());
+
+  for (size_t i = 0; i < candidates.size(); i++) {
+    sta::LibertyCell *cand = candidates[i];
+    if (!local_sta_->legalCheckBeforeSwap(inst, cand, nullptr, nullptr, pt_graph_.get())
+        && cand != ori_cell)
+      continue;
+
+    float leakage = 0.0f;
+    if (cell_info && full_equiv_cells) {
+      for (size_t j = 0; j < full_equiv_cells->size(); j++) {
+        if ((*full_equiv_cells)[j] == cand) {
+          leakage = cell_info->cell_leakages[j];
+          break;
+        }
+      }
+    }
+
+    float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
+        pt_graph_.get(), arc_delay_calc_, cand).delay_lm_sum;
+
+    if (!local_sta_->legalCheckAfterSwap(inst, cand, nullptr, nullptr, pt_graph_.get())
+        && cand != ori_cell)
+      continue;
+
+    float cost = swapCost(delay_lm_sum, leakage);
+    float slack = local_sta_->localSlackAroundRef(pt_graph_.get());
+    vec_cost_slack[i * 2] = cost;
+    vec_cost_slack[i * 2 + 1] = slack;
+    if (cand == ori_cell)
+      slack_before_swap_ = slack;
+  }
+
+  auto end_eval = std::chrono::high_resolution_clock::now();
+  runtime_map_["equiv_cell_check"] +=
+      std::chrono::duration<double>(end_eval - start_eval).count();
+  runtime_map_["equiv_cell_count"] += candidates.size();
+
+  // Pick top-2 resize candidates (respecting slack margin)
+  struct ResizeCandidate {
+    sta::LibertyCell *cell;
+    float cost;
+  };
+  ResizeCandidate top2[2] = {
+    {ori_cell, std::numeric_limits<float>::max()},
+    {ori_cell, std::numeric_limits<float>::max()}
+  };
+  float ori_cost = std::numeric_limits<float>::max();
+  for (size_t i = 0; i < candidates.size(); i++) {
+    float cost = vec_cost_slack[i * 2];
+    float slack = vec_cost_slack[i * 2 + 1];
+    if (candidates[i] == ori_cell)
+      ori_cost = cost;
+    if (cost < top2[0].cost && slack >= slack_before_swap_ * slack_margin_) {
+      top2[1] = top2[0];
+      top2[0] = {candidates[i], cost};
+    } else if (cost < top2[1].cost && slack >= slack_before_swap_ * slack_margin_) {
+      top2[1] = {candidates[i], cost};
+    }
+  }
+
+  // ---- Phase 2: Prepare buffer options once, evaluate on top-2 candidates ----
+  auto start_buf = std::chrono::high_resolution_clock::now();
+
+  // Collect driver pin info (before rebufferPin may reallocate vertices)
+  struct DrvrInfo { sta::Pin *pin; VertexId vid; };
+  std::vector<DrvrInfo> drvr_infos;
+  for (size_t i = 0; i < pt_graph_->vertexCount(); i++) {
+    PtVertex &pv = pt_graph_->ptVertex(i);
+    if (pv.vertex() && pv.type() == PtVertexType::RefOutput)
+      drvr_infos.push_back({pv.vertex()->pin(), pv.objectIdx()});
+  }
+
+  float best_buf_cost = std::numeric_limits<float>::max();
+  sta::LibertyCell *best_buf_resize_cell = nullptr;
+  bool buf_valid = false;
+
+  if (drvr_infos.size() == 1) {
+    // Phase 2a: Build buffer tree + 2 rounds coarse (cell-independent, cached)
+    rsz::BufferedNetPtr cached_bnet = rebuffer_->prepareBufferOptions(
+        drvr_infos[0].pin, pt_graph_->ptVertex(drvr_infos[0].vid));
+
+    if (cached_bnet) {
+      // Phase 2b: For each top-2 candidate, evaluate precisely
+      for (int k = 0; k < 2; k++) {
+        if (top2[k].cell == nullptr
+            || top2[k].cost >= std::numeric_limits<float>::max())
+          continue;
+
+        // Set PtGraph to this resize candidate's timing
+        local_sta_->increAndGetLocalTimingCost(
+            pt_graph_.get(), arc_delay_calc_, top2[k].cell);
+
+        // 1 round precise evaluation (reuses cached buffer tree)
+        rebuffer_->evaluateBufferOnCandidate(drvr_infos[0].vid, cached_bnet);
+
+        if (rebuffer_->bestBnet()) {
+          float cost = rebuffer_->bestCost();
+          if (cost < best_buf_cost) {
+            best_buf_cost = cost;
+            best_buf_resize_cell = top2[k].cell;
+            buf_valid = true;
+          }
+        }
+        rebuffer_->cleanupVirtualBuffer();
+      }
+    }
+  }
+
+  auto end_buf = std::chrono::high_resolution_clock::now();
+  runtime_map_["buffer_insertion"] +=
+      std::chrono::duration<double>(end_buf - start_buf).count();
+
+  // ---- Phase 3: Decision ----
+  // Compare: original vs resize-only (top2[0]) vs best resize+buffer
+  float best_resize_cost = top2[0].cost;
+  sta::LibertyCell *best_resize_cell = top2[0].cell;
+
+  if (buf_valid && best_buf_cost < best_resize_cost) {
+    // Resize + buffer wins — recompute precise evaluation for the winner
+    best_cell_ = best_buf_resize_cell;
+    local_sta_->increAndGetLocalTimingCost(
+        pt_graph_.get(), arc_delay_calc_, best_buf_resize_cell);
+    rebuffer_->evaluateBufferOnCandidate(drvr_infos[0].vid,
+        rebuffer_->bestBnet());
+    if (rebuffer_->bestBnet()) {
+      decision_ = Decision::ResizeAndBuffer;
+      return true;
+    }
+    // Recompute failed — fall through to resize-only check
+    rebuffer_->cleanupVirtualBuffer();
+  }
+
+  if (best_resize_cell != ori_cell && best_resize_cost < ori_cost) {
+    // Resize only wins
+    decision_ = Decision::ResizeOnly;
+    best_cell_ = best_resize_cell;
+    local_sta_->increAndGetLocalTimingCost(
+        pt_graph_.get(), arc_delay_calc_, best_resize_cell);
+    return true;
+  }
+
+  decision_ = Decision::NoChange;
+  return false;
+}
+
+void
+CombinedVisitor::applyChangesToDb(rsz::Resizer *resizer)
+{
+  std::lock_guard<std::mutex> lock(g_odb_sta_access_mutex);
+  switch (decision_) {
+    case Decision::ResizeOnly:
+      applyResizeChangesToDb(resizer);
+      break;
+    case Decision::ResizeAndBuffer:
+      applyResizeChangesToDb(resizer);
+      applyBufferingChangesToDb(resizer);
+      break;
+    case Decision::NoChange:
+      break;
+  }
+}
+
+ParallelLrVisitor *
+CombinedVisitor::copy() const
+{
+  CombinedVisitor *v = new CombinedVisitor(db_sta_, local_sta_, resizer_,
+                                           task_arranger_);
+  v->setAverageDelay(average_delay_);
+  v->setAverageLeakage(average_leakage_);
+  v->setSwappableCellsCache(swappable_cells_cache_);
+  v->setInstInfoMap(inst_info_map_);
+  v->setSlackMargin(slack_margin_);
+  v->setPTTradeoff(PT_tradeoff_);
+  v->setParallelLibData(parallel_lib_data_);
+  v->setEquivCellArray(equiv_cell_array_, equiv_cell_pos_map_);
+  v->setClockPeriod(clock_period_);
   return v;
 }
 

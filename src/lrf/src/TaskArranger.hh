@@ -37,6 +37,7 @@ using sta::ObjectIdx;
 using rsz::Resizer;
 
 class ParallelLrVisitor;
+class ParallelVisitor;
 class LocalSta;
 class InstVertex;
 class InstEdge;
@@ -85,7 +86,18 @@ struct InstVertex {
   EdgeId out_edges_ = edge_id_null;
   ObjectIdx object_idx_ = object_idx_null;
   VertexType type_ = VertexType::NONE;
-  bool selected_ = true;  // default true: all instances participate in resize
+
+  // Bitmask controlling which operations to evaluate for this instance.
+  //   bit 0 (kMoveResize):  gate resizing
+  //   bit 1 (kMoveBuffer):  buffer insertion
+  // Default: resize only (0b01).  Set to 0 to skip entirely.
+  static constexpr uint8_t kMoveResize = 0x1;
+  static constexpr uint8_t kMoveBuffer = 0x2;
+  uint8_t move_mask_ = kMoveResize;
+
+  bool doResize()  const { return move_mask_ & kMoveResize; }
+  bool doBuffer()  const { return move_mask_ & kMoveBuffer; }
+
   std::vector<sta::PwrActivity> activities_;
 };
 
@@ -137,15 +149,19 @@ public:
   // calling visitor->visit() + visitor->applyChangesToDb() per instance.
   void visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer,
                     ParallelLrVisitor *visitor);
+  void visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer,
+                    ParallelVisitor *visitor);
   // Embarrassingly parallel: dispatches all combinational instances to
   // visitor->visit() with no dependency graph. The visitor defines what to do.
   void visitAll(ParallelLrVisitor *visitor);
+  void visitAll(ParallelVisitor *visitor);
   std::set<VertexId> decreOutRefCount(InstVertex *inst_vertex);
   std::set<VertexId> decreOutRefCount(InstVertex &inst_vertex);
   size_t decreRefCount(VertexId vid);
   void getZeroRefComInstVertices(std::vector<InstVertex*>& zero_ref_vertices);
   void createTask(InstVertex* inst_vertex);
   void runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex);
+  void runTask(ParallelVisitor *visitor, InstVertex* inst_vertex);
   void finishTasks();
 
   // Assign MEE edges among sibling fanout instances of inst.
@@ -186,6 +202,10 @@ public:
   // All vertices are first reset to unselected, then only those in vertex_ids are marked.
   void markSelectedInstances(const std::vector<size_t> &vertex_ids);
 
+  // Aggregate change stats from all visitors and update PruningControl.
+  // Must be called before visitors are deleted.
+  void updatePruningStats();
+
   void setMaxResizeNum(size_t max_resize_num) { max_resize_num_ = max_resize_num; }
   size_t vertexCount() const { return vertices_.size(); }
   const std::unordered_map<const sta::Instance*, VertexId> *instToVidMap() const { return &inst_to_vid_; }
@@ -218,12 +238,15 @@ protected:
   // Mutex removed: apply_change_to_db_mutex_ is replaced by g_odb_sta_access_mutex
   // Visitors for each thread
   std::vector<ParallelLrVisitor *> visitors_;
+  std::vector<ParallelVisitor *> visitors_v2_;
   // Maximum resize number allowed in one iteration
   size_t max_resize_num_ = 1000000;
   // Flag of if the first time visitOrdered
   bool incremental_ = false;
   // Flag set after netlist-modifying operations (e.g. buffer insertion)
   bool dirty_ = false;
+  // Flag: true when dispatching with ParallelVisitor (v2) vs ParallelLrVisitor
+  bool use_v2_visitors_ = false;
   
   // Topology validation
   bool enable_topology_check_ = false;

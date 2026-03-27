@@ -1125,6 +1125,241 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   delete incre_sta;
 }
 
+////////////////////////////////////////////////////////////////
+// IterationHelper
+////////////////////////////////////////////////////////////////
+
+IterationHelper::IterationHelper(sta::dbSta *sta, odb::dbBlock *block)
+  : sta_(sta), block_(block)
+{
+  corner_ = sta->corners()->findCorner("default");
+}
+
+IterationHelper::Metrics
+IterationHelper::snapshot(double runtime_s)
+{
+  Metrics m;
+  m.wns_ps = sta_->worstSlack(sta::MinMax::max()) * 1e12;
+  m.tns_ps = sta_->totalNegativeSlack(sta::MinMax::max()) * 1e12;
+  m.runtime_s = runtime_s;
+  if (corner_) {
+    for (odb::dbInst *inst : block_->getInsts()) {
+      sta::Instance *si = sta_->getDbNetwork()->dbToSta(inst);
+      if (!si) continue;
+      m.leakage += sta_->power(si, corner_).leakage();
+    }
+  }
+  return m;
+}
+
+void
+IterationHelper::recordRow(size_t iter, const char *phase,
+                           const Metrics &cur, const Metrics &before,
+                           const char *decision)
+{
+  char buf[256];
+  snprintf(buf, sizeof(buf),
+           " %4zu | %-7s | %9.3f | %+7.3f | %12.3f | %+9.3f | %11.3f | %s (%.1fs)",
+           iter, phase,
+           cur.wns_ps, cur.wns_ps - before.wns_ps,
+           cur.tns_ps, cur.tns_ps - before.tns_ps,
+           cur.leakage * 1e10,
+           decision, cur.runtime_s);
+  rows_.push_back(buf);
+  // Print immediately so progress is visible before run completes
+  printf("[ITER]%s\n", buf);
+  fflush(stdout);
+}
+
+void
+IterationHelper::printSummary(const Metrics &best)
+{
+  printf("\n");
+  printf("==============================================================================================\n");
+  printf(" Iter | Phase   | WNS(ps)   |   dWNS  | TNS(ps)      |    dTNS   | Leakage(uW) | Decision\n");
+  printf("----------------------------------------------------------------------------------------------\n");
+  for (const auto &row : rows_)
+    printf("%s\n", row.c_str());
+  printf("----------------------------------------------------------------------------------------------\n");
+  printf(" Best checkpoint: WNS %.3f ps, TNS %.3f ps, Leakage %.3f uW\n",
+         best.wns_ps, best.tns_ps, best.leakage * 1e10);
+  printf("==============================================================================================\n");
+  fflush(stdout);
+}
+
+const char *
+IterationHelper::ecoDecision(const Metrics &cur, Metrics &best,
+                             size_t &no_improve, size_t tolerance,
+                             size_t &eco_iter, bool &should_break,
+                             bool allow_revert)
+{
+  should_break = false;
+  double cur_wns = cur.wns_ps / 1e12;  // back to seconds for comparison
+  double best_wns = best.wns_ps / 1e12;
+
+  // Accept if WNS improved (negative slack region)
+  if (cur_wns > best_wns && cur_wns < 0) {
+    best = cur;
+    odb::dbDatabase::endEco(block_);
+    odb::dbDatabase::beginEco(block_);
+    no_improve = 0;
+    return "accept(wns)";
+  }
+  // Accept if timing met and (WNS or leakage improved)
+  if (cur_wns >= 0.0 && (cur_wns > best_wns || cur.leakage < best.leakage)) {
+    best = cur;
+    odb::dbDatabase::endEco(block_);
+    odb::dbDatabase::beginEco(block_);
+    no_improve = 0;
+    return "accept(met)";
+  }
+
+  // No improvement — buffer phases only hold, never revert or terminate
+  if (!allow_revert)
+    return "hold";
+
+  // Resize: tolerate, then revert, then terminate
+  if (no_improve < tolerance) {
+    no_improve++;
+    return "tolerate";
+  }
+  if (eco_iter > 2) {
+    should_break = true;
+    return "terminate";
+  }
+  odb::dbDatabase::endEco(block_);
+  odb::dbDatabase::undoEco(block_);
+  odb::dbDatabase::beginEco(block_);
+  eco_iter++;
+  return "revert";
+}
+
+void
+TestLrf::testParallelLrResizeByArrayV2(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons,
+                            float PT_tradeoff,
+                            std::string lr_helper_method)
+{
+  printf("----- Testing Parallel LR Resize By Array V2 (New Framework) -----\n");
+  sta::Corner *corner = sta->corners()->findCorner("default");
+  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+  sta->findRequireds();
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+
+  incre_sta->makeLRHelper(lr_helper_method);
+  lrf::LRHelper *lr_helper = incre_sta->lrHelper();
+  lr_helper->setRatcons(ratcons);
+
+  incre_sta->setMaxResizeNum(max_resize_num);
+  incre_sta->lmUpdate();
+
+  odb::dbDatabase::beginEco(block);
+  float best_leakage = std::numeric_limits<float>::max();
+  size_t no_improve_count_ = 0;
+  size_t eco_iter = 0;
+  sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
+  sta::Slack best_tns = sta->totalNegativeSlack(sta::MinMax::max());
+  sta::Slack tns, wns;
+  printf("Initial WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+  local_sta->initParallel();
+
+  for (size_t i = 0; i < iterations; ++i) {
+    sta->findRequireds();
+    printf("----- LR ResizeByArrayV2 Iteration %zu -----\n", i+1);
+    auto start = std::chrono::high_resolution_clock::now();
+    incre_sta->parallelResizeByArrayV2(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    auto end = std::chrono::high_resolution_clock::now();
+    printf("parallelResizeByArrayV2 took %f seconds\n",
+           std::chrono::duration<double>(end - start).count());
+
+    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+    tns = sta->totalNegativeSlack(sta::MinMax::max());
+    wns = sta->worstSlack(sta::MinMax::max());
+
+    float leakage = 0;
+    for (odb::dbInst *inst : block->getInsts()) {
+      sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(inst);
+      if (!sta_inst) continue;
+      sta::PowerResult power_result = sta->power(sta_inst, corner);
+      leakage += power_result.leakage();
+    }
+
+    printf("Worst Negative Slack: %f\n", wns * 1e12);
+    printf("Total Negative Slack: %f\n", tns * 1e12);
+    printf("Total Leakage Power: %f\n", leakage * 1e10);
+    fflush(stdout);
+    incre_sta->lmUpdate();
+
+    if (wns > best_wns && wns < 0) {
+      best_wns = wns;
+      best_tns = tns;
+      best_leakage = leakage;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      printf("Improvement in WNS, accepting.\n");
+      no_improve_count_ = 0;
+    } else if (wns >= 0.0 && (wns > best_wns || leakage < best_leakage)) {
+      best_wns = wns;
+      best_tns = tns;
+      best_leakage = leakage;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      printf("WNS positive, WNS or leakage improved, accepting.\n");
+      no_improve_count_ = 0;
+    } else if (no_improve_count_ < num_no_improve_tolerance) {
+      no_improve_count_++;
+      continue;
+    } else if (eco_iter > 2) {
+      printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
+      break;
+    } else {
+      printf("Reverting to previous design.\n");
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
+      odb::dbDatabase::beginEco(block);
+      eco_iter++;
+    }
+  }
+  tns = sta->totalNegativeSlack(sta::MinMax::max());
+  wns = sta->worstSlack(sta::MinMax::max());
+  if (wns > best_wns) {
+    odb::dbDatabase::endEco(block);
+    printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
+  } else {
+    odb::dbDatabase::endEco(block);
+    odb::dbDatabase::undoEco(block);
+    printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  }
+
+  // Post-resize buffering pass (V2 framework)
+  wns = sta->worstSlack(sta::MinMax::max());
+  if (wns < 0) {
+    printf("----- V2 Buffering Pass -----\n");
+    sta->findRequireds();
+    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    incre_sta->parallelBufferingV2(resizer, PT_tradeoff);
+    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+    tns = sta->totalNegativeSlack(sta::MinMax::max());
+    wns = sta->worstSlack(sta::MinMax::max());
+    printf("After V2 buffering, WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
+  }
+
+  delete incre_sta;
+}
+
 void
 TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
                             rsz::Resizer *resizer,
@@ -1294,7 +1529,7 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
 }
 
 void
-TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
+TestLrf::testParallelLrResizeByArrayWithBufferingV2(sta::dbSta* sta,
                             rsz::Resizer *resizer,
                             odb::dbBlock *block,
                             size_t thread_num,
@@ -1303,10 +1538,112 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
                             size_t num_no_improve_tolerance,
                             bool ratcons,
                             float PT_tradeoff,
-                            std::string lr_helper_method,
-                            float top_ratio)
+                            std::string lr_helper_method)
 {
-  printf("----- Testing Parallel LR Resize By Array With Precheck -----\n");
+  printf("----- Testing V2 Resize By Array With Buffering -----\n");
+  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+  sta->findRequireds();
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+
+  incre_sta->makeLRHelper(lr_helper_method);
+  incre_sta->lrHelper()->setRatcons(ratcons);
+  incre_sta->setMaxResizeNum(max_resize_num);
+  incre_sta->lmUpdate();
+
+  odb::dbDatabase::beginEco(block);
+  IterationHelper helper(sta, block);
+  IterationHelper::Metrics best = helper.snapshot();
+  printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
+
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+  local_sta->initParallel();
+
+  size_t no_improve = 0;
+  size_t eco_iter = 0;
+  // Rows are buffered and printed as a clean table at the end
+
+  for (size_t i = 0; i < iterations; ++i) {
+    // ---- Snapshot before resize ----
+    sta->findRequireds();
+    auto before_rsz = helper.snapshot();
+
+    // ---- Resize phase ----
+    auto t0 = std::chrono::high_resolution_clock::now();
+    incre_sta->parallelResizeByArrayV2(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    auto t1 = std::chrono::high_resolution_clock::now();
+    double rsz_sec = std::chrono::duration<double>(t1 - t0).count();
+
+    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+    incre_sta->lmUpdate();
+
+    auto after_rsz = helper.snapshot(rsz_sec);
+    bool should_break = false;
+    const char *decision = helper.ecoDecision(after_rsz, best,
+                                              no_improve, num_no_improve_tolerance,
+                                              eco_iter, should_break);
+    helper.recordRow(i+1, "resize", after_rsz, before_rsz, decision);
+    if (should_break) break;
+
+    // ---- Buffering phase (after iteration 3, if WNS < 0) ----
+    if (after_rsz.wns_ps < 0 && i > 3) {
+      sta->findRequireds();
+      auto before_buf = helper.snapshot();
+
+      est_parasitics->updateWireParasiticsNoDeleteNetwork();
+      auto tb0 = std::chrono::high_resolution_clock::now();
+      incre_sta->parallelBufferingV2(resizer, PT_tradeoff);
+      auto tb1 = std::chrono::high_resolution_clock::now();
+      double buf_sec = std::chrono::duration<double>(tb1 - tb0).count();
+
+      sta->delaysInvalid();
+      sta->updateTiming(true);
+      sta->findRequireds();
+      incre_sta->lmUpdate();
+
+      auto after_buf = helper.snapshot(buf_sec);
+      const char *buf_decision = helper.ecoDecision(after_buf, best,
+                                                    no_improve, num_no_improve_tolerance,
+                                                    eco_iter, should_break,
+                                                    /*allow_revert=*/false);
+      helper.recordRow(i+1, "buffer", after_buf, before_buf, buf_decision);
+    }
+  }
+
+  helper.printSummary(best);
+
+  // Final accept/revert
+  double final_wns = sta->worstSlack(sta::MinMax::max()) * 1e12;
+  double best_wns_ps = best.wns_ps;
+  if (final_wns > best_wns_ps) {
+    odb::dbDatabase::endEco(block);
+    printf("Final design accepted with WNS: %.3f, TNS: %.3f\n",
+           final_wns, sta->totalNegativeSlack(sta::MinMax::max()) * 1e12);
+  } else {
+    odb::dbDatabase::endEco(block);
+    odb::dbDatabase::undoEco(block);
+    printf("Reverted to best design with WNS: %.3f, TNS: %.3f\n",
+           best.wns_ps, best.tns_ps);
+  }
+  delete incre_sta;
+}
+
+void
+TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons,
+                            float PT_tradeoff,
+                            std::string lr_helper_method)
+{
+  printf("----- Testing Combined Resize + Buffering -----\n");
   sta::Corner *corner = sta->corners()->findCorner("default");
   est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
   sta->findRequireds();
@@ -1334,13 +1671,12 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
 
   for (size_t i = 0; i < iterations; ++i) {
     sta->findRequireds();
-    printf("----- LR ResizeByArrayWithPrecheck Iteration %zu -----\n", i+1);
+    printf("----- Combined Resize+Buffering Iteration %zu -----\n", i+1);
     auto start = std::chrono::high_resolution_clock::now();
-    incre_sta->parallelResizeByArrayWithPrecheck(resizer, avg_delay, avg_leakage,
-                                                  PT_tradeoff, top_ratio);
+    incre_sta->parallelResizeAndBufferingV2(resizer, avg_delay, avg_leakage, PT_tradeoff);
     auto end = std::chrono::high_resolution_clock::now();
-    printf("Iteration %zu took %f seconds\n", i+1,
-           std::chrono::duration<double>(end - start).count());
+    printf("parallelResizeAndBuffering took %f seconds\n",
+          std::chrono::duration<double>(end - start).count());
 
     est_parasitics->updateWireParasiticsNoDeleteNetwork();
     sta->delaysInvalid();
@@ -1380,7 +1716,6 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
       no_improve_count_ = 0;
     } else if (no_improve_count_ < num_no_improve_tolerance) {
       no_improve_count_++;
-      continue;
     } else if (eco_iter > 2) {
       printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
       break;
@@ -1390,6 +1725,429 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
       odb::dbDatabase::undoEco(block);
       odb::dbDatabase::beginEco(block);
       eco_iter++;
+    }
+  }
+  tns = sta->totalNegativeSlack(sta::MinMax::max());
+  wns = sta->worstSlack(sta::MinMax::max());
+  if (wns > best_wns) {
+    odb::dbDatabase::endEco(block);
+    printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
+  } else {
+    odb::dbDatabase::endEco(block);
+    odb::dbDatabase::undoEco(block);
+    printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  }
+  delete incre_sta;
+}
+
+void
+TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons,
+                            float PT_tradeoff,
+                            std::string lr_helper_method,
+                            float top_ratio)
+{
+  printf("----- Testing Parallel LR Resize By Array With Precheck -----\n");
+  sta::Corner *corner = sta->corners()->findCorner("default");
+  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+  sta->findRequireds();
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+
+  incre_sta->makeLRHelper(lr_helper_method);
+  lrf::LRHelper *lr_helper = incre_sta->lrHelper();
+  lr_helper->setRatcons(ratcons);
+
+  incre_sta->setMaxResizeNum(max_resize_num);
+  incre_sta->lmUpdate();
+
+  odb::dbDatabase::beginEco(block);
+  float best_leakage = std::numeric_limits<float>::max();
+  size_t no_improve_count_ = 0;
+  size_t eco_iter = 0;
+  bool was_converged = false;
+  sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
+  sta::Slack best_tns = sta->totalNegativeSlack(sta::MinMax::max());
+  sta::Slack tns, wns;
+  printf("Initial WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+  local_sta->initParallel();
+
+  for (size_t i = 0; i < iterations; ++i) {
+    sta->findRequireds();
+    printf("----- LR ResizeByArrayWithPrecheck Iteration %zu (top_ratio=%.4f) -----\n",
+           i+1, top_ratio);
+    auto start = std::chrono::high_resolution_clock::now();
+    incre_sta->parallelResizeByArrayWithPrecheck(resizer, avg_delay, avg_leakage,
+                                                  PT_tradeoff, top_ratio);
+    auto end = std::chrono::high_resolution_clock::now();
+    printf("Iteration %zu took %f seconds\n", i+1,
+           std::chrono::duration<double>(end - start).count());
+
+    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+    tns = sta->totalNegativeSlack(sta::MinMax::max());
+    wns = sta->worstSlack(sta::MinMax::max());
+
+    float leakage = 0;
+    for (odb::dbInst *inst : block->getInsts()) {
+      sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(inst);
+      if (!sta_inst) continue;
+      sta::PowerResult power_result = sta->power(sta_inst, corner);
+      leakage += power_result.leakage();
+    }
+
+    printf("Worst Negative Slack: %f\n", wns * 1e12);
+    printf("Total Negative Slack: %f\n", tns * 1e12);
+    printf("Total Leakage Power: %f\n", leakage * 1e10);
+    fflush(stdout);
+    incre_sta->lmUpdate();
+
+    // Post-convergence regression: immediate rollback + halve, no tolerance.
+    if (was_converged && wns < 0.0) {
+      printf("Post-convergence regression (WNS %e), immediate rollback.\n", wns);
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
+      odb::dbDatabase::beginEco(block);
+      top_ratio *= 0.5f;
+      printf("Halved top_ratio to %.4f.\n", top_ratio);
+      fflush(stdout);
+      eco_iter++;
+      if (eco_iter > 6) {
+        printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
+        break;
+      }
+      continue;
+    }
+
+    if (wns > best_wns && wns < 0) {
+      best_wns = wns;
+      best_tns = tns;
+      best_leakage = leakage;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      printf("Improvement in WNS, accepting.\n");
+      no_improve_count_ = 0;
+    } else if (wns >= 0.0 && (wns > best_wns || leakage < best_leakage)) {
+      was_converged = true;
+      best_wns = wns;
+      best_tns = tns;
+      best_leakage = leakage;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      printf("WNS positive, WNS or leakage improved, accepting.\n");
+      no_improve_count_ = 0;
+    } else if (no_improve_count_ < num_no_improve_tolerance) {
+      no_improve_count_++;
+      continue;
+    } else if (eco_iter > 6) {
+      printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
+      break;
+    } else {
+      printf("Reverting to previous design.\n");
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
+      odb::dbDatabase::beginEco(block);
+      top_ratio *= 0.5f;
+      printf("Halved top_ratio to %.4f after rollback.\n", top_ratio);
+      fflush(stdout);
+      eco_iter++;
+    }
+  }
+  tns = sta->totalNegativeSlack(sta::MinMax::max());
+  wns = sta->worstSlack(sta::MinMax::max());
+  if (wns > best_wns) {
+    odb::dbDatabase::endEco(block);
+    printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
+  } else {
+    odb::dbDatabase::endEco(block);
+    odb::dbDatabase::undoEco(block);
+    printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  }
+  delete incre_sta;
+}
+
+void
+TestLrf::testParallelLrResizeByArrayWithPrecheckV2(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons,
+                            float PT_tradeoff,
+                            std::string lr_helper_method,
+                            float top_ratio)
+{
+  printf("----- Testing Parallel LR Resize By Array With Precheck V2 (New Framework) -----\n");
+  sta::Corner *corner = sta->corners()->findCorner("default");
+  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+  sta->findRequireds();
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+
+  incre_sta->makeLRHelper(lr_helper_method);
+  lrf::LRHelper *lr_helper = incre_sta->lrHelper();
+  lr_helper->setRatcons(ratcons);
+
+  incre_sta->setMaxResizeNum(max_resize_num);
+  incre_sta->lmUpdate();
+
+  odb::dbDatabase::beginEco(block);
+  float best_leakage = std::numeric_limits<float>::max();
+  size_t no_improve_count_ = 0;
+  size_t eco_iter = 0;
+  bool was_converged = false;
+  sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
+  sta::Slack best_tns = sta->totalNegativeSlack(sta::MinMax::max());
+  sta::Slack tns, wns;
+  printf("Initial WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+  local_sta->initParallel();
+
+  for (size_t i = 0; i < iterations; ++i) {
+    sta->findRequireds();
+    printf("----- LR ResizeByArrayWithPrecheckV2 Iteration %zu (top_ratio=%.4f) -----\n",
+           i+1, top_ratio);
+    auto start = std::chrono::high_resolution_clock::now();
+    incre_sta->parallelResizeByArrayWithPrecheckV2(resizer, avg_delay, avg_leakage,
+                                                    PT_tradeoff, top_ratio);
+    auto end = std::chrono::high_resolution_clock::now();
+    printf("Iteration %zu took %f seconds\n", i+1,
+           std::chrono::duration<double>(end - start).count());
+
+    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+    tns = sta->totalNegativeSlack(sta::MinMax::max());
+    wns = sta->worstSlack(sta::MinMax::max());
+
+    float leakage = 0;
+    for (odb::dbInst *inst : block->getInsts()) {
+      sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(inst);
+      if (!sta_inst) continue;
+      sta::PowerResult power_result = sta->power(sta_inst, corner);
+      leakage += power_result.leakage();
+    }
+
+    printf("Worst Negative Slack: %f\n", wns * 1e12);
+    printf("Total Negative Slack: %f\n", tns * 1e12);
+    printf("Total Leakage Power: %f\n", leakage * 1e10);
+    fflush(stdout);
+    incre_sta->lmUpdate();
+
+    // Post-convergence regression: immediate rollback + halve, no tolerance.
+    if (was_converged && wns < 0.0) {
+      printf("Post-convergence regression (WNS %e), immediate rollback.\n", wns);
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
+      odb::dbDatabase::beginEco(block);
+      top_ratio *= 0.5f;
+      printf("Halved top_ratio to %.4f.\n", top_ratio);
+      fflush(stdout);
+      eco_iter++;
+      if (eco_iter > 6) {
+        printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
+        break;
+      }
+      continue;
+    }
+
+    if (wns > best_wns && wns < 0) {
+      best_wns = wns;
+      best_tns = tns;
+      best_leakage = leakage;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      printf("Improvement in WNS, accepting.\n");
+      no_improve_count_ = 0;
+    } else if (wns >= 0.0 && (wns > best_wns || leakage < best_leakage)) {
+      was_converged = true;
+      best_wns = wns;
+      best_tns = tns;
+      best_leakage = leakage;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      printf("WNS positive, WNS or leakage improved, accepting.\n");
+      no_improve_count_ = 0;
+    } else if (no_improve_count_ < num_no_improve_tolerance) {
+      no_improve_count_++;
+      continue;
+    } else if (eco_iter > 6) {
+      printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
+      break;
+    } else {
+      printf("Reverting to previous design.\n");
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
+      odb::dbDatabase::beginEco(block);
+      top_ratio *= 0.5f;
+      printf("Halved top_ratio to %.4f after rollback.\n", top_ratio);
+      fflush(stdout);
+      eco_iter++;
+    }
+  }
+  tns = sta->totalNegativeSlack(sta::MinMax::max());
+  wns = sta->worstSlack(sta::MinMax::max());
+  if (wns > best_wns) {
+    odb::dbDatabase::endEco(block);
+    printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
+  } else {
+    odb::dbDatabase::endEco(block);
+    odb::dbDatabase::undoEco(block);
+    printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  }
+  delete incre_sta;
+}
+
+void
+TestLrf::testParallelLrResizeByArrayWithPrecheckBufferingV2(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons,
+                            float PT_tradeoff,
+                            std::string lr_helper_method,
+                            float top_ratio)
+{
+  printf("----- Testing Parallel LR Resize By Array With Precheck + Buffering V2 -----\n");
+  sta::Corner *corner = sta->corners()->findCorner("default");
+  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+  sta->findRequireds();
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+
+  incre_sta->makeLRHelper(lr_helper_method);
+  lrf::LRHelper *lr_helper = incre_sta->lrHelper();
+  lr_helper->setRatcons(ratcons);
+
+  incre_sta->setMaxResizeNum(max_resize_num);
+  incre_sta->lmUpdate();
+
+  odb::dbDatabase::beginEco(block);
+  float best_leakage = std::numeric_limits<float>::max();
+  size_t no_improve_count_ = 0;
+  size_t eco_iter = 0;
+  bool was_converged = false;
+  sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
+  sta::Slack best_tns = sta->totalNegativeSlack(sta::MinMax::max());
+  sta::Slack tns, wns;
+  printf("Initial WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+  local_sta->initParallel();
+
+  for (size_t i = 0; i < iterations; ++i) {
+    sta->findRequireds();
+    printf("----- LR ResizeByArrayWithPrecheckBufferingV2 Iteration %zu (top_ratio=%.4f) -----\n",
+           i+1, top_ratio);
+    auto start = std::chrono::high_resolution_clock::now();
+    incre_sta->parallelResizeByArrayWithPrecheckV2(resizer, avg_delay, avg_leakage,
+                                                    PT_tradeoff, top_ratio);
+    auto end = std::chrono::high_resolution_clock::now();
+    printf("Iteration %zu took %f seconds\n", i+1,
+           std::chrono::duration<double>(end - start).count());
+
+    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+    tns = sta->totalNegativeSlack(sta::MinMax::max());
+    wns = sta->worstSlack(sta::MinMax::max());
+
+    float leakage = 0;
+    for (odb::dbInst *inst : block->getInsts()) {
+      sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(inst);
+      if (!sta_inst) continue;
+      sta::PowerResult power_result = sta->power(sta_inst, corner);
+      leakage += power_result.leakage();
+    }
+
+    printf("Worst Negative Slack after RSZ: %f\n", wns * 1e12);
+    printf("Total Negative Slack after RSZ: %f\n", tns * 1e12);
+    printf("Total Leakage Power after RSZ: %f\n", leakage * 1e10);
+    fflush(stdout);
+    incre_sta->lmUpdate();
+
+    // Post-convergence regression: immediate rollback + halve
+    if (was_converged && wns < 0.0) {
+      printf("Post-convergence regression (WNS %e), immediate rollback.\n", wns);
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
+      odb::dbDatabase::beginEco(block);
+      top_ratio *= 0.5f;
+      printf("Halved top_ratio to %.4f.\n", top_ratio);
+      fflush(stdout);
+      eco_iter++;
+      if (eco_iter > 6) {
+        printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
+        break;
+      }
+      continue;
+    }
+
+    if (wns > best_wns && wns < 0) {
+      best_wns = wns;
+      best_tns = tns;
+      best_leakage = leakage;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      printf("Improvement in WNS, accepting.\n");
+      no_improve_count_ = 0;
+    } else if (wns >= 0.0 && (wns > best_wns || leakage < best_leakage)) {
+      was_converged = true;
+      best_wns = wns;
+      best_tns = tns;
+      best_leakage = leakage;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      printf("WNS positive, WNS or leakage improved, accepting.\n");
+      no_improve_count_ = 0;
+    } else if (no_improve_count_ < num_no_improve_tolerance) {
+      no_improve_count_++;
+    } else if (eco_iter > 6) {
+      printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
+      break;
+    } else {
+      printf("Reverting to previous design.\n");
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
+      odb::dbDatabase::beginEco(block);
+      top_ratio *= 0.5f;
+      printf("Halved top_ratio to %.4f after rollback.\n", top_ratio);
+      fflush(stdout);
+      eco_iter++;
+    }
+
+    // Perform V2 parallel buffering if WNS is negative after resize
+    if (wns < 0 && i > 3) {
+      printf("----- WNS negative, performing V2 parallel buffering -----\n");
+      double wns_before_buf = wns * 1e12;
+      double tns_before_buf = tns * 1e12;
+      sta->findRequireds();
+      est_parasitics->updateWireParasiticsNoDeleteNetwork();
+      incre_sta->parallelBufferingV2(resizer, PT_tradeoff);
+      sta->delaysInvalid();
+      sta->updateTiming(true);
+      sta->findRequireds();
+      tns = sta->totalNegativeSlack(sta::MinMax::max());
+      wns = sta->worstSlack(sta::MinMax::max());
+      printf("Buffering diff: WNS %.3f -> %.3f ps (delta=%.3f), TNS %.3f -> %.3f ps (delta=%.3f)\n",
+             wns_before_buf, wns * 1e12, wns * 1e12 - wns_before_buf,
+             tns_before_buf, tns * 1e12, tns * 1e12 - tns_before_buf);
+      fflush(stdout);
     }
   }
   tns = sta->totalNegativeSlack(sta::MinMax::max());
