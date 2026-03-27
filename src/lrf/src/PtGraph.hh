@@ -64,6 +64,9 @@ public:
   void deleteVertex(sta::VertexId vertex_id);
   void reserveVertices(size_t count) { pt_vertices_.reserve(count); }
   void reserveEdges(size_t count) { pt_edges_.reserve(count); }
+  // Pop trailing Sentinel vertices/edges to prevent unbounded vector
+  // growth from repeated buildVirtualBuffer/removeVirtualBuffer cycles.
+  void popSentinelTail();
   size_t vertexCount() const { return pt_vertices_.size(); }
   size_t edgeCount() const { return pt_edges_.size(); }
   size_t vertexCapacity() const { return pt_vertices_.capacity(); }

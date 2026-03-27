@@ -949,7 +949,7 @@ LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
   float slack_after = local_sta_->localSlackOnSinks(pt_graph);
 
   float thresh = original_slack;
-  if (slack_after > thresh) {
+  if (slack_after >= thresh) {
     total_cost = visitor_->swapCost(delay_lm_sum, option->leakage());
   }
 
@@ -1724,7 +1724,6 @@ LrRebuffer::buildVirtualBuffer(VertexId drvr_vertex_id,
   PtGraph *pt_graph = visitor_->ptGraph();
   sta::Vertex *drvr_vertex = pt_graph->ptVertex(drvr_vertex_id).vertex();
 
-
   // Pre-count buffers and loads to reserve vector space,
   // avoiding reallocation that would invalidate references.
   size_t num_buffers = 0, num_loads = 0;
@@ -2252,24 +2251,15 @@ LrRebuffer::removeVirtualBuffer(VirtualBufferInfo &info)
   for (VertexId vid : info.vertex_ids) {
     pt_graph->clearPtParasitics(vid);
   }
-  // Restore original driver's PtPiElmore (remove added virtual buffer input entries)
-  // by re-reducing from the original parasitic network.
   if (!info.orig_wire_edge_ids.empty()) {
     VertexId drvr_id = pt_graph->edge(info.orig_wire_edge_ids[0]).ptFromId();
     pt_graph->clearPtParasitics(drvr_id);
   }
 
-  // 1. Delete all virtual vertices (this also deletes their edges).
-  // NOTE: Do NOT deleteEdge separately before deleteVertex — deleteVertex
-  // already handles all edges via in_edges_/out_edges_ traversal.
-  // Calling deleteEdge first would unlink edges from adjacency lists without
-  // clearing the vertex's head pointers, causing deleteVertex to double-unlink
-  // and corrupt real vertex adjacency lists.
+  // 1. Delete all virtual vertices (also deletes their edges via adjacency).
   for (VertexId vid : info.vertex_ids) {
     pt_graph->deleteVertex(vid);
   }
-  // Delete edges that connect real vertices (e.g., wire edges from
-  // real driver to real loads created in the load case, if any remain).
   for (EdgeId eid : info.edge_ids) {
     if (pt_graph->edge(eid).type() != PtEdgeType::Sentinel)
       pt_graph->deleteEdge(eid);
@@ -2289,7 +2279,6 @@ LrRebuffer::removeVirtualBuffer(VirtualBufferInfo &info)
 
     pt_edge.setType(PtEdgeType::None);
 
-    // Re-link into from vertex's out_edges (doubly-linked, insert at head)
     EdgeId old_head = pt_graph->ptVertex(from_id).out_edges_;
     pt_edge.vertex_out_next_ = old_head;
     pt_edge.vertex_out_prev_ = pt_edge_id_null;
@@ -2297,10 +2286,12 @@ LrRebuffer::removeVirtualBuffer(VirtualBufferInfo &info)
       pt_graph->edge(old_head).vertex_out_prev_ = eid;
     pt_graph->ptVertex(from_id).out_edges_ = eid;
 
-    // Re-link into to vertex's in_edges (singly-linked, insert at head)
     pt_edge.vertex_in_link_ = pt_graph->ptVertex(to_id).in_edges_;
     pt_graph->ptVertex(to_id).in_edges_ = eid;
   }
+
+  // 4. Shrink vectors to prevent unbounded growth from repeated cycles.
+  pt_graph->popSentinelTail();
 }
 
 float

@@ -666,6 +666,11 @@ BufferSensitivityOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   if (!drvr_pin || !drvr_pv)
     return result;
 
+  // Skip non-critical instances — buffer insertion targets negative slack paths.
+  sta::Vertex *drvr_vtx = drvr_pv->vertex();
+  if (drvr_vtx && db_sta_->vertexSlack(drvr_vtx, sta::MinMax::max()) >= 0.0f)
+    return result;
+
   float score = rebuffer_->computeNetSensitivity(
       drvr_pin, *drvr_pv, ctx.average_delay, ctx.average_leakage);
 

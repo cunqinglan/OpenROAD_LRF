@@ -496,6 +496,42 @@ PtGraph::deleteVertex(VertexId vertex_id)
   sorted_ = false;
 }
 
+void
+PtGraph::popSentinelTail()
+{
+  while (pt_vertices_.size() > 1
+         && pt_vertices_.back().type() == PtVertexType::Sentinel)
+    pt_vertices_.pop_back();
+  while (pt_edges_.size() > 1
+         && pt_edges_.back().type() == PtEdgeType::Sentinel)
+    pt_edges_.pop_back();
+
+  // Debug: verify all adjacency list edge IDs are within bounds
+  size_t e_size = pt_edges_.size();
+  for (size_t vi = 0; vi < pt_vertices_.size(); vi++) {
+    PtVertex &v = pt_vertices_[vi];
+    if (v.type() == PtVertexType::Sentinel) continue;
+    for (EdgeId eid = v.out_edges_; eid != pt_edge_id_null;
+         eid = pt_edges_[eid].vertex_out_next_) {
+      if (static_cast<size_t>(eid) >= e_size) {
+        printf("[DBG-POP] STALE out_edge: vertex %zu out_edge_id %u >= edge_size %zu\n",
+               vi, eid, e_size);
+        fflush(stdout);
+        break;
+      }
+    }
+    for (EdgeId eid = v.in_edges_; eid != pt_edge_id_null;
+         eid = pt_edges_[eid].vertex_in_link_) {
+      if (static_cast<size_t>(eid) >= e_size) {
+        printf("[DBG-POP] STALE in_edge: vertex %zu in_edge_id %u >= edge_size %zu\n",
+               vi, eid, e_size);
+        fflush(stdout);
+        break;
+      }
+    }
+  }
+}
+
 sta::Path *
 PtGraph::makePaths(sta::VertexId vertex_id, size_t path_count)
 {
