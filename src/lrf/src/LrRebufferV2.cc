@@ -116,7 +116,7 @@ LrRebufferV2::init()
   if (corner) {
     initOnCorner(corner);
   } else {
-    printf("LrRebufferV2::init: Warning: 'default' corner not found\n");
+    // printf("LrRebufferV2::init: Warning: 'default' corner not found\n");
   }
 }
 
@@ -141,13 +141,13 @@ LrRebufferV2::annotateLoadLMs(PtVertex &drvr_pt_vertex, const BnetPtr& tree)
     
     int lmVecSize = sta::TimingArcSet::wireArcCount() * graph_->apCount();
     if (edge->timingArcSet()->arcCount() > 2) {
-      printf("LrRebufferV2::annotateLoadLMs: Warning: more than 2 timing arcs on edge from driver to load, only first 2 will be considered for LM annotation\n");
+      // printf("LrRebufferV2::annotateLoadLMs: Warning: more than 2 timing arcs on edge from driver to load, only first 2 will be considered for LM annotation\n");
     }
     
     LMValue *load_lms = edge->arcLms();
     if (load_lms == nullptr) {
-      printf("LrRebufferV2::annotateLoadLMs: Warning: edge to pin %s has no LM values\n",
-             network_->pathName(load_pin));
+      // printf("LrRebufferV2::annotateLoadLMs: Warning: edge to pin %s has no LM values\n",
+             // network_->pathName(load_pin));
       continue;
     }
     
@@ -173,8 +173,8 @@ LrRebufferV2::annotateLoadLMs(PtVertex &drvr_pt_vertex, const BnetPtr& tree)
             if (it != load_pin_lm_map.end()) {
               node->setLms(it->second);  // Copy LM vector to the node
             } else {
-              printf("LrRebufferV2::annotateLoadLMs: Warning: no LM found for load pin %s\n",
-                     network_->pathName(load_pin));
+              // printf("LrRebufferV2::annotateLoadLMs: Warning: no LM found for load pin %s\n",
+                     // network_->pathName(load_pin));
               // Set zero LM vector as fallback
               int lmVecSize = sta::TimingArcSet::wireArcCount() * graph_->apCount();
               std::vector<float> zero_lm(lmVecSize, 0.0f);
@@ -390,8 +390,8 @@ LrRebufferV2::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
   }
   best_vinfo_ = VirtualBufferInfo{};
   if (network_->isTopLevelPort(drvr_pin)) {
-    printf("LrRebufferV2::rebufferPin: Warning: rebuffering does not support top port as the driver pin: %s\n",
-           network_->name(drvr_pin));
+    // printf("LrRebufferV2::rebufferPin: Warning: rebuffering does not support top port as the driver pin: %s\n",
+           // network_->name(drvr_pin));
     return;
   }
 
@@ -412,8 +412,8 @@ LrRebufferV2::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
     BufferedNetPtr bnet = resizer_->makeBufferedNet(drvr_pin, corner_);
 
     if (!bnet) {
-      printf("LrRebufferV2::rebufferPin: Warning: unable to create buffered net for pin %s\n",
-             network_->name(drvr_pin));
+      // printf("LrRebufferV2::rebufferPin: Warning: unable to create buffered net for pin %s\n",
+             // network_->name(drvr_pin));
       return;
     }
 
@@ -442,8 +442,8 @@ LrRebufferV2::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
             += std::chrono::duration<double>(t_iter_end - t_iter_start).count();
       }
       if (!bnet) {
-        printf("LrRebufferV2::rebufferPin: Warning: bufferForTiming failed for pin %s at iteration %d\n",
-               network_->name(drvr_pin), i);
+        // printf("LrRebufferV2::rebufferPin: Warning: bufferForTiming failed for pin %s at iteration %d\n",
+               // network_->name(drvr_pin), i);
         break;
       }
     }
@@ -566,8 +566,8 @@ LrRebufferV2::localAnnotateLoadSlacks(const BnetPtr& tree, PtVertex &drvr_pt_ver
             while (req_path && arrival_path->vertex(sta_) != drvr_pt_vertex.vertex()) {
               arrival_path = arrival_path->prevPath();
               if (!arrival_path) {
-                printf("LrRebufferV2::annotateLoadSlacks: no arrival path from root to load %s\n",
-                       network_->pathName(load_pin));
+                // printf("LrRebufferV2::annotateLoadSlacks: no arrival path from root to load %s\n",
+                       // network_->pathName(load_pin));
                 break;
               }
             }
@@ -599,8 +599,8 @@ LrRebufferV2::localAnnotateLoadSlacks(const BnetPtr& tree, PtVertex &drvr_pt_ver
             return 1;
           }
           default:
-            printf("LrRebufferV2::annotateLoadSlacks: Warning: unhandled BufferedNet type %d\n",
-                   static_cast<int>(node->type()));
+            // printf("LrRebufferV2::annotateLoadSlacks: Warning: unhandled BufferedNet type %d\n",
+                   // static_cast<int>(node->type()));
             return 0;
         }
       },
@@ -719,8 +719,8 @@ LrRebufferV2::bufferForTiming(VertexId drvr_vertex_id,
                 // of the algorithm (wire_length_step_ should have been chosen
                 // to always allow a minimal size buffer to drive itself without
                 // ERC)
-                printf("LrRebufferV2::bufferForTiming: Warning: Buffer pin %s: wire step options empty\n",
-                       network_->name(pin_));
+                // printf("LrRebufferV2::bufferForTiming: Warning: Buffer pin %s: wire step options empty\n",
+                       // network_->name(pin_));
               }
               return opts1;
             }
@@ -754,8 +754,8 @@ LrRebufferV2::bufferForTiming(VertexId drvr_vertex_id,
               insertBufferOptions(opts, level, std::min(remaining_wl, step));
 
               if (opts.empty()) {
-                printf("LrRebufferV2::bufferForTiming: Warning: Buffer pin %s: wire step options empty at round %d\n",
-                       network_->name(pin_), round);
+                // printf("LrRebufferV2::bufferForTiming: Warning: Buffer pin %s: wire step options empty at round %d\n",
+                       // network_->name(pin_), round);
               }
               round++;
             }
@@ -858,15 +858,15 @@ LrRebufferV2::bufferForTiming(VertexId drvr_vertex_id,
           }
           
           default:
-            printf("LrRebufferV2::bufferForTiming: Error: unhandled BufferedNet type\n");
+            // printf("LrRebufferV2::bufferForTiming: Error: unhandled BufferedNet type\n");
             return {};
         }
       },
       tree);
 
   if (top_opts.empty()) {
-    printf("LrRebufferV2::bufferForTiming: Warning: no buffering options generated for pin %s\n",
-           network_->name(pin_));
+    // printf("LrRebufferV2::bufferForTiming: Warning: no buffering options generated for pin %s\n",
+           // network_->name(pin_));
   }
 
   // Select best option based on buffer cost
@@ -911,10 +911,10 @@ LrRebufferV2::bufferForTiming(VertexId drvr_vertex_id,
         }
       }, best_option);
     if (verbose_) {
-      printf("best option: %d cost=%.3e, slack=%.3e, cap=%.3e, fanout=%.0f, buffers=%zu\n",
-             best_index, best_cost, best_option->slack().toSeconds(),
-             best_option->cap(), best_option->fanout(), buf_count);
-      fflush(stdout);
+      // printf("best option: %d cost=%.3e, slack=%.3e, cap=%.3e, fanout=%.0f, buffers=%zu\n",
+             // best_index, best_cost, best_option->slack().toSeconds(),
+             // best_option->cap(), best_option->fanout(), buf_count);
+      // fflush(stdout);
     }
 
     // Persist best cost for external callers (e.g. CombinedVisitor).
@@ -1144,8 +1144,8 @@ LrRebufferV2::cellDelayLmSum(VertexId pt_vertex_id,
     auto *lms = edge->arcLms();
     if (lms == nullptr) {
       PtVertex &v = pt_graph->ptVertex(pt_vertex_id);
-      printf("LrRebufferV2::cellDelayLmSum: Warning: edge from vertex %s has no LM values\n",
-             v.vertex() ? v.vertex()->to_string(graph_).c_str() : "virtual");
+      // printf("LrRebufferV2::cellDelayLmSum: Warning: edge from vertex %s has no LM values\n",
+             // v.vertex() ? v.vertex()->to_string(graph_).c_str() : "virtual");
       continue;
     }
     PtVertex &pt_from_vertex = pt_graph->ptVertex(pt_edge.ptFromId());
@@ -1274,9 +1274,9 @@ LrRebufferV2::mergeLmVectors(const std::vector<float>& lm1,
 {
   size_t size = std::max(lm1.size(), lm2.size());
   if (lm1.size() != lm2.size()) {
-    printf("LrRebufferV2::mergeLmVectors: Warning: LM vector size mismatch (%zu vs %zu), merging with zero-padding\n",
-           lm1.size(), lm2.size());
-    fflush(stdout);
+    // printf("LrRebufferV2::mergeLmVectors: Warning: LM vector size mismatch (%zu vs %zu), merging with zero-padding\n",
+           // lm1.size(), lm2.size());
+    // fflush(stdout);
   }
   std::vector<float> merged(size, 0.0f);
   
@@ -1879,11 +1879,11 @@ LrRebufferV2::buildVirtualBuffer(VertexId drvr_vertex_id,
           }
         }
         if (!arc_set) {
-          printf("Warning: buildVirtualBuffer: no timing arc set for %s (%s -> %s)\n",
-                 buf_cell->name(),
-                 in_port ? in_port->name() : "null",
-                 out_port ? out_port->name() : "null");
-          fflush(stdout);
+          // printf("Warning: buildVirtualBuffer: no timing arc set for %s (%s -> %s)\n",
+                 // buf_cell->name(),
+                 // in_port ? in_port->name() : "null",
+                 // out_port ? out_port->name() : "null");
+          // fflush(stdout);
           // Failed — caller will handle cleanup via removeVirtualBuffer
           info.failed = true;
           return;

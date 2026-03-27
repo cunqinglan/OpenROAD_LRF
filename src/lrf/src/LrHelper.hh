@@ -86,7 +86,9 @@ protected:
 
   // vertex_to_sorted_idx_[vertex_id] -> index in sorted_lm_vertices_
   // Used by parallel KKT backward pass to map Vertex* to ap_lm_seq_map index.
-  std::unordered_map<VertexId, size_t> vertex_to_sorted_idx_;
+  // Direct-indexed vector (VertexId is a contiguous integer), O(1) access.
+  // Sentinel SIZE_MAX means "not in sorted set".
+  std::vector<size_t> vertex_to_sorted_idx_;
 
 private:
   friend class Graph;

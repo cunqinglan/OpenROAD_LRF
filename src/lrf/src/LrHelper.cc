@@ -662,10 +662,11 @@ public:
       return;
 
     VertexId vid = helper_->graph_->id(vertex);
-    auto it = helper_->vertex_to_sorted_idx_.find(vid);
-    if (it == helper_->vertex_to_sorted_idx_.end())
+    if (vid >= helper_->vertex_to_sorted_idx_.size())
       return;
-    size_t idx = it->second;
+    size_t idx = helper_->vertex_to_sorted_idx_[vid];
+    if (idx == SIZE_MAX)
+      return;
 
     LMValueSeq out_lm_sums = helper_->computeOutLmSum(vertex);
     helper_->distributeLmOutToIn(vertex, out_lm_sums, ap_lm_seq_map_, idx);
@@ -858,8 +859,18 @@ LRHelper::parallelKKTProjection(Sta *sta)
   const size_t n = sorted_vertices.size();
 
   // Step 1: Build vertex-to-sorted-index mapping (needed for distributeLmOutToIn)
-  vertex_to_sorted_idx_.clear();
-  vertex_to_sorted_idx_.reserve(n);
+  // Direct-indexed vector: O(1) access, ~8 bytes/vertex vs ~48 bytes/entry in unordered_map.
+  // Size to max VertexId + 1. Scan sorted vertices to find the max since
+  // graph_->vertexCount() may not cover all IDs (bidirect pins create
+  // driver+load vertex pairs with IDs beyond the simple count).
+  {
+    VertexId max_vid = 0;
+    for (size_t i = 0; i < n; i++) {
+      VertexId vid = graph_->id(sorted_lm_vertices_[i]);
+      if (vid > max_vid) max_vid = vid;
+    }
+    vertex_to_sorted_idx_.assign(max_vid + 1, SIZE_MAX);
+  }
   for (size_t i = 0; i < n; i++) {
     VertexId vid = graph_->id(sorted_lm_vertices_[i]);
     vertex_to_sorted_idx_[vid] = i;

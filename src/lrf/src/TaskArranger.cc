@@ -793,7 +793,7 @@ TaskArranger::getZeroRefComInstVertices(std::vector<InstVertex*>& zero_ref_verti
   }
 }
 
-std::set<VertexId>
+std::vector<VertexId>
 TaskArranger::decreOutRefCount(InstVertex *inst_vertex)
 {
   if (!inst_vertex) {
@@ -802,19 +802,19 @@ TaskArranger::decreOutRefCount(InstVertex *inst_vertex)
   return decreOutRefCount(*inst_vertex);
 }
 
-std::set<VertexId>
+std::vector<VertexId>
 TaskArranger::decreOutRefCount(InstVertex &inst_vertex)
 {
-  std::set<VertexId> zero_ref_set;
+  std::vector<VertexId> zero_ref_vec;
   InstVertexOutEdgeIterator edge_iter(&inst_vertex, this);
   while (edge_iter.hasNext()) {
     EdgeId edge_id = edge_iter.next();
     InstEdge* inst_edge = edge(edge_id);
     if (decreRefCount(inst_edge->to()) == 0) {
-       zero_ref_set.insert(inst_edge->to());
+       zero_ref_vec.push_back(inst_edge->to());
     }
   }
-  return zero_ref_set;
+  return zero_ref_vec;
 }
 
 size_t
@@ -882,7 +882,7 @@ TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *r
   int cnt = 0;
   for (auto v : visitors_) {
     // printf("Visitor %d runtime profile:\n", cnt);
-    v->printRuntimeProfile();
+    // v->printRuntimeProfile();
     // v->printVisitedInstNames();
     delete v;
     cnt++;
@@ -949,9 +949,9 @@ TaskArranger::visitAll(ParallelVisitor *visitor)
   for (auto v : visitors_v2_) delete v;
   visitors_v2_.clear();
 
-  printf("visitAll (V2): %zu combinational instances out of %zu total, %u threads\n",
-         num_com_, vertices_.size(), thread_count_);
-  fflush(stdout);
+  // printf("visitAll (V2): %zu combinational instances out of %zu total, %u threads\n",
+         // num_com_, vertices_.size(), thread_count_);
+  // fflush(stdout);
 
   // Create visitor copies for each thread
   visitors_v2_.reserve(thread_count_);
@@ -1059,7 +1059,7 @@ TaskArranger::runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex)
     }
   }
   // Always cascade dependencies regardless of selected_
-  std::set<VertexId> zero_ref_vertices = decreOutRefCount(inst_vertex);
+  std::vector<VertexId> zero_ref_vertices = decreOutRefCount(inst_vertex);
   for (VertexId zero_ref_id : zero_ref_vertices) {
     InstVertex* zero_ref_vertex = vertex(zero_ref_id);
     createTask(zero_ref_vertex);
@@ -1084,16 +1084,16 @@ TaskArranger::updatePruningStats()
     return;
 
   float change_rate = static_cast<float>(total_change) / total_visit;
-  printf("Pruning: change_rate=%.4f (%d/%d), iteration=%d, enabled=%d, K=%d\n",
-         change_rate, total_change, total_visit,
-         pc->iteration, pc->enabled, pc->K);
-  fflush(stdout);
+  // printf("Pruning: change_rate=%.4f (%d/%d), iteration=%d, enabled=%d, K=%d\n",
+  //        change_rate, total_change, total_visit,
+  //        pc->iteration, pc->enabled, pc->K);
+  // fflush(stdout);
 
   if (pc->K == -1 && change_rate < pc->change_threshold) {
     pc->K = pc->iteration;
     pc->enabled = true;
-    printf("Pruning: K detected at iteration %d, pruning enabled\n", pc->K);
-    fflush(stdout);
+    // printf("Pruning: K detected at iteration %d, pruning enabled\n", pc->K);
+    // fflush(stdout);
   }
 }
 
@@ -1247,7 +1247,7 @@ TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta,
   resizer_ = resizer;
 
   if (enable_topology_check_) {
-    printf("Topology check enabled.\n");
+    // printf("Topology check enabled.\n");
     topology_checker_ = std::make_unique<TopologyChecker>(this);
   }
 
@@ -1259,8 +1259,8 @@ TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta,
 
   visitors_v2_.reserve(thread_count_);
   visitors_v2_.push_back(visitor);
-  printf("Visit with %u threads\n", thread_count_);
-  fflush(stdout);
+  // printf("Visit with %u threads\n", thread_count_);
+  // fflush(stdout);
   for (size_t i = 1; i < thread_count_; i++) {
     visitors_v2_.emplace_back(visitor->copy());
   }
@@ -1306,7 +1306,7 @@ TaskArranger::runTask(ParallelVisitor *visitor, InstVertex* inst_vertex)
       }
     }
   }
-  std::set<VertexId> zero_ref_vertices = decreOutRefCount(inst_vertex);
+  std::vector<VertexId> zero_ref_vertices = decreOutRefCount(inst_vertex);
   for (VertexId zero_ref_id : zero_ref_vertices) {
     InstVertex* zero_ref_vertex = vertex(zero_ref_id);
     createTask(zero_ref_vertex);

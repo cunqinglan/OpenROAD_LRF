@@ -155,8 +155,8 @@ public:
   // visitor->visit() with no dependency graph. The visitor defines what to do.
   void visitAll(ParallelLrVisitor *visitor);
   void visitAll(ParallelVisitor *visitor);
-  std::set<VertexId> decreOutRefCount(InstVertex *inst_vertex);
-  std::set<VertexId> decreOutRefCount(InstVertex &inst_vertex);
+  std::vector<VertexId> decreOutRefCount(InstVertex *inst_vertex);
+  std::vector<VertexId> decreOutRefCount(InstVertex &inst_vertex);
   size_t decreRefCount(VertexId vid);
   void getZeroRefComInstVertices(std::vector<InstVertex*>& zero_ref_vertices);
   void createTask(InstVertex* inst_vertex);

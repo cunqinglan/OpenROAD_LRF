@@ -83,7 +83,7 @@ public:
   float slackMargin() const { return slack_margin_; }
   void setPruningControl(PruningControl *pc) { pruning_control_ = pc; }
   PruningControl *pruningControl() const { return pruning_control_; }
-  int resizeVisitCount() const { return static_cast<int>(visited_instances_.size()); }
+  int resizeVisitCount() const { return resize_visit_count_; }
   int resizeChangeCount() const { return resize_change_count_; }
   bool equivVtCells(sta::LibertyCell *cell1, sta::LibertyCell *cell2);
   void setClockPeriod(float clock_period) { clock_period_ = clock_period; }
@@ -129,8 +129,8 @@ protected:
   std::unique_ptr<PtGraph> pt_graph_;
   sta::ArcDelayCalc *arc_delay_calc_;
   sta::Slack slack_before_swap_;
-  std::vector<std::string> visited_instances_;
   sta::LibertyCell *best_cell_ = nullptr;
+  int resize_visit_count_ = 0;
   float average_delay_ = 1.0;
   float average_leakage_ = 1.0;
   float slack_margin_= 0.0;
@@ -142,6 +142,7 @@ protected:
   PosMap *equiv_cell_pos_map_ = nullptr;
   PruningControl *pruning_control_ = nullptr;
   float clock_period_ = 0.0;
+  float wns_ = 0.0;
   LrRebuffer *rebuffer_ = nullptr;
   MoveType move_type_ = MoveType::Resizing;
   int resize_change_count_ = 0;

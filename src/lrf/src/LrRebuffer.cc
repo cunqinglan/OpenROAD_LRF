@@ -2192,9 +2192,9 @@ LrRebuffer::buildSyntheticParasitics(VertexId drvr_vertex_id,
           if (it != node_elmore.end()) {
             elmore = it->second;
           } else {
-            printf("Warning: buildSyntheticParasitics: Elmore DFS did not reach "
-                   "load node %u for drvr vertex %u, defaulting to 0\n",
-                   load.node_id, (unsigned)current_drvr_id);
+            // printf("Warning: buildSyntheticParasitics: Elmore DFS did not reach "
+                   // "load node %u for drvr vertex %u, defaulting to 0\n",
+                   // load.node_id, (unsigned)current_drvr_id);
           }
           pt_pi.addLoad(load.vertex_id, load.pin, elmore);
         }
