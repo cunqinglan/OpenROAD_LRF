@@ -21,6 +21,8 @@
 #include "sta/TimingArc.hh"
 #include "utl/Logger.h"
 
+#include <thread>
+
 namespace est {
 class EstimateParasitics;
 }
@@ -38,7 +40,7 @@ class RecoverPower : public sta::dbStaState
 {
  public:
   RecoverPower(Resizer* resizer);
-  bool recoverPower(float recover_power_percent, bool verbose);
+  bool recoverPower(float recover_power_percent, bool verbose, int num_threads = 1);
   // For testing.
   sta::Vertex* recoverPower(const sta::Pin* end_pin);
 
@@ -63,6 +65,19 @@ class RecoverPower : public sta::dbStaState
                                  sta::Slack path_slack);
   int fanout(sta::Vertex* vertex);
   bool hasTopLevelOutputPort(sta::Net* net);
+
+  struct BatchPowerAnalysis {
+    sta::Vertex* endpoint = nullptr;
+    sta::Slack slack = 0;
+    bool candidate = false;
+  };
+
+  bool recoverPowerBatched(
+      sta::VertexSeq& ends_with_slack,
+      int max_end_count,
+      sta::Slack worst_slack_before,
+      int num_threads,
+      bool verbose);
 
   BufferedNetSeq addWireAndBuffer(BufferedNetSeq Z,
                                   BufferedNetPtr bnet_wire,
