@@ -823,12 +823,15 @@ MoveOption
 CombinedOperator::tryBufferingOnTop1AndSmaller(
     PtGraph *pt_graph, sta::Instance *inst, EvalContext &ctx,
     const std::vector<MoveOption> &resize_candidates,
-    sta::LibertyCell *ori_cell, float ori_cost)
+    sta::LibertyCell *ori_cell, float baseline_cost)
 {
   MoveOption result;
   LrRebufferV2 *rebuffer = buffer_op_ ? buffer_op_->rebuffer() : nullptr;
-  if (!rebuffer || !resize_op_->equiv_cell_array_ || !resize_op_->equiv_cell_pos_map_)
+  if (!rebuffer || !resize_op_->equiv_cell_array_ || !resize_op_->equiv_cell_pos_map_) {
+    if (ctx.runtime_map)
+      (*ctx.runtime_map)["buf_reject_no_rebuffer"] += 1.0;
     return result;
+  }
 
   // Collect driver pin
   sta::Pin *drvr_pin = nullptr;
@@ -841,8 +844,11 @@ CombinedOperator::tryBufferingOnTop1AndSmaller(
       break;
     }
   }
-  if (!drvr_pin || drvr_vid == sta::object_id_null)
+  if (!drvr_pin || drvr_vid == sta::object_id_null) {
+    if (ctx.runtime_map)
+      (*ctx.runtime_map)["buf_reject_no_driver"] += 1.0;
     return result;
+  }
 
   // Build candidate list: top-1 + one-size-smaller + original
   struct BufCandidate {
@@ -873,8 +879,11 @@ CombinedOperator::tryBufferingOnTop1AndSmaller(
   ctx.pt_graph = pt_graph;
   rsz::BufferedNetPtr cached_bnet = rebuffer->prepareBufferOptions(
       drvr_pin, pt_graph->ptVertex(drvr_vid));
-  if (!cached_bnet)
+  if (!cached_bnet) {
+    if (ctx.runtime_map)
+      (*ctx.runtime_map)["buf_reject_no_options"] += 1.0;
     return result;
+  }
 
   float best_buf_cost = std::numeric_limits<float>::max();
   sta::LibertyCell *best_buf_cell = nullptr;
@@ -898,16 +907,29 @@ CombinedOperator::tryBufferingOnTop1AndSmaller(
     rebuffer->cleanupVirtualBuffer();
   }
 
-  if (!best_buf_cell || best_buf_cost >= ori_cost)
+  if (!best_buf_cell) {
+    if (ctx.runtime_map)
+      (*ctx.runtime_map)["buf_reject_no_valid_option"] += 1.0;
     return result;
+  }
+  if (best_buf_cost >= baseline_cost) {
+    if (ctx.runtime_map)
+      (*ctx.runtime_map)["buf_reject_cost_worse"] += 1.0;
+    return result;
+  }
 
-  // Re-evaluate winner
+  // Re-evaluate winner to rebuild rebuffer internal state for apply
   local_sta_->increAndGetLocalTimingCost(pt_graph, ctx.arc_delay_calc, best_buf_cell);
   rebuffer->evaluateBufferOnCandidate(drvr_vid, cached_bnet);
   if (!rebuffer->bestBnet()) {
     rebuffer->cleanupVirtualBuffer();
+    if (ctx.runtime_map)
+      (*ctx.runtime_map)["buf_reject_reeval_fail"] += 1.0;
     return result;
   }
+
+  if (ctx.runtime_map)
+    (*ctx.runtime_map)["buf_accept"] += 1.0;
 
   if (best_buf_is_original) {
     result.type = MoveOption::BUFFER_ONLY;
@@ -956,10 +978,13 @@ CombinedOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     best = top_n[0];
 
   // ── Phase 2: Buffering on top-1 + one-size-smaller + original ──
+  // Use the better of ori_cost and resize_cost as threshold so buffer must
+  // beat both to be accepted.
+  float baseline_cost = best.hasChange() ? best.cost : ori_cost;
   auto start_buf = std::chrono::high_resolution_clock::now();
 
   MoveOption buf_result = tryBufferingOnTop1AndSmaller(
-      pt_graph, inst, ctx, top_n, ori_cell, ori_cost);
+      pt_graph, inst, ctx, top_n, ori_cell, baseline_cost);
 
   if (ctx.runtime_map) {
     auto end_buf = std::chrono::high_resolution_clock::now();
@@ -967,8 +992,8 @@ CombinedOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
         std::chrono::duration<double>(end_buf - start_buf).count();
   }
 
-  // ── Phase 3: Decision — pick best among resize-only vs buffer results ──
-  if (buf_result.hasChange() && buf_result.cost < best.cost)
+  // Buffer already beat baseline (resize or original) — accept directly.
+  if (buf_result.hasChange())
     best = buf_result;
 
   // Ensure PtGraph in correct state for the winner

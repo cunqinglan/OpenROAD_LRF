@@ -1607,6 +1607,10 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
     netCaps(drvr_pin, rf, dcalc_ap, multi_drvr_net,
           pin_cap, wire_cap, fanout, has_net_load);
     load_cap = pin_cap + wire_cap;
+    // Recompute failed
+    // printf("Error: localParasiticLoad: recompute failed for pin %s, using fallback\n",
+    //       drvr_pin ? network_->name(drvr_pin) : "(virtual)");
+    // fflush(stdout);
   }
 }
 
