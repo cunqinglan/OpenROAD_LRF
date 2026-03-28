@@ -820,6 +820,108 @@ CombinedOperator::tryBufferingOnCandidates(
 }
 
 MoveOption
+CombinedOperator::tryBufferingOnTop1AndSmaller(
+    PtGraph *pt_graph, sta::Instance *inst, EvalContext &ctx,
+    const std::vector<MoveOption> &resize_candidates,
+    sta::LibertyCell *ori_cell, float ori_cost)
+{
+  MoveOption result;
+  LrRebufferV2 *rebuffer = buffer_op_ ? buffer_op_->rebuffer() : nullptr;
+  if (!rebuffer || !resize_op_->equiv_cell_array_ || !resize_op_->equiv_cell_pos_map_)
+    return result;
+
+  // Collect driver pin
+  sta::Pin *drvr_pin = nullptr;
+  VertexId drvr_vid = sta::object_id_null;
+  for (size_t i = 0; i < pt_graph->vertexCount(); i++) {
+    PtVertex &pv = pt_graph->ptVertex(i);
+    if (pv.vertex() && pv.type() == PtVertexType::RefOutput) {
+      drvr_pin = pv.vertex()->pin();
+      drvr_vid = pv.objectIdx();
+      break;
+    }
+  }
+  if (!drvr_pin || drvr_vid == sta::object_id_null)
+    return result;
+
+  // Build candidate list: top-1 + one-size-smaller + original
+  struct BufCandidate {
+    sta::LibertyCell *cell;
+    bool is_original;
+  };
+  std::vector<BufCandidate> buf_candidates;
+
+  sta::LibertyCell *top1_cell = nullptr;
+  if (!resize_candidates.empty()) {
+    top1_cell = resize_candidates[0].target_cell;
+    buf_candidates.push_back({top1_cell, false});
+
+    // Find one-size-smaller (col - 1) for top1
+    auto pos_it = resize_op_->equiv_cell_pos_map_->find(top1_cell);
+    if (pos_it != resize_op_->equiv_cell_pos_map_->end()) {
+      const CellArrayPos &pos = pos_it->second;
+      if (pos.col > 0) {
+        sta::LibertyCell *smaller = (*resize_op_->equiv_cell_array_)[pos.row][pos.col - 1];
+        if (smaller && smaller != top1_cell && smaller != ori_cell)
+          buf_candidates.push_back({smaller, false});
+      }
+    }
+  }
+  buf_candidates.push_back({ori_cell, true});
+
+  // Phase 2a: cached buffer tree
+  ctx.pt_graph = pt_graph;
+  rsz::BufferedNetPtr cached_bnet = rebuffer->prepareBufferOptions(
+      drvr_pin, pt_graph->ptVertex(drvr_vid));
+  if (!cached_bnet)
+    return result;
+
+  float best_buf_cost = std::numeric_limits<float>::max();
+  sta::LibertyCell *best_buf_cell = nullptr;
+  bool best_buf_is_original = false;
+
+  // Phase 2b: evaluate each candidate
+  for (auto &bc : buf_candidates) {
+    if (!bc.cell) continue;
+
+    local_sta_->increAndGetLocalTimingCost(pt_graph, ctx.arc_delay_calc, bc.cell);
+    rebuffer->evaluateBufferOnCandidate(drvr_vid, cached_bnet);
+
+    if (rebuffer->bestBnet()) {
+      float cost = rebuffer->bestCost();
+      if (cost < best_buf_cost) {
+        best_buf_cost = cost;
+        best_buf_cell = bc.cell;
+        best_buf_is_original = bc.is_original;
+      }
+    }
+    rebuffer->cleanupVirtualBuffer();
+  }
+
+  if (!best_buf_cell || best_buf_cost >= ori_cost)
+    return result;
+
+  // Re-evaluate winner
+  local_sta_->increAndGetLocalTimingCost(pt_graph, ctx.arc_delay_calc, best_buf_cell);
+  rebuffer->evaluateBufferOnCandidate(drvr_vid, cached_bnet);
+  if (!rebuffer->bestBnet()) {
+    rebuffer->cleanupVirtualBuffer();
+    return result;
+  }
+
+  if (best_buf_is_original) {
+    result.type = MoveOption::BUFFER_ONLY;
+    result.target_cell = nullptr;
+  } else {
+    result.type = MoveOption::COMBINED;
+    result.target_cell = best_buf_cell;
+  }
+  result.cost = best_buf_cost;
+  result.buffer_tree = rebuffer->bestBnet();
+  return result;
+}
+
+MoveOption
 CombinedOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
                            EvalContext &ctx)
 {
@@ -837,13 +939,8 @@ CombinedOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     return best;
 
   // Both allowed: full combined path
-  // ── Phase 1: Evaluate resize candidates, get top-2 ──
-  std::vector<MoveOption> top_n = resize_op_->evaluateTopN(pt_graph, inst, ctx, 2);
-  static int dbg_combined_count = 0;
-  if (++dbg_combined_count <= 5)
-    printf("[DBG-COMBINED] %s: top_n.size=%zu allow_resize=%d allow_buffer=%d\n",
-           db_sta_->network()->pathName(inst), top_n.size(),
-           ctx.allow_resize, ctx.allow_buffer);
+  // ── Phase 1: Evaluate resize candidates, get top-1 ──
+  std::vector<MoveOption> top_n = resize_op_->evaluateTopN(pt_graph, inst, ctx, 1);
 
   // Compute original cost
   float ori_cost;
@@ -858,10 +955,10 @@ CombinedOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   if (!top_n.empty() && top_n[0].cost < ori_cost)
     best = top_n[0];
 
-  // ── Phase 2: Two-phase buffering on top-2 candidates ──
+  // ── Phase 2: Buffering on top-1 + one-size-smaller + original ──
   auto start_buf = std::chrono::high_resolution_clock::now();
 
-  MoveOption buf_result = tryBufferingOnCandidates(
+  MoveOption buf_result = tryBufferingOnTop1AndSmaller(
       pt_graph, inst, ctx, top_n, ori_cell, ori_cost);
 
   if (ctx.runtime_map) {

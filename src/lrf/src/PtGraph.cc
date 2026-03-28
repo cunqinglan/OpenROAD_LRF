@@ -320,6 +320,7 @@ PtGraph::makeVertex(sta::Vertex *vertex)
   VertexId vertex_id = static_cast<VertexId>(pt_vertices_.size() - 1);
   pt_vertex.setObjectIdx(vertex_id);
   pt_vertex.init(vertex);
+  pt_vertex.setLibertyPort(network->libertyPort(vertex->pin()));
   if (network->isDriver(vertex->pin())) {
     pt_vertex.setIsDriver(true);
   }
@@ -1222,10 +1223,6 @@ PtGraph::annotateVerticesType()
       }
       PtVertex &ref_in = ptVertex(it->second);
       ref_in.setType(PtVertexType::RefInput);
-      if (!ref_in.libertyPort()) {
-        sta::LibertyPort *lp = sta_->network()->libertyPort(pin);
-        ref_in.setLibertyPort(lp);
-      }
 
       PtVertexInEdgeIterator in_edge_iter(it->second, this);
       while (in_edge_iter.hasNext()) {
@@ -1246,10 +1243,6 @@ PtGraph::annotateVerticesType()
       }
       PtVertex &ref_out = ptVertex(it->second);
       ref_out.setType(PtVertexType::RefOutput);
-      if (!ref_out.libertyPort()) {
-        sta::LibertyPort *lp = sta_->network()->libertyPort(pin);
-        ref_out.setLibertyPort(lp);
-      }
     }
   }
   delete pin_iter;

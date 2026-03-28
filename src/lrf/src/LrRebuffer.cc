@@ -432,9 +432,8 @@ LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
 {
   best_bnet_ = nullptr;
   best_cost_ = std::numeric_limits<float>::max();
-  if (!best_vinfo_.vertex_ids.empty()) {
-    removeVirtualBuffer(best_vinfo_);
-  }
+  // PtGraph is rebuilt each visit(); stale vinfo references a dead graph.
+  // Just reset without calling removeVirtualBuffer.
   best_vinfo_ = VirtualBufferInfo{};
   if (network_->isTopLevelPort(drvr_pin)) {
     printf("LrRebuffer::rebufferPin: Warning: rebuffering does not support top port as the driver pin: %s\n",
@@ -518,12 +517,10 @@ rsz::BufferedNetPtr
 LrRebuffer::prepareBufferOptions(const sta::Pin *drvr_pin,
                                  PtVertex &drvr_pt_vertex)
 {
-  // Reset state
+  // Reset state — PtGraph is rebuilt each visit(); stale vinfo references
+  // a dead graph. Just reset without calling removeVirtualBuffer.
   best_bnet_ = nullptr;
   best_cost_ = std::numeric_limits<float>::max();
-  if (!best_vinfo_.vertex_ids.empty()) {
-    removeVirtualBuffer(best_vinfo_);
-  }
   best_vinfo_ = VirtualBufferInfo{};
 
   if (network_->isTopLevelPort(drvr_pin))
