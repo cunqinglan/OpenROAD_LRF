@@ -84,13 +84,20 @@ LocalSta::copyState(const Sta *sta)
   sorted_ = false;
 }
 
-void 
+void
 LocalSta::setParasiticsEst(est::EstimateParasitics *estimate_parasitics) {
   estimate_parasitics_ = estimate_parasitics;
   parasitics_set_ = true;
 }
 
-void 
+void
+LocalSta::updateGlobalParasiticsAndSync(est::EstimateParasitics *est_parasitics)
+{
+  est_parasitics->updateWireParasiticsNoDeleteNetwork();
+  local_parasitics_->initParasiticMapFromBase();
+}
+
+void
 LocalSta::collectLocalGraph(Instance *inst, InstanceSet &local_instances)
 {
   if (network_->libertyCell(inst)->hasSequentials()) {

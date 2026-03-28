@@ -718,7 +718,7 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
   // Test parallel LR resizing
   printf("----- Testing Parallel LR Resizing -----\n");
   sta::Corner *corner = sta->corners()->findCorner("default");
-  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   lrf::LocalSta *local_sta = incre_sta->localSta();
@@ -761,7 +761,7 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
     printf("Parallel resize took %f seconds\n", elapsed.count());
     // Measure parasitics update time (perform update and time it)
     auto par_start = std::chrono::high_resolution_clock::now();
-    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
     auto par_end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed_parasitics = par_end - par_start;
     printf("Parasitics update took %f seconds\n", elapsed_parasitics.count());
@@ -857,7 +857,7 @@ TestLrf::testParallelLrResizingBuffering(sta::dbSta* sta,
   // Test parallel LR resizing
   printf("----- Testing Parallel LR Resizing -----\n");
   sta::Corner *corner = sta->corners()->findCorner("default");
-  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   lrf::LocalSta *local_sta = incre_sta->localSta();
@@ -900,7 +900,7 @@ TestLrf::testParallelLrResizingBuffering(sta::dbSta* sta,
     printf("Parallel resize took %f seconds\n", elapsed.count());
     // Measure parasitics update time (perform update and time it)
     auto par_start = std::chrono::high_resolution_clock::now();
-    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
     auto par_end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed_parasitics = par_end - par_start;
     printf("Parasitics update took %f seconds\n", elapsed_parasitics.count());
@@ -981,7 +981,7 @@ TestLrf::testParallelLrResizingBuffering(sta::dbSta* sta,
   }
   if (wns < 0) {
     sta->findRequireds();
-    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
     auto start = std::chrono::high_resolution_clock::now();
     incre_sta->parallelBuffering(resizer, PT_tradeoff);
     auto end = std::chrono::high_resolution_clock::now();
@@ -1027,7 +1027,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
 {
   printf("----- Testing Parallel LR Resize By Array -----\n");
   sta::Corner *corner = sta->corners()->findCorner("default");
-  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   lrf::LocalSta *local_sta = incre_sta->localSta();
@@ -1060,7 +1060,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     printf("parallelResizeByArray took %f seconds\n",
            std::chrono::duration<double>(end - start).count());
 
-    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
     sta->delaysInvalid();
     sta->updateTiming(true);
     tns = sta->totalNegativeSlack(sta::MinMax::max());
@@ -1248,7 +1248,7 @@ TestLrf::testParallelLrResizeByArrayV2(sta::dbSta* sta,
 {
   printf("----- Testing Parallel LR Resize By Array V2 (New Framework) -----\n");
   sta::Corner *corner = sta->corners()->findCorner("default");
-  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   lrf::LocalSta *local_sta = incre_sta->localSta();
@@ -1281,7 +1281,7 @@ TestLrf::testParallelLrResizeByArrayV2(sta::dbSta* sta,
     printf("parallelResizeByArrayV2 took %f seconds\n",
            std::chrono::duration<double>(end - start).count());
 
-    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
     sta->delaysInvalid();
     sta->updateTiming(true);
     tns = sta->totalNegativeSlack(sta::MinMax::max());
@@ -1347,9 +1347,9 @@ TestLrf::testParallelLrResizeByArrayV2(sta::dbSta* sta,
   if (wns < 0) {
     printf("----- V2 Buffering Pass -----\n");
     sta->findRequireds();
-    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
     incre_sta->parallelBufferingV2(resizer, PT_tradeoff);
-    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
     sta->delaysInvalid();
     sta->updateTiming(true);
     tns = sta->totalNegativeSlack(sta::MinMax::max());
@@ -1374,7 +1374,7 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
 {
   printf("----- Testing Parallel LR Resize By Array With Buffering -----\n");
   sta::Corner *corner = sta->corners()->findCorner("default");
-  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   lrf::LocalSta *local_sta = incre_sta->localSta();
@@ -1408,7 +1408,7 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
     printf("parallelResizeByArray took %f seconds\n",
           std::chrono::duration<double>(end - start).count());
 
-    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
     sta->delaysInvalid();
     sta->updateTiming(true);
     tns = sta->totalNegativeSlack(sta::MinMax::max());
@@ -1463,7 +1463,7 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
       double wns_before_buf = wns * 1e12;
       double tns_before_buf = tns * 1e12;
       sta->findRequireds();
-      est_parasitics->updateWireParasiticsNoDeleteNetwork();
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
       incre_sta->parallelBuffering(resizer, PT_tradeoff);
       sta->delaysInvalid();
       sta->updateTiming(true);
@@ -1541,7 +1541,7 @@ TestLrf::testParallelLrResizeByArrayWithBufferingV2(sta::dbSta* sta,
                             std::string lr_helper_method)
 {
   printf("----- Testing V2 Resize By Array With Buffering -----\n");
-  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   lrf::LocalSta *local_sta = incre_sta->localSta();
@@ -1575,7 +1575,7 @@ TestLrf::testParallelLrResizeByArrayWithBufferingV2(sta::dbSta* sta,
     auto t1 = std::chrono::high_resolution_clock::now();
     double rsz_sec = std::chrono::duration<double>(t1 - t0).count();
 
-    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
     sta->delaysInvalid();
     sta->updateTiming(true);
     incre_sta->lmUpdate();
@@ -1593,7 +1593,7 @@ TestLrf::testParallelLrResizeByArrayWithBufferingV2(sta::dbSta* sta,
       sta->findRequireds();
       auto before_buf = helper.snapshot();
 
-      est_parasitics->updateWireParasiticsNoDeleteNetwork();
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
       auto tb0 = std::chrono::high_resolution_clock::now();
       incre_sta->parallelBufferingV2(resizer, PT_tradeoff);
       auto tb1 = std::chrono::high_resolution_clock::now();
@@ -1645,7 +1645,7 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
 {
   printf("----- Testing Combined Resize + Buffering -----\n");
   sta::Corner *corner = sta->corners()->findCorner("default");
-  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   lrf::LocalSta *local_sta = incre_sta->localSta();
@@ -1678,7 +1678,7 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
     printf("parallelResizeAndBuffering took %f seconds\n",
           std::chrono::duration<double>(end - start).count());
 
-    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
     sta->delaysInvalid();
     sta->updateTiming(true);
     tns = sta->totalNegativeSlack(sta::MinMax::max());
@@ -1755,7 +1755,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
 {
   printf("----- Testing Parallel LR Resize By Array With Precheck -----\n");
   sta::Corner *corner = sta->corners()->findCorner("default");
-  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   lrf::LocalSta *local_sta = incre_sta->localSta();
@@ -1791,7 +1791,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
     printf("Iteration %zu took %f seconds\n", i+1,
            std::chrono::duration<double>(end - start).count());
 
-    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
     sta->delaysInvalid();
     sta->updateTiming(true);
     tns = sta->totalNegativeSlack(sta::MinMax::max());
@@ -1890,7 +1890,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckV2(sta::dbSta* sta,
 {
   printf("----- Testing Parallel LR Resize By Array With Precheck V2 (New Framework) -----\n");
   sta::Corner *corner = sta->corners()->findCorner("default");
-  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   lrf::LocalSta *local_sta = incre_sta->localSta();
@@ -1926,7 +1926,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckV2(sta::dbSta* sta,
     printf("Iteration %zu took %f seconds\n", i+1,
            std::chrono::duration<double>(end - start).count());
 
-    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
     sta->delaysInvalid();
     sta->updateTiming(true);
     tns = sta->totalNegativeSlack(sta::MinMax::max());
@@ -2025,7 +2025,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBufferingV2(sta::dbSta* sta,
 {
   printf("----- Testing Parallel LR Resize By Array With Precheck + Buffering V2 -----\n");
   sta::Corner *corner = sta->corners()->findCorner("default");
-  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   lrf::LocalSta *local_sta = incre_sta->localSta();
@@ -2061,7 +2061,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBufferingV2(sta::dbSta* sta,
     printf("Iteration %zu took %f seconds\n", i+1,
            std::chrono::duration<double>(end - start).count());
 
-    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
     sta->delaysInvalid();
     sta->updateTiming(true);
     tns = sta->totalNegativeSlack(sta::MinMax::max());
@@ -2137,7 +2137,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBufferingV2(sta::dbSta* sta,
       double wns_before_buf = wns * 1e12;
       double tns_before_buf = tns * 1e12;
       sta->findRequireds();
-      est_parasitics->updateWireParasiticsNoDeleteNetwork();
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
       incre_sta->parallelBufferingV2(resizer, PT_tradeoff);
       sta->delaysInvalid();
       sta->updateTiming(true);
@@ -2178,7 +2178,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBuffering(sta::dbSta* sta,
 {
   printf("----- Testing Parallel LR Resize By Array With Precheck + Buffering -----\n");
   sta::Corner *corner = sta->corners()->findCorner("default");
-  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   lrf::LocalSta *local_sta = incre_sta->localSta();
@@ -2212,7 +2212,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBuffering(sta::dbSta* sta,
     printf("Iteration %zu took %f seconds\n", i+1,
            std::chrono::duration<double>(end - start).count());
 
-    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
     sta->delaysInvalid();
     sta->updateTiming(true);
     tns = sta->totalNegativeSlack(sta::MinMax::max());
@@ -2267,7 +2267,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBuffering(sta::dbSta* sta,
       double wns_before_buf = wns * 1e12;
       double tns_before_buf = tns * 1e12;
       sta->findRequireds();
-      est_parasitics->updateWireParasiticsNoDeleteNetwork();
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
       incre_sta->parallelBuffering(resizer, PT_tradeoff);
       sta->delaysInvalid();
       sta->updateTiming(true);
@@ -3486,7 +3486,7 @@ TestLrf::testParallelKKTProjection(sta::dbSta* sta,
          thread_num);
   fflush(stdout);
 
-  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+
   sta->findRequireds();
 
   // Create IncreSta with thread_num threads
