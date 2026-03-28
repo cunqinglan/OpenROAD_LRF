@@ -213,7 +213,7 @@ private:
   MoveOption tryBufferingOnTop1AndSmaller(
       PtGraph *pt_graph, sta::Instance *inst, EvalContext &ctx,
       const std::vector<MoveOption> &resize_candidates,
-      sta::LibertyCell *ori_cell, float ori_cost);
+      sta::LibertyCell *ori_cell, float baseline_cost);
 
   std::unique_ptr<ResizeOperator> resize_op_;
   std::unique_ptr<BufferOperator> buffer_op_;
