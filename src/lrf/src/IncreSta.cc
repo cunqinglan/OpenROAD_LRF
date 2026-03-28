@@ -1633,18 +1633,34 @@ IncreSta::parallelResizeAndBufferingV2(rsz::Resizer *resizer, float avg_delay,
     preSaveLibCellLeakage();
   makeEquivCellArray();
 
-  // Screen buffering candidates by sensitivity and annotate on InstVertex
+  // All negative-slack instances get resize + buffer (no sensitivity screening)
   TaskArranger *task_arranger = local_sta_->taskArranger();
-  std::vector<size_t> buf_candidates = bufferingVerticesCandidateBySensitivityV2(
-      resizer, avg_delay, avg_power, buffer_top_n);
-  printf("Buffer candidates (sensitivity): %zu (of %zu total)\n",
-         buf_candidates.size(), task_arranger->vertexCount());
-
-  // All instances get resize; buffer candidates also get buffer bit
-  for (size_t i = 0; i < task_arranger->vertexCount(); i++)
-    task_arranger->vertex(i)->move_mask_ = InstVertex::kMoveResize;
-  for (size_t vid : buf_candidates)
-    task_arranger->vertex(vid)->move_mask_ |= InstVertex::kMoveBuffer;
+  size_t buf_count = 0;
+  for (size_t i = 0; i < task_arranger->vertexCount(); i++) {
+    InstVertex *iv = task_arranger->vertex(i);
+    iv->move_mask_ = InstVertex::kMoveResize;
+    sta::Instance *inst = iv->inst();
+    if (inst) {
+      sta::Vertex *vertex = nullptr, *bidirect = nullptr;
+      sta::InstancePinIterator *pin_iter = network_->pinIterator(inst);
+      bool has_neg_slack = false;
+      while (pin_iter->hasNext()) {
+        sta::Pin *pin = pin_iter->next();
+        graph_->pinVertices(pin, vertex, bidirect);
+        if (vertex) {
+          sta::Slack slack = sta_->vertexSlack(vertex, sta::MinMax::max());
+          if (slack < 0.0f) { has_neg_slack = true; break; }
+        }
+      }
+      delete pin_iter;
+      if (has_neg_slack) {
+        iv->move_mask_ |= InstVertex::kMoveBuffer;
+        buf_count++;
+      }
+    }
+  }
+  printf("Buffer candidates (neg-slack filter): %zu (of %zu total)\n",
+         buf_count, task_arranger->vertexCount());
 
   // Initialize global STA/Resizer state for buffering (serial preamble)
   LrRebufferV2::initGlobalPreamble(sta_, resizer);

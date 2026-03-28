@@ -1567,6 +1567,10 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
 
   const Pin *drvr_pin = drvr_pt_vertex.pin();
 
+  // No pin or no net: load_cap = 0, no parasitic
+  if (!drvr_pin || !network_->net(drvr_pin))
+    return;
+
   // PtGraph-local PiElmore parasitic (highest priority)
   PtPiElmore *pt_pi = pt_graph->findPtParasitic(
       drvr_pt_vertex.objectIdx(), rf, dcalc_ap->index());
@@ -1603,10 +1607,6 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
     netCaps(drvr_pin, rf, dcalc_ap, multi_drvr_net,
           pin_cap, wire_cap, fanout, has_net_load);
     load_cap = pin_cap + wire_cap;
-    // Recompute failed
-    printf("Error: localParasiticLoad: recompute failed for pin %s, using fallback\n",
-          drvr_pin ? network_->name(drvr_pin) : "(virtual)");
-    fflush(stdout);
   }
 }
 
