@@ -108,6 +108,12 @@ public:
   float getPinMaxCapLimit(sta::Pin *pin, sta::LibertyCell *lib_cell);
   float getPortMaxSlewLimit(sta::LibertyPort *port);
   float getPortMaxCapLimit(sta::LibertyPort *port);
+  // Get max slew across rise/fall for a PtVertex
+  float getVertexMaxSlew(PtGraph *pt_graph, PtVertex &ptv,
+                         sta::DcalcAnalysisPt *dcalc_ap);
+  // Check slew limits for all wire-fanout loads of a driver PtVertex
+  bool checkFanoutLoadSlew(PtGraph *pt_graph, VertexId drvr_id,
+                           sta::DcalcAnalysisPt *dcalc_ap);
   sta::LibertyPort *findTargetPort(const PtVertex &ptv,
                                    sta::LibertyCell *to_lib_cell) const;
   float getPinSlew(sta::Pin *pin, const sta::Corner *corner,

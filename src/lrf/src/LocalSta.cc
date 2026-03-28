@@ -1889,6 +1889,45 @@ LocalSta::findTargetPort(const PtVertex &ptv,
 }
 
 float
+LocalSta::getVertexMaxSlew(PtGraph *pt_graph, PtVertex &ptv,
+                           sta::DcalcAnalysisPt *dcalc_ap)
+{
+  float max_slew = 0.0;
+  for (const RiseFall *rf : RiseFall::range()) {
+    float s = pt_graph->slew(ptv, rf, dcalc_ap->index());
+    if (s > max_slew)
+      max_slew = s;
+  }
+  return max_slew;
+}
+
+bool
+LocalSta::checkFanoutLoadSlew(PtGraph *pt_graph, VertexId drvr_id,
+                              sta::DcalcAnalysisPt *dcalc_ap)
+{
+  PtVertexOutEdgeIterator out_iter(drvr_id, pt_graph);
+  while (out_iter.hasNext()) {
+    PtEdge &pt_edge = out_iter.next();
+    if (pt_edge.type() == PtEdgeType::Sentinel || !pt_edge.isWire())
+      continue;
+    PtVertex &load_ptv = pt_graph->ptVertex(pt_edge.ptToId());
+    sta::LibertyPort *load_port = load_ptv.libertyPort();
+    if (!load_port) {
+      if (const Pin *load_pin = load_ptv.pin()) {
+        load_port = network_->libertyPort(load_pin);
+      } else {
+        // Virtual load without liberty port: skip slew check (assume it's legal).
+        continue;
+      }
+    }
+    if (getVertexMaxSlew(pt_graph, load_ptv, dcalc_ap)
+        > getPortMaxSlewLimit(load_port))
+      return false;
+  }
+  return true;
+}
+
+float
 LocalSta::getPortMaxSlewLimit(sta::LibertyPort *port)
 {
   if (!port)
@@ -1949,21 +1988,7 @@ LocalSta::legalCheckBeforeSwap(sta::Instance *inst,
   sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(min_max);
 
   for (auto &ptv : pt_graph->ptVertices()) {
-    if (ptv.type() == PtVertexType::RefInput) {
-      sta::LibertyPort *to_port = findTargetPort(ptv, to_lib_cell);
-      if (!to_port)
-        continue;
-      float slew_limit = getPortMaxSlewLimit(to_port);
-      float max_slew = 0.0;
-      for (const RiseFall *rf : RiseFall::range()) {
-        float s = pt_graph->slew(ptv, rf, dcalc_ap->index());
-        if (s > max_slew)
-          max_slew = s;
-      }
-      if (max_slew > slew_limit)
-        return false;
-    }
-    else if (ptv.type() == PtVertexType::RefOutput) {
+    if (ptv.type() == PtVertexType::RefOutput) {
       sta::LibertyPort *to_port = findTargetPort(ptv, to_lib_cell);
       if (!to_port)
         continue;
@@ -1993,58 +2018,27 @@ LocalSta::legalCheckAfterSwap(sta::Instance *inst,
   sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(min_max);
 
   for (auto &ptv : pt_graph->ptVertices()) {
+    sta::LibertyPort *port = ptv.libertyPort();
+    if (!port)
+      continue;
+
     if (ptv.type() == PtVertexType::RefOutput) {
-      sta::LibertyPort *port = ptv.libertyPort();
-      if (!port)
-        continue;
-      float slew_limit = getPortMaxSlewLimit(port);
-      float max_slew = 0.0;
-      for (const RiseFall *rf : RiseFall::range()) {
-        float s = pt_graph->slew(ptv, rf, dcalc_ap->index());
-        if (s > max_slew)
-          max_slew = s;
-      }
-      if (max_slew > slew_limit)
+      // Output slew + fanout load slew
+      if (getVertexMaxSlew(pt_graph, ptv, dcalc_ap) > getPortMaxSlewLimit(port))
         return false;
-      // Check fanout load pin slew limits via PtGraph out-edges.
-      // The ref cell's output slew propagates through wire to fanout loads;
-      // each load cell may have a different (stricter) input slew limit.
-      PtVertexOutEdgeIterator out_iter(ptv.objectIdx(), pt_graph);
-      while (out_iter.hasNext()) {
-        PtEdge &pt_edge = out_iter.next();
-        if (pt_edge.type() == PtEdgeType::Sentinel || !pt_edge.isWire())
-          continue;
-        PtVertex &load_ptv = pt_graph->ptVertex(pt_edge.ptToId());
-        if (!load_ptv.vertex())
-          continue;
-        sta::LibertyPort *load_port = network_->libertyPort(load_ptv.vertex()->pin());
-        if (!load_port)
-          continue;
-        float load_slew_limit;
-        bool exists;
-        load_port->slewLimit(sta::MinMax::max(), load_slew_limit, exists);
-        if (!exists) {
-          load_port->libertyLibrary()->defaultMaxSlew(load_slew_limit, exists);
-          if (!exists)
-            continue;
-        }
-        float load_max_slew = 0.0;
-        for (const RiseFall *rf : RiseFall::range()) {
-          float s = pt_graph->slew(load_ptv, rf, dcalc_ap->index());
-          if (s > load_max_slew)
-            load_max_slew = s;
-        }
-        if (load_max_slew > load_slew_limit)
-          return false;
-      }
+      if (!checkFanoutLoadSlew(pt_graph, ptv.objectIdx(), dcalc_ap))
+        return false;
     }
     else if (ptv.type() == PtVertexType::RefDriver) {
-      sta::LibertyPort *port = ptv.libertyPort();
-      if (!port)
-        continue;
-      float cap_limit = getPortMaxCapLimit(port);
-      float load_cap = getLoadCap(ptv, corner, min_max, pt_graph);
-      if (load_cap > cap_limit)
+      // RefInput slew is checked via checkFanoutLoadSlew below
+      // (RefInput is a wire fanout of RefDriver, and its libertyPort
+      // is already updated to the new cell's port by updateRefPorts).
+      // Driver output cap + slew + fanout load slew (including siblings)
+      if (getLoadCap(ptv, corner, min_max, pt_graph) > getPortMaxCapLimit(port))
+        return false;
+      if (getVertexMaxSlew(pt_graph, ptv, dcalc_ap) > getPortMaxSlewLimit(port))
+        return false;
+      if (!checkFanoutLoadSlew(pt_graph, ptv.objectIdx(), dcalc_ap))
         return false;
     }
   }

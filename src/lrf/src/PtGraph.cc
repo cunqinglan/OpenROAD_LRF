@@ -320,6 +320,7 @@ PtGraph::makeVertex(sta::Vertex *vertex)
   VertexId vertex_id = static_cast<VertexId>(pt_vertices_.size() - 1);
   pt_vertex.setObjectIdx(vertex_id);
   pt_vertex.init(vertex);
+  pt_vertex.setLibertyPort(network->libertyPort(vertex->pin()));
   if (network->isDriver(vertex->pin())) {
     pt_vertex.setIsDriver(true);
   }
@@ -494,6 +495,42 @@ PtGraph::deleteVertex(VertexId vertex_id)
   // set but paths_ == nullptr on a deleted (Sentinel) virtual vertex.
   pt_vertex.setTagGroupIndex(sta::tag_group_index_max);
   sorted_ = false;
+}
+
+void
+PtGraph::popSentinelTail()
+{
+  while (pt_vertices_.size() > 1
+         && pt_vertices_.back().type() == PtVertexType::Sentinel)
+    pt_vertices_.pop_back();
+  while (pt_edges_.size() > 1
+         && pt_edges_.back().type() == PtEdgeType::Sentinel)
+    pt_edges_.pop_back();
+
+  // Debug: verify all adjacency list edge IDs are within bounds
+  size_t e_size = pt_edges_.size();
+  for (size_t vi = 0; vi < pt_vertices_.size(); vi++) {
+    PtVertex &v = pt_vertices_[vi];
+    if (v.type() == PtVertexType::Sentinel) continue;
+    for (EdgeId eid = v.out_edges_; eid != pt_edge_id_null;
+         eid = pt_edges_[eid].vertex_out_next_) {
+      if (static_cast<size_t>(eid) >= e_size) {
+        printf("[DBG-POP] STALE out_edge: vertex %zu out_edge_id %u >= edge_size %zu\n",
+               vi, eid, e_size);
+        fflush(stdout);
+        break;
+      }
+    }
+    for (EdgeId eid = v.in_edges_; eid != pt_edge_id_null;
+         eid = pt_edges_[eid].vertex_in_link_) {
+      if (static_cast<size_t>(eid) >= e_size) {
+        printf("[DBG-POP] STALE in_edge: vertex %zu in_edge_id %u >= edge_size %zu\n",
+               vi, eid, e_size);
+        fflush(stdout);
+        break;
+      }
+    }
+  }
 }
 
 sta::Path *
@@ -1186,10 +1223,6 @@ PtGraph::annotateVerticesType()
       }
       PtVertex &ref_in = ptVertex(it->second);
       ref_in.setType(PtVertexType::RefInput);
-      if (!ref_in.libertyPort()) {
-        sta::LibertyPort *lp = sta_->network()->libertyPort(pin);
-        ref_in.setLibertyPort(lp);
-      }
 
       PtVertexInEdgeIterator in_edge_iter(it->second, this);
       while (in_edge_iter.hasNext()) {
@@ -1210,10 +1243,13 @@ PtGraph::annotateVerticesType()
       }
       PtVertex &ref_out = ptVertex(it->second);
       ref_out.setType(PtVertexType::RefOutput);
+<<<<<<< HEAD
       if (!ref_out.libertyPort()) {
         sta::LibertyPort *lp = sta_->network()->libertyPort(pin);
         ref_out.setLibertyPort(lp);
       }
+=======
+>>>>>>> tunebuffer
     }
   }
   delete pin_iter;

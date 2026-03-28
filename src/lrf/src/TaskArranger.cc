@@ -1097,6 +1097,42 @@ TaskArranger::updatePruningStats()
   }
 }
 
+void
+TaskArranger::updatePruningStatsV2(PruningControl *pc_override)
+{
+  last_v2_visit_count_ = 0;
+  last_v2_change_count_ = 0;
+  if (visitors_v2_.empty())
+    return;
+
+  // Get PruningControl from first visitor (same pattern as V1)
+  PruningControl *pc = pc_override;
+  if (!pc)
+    pc = visitors_v2_[0]->pruningControl();
+
+  for (auto *v : visitors_v2_) {
+    last_v2_visit_count_ += v->resizeVisitCount();
+    last_v2_change_count_ += v->resizeChangeCount();
+  }
+  if (last_v2_visit_count_ == 0)
+    return;
+
+  float change_rate = static_cast<float>(last_v2_change_count_) / last_v2_visit_count_;
+  printf("Pruning: change_rate=%.4f (%d/%d)",
+         change_rate, last_v2_change_count_, last_v2_visit_count_);
+
+  if (pc) {
+    printf(", iteration=%d, enabled=%d, K=%d", pc->iteration, pc->enabled, pc->K);
+    if (pc->K == -1 && change_rate < pc->change_threshold) {
+      pc->K = pc->iteration;
+      pc->enabled = true;
+      printf("\nPruning: K detected at iteration %d, pruning enabled", pc->K);
+    }
+  }
+  printf("\n");
+  fflush(stdout);
+}
+
 InstVertexOutEdgeIterator::InstVertexOutEdgeIterator(const InstVertex* vertex,
                                                const TaskArranger* arranger)
   : next_(vertex->out_edges_),
@@ -1268,6 +1304,9 @@ TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta,
     createTask(zero_ref_vertices[i]);
   }
   finishTasks();
+
+  // Aggregate pruning stats from V2 visitors before deleting them
+  updatePruningStatsV2();
 
   int cnt = 0;
   for (auto v : visitors_v2_) {
