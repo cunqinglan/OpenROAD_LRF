@@ -1243,13 +1243,6 @@ PtGraph::annotateVerticesType()
       }
       PtVertex &ref_out = ptVertex(it->second);
       ref_out.setType(PtVertexType::RefOutput);
-<<<<<<< HEAD
-      if (!ref_out.libertyPort()) {
-        sta::LibertyPort *lp = sta_->network()->libertyPort(pin);
-        ref_out.setLibertyPort(lp);
-      }
-=======
->>>>>>> tunebuffer
     }
   }
   delete pin_iter;

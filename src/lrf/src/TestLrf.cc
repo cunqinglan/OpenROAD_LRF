@@ -1673,7 +1673,7 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
     sta->findRequireds();
     printf("----- Combined Resize+Buffering Iteration %zu -----\n", i+1);
     auto start = std::chrono::high_resolution_clock::now();
-    incre_sta->parallelResizeAndBuffering(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    incre_sta->parallelResizeAndBufferingV2(resizer, avg_delay, avg_leakage, PT_tradeoff);
     auto end = std::chrono::high_resolution_clock::now();
     printf("parallelResizeAndBuffering took %f seconds\n",
           std::chrono::duration<double>(end - start).count());

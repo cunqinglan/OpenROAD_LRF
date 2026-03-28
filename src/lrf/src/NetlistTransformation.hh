@@ -259,12 +259,6 @@ public:
     precheck_results_ = results;
   }
 
-  // Precheck mode: when set, visit() stores cost in results vector
-  // indexed by vertex ID instead of applying changes to DB.
-  void setPrecheckResults(std::vector<ResizeBenefit> *results) {
-    precheck_results_ = results;
-  }
-
   // Context configuration
   void setAverageDelay(float v) { eval_ctx_.average_delay = v; }
   void setAverageLeakage(float v) { eval_ctx_.average_leakage = v; }

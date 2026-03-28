@@ -556,7 +556,6 @@ LrRebuffer::prepareBufferOptions(const sta::Pin *drvr_pin,
   }
 
   return bnet;  // caller caches this for evaluateBufferOnCandidate
-<<<<<<< HEAD
 }
 
 void
@@ -576,27 +575,6 @@ LrRebuffer::evaluateBufferOnCandidate(sta::VertexId drvr_vid,
   }
 }
 
-=======
-}
-
-void
-LrRebuffer::evaluateBufferOnCandidate(sta::VertexId drvr_vid,
-                                      const rsz::BufferedNetPtr &prepared_bnet)
-{
-  // Run 1 round of precise bufferForTiming on the current PtGraph state.
-  // PtGraph should already reflect the resize candidate via virtualReplaceCell
-  // + increAndGetLocalTimingCost before calling this.
-  const bool allow_topology_rewrite = true;
-  BufferedNetPtr result = bufferForTiming(drvr_vid, prepared_bnet,
-                                         allow_topology_rewrite,
-                                         /*last_iteration=*/true);
-  if (result) {
-    best_bnet_ = result;
-    // best_cost_ is set inside bufferForTiming → evaluateOption
-  }
-}
-
->>>>>>> tunebuffer
 
 static std::optional<int> findWireLayer(BnetPtr node)
 {
