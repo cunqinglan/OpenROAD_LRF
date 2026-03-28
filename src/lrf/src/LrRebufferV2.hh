@@ -26,6 +26,7 @@ public:
   void insertBufferOptions(rsz::BufferedNetSeq& opts, int level, int next_segment_wl = 0);
   rsz::BufferedNetPtr addWire(const rsz::BufferedNetPtr& p, odb::Point wire_end, int wire_layer, int level = -1);
   int applyBufferingToDb();
+  void persistBufferParasitics();
   const sta::Pin *drvrPin() const { return drvr_pin_; }
   const rsz::BufferedNetPtr& bestBnet() const { return best_bnet_; }
   float bestCost() const { return best_cost_; }

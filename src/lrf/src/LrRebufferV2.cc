@@ -369,6 +369,7 @@ LrRebufferV2::applyBufferingToDb()
   odb::dbNet* const db_net = db_network_->flatNet(drvr_pin_);
   int count = exportBufferTree(best_bnet_, db_network_->dbToSta(db_net), 1, nullptr, "rebuffer");
   if (count > 0) {
+    persistBufferParasitics();
     writeLmsToGraph();
     writeTimingToGraph();
   }
@@ -378,6 +379,51 @@ LrRebufferV2::applyBufferingToDb()
     best_vinfo_ = VirtualBufferInfo{};
   }
   return count;
+}
+
+void
+LrRebufferV2::persistBufferParasitics()
+{
+  if (!best_bnet_ || !drvr_pin_)
+    return;
+
+  auto persistNet = [&](const sta::Net *net) {
+    if (!net) return;
+    estimate_parasitics_->estimateWireParasiticNoDeleteNetwork(net);
+    local_sta_->syncParasiticNetworkFromGlobal(net);
+  };
+
+  using BnetType = rsz::BufferedNetType;
+  std::function<void(const BufferedNetPtr&)> walkTree;
+  walkTree = [&](const BufferedNetPtr& node) {
+    if (!node) return;
+    switch (node->type()) {
+      case BnetType::buffer: {
+        sta::Instance *buf_inst = node->bufInst();
+        if (buf_inst) {
+          sta::LibertyPort *in_port, *out_port;
+          node->bufferCell()->bufferPorts(in_port, out_port);
+          const sta::Pin *out_pin = network_->findPin(buf_inst, out_port);
+          if (out_pin)
+            persistNet(network_->net(out_pin));
+        }
+        walkTree(node->ref());
+        break;
+      }
+      case BnetType::junction:
+        walkTree(node->ref());
+        walkTree(node->ref2());
+        break;
+      case BnetType::wire: case BnetType::via:
+        walkTree(node->ref());
+        break;
+      default: break;
+    }
+  };
+  walkTree(best_bnet_);
+
+  // Also rebuild original driver's net (topology changed by buffer insertion).
+  persistNet(network_->net(drvr_pin_));
 }
 
 void

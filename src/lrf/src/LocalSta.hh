@@ -68,6 +68,7 @@ public:
   float maxInputSlew(const Pin* input,
                             const Corner* corner) const;
   void setParasiticsEst(est::EstimateParasitics *estimate_parasitics);
+  void updateGlobalParasiticsAndSync(est::EstimateParasitics *est_parasitics);
   void setAnalysisPoints(const std::vector<const DcalcAnalysisPt*> &dcalc_ap_set);
   void setDebugLabel(const std::string &label) { debug_label_ = label; }
 
