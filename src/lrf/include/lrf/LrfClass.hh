@@ -175,6 +175,14 @@ struct PruningControl {
   bool enabled = false;         // true after iteration K
   float P = 0.20f;              // fraction of candidates to keep (min 2)
   float change_threshold = 0.10f;  // change rate that triggers ordering
+
+  // Instance-level adaptive filtering (activated after K detected).
+  // After convergence, aggressively reduces resize instance count:
+  //   target_N = last_change_count * instance_filter_multiplier
+  int last_selected_count = 0;     // instances selected for resize (from precheck)
+  int last_change_count = 0;       // instances that actually changed cell (from resize)
+  float adaptive_top_ratio = -1.0f; // -1 = inactive, use caller's top_ratio
+  float instance_filter_multiplier = 3.0f;  // N = change_count * multiplier
 };
 
 } // namespace lrf
