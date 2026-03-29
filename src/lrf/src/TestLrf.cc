@@ -826,6 +826,9 @@ TestLrf::testParallelLrResizing(sta::dbSta* sta,
       printf("Reverting to previous design.\n");
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
       odb::dbDatabase::beginEco(block);
       eco_iter++;
     }
@@ -965,6 +968,9 @@ TestLrf::testParallelLrResizingBuffering(sta::dbSta* sta,
       printf("Reverting to previous design.\n");
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
       odb::dbDatabase::beginEco(block);
       eco_iter++;
     }
@@ -977,6 +983,9 @@ TestLrf::testParallelLrResizingBuffering(sta::dbSta* sta,
   } else {
     odb::dbDatabase::endEco(block);
     odb::dbDatabase::undoEco(block);
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+    sta->delaysInvalid();
+    sta->updateTiming(true);
     printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
   }
   if (wns < 0) {
@@ -1108,6 +1117,9 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
       printf("Reverting to previous design.\n");
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
       odb::dbDatabase::beginEco(block);
       eco_iter++;
     }
@@ -1129,8 +1141,9 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
 // IterationHelper
 ////////////////////////////////////////////////////////////////
 
-IterationHelper::IterationHelper(sta::dbSta *sta, odb::dbBlock *block)
-  : sta_(sta), block_(block)
+IterationHelper::IterationHelper(sta::dbSta *sta, odb::dbBlock *block,
+                                 LocalSta *local_sta, rsz::Resizer *resizer)
+  : sta_(sta), block_(block), local_sta_(local_sta), resizer_(resizer)
 {
   corner_ = sta->corners()->findCorner("default");
 }
@@ -1229,6 +1242,9 @@ IterationHelper::ecoDecision(const Metrics &cur, Metrics &best,
   }
   odb::dbDatabase::endEco(block_);
   odb::dbDatabase::undoEco(block_);
+  local_sta_->updateGlobalParasiticsAndSync(resizer_->getEstimateParasitics());
+  sta_->delaysInvalid();
+  sta_->updateTiming(true);
   odb::dbDatabase::beginEco(block_);
   eco_iter++;
   return "revert";
@@ -1272,13 +1288,27 @@ TestLrf::testParallelLrResizeByArrayV2(sta::dbSta* sta,
   float avg_leakage = incre_sta->averageLeakage();
   local_sta->initParallel();
 
+  float top_ratio = 0.3f;  // initial precheck ratio (used after switch)
+  bool adaptive_mode = false;
+
   for (size_t i = 0; i < iterations; ++i) {
     sta->findRequireds();
-    printf("----- LR ResizeByArrayV2 Iteration %zu -----\n", i+1);
     auto start = std::chrono::high_resolution_clock::now();
-    incre_sta->parallelResizeByArrayV2(resizer, avg_delay, avg_leakage, PT_tradeoff);
+
+    if (!adaptive_mode) {
+      // Phase 1: full resize (all instances)
+      printf("----- LR ResizeByArrayV2 Iteration %zu -----\n", i+1);
+      incre_sta->parallelResizeByArrayV2(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    } else {
+      // Phase 2: precheck + adaptive (reduced instances)
+      printf("----- LR ResizeByArrayV2 -> PrecheckV2 Iteration %zu (adaptive=%.4f) -----\n",
+             i+1, incre_sta->adaptiveTopRatio());
+      incre_sta->parallelResizeByArrayWithPrecheckV2(resizer, avg_delay, avg_leakage,
+                                                      PT_tradeoff, top_ratio);
+    }
+
     auto end = std::chrono::high_resolution_clock::now();
-    printf("parallelResizeByArrayV2 took %f seconds\n",
+    printf("Iteration %zu took %f seconds\n", i+1,
            std::chrono::duration<double>(end - start).count());
 
     local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
@@ -1301,6 +1331,42 @@ TestLrf::testParallelLrResizeByArrayV2(sta::dbSta* sta,
     fflush(stdout);
     incre_sta->lmUpdate();
 
+    // Adaptive instance filter (Phase 2 logic): detect regression, revert + reduce
+    if (adaptive_mode) {
+      bool regression = (wns >= 0.0) ? false : (wns < best_wns);
+      if (regression) {
+        float cur_ratio = incre_sta->adaptiveTopRatio();
+        float new_ratio = (cur_ratio > 0.0f)
+            ? cur_ratio * 0.25f          // 1/4 discount
+            : top_ratio * 0.25f;
+        incre_sta->setAdaptiveTopRatio(new_ratio);
+        printf("Timing regression (WNS %e, best %e), revert + 1/4 discount ratio to %.4f.\n",
+               wns, best_wns, new_ratio);
+        odb::dbDatabase::endEco(block);
+        odb::dbDatabase::undoEco(block);
+        local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+        sta->delaysInvalid();
+        sta->updateTiming(true);
+        odb::dbDatabase::beginEco(block);
+        eco_iter++;
+        if (eco_iter > 6) {
+          printf("Too many ECO iterations (%zu), terminating.\n", eco_iter);
+          break;
+        }
+        continue;
+      }
+      // Improving in adaptive mode: update ratio from change_count * 1.5, only goes down
+      int change_count = incre_sta->lastChangeCount();
+      TaskArranger *ta = incre_sta->localSta()->taskArranger();
+      int total = static_cast<int>(ta->vertexCount());
+      if (total > 0) {
+        float candidate = static_cast<float>(change_count) * 1.5f / total;
+        float cur_ratio = incre_sta->adaptiveTopRatio();
+        float cap = (cur_ratio > 0.0f) ? cur_ratio : top_ratio;
+        incre_sta->setAdaptiveTopRatio(std::min(candidate, cap));
+      }
+    }
+
     if (wns > best_wns && wns < 0) {
       best_wns = wns;
       best_tns = tns;
@@ -1317,18 +1383,23 @@ TestLrf::testParallelLrResizeByArrayV2(sta::dbSta* sta,
       odb::dbDatabase::beginEco(block);
       printf("WNS positive, WNS or leakage improved, accepting.\n");
       no_improve_count_ = 0;
-    } else if (no_improve_count_ < num_no_improve_tolerance) {
-      no_improve_count_++;
-      continue;
-    } else if (eco_iter > 2) {
-      printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
-      break;
-    } else {
-      printf("Reverting to previous design.\n");
+    } else if (!adaptive_mode) {
+      // Phase 1 regression: immediate revert + switch to adaptive mode (no tolerance)
+      printf("Reverting + switching to adaptive precheck mode.\n");
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
       odb::dbDatabase::beginEco(block);
+      adaptive_mode = true;
+      incre_sta->setAdaptiveTopRatio(top_ratio * 0.25f);
+      printf("Adaptive mode activated with ratio=%.4f.\n", incre_sta->adaptiveTopRatio());
       eco_iter++;
+      continue;
+    } else if (eco_iter > 6) {
+      printf("Too many ECO iterations (%zu), terminating.\n", eco_iter);
+      break;
     }
   }
   tns = sta->totalNegativeSlack(sta::MinMax::max());
@@ -1339,22 +1410,11 @@ TestLrf::testParallelLrResizeByArrayV2(sta::dbSta* sta,
   } else {
     odb::dbDatabase::endEco(block);
     odb::dbDatabase::undoEco(block);
-    printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
-  }
-
-  // Post-resize buffering pass (V2 framework)
-  wns = sta->worstSlack(sta::MinMax::max());
-  if (wns < 0) {
-    printf("----- V2 Buffering Pass -----\n");
-    sta->findRequireds();
-    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
-    incre_sta->parallelBufferingV2(resizer, PT_tradeoff);
     local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
     sta->delaysInvalid();
     sta->updateTiming(true);
-    tns = sta->totalNegativeSlack(sta::MinMax::max());
-    wns = sta->worstSlack(sta::MinMax::max());
-    printf("After V2 buffering, WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
+    local_sta->taskArranger()->markDirty();
+    printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
   }
 
   delete incre_sta;
@@ -1453,6 +1513,9 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
       printf("Reverting to previous design.\n");
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
       odb::dbDatabase::beginEco(block);
       eco_iter++;
     }
@@ -1511,6 +1574,9 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
         printf("Buffering did not improve, reverting.\n");
         odb::dbDatabase::endEco(block);
         odb::dbDatabase::undoEco(block);
+        local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+        sta->delaysInvalid();
+        sta->updateTiming(true);
         odb::dbDatabase::beginEco(block);
       }
     }
@@ -1552,7 +1618,7 @@ TestLrf::testParallelLrResizeByArrayWithBufferingV2(sta::dbSta* sta,
   incre_sta->lmUpdate();
 
   odb::dbDatabase::beginEco(block);
-  IterationHelper helper(sta, block);
+  IterationHelper helper(sta, block, local_sta, resizer);
   IterationHelper::Metrics best = helper.snapshot();
   printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
 
@@ -1723,6 +1789,9 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
       printf("Reverting to previous design.\n");
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
       odb::dbDatabase::beginEco(block);
       eco_iter++;
     }
@@ -1816,6 +1885,9 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
       printf("Post-convergence regression (WNS %e), immediate rollback.\n", wns);
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
       odb::dbDatabase::beginEco(block);
       top_ratio *= 0.5f;
       printf("Halved top_ratio to %.4f.\n", top_ratio);
@@ -1855,6 +1927,9 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
       printf("Reverting to previous design.\n");
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
       odb::dbDatabase::beginEco(block);
       top_ratio *= 0.5f;
       printf("Halved top_ratio to %.4f after rollback.\n", top_ratio);
@@ -1917,8 +1992,8 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckV2(sta::dbSta* sta,
 
   for (size_t i = 0; i < iterations; ++i) {
     sta->findRequireds();
-    printf("----- LR ResizeByArrayWithPrecheckV2 Iteration %zu (top_ratio=%.4f) -----\n",
-           i+1, top_ratio);
+    printf("----- LR ResizeByArrayWithPrecheckV2 Iteration %zu (top_ratio=%.4f, adaptive=%.4f) -----\n",
+           i+1, top_ratio, incre_sta->adaptiveTopRatio());
     auto start = std::chrono::high_resolution_clock::now();
     incre_sta->parallelResizeByArrayWithPrecheckV2(resizer, avg_delay, avg_leakage,
                                                     PT_tradeoff, top_ratio);
@@ -1946,21 +2021,44 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckV2(sta::dbSta* sta,
     fflush(stdout);
     incre_sta->lmUpdate();
 
-    // Post-convergence regression: immediate rollback + halve, no tolerance.
-    if (was_converged && wns < 0.0) {
-      printf("Post-convergence regression (WNS %e), immediate rollback.\n", wns);
-      odb::dbDatabase::endEco(block);
-      odb::dbDatabase::undoEco(block);
-      odb::dbDatabase::beginEco(block);
-      top_ratio *= 0.5f;
-      printf("Halved top_ratio to %.4f.\n", top_ratio);
-      fflush(stdout);
-      eco_iter++;
-      if (eco_iter > 6) {
-        printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
-        break;
+    // Adaptive instance filter: after iter > 3, always use adaptive topN.
+    //   Normal: N = last_change_count * 1.5, ratio = N / total (monotonically decreasing)
+    //   Revert: ratio *= 0.25 (aggressive 1/4 discount)
+    if (i >= 3) {
+      bool regression = was_converged ? (wns < 0.0) : (wns < best_wns);
+      if (regression) {
+        // Revert + 1/4 discount
+        float cur_ratio = incre_sta->adaptiveTopRatio();
+        float new_ratio = (cur_ratio > 0.0f)
+            ? cur_ratio * 0.25f          // 1/4 discount
+            : top_ratio * 0.25f;         // first regression
+        incre_sta->setAdaptiveTopRatio(new_ratio);
+        printf("Timing regression (WNS %e, best %e), revert + 1/4 discount ratio to %.4f.\n",
+               wns, best_wns, new_ratio);
+        odb::dbDatabase::endEco(block);
+        odb::dbDatabase::undoEco(block);
+        local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+        sta->delaysInvalid();
+        sta->updateTiming(true);
+        odb::dbDatabase::beginEco(block);
+        eco_iter++;
+        if (eco_iter > 6) {
+          printf("Too many ECO iterations (%zu), terminating.\n", eco_iter);
+          break;
+        }
+        continue;
       }
-      continue;
+      // Improving: update ratio from change_count * 1.5, but never increase
+      int change_count = incre_sta->lastChangeCount();
+      TaskArranger *ta = incre_sta->localSta()->taskArranger();
+      int total = static_cast<int>(ta->vertexCount());
+      if (total > 0) {
+        float candidate = static_cast<float>(change_count) * 1.5f / total;
+        float cur_ratio = incre_sta->adaptiveTopRatio();
+        float cap = (cur_ratio > 0.0f) ? cur_ratio : top_ratio;
+        float new_ratio = std::min(candidate, cap);  // only goes down
+        incre_sta->setAdaptiveTopRatio(new_ratio);
+      }
     }
 
     if (wns > best_wns && wns < 0) {
@@ -1990,9 +2088,13 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckV2(sta::dbSta* sta,
       printf("Reverting to previous design.\n");
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
       odb::dbDatabase::beginEco(block);
       top_ratio *= 0.5f;
-      printf("Halved top_ratio to %.4f after rollback.\n", top_ratio);
+      incre_sta->setAdaptiveTopRatio(top_ratio);
+      printf("Halved top_ratio to %.4f after rollback (synced adaptive).\n", top_ratio);
       fflush(stdout);
       eco_iter++;
     }
@@ -2086,6 +2188,9 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBufferingV2(sta::dbSta* sta,
       printf("Post-convergence regression (WNS %e), immediate rollback.\n", wns);
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
       odb::dbDatabase::beginEco(block);
       top_ratio *= 0.5f;
       printf("Halved top_ratio to %.4f.\n", top_ratio);
@@ -2124,6 +2229,9 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBufferingV2(sta::dbSta* sta,
       printf("Reverting to previous design.\n");
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
       odb::dbDatabase::beginEco(block);
       top_ratio *= 0.5f;
       printf("Halved top_ratio to %.4f after rollback.\n", top_ratio);
@@ -2257,6 +2365,9 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBuffering(sta::dbSta* sta,
       printf("Reverting to previous design.\n");
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
       odb::dbDatabase::beginEco(block);
       eco_iter++;
     }
@@ -2315,6 +2426,9 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBuffering(sta::dbSta* sta,
         printf("Buffering did not improve, reverting.\n");
         odb::dbDatabase::endEco(block);
         odb::dbDatabase::undoEco(block);
+        local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+        sta->delaysInvalid();
+        sta->updateTiming(true);
         odb::dbDatabase::beginEco(block);
       }
     }

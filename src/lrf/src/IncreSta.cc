@@ -1173,6 +1173,7 @@ IncreSta::precedingResizeCheckV2(rsz::Resizer *resizer, float avg_delay,
   printf("precedingResizeCheckV2 total time: %f s\n", diff_total.count());
   fflush(stdout);
 
+  pruning_control_.last_selected_count = static_cast<int>(selected_ids.size());
   return selected_ids;
 }
 
@@ -1192,9 +1193,14 @@ IncreSta::parallelResizeByArrayWithPrecheckV2(
   }
 
   // Phase 1: Precheck — returns filtered top instances sorted by benefit
+  // Use adaptive ratio when active (after K detected), otherwise caller's top_ratio
+  float effective_ratio = (pruning_control_.adaptive_top_ratio > 0.0f)
+      ? pruning_control_.adaptive_top_ratio
+      : top_ratio;
+
   auto t_precheck_start = std::chrono::high_resolution_clock::now();
   auto vertex_ids = precedingResizeCheckV2(resizer, avg_delay, avg_power,
-                                           PT_tradeoff, top_ratio);
+                                           PT_tradeoff, effective_ratio);
   auto t_precheck_end = std::chrono::high_resolution_clock::now();
   double precheck_sec = std::chrono::duration<double>(t_precheck_end - t_precheck_start).count();
 
@@ -1230,7 +1236,18 @@ IncreSta::parallelResizeByArrayWithPrecheckV2(
   pruning_control_.iteration++;
   printf("Pruning: iteration %d, enabled=%d, K=%d\n",
          pruning_control_.iteration, pruning_control_.enabled, pruning_control_.K);
-  fflush(stdout);
+
+  // Adaptive instance filtering: store stats for caller to decide activation
+  {
+    TaskArranger *ta = local_sta_->taskArranger();
+    pruning_control_.last_change_count = ta->lastV2ChangeCount();
+    printf("InstanceFilter: selected=%d, changed=%d, total=%d, adaptive_ratio=%.4f\n",
+           pruning_control_.last_selected_count,
+           pruning_control_.last_change_count,
+           static_cast<int>(ta->vertexCount()),
+           pruning_control_.adaptive_top_ratio);
+    fflush(stdout);
+  }
 
   if (isPowerOptimizationMode()) {
     ParallelVisitor *cp_visitor = new ParallelVisitor(sta_, local_sta_, resizer);
@@ -1257,6 +1274,25 @@ IncreSta::parallelResizeByArrayWithPrecheckV2(
   auto end_total = std::chrono::high_resolution_clock::now();
   printf("parallelResizeByArrayWithPrecheckV2 total time %.3f s\n",
          std::chrono::duration<double>(end_total - start_total).count());
+}
+
+void
+IncreSta::activateInstanceFilter(float max_ratio)
+{
+  TaskArranger *ta = local_sta_->taskArranger();
+  int total = static_cast<int>(ta->vertexCount());
+  int change_count = pruning_control_.last_change_count;
+  int target_n = static_cast<int>(
+      change_count * pruning_control_.instance_filter_multiplier);
+  target_n = std::max(target_n, 50);  // absolute floor
+  float new_ratio = (total > 0)
+      ? static_cast<float>(target_n) / total
+      : max_ratio;
+  pruning_control_.adaptive_top_ratio = std::min(new_ratio, max_ratio);
+  printf("InstanceFilter ACTIVATED: change_count=%d, target_n=%d, "
+         "adaptive_ratio=%.4f (max=%.4f)\n",
+         change_count, target_n, pruning_control_.adaptive_top_ratio, max_ratio);
+  fflush(stdout);
 }
 
 // Screen buffering candidates: collect gates with negative late slack,
