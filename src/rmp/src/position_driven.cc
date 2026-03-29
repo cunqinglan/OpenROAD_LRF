@@ -42,6 +42,7 @@
 #include "map/mapper/mapper.h"
 #include "Strategy.hh"
 #include "dpl/Opendp.h"
+#include "est/EstimateParasitics.h"
 #include "rmp/SeqRemapper.hh"
 #include "rsz/Resizer.hh"
 #include "utils.h"
@@ -61,6 +62,25 @@ using sta::Slack;
 using sta::Delay;
 using sta::VertexInEdgeIterator;
 using sta::VertexOutEdgeIterator;
+
+// Pipe fd used by the child SIGABRT handler to send a failure sentinel
+// before _exit().  Only meaningful in forked children.
+static int g_child_pipe_fd = -1;
+
+static void child_abort_handler(int /*sig*/) {
+  // Write sentinel slack + empty log so the parent's read_all() succeeds
+  // and marks this solution as failed instead of blocking on EOF.
+  if (g_child_pipe_fd >= 0) {
+    sta::Slack sentinel = std::numeric_limits<sta::Slack>::lowest();
+    uint32_t log_len = 0;
+    // Best-effort writes; if they fail we still _exit.
+    (void)write(g_child_pipe_fd, &sentinel, sizeof(sentinel));
+    (void)write(g_child_pipe_fd, &log_len, sizeof(log_len));
+    close(g_child_pipe_fd);
+    g_child_pipe_fd = -1;
+  }
+  _exit(1);
+}
 
 namespace abc {
   //struct Map_MappingSolution_t;
@@ -1782,8 +1802,13 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
       omp_set_num_threads(1);
       sta->setThreadCount(1);
       freopen("/dev/null", "w", stdout);
-      // Keep stderr visible for crash diagnostics (e.g. assertion failures)
-      // freopen("/dev/null", "w", stderr);
+      freopen("/dev/null", "w", stderr);
+
+      // Install SIGABRT handler so ABC assertion failures write a sentinel
+      // to the pipe instead of crashing without output (blocking parent).
+      g_child_pipe_fd = pipefd[1];
+      signal(SIGABRT, child_abort_handler);
+
       logger_->redirectStringBegin();
 
       try {
@@ -1796,6 +1821,18 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
             sta,
             remapper.getNameGenerator(),
             logger_);
+
+        // InsertAbcMapSolution triggers ODB callbacks (inDbNetCreate,
+        // inDbITermPostConnect, inDbInstSwapMasterAfter) that add nets to
+        // parasitics_invalid_.  When updateTiming() later constructs an
+        // IncrementalParasiticsGuard, it checks hasParasiticsInvalid() and
+        // throws EST-0104.  In a forked child we don't need accurate
+        // parasitics — just set incremental mode so the guard skips the
+        // error check and processes the invalid nets normally.
+        est::EstimateParasitics* est = remapper.getEstimateParasitics();
+        if (est && !est->isIncrementalParasiticsEnabled()) {
+          est->setIncrementalParasiticsEnabled(true);
+        }
 
         sta::Slack slack = evaluateSolution(
             pSolution,
@@ -2036,32 +2073,38 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
       worst_vertex = vertex;
     }
   }
+  
+  // NOTE: repairSetup is NOT safe here.  This function runs in forked children
+  // after InsertAbcMapSolution replaced instances.  The resizer's internal pin
+  // references and net topology caches are stale, causing SIGSEGV in
+  // rebufferPin → isTopLevelPort (dangling Pin*).  Repair should be done in
+  // the parent after selecting and applying the best solution.
 
   // Attempt repair moves on cut instances if there are setup violations:
   // UnbufferMove -> VTSwapSpeed -> SizeUpMove -> SwapPinsMove -> BufferMove -> SplitLoadMove
-  if (worst_vertex && fuzzyLess(worst_slack, 0.0f)) {
-    rsz::Resizer* resizer = remapper.getResizer();
-    const sta::InstanceSet& cut_insts = candidate_cut.cut_instances();
-    resizer->setSizeUpInstanceFilter(&cut_insts);
-    resizer->repairSetup(worst_vertex->pin(), /*size_up_only=*/false);
-    resizer->setSizeUpInstanceFilter(nullptr);
-    // Recompute timing after size-up
-    sta->networkChanged();
-    sta->updateTiming(false);
-    graph = sta->ensureGraph();
-    worst_slack = std::numeric_limits<sta::Slack>::infinity();
-    for (const sta::Pin* pin : fanout_endpoints) {
-      sta::Vertex* vertex = nullptr;
-      sta::Vertex* bidir2 = nullptr;
-      graph->pinVertices(pin, vertex, bidir2);
-      if (!vertex)
-        continue;
-      sta::Slack slack = sta->vertexSlack(vertex, sta::MinMax::max());
-      if (slack < worst_slack) {
-        worst_slack = slack;
-      }
-    }
-  }
+  // if (worst_vertex && fuzzyLess(worst_slack, 0.0f)) {
+  //   rsz::Resizer* resizer = remapper.getResizer();
+  //   const sta::InstanceSet& cut_insts = candidate_cut.cut_instances();
+  //   resizer->setSizeUpInstanceFilter(&cut_insts);
+  //   resizer->repairSetup(worst_vertex->pin(), /*size_up_only=*/false);
+  //   resizer->setSizeUpInstanceFilter(nullptr);
+  //   // Recompute timing after size-up
+  //   sta->networkChanged();
+  //   sta->updateTiming(false);
+  //   graph = sta->ensureGraph();
+  //   worst_slack = std::numeric_limits<sta::Slack>::infinity();
+  //   for (const sta::Pin* pin : fanout_endpoints) {
+  //     sta::Vertex* vertex = nullptr;
+  //     sta::Vertex* bidir2 = nullptr;
+  //     graph->pinVertices(pin, vertex, bidir2);
+  //     if (!vertex)
+  //       continue;
+  //     sta::Slack slack = sta->vertexSlack(vertex, sta::MinMax::max());
+  //     if (slack < worst_slack) {
+  //       worst_slack = slack;
+  //     }
+  //   }
+  // }
 
   // Log the evaluation result
   logger->info(utl::RES, 345,
