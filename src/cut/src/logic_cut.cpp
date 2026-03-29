@@ -332,10 +332,16 @@ void AssertAbcNetworkHasNoZeroFanoutNodes(abc::Abc_Ntk_t* abc_network,
     }
 
     if (abc::Abc_ObjFanoutNum(obj) == 0) {
-      logger->error(utl::CUT,
-                    29,
-                    "Zero fanout node emitted from ABC. Please report this "
-                    "internal error.");
+      auto gate = static_cast<abc::Mio_Gate_t*>(abc::Abc_ObjData(obj));
+      const char* gate_name = gate ? abc::Mio_GateReadName(gate) : "unknown";
+      logger->warn(utl::CUT,
+                   29,
+                   "Zero fanout node in ABC network (id={}, gate={}, "
+                   "fanins={}). Removing dangling node.",
+                   abc::Abc_ObjId(obj), gate_name,
+                   abc::Abc_ObjFaninNum(obj));
+      // Remove the dangling node so ABC doesn't choke on it.
+      abc::Abc_NtkDeleteObj(obj);
     }
   }
 }

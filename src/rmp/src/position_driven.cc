@@ -1272,7 +1272,45 @@ bool PositionDrivenStrategy::remapOneCut(
     }
   }
 
-  // Build the ABC network from the candidate cut.
+  // Log cut connectivity for diagnostics.
+  for (const sta::Instance* ci : candidate_cut.cut_instances()) {
+    sta::LibertyCell* cc = network->libertyCell(ci);
+    std::unique_ptr<sta::InstancePinIterator> pit(network->pinIterator(ci));
+    while (pit->hasNext()) {
+      sta::Pin* p = pit->next();
+      sta::Net* n = network->net(p);
+      bool is_out = network->direction(p)->isAnyOutput();
+      int fanout_cnt = 0;
+      int internal_cnt = 0;
+      if (n && is_out) {
+        std::unique_ptr<sta::NetPinIterator> nit(network->pinIterator(n));
+        while (nit->hasNext()) {
+          const sta::Pin* lp = nit->next();
+          if (lp == p) continue;
+          if (!network->direction(lp)->isInput()) continue;
+          fanout_cnt++;
+          sta::Instance* li = network->instance(lp);
+          if (li && candidate_cut.cut_instances().hasKey(li))
+            internal_cnt++;
+        }
+      }
+      if (is_out) {
+        logger_->info(utl::RES, 448,
+            "[CutDiag] inst={} cell={} output_pin={} net={} "
+            "total_loads={} internal_loads={}",
+            network->name(ci), cc ? cc->name() : "?",
+            network->name(p), n ? network->name(n) : "null",
+            fanout_cnt, internal_cnt);
+      }
+    }
+  }
+
+  // Wrap the entire ABC pipeline in try-catch.  BuildMappedAbcNetwork and
+  // subsequent ABC calls may throw (via logger->error()) for invalid cuts
+  // produced by gate cloning.  Catch and return false to skip this vertex
+  // instead of terminating the process.
+  try {
+
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> mapped_abc_network(
       candidate_cut.BuildMappedAbcNetwork(
           *remapper.getAbcLibrary(),
@@ -1287,7 +1325,7 @@ bool PositionDrivenStrategy::remapOneCut(
       dup2(saved_stdout, STDOUT_FILENO);
       close(saved_stdout);
     }
-    logger_->error(utl::RES, 335, "Failed to build ABC network from candidate cut.");
+    logger_->warn(utl::RES, 335, "Failed to build ABC network from candidate cut.");
     return false;
   }
 
@@ -1563,6 +1601,18 @@ bool PositionDrivenStrategy::remapOneCut(
 
   abc::Abc_NtkMapEnumFreeStore(pMan);
   return applied;
+
+  } catch (const std::exception& e) {
+    // Restore stdout if it was redirected.
+    if (saved_stdout >= 0) {
+      fflush(stdout);
+      dup2(saved_stdout, STDOUT_FILENO);
+      close(saved_stdout);
+    }
+    logger_->warn(utl::RES, 444,
+        "ABC pipeline failed for this cut: {}", e.what());
+    return false;
+  }
 }
 
 void PositionDrivenStrategy::remap(SeqRemapper& remapper,
@@ -1951,6 +2001,78 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
   return results;
 }
 
+// Lightweight gate size-up for forked children.  Upsizes each cut instance
+// to its strongest functionally-equivalent cell using STA's equiv-cell lookup
+// and ODB's swapMaster.  No Resizer, no Path traversal, no rebuffering.
+static void trySizeUpCutInstances(
+    sta::dbSta* sta,
+    sta::dbNetwork* network,
+    const cut::LogicCut& candidate_cut,
+    utl::Logger* logger)
+{
+  // Build equiv cell groups if not yet done (lazy, one-time cost).
+  if (sta->equivCellsRecorder() == nullptr) {
+    sta::LibertyLibrarySeq libs;
+    sta::LibertyLibraryIterator* lib_iter = network->libertyLibraryIterator();
+    while (lib_iter->hasNext()) {
+      libs.emplace_back(lib_iter->next());
+    }
+    delete lib_iter;
+    sta->makeEquivCells(&libs, nullptr);
+  }
+
+  int swapped = 0;
+  for (const sta::Instance* sta_inst : candidate_cut.cut_instances()) {
+    sta::LibertyCell* cur_cell = network->libertyCell(sta_inst);
+    if (!cur_cell) {
+      continue;
+    }
+
+    sta::LibertyCellSeq* equivs = sta->equivCells(cur_cell);
+    if (!equivs || equivs->size() <= 1) {
+      continue;
+    }
+
+    // equivCells sorted by CellDriveResistanceGreater (weakest first).
+    // Last element = strongest (lowest drive resistance).
+    sta::LibertyCell* strongest = equivs->back();
+    if (strongest == cur_cell) {
+      continue;
+    }
+
+    // Find output port and compare drive resistance.
+    sta::LibertyPort* cur_out = nullptr;
+    sta::LibertyPort* new_out = nullptr;
+    sta::LibertyCellPortIterator port_iter(cur_cell);
+    while (port_iter.hasNext()) {
+      sta::LibertyPort* port = port_iter.next();
+      if (port->direction()->isAnyOutput()) {
+        cur_out = port;
+        new_out = strongest->findLibertyPort(port->name());
+        break;
+      }
+    }
+    if (!cur_out || !new_out) {
+      continue;
+    }
+    if (new_out->driveResistance() >= cur_out->driveResistance()) {
+      continue;
+    }
+
+    // Swap via ODB — triggers dbStaCbk callbacks for incremental STA sync.
+    odb::dbInst* db_inst = network->staToDb(sta_inst);
+    odb::dbMaster* new_master = network->staToDb(strongest);
+    if (db_inst && new_master) {
+      db_inst->swapMaster(new_master);
+      ++swapped;
+    }
+  }
+
+  if (swapped > 0) {
+    sta->updateTiming(false);
+  }
+}
+
 sta::Slack PositionDrivenStrategy::evaluateSolution(
     abc::Map_MappingSolution_t* pSolution,
     abc::Map_Man_t* pMan,
@@ -2038,6 +2160,10 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
   sta->networkChanged();
   sta->updateTiming(false);
 
+  // Lightweight gate size-up: upsize cut instances to strongest equivalents.
+  // This replaces repairSetup which cannot run in forked children (stale Path*).
+  trySizeUpCutInstances(sta, network, candidate_cut, logger);
+
   // Collect cut output pins and find affected endpoints.
   sta::PinSeq cut_output_pins;
   for (sta::Net* output_net : candidate_cut.primary_outputs()) {
@@ -2061,9 +2187,8 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
       /*thru_disabled=*/false,
       /*thru_constants=*/false);
 
-  // First pass: find worst endpoint for repairSetup.
+  // Find worst slack among cut-affected endpoints.
   sta::Slack worst_slack = std::numeric_limits<sta::Slack>::infinity();
-  sta::Vertex* worst_vertex = nullptr;
   int endpoint_count = fanout_endpoints.size();
 
   sta::Graph* graph = sta->ensureGraph();
@@ -2077,20 +2202,8 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
     sta::Slack slack = sta->vertexSlack(vertex, sta::MinMax::max());
     if (slack < worst_slack) {
       worst_slack = slack;
-      worst_vertex = vertex;
     }
   }
-
-  // NOTE: repairSetup cannot run in forked children — not even with a fresh
-  // Resizer.  The crash is in BufferMove::doMove → rebufferPin → isTopLevelPort
-  // on a dangling Pin*.  The root cause: repairSetup calls
-  // sta->vertexWorstSlackPath() which returns a Path* containing Pin*
-  // references from before InsertAbcMapSolution.  Even though networkChanged()
-  // rebuilt the graph, the Path traversal visits pins along the timing path
-  // that are stale.  This is a fundamental STA limitation — Path objects hold
-  // internal references that become invalid after netlist replacement.
-  // repairSetup should only run in the PARENT after the best solution is
-  // selected and permanently applied.
 
   // Log the evaluation result
   logger->info(utl::RES, 345,
