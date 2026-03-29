@@ -11,6 +11,7 @@
 #include <ostream>
 #include <set>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "db_sta/SpefWriter.hh"
@@ -192,6 +193,8 @@ class EstimateParasitics : public sta::dbStaState
   //////////////////////////////////////////////////
   void updateParasiticsNoDeleteNetwork(const sta::Net* net);
   void updateWireParasiticsNoDeleteNetwork();
+  // Incremental: update wire parasitics only for the given nets.
+  void updateWireParasiticsForNets(const std::unordered_set<sta::Net*>& nets);
   void estimateWireParasiticNoDeleteNetwork(const sta::Net* net);      
   void estimateWireParasiticSteinerNoDeleteNetwork(const sta::Pin* drvr_pin,
                                                    const sta::Net* net);
