@@ -32,6 +32,7 @@
 #include <cmath>
 #include <limits>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <chrono>
 
@@ -1026,6 +1027,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
                             std::string lr_helper_method)
 {
   est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+  est_parasitics->setIncrementalParasiticsEnabled(true);
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   lrf::LocalSta *local_sta = incre_sta->localSta();
@@ -1075,9 +1077,36 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     sta->findRequireds();
     incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
 
-    est_parasitics->updateWireParasiticsNoDeleteNetwork();
-    sta->delaysInvalid();
-    sta->updateTiming(true);
+    // --- Incremental parasitic + timing update ---
+    // Only invalidate parasitics for nets connected to modified instances.
+    // replaceCell() already did per-vertex delay invalidation inside the
+    // parallel resize pass, so we do NOT call sta->delaysInvalid() (which
+    // would destroy the incremental state and force a full O(V+E) pass).
+    const auto& modified_insts = incre_sta->modifiedInstances();
+    if (modified_insts.empty()) {
+      // No changes — still need timing for correct slack queries
+      sta->updateTiming(false);
+    } else {
+      sta::dbNetwork *network = sta->getDbNetwork();
+      std::unordered_set<const sta::Net*> modified_nets;
+      for (sta::Instance *inst : modified_insts) {
+        sta::InstancePinIterator *pin_iter = network->pinIterator(inst);
+        while (pin_iter->hasNext()) {
+          sta::Pin *pin = pin_iter->next();
+          const sta::Net *net = network->net(pin);
+          if (net) {
+            modified_nets.insert(net);
+          }
+        }
+        delete pin_iter;
+      }
+      for (const sta::Net *net : modified_nets) {
+        est_parasitics->parasiticsInvalid(net);
+      }
+      est_parasitics->updateParasitics();
+      // Incremental: only propagates delays/arrivals for invalidated vertices
+      sta->updateTiming(false);
+    }
     tns = sta->totalNegativeSlack(sta::MinMax::max());
     wns = sta->worstSlack(sta::MinMax::max());
 
@@ -1118,7 +1147,9 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
       // too expensive to waste on tolerance in large designs.
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
+      incre_sta->clearModifiedTracking();
       // ECO already finalized — skip the post-loop cleanup.
+      est_parasitics->setIncrementalParasiticsEnabled(false);
       delete incre_sta;
       return;
     } else if (no_improve_count_ < num_no_improve_tolerance) {
@@ -1129,6 +1160,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     } else {
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
+      incre_sta->clearModifiedTracking();
       odb::dbDatabase::beginEco(block);
       eco_iter++;
     }
@@ -1140,7 +1172,9 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   } else {
     odb::dbDatabase::endEco(block);
     odb::dbDatabase::undoEco(block);
+    incre_sta->clearModifiedTracking();
   }
+  est_parasitics->setIncrementalParasiticsEnabled(false);
   delete incre_sta;
 }
 
