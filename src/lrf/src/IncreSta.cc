@@ -25,6 +25,7 @@
 #include "LrSizer.hh"
 
 #include <unordered_map>
+#include <unordered_set>
 #include <chrono>
 #include <algorithm>
 #include <limits>
@@ -787,6 +788,89 @@ IncreSta::parallelResizeAdaptive(rsz::Resizer *resizer, float avg_delay, float a
 }
 
 void
+IncreSta::collectCriticalPathInstances(float slack_threshold,
+                                       std::vector<size_t>& selected_vertex_ids)
+{
+  selected_vertex_ids.clear();
+  const sta::MinMax *max = sta::MinMax::max();
+  const sta::Network *network = sta_->getDbNetwork();
+  TaskArranger *task_arranger = local_sta_->taskArranger();
+  const auto *inst_to_vid = task_arranger->instToVidMap();
+
+  // Step 1: Collect violating endpoints with slack <= threshold
+  sta::VertexSet *endpoints = sta_->endpoints();
+  std::vector<sta::Vertex*> critical_endpoints;
+  critical_endpoints.reserve(endpoints->size() / 10);
+  for (sta::Vertex *end : *endpoints) {
+    sta::Slack end_slack = sta_->vertexSlack(end, max);
+    if (end_slack <= slack_threshold) {
+      critical_endpoints.push_back(end);
+    }
+  }
+
+  if (critical_endpoints.empty()) {
+    return;
+  }
+
+  // Step 2: Expand paths and collect unique instances
+  std::unordered_set<sta::Instance*> critical_instances;
+  for (sta::Vertex *end : critical_endpoints) {
+    sta::Path *end_path = sta_->vertexWorstSlackPath(end, max);
+    if (!end_path)
+      continue;
+    sta::PathExpanded expanded(end_path, sta_);
+    const size_t path_length = expanded.size();
+    const size_t start_index = expanded.startIndex();
+    for (size_t i = start_index; i < path_length; ++i) {
+      const sta::Path *path = expanded.path(i);
+      const sta::Pin *pin = path->pin(sta_);
+      if (i > 0 && network->isDriver(pin) && !network->isTopLevelPort(pin)) {
+        sta::Instance *inst = network->instance(pin);
+        if (!network->libertyCell(inst)->hasSequentials()) {
+          critical_instances.insert(inst);
+        }
+      }
+    }
+  }
+
+  // Step 3: If not first iteration, further filter by dirty neighborhood
+  if (resize_iteration_ > 0 && !dirty_neighborhood_.empty()) {
+    std::unordered_set<sta::Instance*> filtered;
+    for (sta::Instance *inst : critical_instances) {
+      if (dirty_neighborhood_.count(inst)) {
+        filtered.insert(inst);
+      }
+    }
+    if (!filtered.empty()) {
+      critical_instances = std::move(filtered);
+    }
+  }
+
+  // Step 4: Map to TaskArranger vertex IDs
+  selected_vertex_ids.reserve(critical_instances.size());
+  for (sta::Instance *inst : critical_instances) {
+    auto it = inst_to_vid->find(inst);
+    if (it != inst_to_vid->end()) {
+      selected_vertex_ids.push_back(static_cast<size_t>(it->second));
+    }
+  }
+
+  printf("[LRF] Critical-path filter: %zu/%zu instances selected "
+         "(threshold=%.4e, endpoints=%zu)\n",
+         selected_vertex_ids.size(), task_arranger->vertexCount(),
+         slack_threshold, critical_endpoints.size());
+  fflush(stdout);
+}
+
+void
+IncreSta::clearModifiedTracking()
+{
+  modified_instances_.clear();
+  dirty_neighborhood_.clear();
+  resize_iteration_ = 0;
+}
+
+void
 IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float avg_power,
                       float PT_tradeoff)
 {
@@ -803,6 +887,24 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
   }
   makeEquivCellArray();
 
+  // --- Critical-path filtering ---
+  // Only process instances on paths with slack <= WNS/2.
+  // WNS is negative, so WNS/2 is less negative (closer to 0).
+  // e.g. WNS = -1.0 -> threshold = -0.5 -> select paths with slack in [-1.0, -0.5]
+  float slack_threshold = wns / 2.0;
+  TaskArranger *task_arranger = local_sta_->taskArranger();
+  if (wns < 0.0) {
+    std::vector<size_t> selected_vertex_ids;
+    collectCriticalPathInstances(slack_threshold, selected_vertex_ids);
+    if (!selected_vertex_ids.empty()) {
+      task_arranger->markSelectedInstances(selected_vertex_ids);
+    }
+  }
+
+  // --- Prepare modified-instance tracker ---
+  modified_instances_.clear();
+  modified_instances_.reserve(task_arranger->vertexCount() / 20);
+
   auto start_resize = std::chrono::high_resolution_clock::now();
   ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff,
@@ -810,17 +912,45 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
   visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
   visitor->setPruningControl(&pruning_control_);
   visitor->setMoveType(MoveType::Resizing);
-  // visitor ownership is transferred to TaskArranger::visitOrdered.
+  visitor->setModifiedInstancesTracker(&modified_instances_);
   local_sta_->runResize(resizer, visitor);
   auto end_resize = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_resize = end_resize - start_resize;
+
+  // --- Update dirty neighborhood for next iteration ---
+  const sta::Network *network = sta_->getDbNetwork();
+  dirty_neighborhood_.clear();
+  for (sta::Instance *inst : modified_instances_) {
+    dirty_neighborhood_.insert(inst);
+    sta::InstancePinIterator *pin_iter = network->pinIterator(inst);
+    while (pin_iter->hasNext()) {
+      sta::Pin *pin = pin_iter->next();
+      sta::Net *net = network->net(pin);
+      if (!net) continue;
+      sta::NetConnectedPinIterator *net_iter = network->connectedPinIterator(net);
+      while (net_iter->hasNext()) {
+        const sta::Pin *conn_pin = net_iter->next();
+        if (!network->isTopLevelPort(conn_pin)) {
+          sta::Instance *neighbor = network->instance(conn_pin);
+          if (neighbor) {
+            dirty_neighborhood_.insert(neighbor);
+          }
+        }
+      }
+      delete net_iter;
+    }
+    delete pin_iter;
+  }
+  resize_iteration_++;
+
+  printf("[LRF] Resize pass: %zu instances modified, %zu dirty neighbors\n",
+         modified_instances_.size(), dirty_neighborhood_.size());
+  fflush(stdout);
 
   // --- Pruning: update iteration counter and detect K ---
   pruning_control_.iteration++;
 
   // Only run full internal STA when criticalPathSizing is needed (WNS >= 0).
-  // The outer loop already does updateTiming after parasitics update,
-  // so this avoids a redundant O(V+E) pass on every iteration.
   double wns_after_resize = sta_->worstSlack(MinMax::max());
   if (isPowerOptimizationMode()) {
     sta_->updateTiming(true);
@@ -833,23 +963,17 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
     critical_path_visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
     critical_path_visitor->setMoveType(MoveType::Resizing);
 
-    // Time the critical-path sizing phase
     auto start_cps = std::chrono::high_resolution_clock::now();
     LrSizer lr_sizer(sta_, lr_helper_, critical_path_visitor);
     lr_sizer.criticalPathSizing();
     auto end_cps = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff_cps = end_cps - start_cps;
 
-    double tns_after_cps = sta_->totalNegativeSlack(MinMax::max());
-    double wns_after_cps = sta_->worstSlack(MinMax::max());
-    // printf("After critical path sizing, TNS: %e, WNS: %e\n", tns_after_cps, wns_after_cps);
-    // printf("critical path sizing time: %f s\n", diff_cps.count());
     delete critical_path_visitor;
   }
 
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_total = end_total - start_total;
-  // printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
 }
 
 void
