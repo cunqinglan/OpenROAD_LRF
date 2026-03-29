@@ -14,6 +14,7 @@
 #include <fcntl.h>        // open, O_WRONLY
 #include <unistd.h>       // fork, pipe, _exit, read, write, close, dup, dup2
 #include <sys/wait.h>     // waitpid
+#include <execinfo.h>      // backtrace, backtrace_symbols_fd
 #include <omp.h>          // omp_set_num_threads
 
 #include "odb/db.h"
@@ -63,17 +64,33 @@ using sta::Delay;
 using sta::VertexInEdgeIterator;
 using sta::VertexOutEdgeIterator;
 
-// Pipe fd used by the child SIGABRT handler to send a failure sentinel
+// Pipe fd used by child signal handlers to send a failure sentinel
 // before _exit().  Only meaningful in forked children.
 static int g_child_pipe_fd = -1;
 
-static void child_abort_handler(int /*sig*/) {
-  // Write sentinel slack + empty log so the parent's read_all() succeeds
-  // and marks this solution as failed instead of blocking on EOF.
+// Handler for fatal signals (SIGABRT, SIGSEGV, SIGBUS, SIGFPE, SIGILL) in
+// forked children.  Writes a sentinel slack value to the pipe so the parent's
+// read_all() succeeds and marks this solution as failed, rather than blocking
+// on EOF from a dead child.
+static void child_fatal_handler(int sig) {
+  // Print signal number and backtrace to stderr (signal-safe).
+  const char msg[] = "[CHILD FATAL] signal=";
+  (void)write(STDERR_FILENO, msg, sizeof(msg) - 1);
+  char buf[16];
+  int pos = 0;
+  if (sig >= 10) { buf[pos++] = '0' + (sig / 10); }
+  buf[pos++] = '0' + (sig % 10);
+  buf[pos++] = '\n';
+  (void)write(STDERR_FILENO, buf, pos);
+
+  // Dump stack trace (signal-safe: writes directly to fd, no malloc).
+  void* frames[64];
+  int n = backtrace(frames, 64);
+  backtrace_symbols_fd(frames, n, STDERR_FILENO);
+
   if (g_child_pipe_fd >= 0) {
     sta::Slack sentinel = std::numeric_limits<sta::Slack>::lowest();
     uint32_t log_len = 0;
-    // Best-effort writes; if they fail we still _exit.
     (void)write(g_child_pipe_fd, &sentinel, sizeof(sentinel));
     (void)write(g_child_pipe_fd, &log_len, sizeof(log_len));
     close(g_child_pipe_fd);
@@ -1804,10 +1821,16 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
       freopen("/dev/null", "w", stdout);
       freopen("/dev/null", "w", stderr);
 
-      // Install SIGABRT handler so ABC assertion failures write a sentinel
-      // to the pipe instead of crashing without output (blocking parent).
+      // Install handlers for all fatal signals so the child writes a sentinel
+      // to the pipe instead of dying silently (which would block the parent).
+      // The parent's OpenROAD handler (stack trace + re-raise) is inherited by
+      // fork() but doesn't write to the pipe, so we must override it.
       g_child_pipe_fd = pipefd[1];
-      signal(SIGABRT, child_abort_handler);
+      signal(SIGABRT, child_fatal_handler);
+      signal(SIGSEGV, child_fatal_handler);
+      signal(SIGBUS,  child_fatal_handler);
+      signal(SIGFPE,  child_fatal_handler);
+      signal(SIGILL,  child_fatal_handler);
 
       logger_->redirectStringBegin();
 
@@ -2023,15 +2046,25 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
     }
   }
 
-  // Invalidate delays so updateTiming recomputes from the new netlist.
-  // Use delaysInvalid() instead of networkChanged() — the latter rebuilds the
-  // full graph (slow and triggers parasitics callbacks); delaysInvalid() only
-  // marks gate/wire delays stale, sufficient for ranking solutions by slack.
-  sta->graphDelayCalc()->delaysInvalid();
-  sta->search()->arrivalsInvalid();
+  // Rebuild the STA graph so all Pin*/Vertex* reflect the post-replacement
+  // netlist from InsertAbcMapSolution.  networkChanged() deletes the old graph
+  // and rebuilds it; updateTiming() recomputes delays and arrivals.
+  // NOTE: incremental_parasitics must be enabled BEFORE this call (done in
+  // the child setup in forkEvaluateSolutions) to avoid EST-0104.
+  sta->networkChanged();
   sta->updateTiming(false);
 
-  // Collect output pins of the cut to find affected endpoints
+  // --- repairSetup is NOT safe in forked children. -------------------------
+  // Even after networkChanged() rebuilds the STA graph, the Resizer's internal
+  // Move objects (SizeUpMove, BufferMove, etc.) hold stale state:
+  //   - CheckCapacitanceLimits has cached Corner*/Pin* from the parent
+  //   - SizeUpMove::doMove → replaceCell → checkMaxCapViolation dereferences
+  //     these stale pointers → SIGSEGV in checkCapacitance()
+  // repairSetup should only run in the PARENT after the best solution is
+  // applied, where the Resizer was properly initialized.
+  // ------------------------------------------------------------------------
+
+  // Evaluate final worst slack after legalization.
   sta::PinSeq cut_output_pins;
   for (sta::Net* output_net : candidate_cut.primary_outputs()) {
     sta::NetPinIterator* pin_iter = network->pinIterator(output_net);
@@ -2045,7 +2078,6 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
     delete pin_iter;
   }
 
-  // Find endpoints reachable from the cut outputs
   sta::PinSet fanout_endpoints = sta->findFanoutPins(
       &cut_output_pins,
       /*flat=*/true,
@@ -2055,9 +2087,7 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
       /*thru_disabled=*/false,
       /*thru_constants=*/false);
 
-  // Find worst slack among cut-affected endpoints only
   sta::Slack worst_slack = std::numeric_limits<sta::Slack>::infinity();
-  sta::Vertex* worst_vertex = nullptr;
   int endpoint_count = fanout_endpoints.size();
 
   sta::Graph* graph = sta->ensureGraph();
@@ -2065,46 +2095,14 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
     sta::Vertex* vertex = nullptr;
     sta::Vertex* bidir = nullptr;
     graph->pinVertices(pin, vertex, bidir);
-    if (!vertex)
+    if (!vertex) {
       continue;
+    }
     sta::Slack slack = sta->vertexSlack(vertex, sta::MinMax::max());
     if (slack < worst_slack) {
       worst_slack = slack;
-      worst_vertex = vertex;
     }
   }
-  
-  // NOTE: repairSetup is NOT safe here.  This function runs in forked children
-  // after InsertAbcMapSolution replaced instances.  The resizer's internal pin
-  // references and net topology caches are stale, causing SIGSEGV in
-  // rebufferPin → isTopLevelPort (dangling Pin*).  Repair should be done in
-  // the parent after selecting and applying the best solution.
-
-  // Attempt repair moves on cut instances if there are setup violations:
-  // UnbufferMove -> VTSwapSpeed -> SizeUpMove -> SwapPinsMove -> BufferMove -> SplitLoadMove
-  // if (worst_vertex && fuzzyLess(worst_slack, 0.0f)) {
-  //   rsz::Resizer* resizer = remapper.getResizer();
-  //   const sta::InstanceSet& cut_insts = candidate_cut.cut_instances();
-  //   resizer->setSizeUpInstanceFilter(&cut_insts);
-  //   resizer->repairSetup(worst_vertex->pin(), /*size_up_only=*/false);
-  //   resizer->setSizeUpInstanceFilter(nullptr);
-  //   // Recompute timing after size-up
-  //   sta->networkChanged();
-  //   sta->updateTiming(false);
-  //   graph = sta->ensureGraph();
-  //   worst_slack = std::numeric_limits<sta::Slack>::infinity();
-  //   for (const sta::Pin* pin : fanout_endpoints) {
-  //     sta::Vertex* vertex = nullptr;
-  //     sta::Vertex* bidir2 = nullptr;
-  //     graph->pinVertices(pin, vertex, bidir2);
-  //     if (!vertex)
-  //       continue;
-  //     sta::Slack slack = sta->vertexSlack(vertex, sta::MinMax::max());
-  //     if (slack < worst_slack) {
-  //       worst_slack = slack;
-  //     }
-  //   }
-  // }
 
   // Log the evaluation result
   logger->info(utl::RES, 345,
