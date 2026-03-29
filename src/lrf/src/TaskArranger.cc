@@ -902,6 +902,9 @@ TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *r
 void
 TaskArranger::visitAll(ParallelLrVisitor *visitor)
 {
+  if (dirty_)
+    rebuild();
+
   // Clean up old visitors if any
   for (auto v : visitors_) delete v;
   visitors_.clear();
@@ -945,6 +948,9 @@ TaskArranger::visitAll(ParallelLrVisitor *visitor)
 void
 TaskArranger::visitAll(ParallelVisitor *visitor)
 {
+  if (dirty_)
+    rebuild();
+
   // Clean up old visitors if any
   for (auto v : visitors_v2_) delete v;
   visitors_v2_.clear();

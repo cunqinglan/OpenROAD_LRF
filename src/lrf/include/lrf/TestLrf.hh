@@ -57,7 +57,9 @@ public:
     double runtime_s = 0.0;
   };
 
-  IterationHelper(sta::dbSta *sta, odb::dbBlock *block);
+  IterationHelper(sta::dbSta *sta, odb::dbBlock *block,
+                  LocalSta *local_sta = nullptr,
+                  rsz::Resizer *resizer = nullptr);
 
   // Snapshot current timing + leakage
   Metrics snapshot(double runtime_s = 0.0);
@@ -82,6 +84,8 @@ private:
   sta::dbSta *sta_;
   odb::dbBlock *block_;
   sta::Corner *corner_;
+  LocalSta *local_sta_;
+  rsz::Resizer *resizer_;
   std::vector<std::string> rows_;
 };
 

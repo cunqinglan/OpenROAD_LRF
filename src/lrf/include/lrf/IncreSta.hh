@@ -125,6 +125,14 @@ public:
                                            float avg_power, float PT_tradeoff,
                                            float top_ratio = 0.3);
 
+  // Adaptive instance-level filtering control.
+  // Call activateInstanceFilter() when timing regression is detected.
+  // It computes target_N = last_change_count * multiplier, then sets adaptive_top_ratio.
+  void activateInstanceFilter(float max_ratio = 0.3f);
+  void setAdaptiveTopRatio(float ratio) { pruning_control_.adaptive_top_ratio = ratio; }
+  float adaptiveTopRatio() const { return pruning_control_.adaptive_top_ratio; }
+  int lastChangeCount() const { return pruning_control_.last_change_count; }
+
   // APIs for power optimization
   void ensureActivities();  // Access power of one of the instances will trigger global activity calculation
   void makeSwappableCellsCache(rsz::Resizer *resizer);
