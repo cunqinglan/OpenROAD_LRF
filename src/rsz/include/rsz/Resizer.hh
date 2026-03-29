@@ -192,6 +192,9 @@ class Resizer : public sta::dbStaState, public sta::dbNetworkObserver
           est::EstimateParasitics* estimate_parasitics);
   ~Resizer() override;
 
+  stt::SteinerTreeBuilder* getSttBuilder() const { return stt_builder_; }
+  grt::GlobalRouter* getGlobalRouter() const { return global_router_; }
+
   // Core area (meters).
   double coreArea() const;
   // 0.0 - 1.0 (100%) of core size.
