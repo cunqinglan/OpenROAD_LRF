@@ -3,6 +3,8 @@
 #include "db_sta/dbSta.hh"
 #include "sta/Sta.hh"
 #include "lrf/LrfClass.hh"
+#include "sta/PathExpanded.hh"
+#include <unordered_set>
 // #include "LocalSta.hh"
 
 namespace rsz {
@@ -73,6 +75,17 @@ public:
   void parallelResizeByArrayV2(rsz::Resizer *resizer, float avg_delay, float avg_power,
                       float PT_tradeoff);
   void setMaxResizeNum(size_t max_resize_num);
+
+  // Collect TaskArranger vertex IDs of instances on critical paths
+  // where endpoint slack <= slack_threshold.
+  void collectCriticalPathInstances(float slack_threshold,
+                                    std::vector<size_t>& selected_vertex_ids);
+
+  // Access modified instances from last resize pass (for incremental parasitic update)
+  const std::vector<sta::Instance*>& modifiedInstances() const { return modified_instances_; }
+
+  // Reset tracking state (call when ECO reverts)
+  void clearModifiedTracking();
 
   void parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
                          int top_n = 100);
@@ -162,6 +175,13 @@ protected:
   PosMap equiv_cell_pos_map_;
   bool equiv_cell_array_built_ = false;
   PruningControl pruning_control_;
+
+  // Dirty tracking: instances modified in last resize pass
+  std::vector<sta::Instance*> modified_instances_;
+  // Neighbor set: instances adjacent to modified ones (union of fanin/fanout)
+  std::unordered_set<sta::Instance*> dirty_neighborhood_;
+  // Iteration counter for dirty filtering (0 = first iteration, skip dirty check)
+  size_t resize_iteration_ = 0;
 };
 
 } // namespace lrf
