@@ -54,7 +54,6 @@ public:
   void cleanupVirtualBuffer();
 
 protected:
-  void localAnnotateLoadSlacks(const rsz::BufferedNetPtr& tree, PtVertex &drvr_pt_vertex);
   float computeBufferAddedCost(float buffer_delay_seconds,
                                 float buffer_leakage,
                                 const rsz::BufferedNetPtr& load_opt);
@@ -94,6 +93,7 @@ private:
   const sta::Pin *drvr_pin_ = nullptr;
   rsz::BufferedNetPtr best_bnet_ = nullptr;
   float best_cost_ = std::numeric_limits<float>::max();
+  float last_delay_lm_sum_ = 0.0f;  // saved by evaluateOption for debug comparison
   VirtualBufferInfo best_vinfo_;
   bool verbose_ = true;
 };

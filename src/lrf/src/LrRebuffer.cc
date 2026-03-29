@@ -125,31 +125,25 @@ LrRebuffer::annotateLoadLMs(PtVertex &drvr_pt_vertex, const BnetPtr& tree)
   // Map from load pin to its LM vector
   std::map<const sta::Pin*, std::vector<float>> load_pin_lm_map;
   
-  // First pass: collect LM vectors from all wire edges from driver to loads
-  PtVertexOutEdgeIterator out_edge_iter(drvr_pt_vertex, pt_graph);
+  // First pass: collect LM vectors from all wire edges from driver to loads.
+  // Use STA graph edges (not PtGraph) to cover ALL load pins, including those
+  // filtered out by searchThru/searchFrom during PtGraph construction.
+  sta::Vertex *sta_drvr = drvr_pt_vertex.vertex();
+  if (!sta_drvr) return;
+  sta::VertexOutEdgeIterator out_edge_iter(sta_drvr, graph_);
   while (out_edge_iter.hasNext()) {
-    PtEdge &pt_edge = out_edge_iter.next();
-    if (!pt_edge.hasBase()) continue;
-    sta::Edge *edge = pt_edge.edge();
+    sta::Edge *edge = out_edge_iter.next();
     if (!edge->isWire()) continue;
-    
-    // Get the load pin at the end of this wire edge
+
     sta::Vertex *to_vertex = edge->to(graph_);
     const sta::Pin *load_pin = to_vertex->pin();
-    
+
     int lmVecSize = sta::TimingArcSet::wireArcCount() * graph_->apCount();
-    if (edge->timingArcSet()->arcCount() > 2) {
-      printf("LrRebuffer::annotateLoadLMs: Warning: more than 2 timing arcs on edge from driver to load, only first 2 will be considered for LM annotation\n");
-    }
-    
+
     LMValue *load_lms = edge->arcLms();
-    if (load_lms == nullptr) {
-      printf("LrRebuffer::annotateLoadLMs: Warning: edge to pin %s has no LM values\n",
-             network_->pathName(load_pin));
+    if (load_lms == nullptr)
       continue;
-    }
-    
-    // Store LM vector in map using std::vector (automatic memory management)
+
     std::vector<float> lmVec(load_lms, load_lms + lmVecSize);
     load_pin_lm_map[load_pin] = std::move(lmVec);
   }

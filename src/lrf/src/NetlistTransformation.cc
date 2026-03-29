@@ -875,26 +875,18 @@ CombinedOperator::tryBufferingOnTop1AndSmaller(
   }
   buf_candidates.push_back({ori_cell, true});
 
-  // Phase 2a: cached buffer tree
+  // Direct rebufferPin for each candidate (precise evaluation, no coarse filtering)
   ctx.pt_graph = pt_graph;
-  rsz::BufferedNetPtr cached_bnet = rebuffer->prepareBufferOptions(
-      drvr_pin, pt_graph->ptVertex(drvr_vid));
-  if (!cached_bnet) {
-    if (ctx.runtime_map)
-      (*ctx.runtime_map)["buf_reject_no_options"] += 1.0;
-    return result;
-  }
 
   float best_buf_cost = std::numeric_limits<float>::max();
   sta::LibertyCell *best_buf_cell = nullptr;
   bool best_buf_is_original = false;
 
-  // Phase 2b: evaluate each candidate
   for (auto &bc : buf_candidates) {
     if (!bc.cell) continue;
 
     local_sta_->increAndGetLocalTimingCost(pt_graph, ctx.arc_delay_calc, bc.cell);
-    rebuffer->evaluateBufferOnCandidate(drvr_vid, cached_bnet);
+    rebuffer->rebufferPin(drvr_pin, pt_graph->ptVertex(drvr_vid));
 
     if (rebuffer->bestBnet()) {
       float cost = rebuffer->bestCost();
@@ -920,7 +912,7 @@ CombinedOperator::tryBufferingOnTop1AndSmaller(
 
   // Re-evaluate winner to rebuild rebuffer internal state for apply
   local_sta_->increAndGetLocalTimingCost(pt_graph, ctx.arc_delay_calc, best_buf_cell);
-  rebuffer->evaluateBufferOnCandidate(drvr_vid, cached_bnet);
+  rebuffer->rebufferPin(drvr_pin, pt_graph->ptVertex(drvr_vid));
   if (!rebuffer->bestBnet()) {
     rebuffer->cleanupVirtualBuffer();
     if (ctx.runtime_map)
@@ -928,8 +920,30 @@ CombinedOperator::tryBufferingOnTop1AndSmaller(
     return result;
   }
 
+  // Check if best option actually has buffers
+  int buf_count_in_tree = 0;
+  if (rebuffer->bestBnet()) {
+    visitTree(
+      [&](auto& recurse, int level, const rsz::BufferedNetPtr& node) -> int {
+        switch (node->type()) {
+          case rsz::BufferedNetType::buffer: buf_count_in_tree++; return recurse(node->ref());
+          case rsz::BufferedNetType::junction: return recurse(node->ref()) + recurse(node->ref2());
+          case rsz::BufferedNetType::wire: case rsz::BufferedNetType::via: return recurse(node->ref());
+          default: return 0;
+        }
+      }, rebuffer->bestBnet());
+  }
+
+  if (buf_count_in_tree == 0) {
+    // bestBnet has no buffers — this is just a resize, not a real buffer insertion
+    if (ctx.runtime_map)
+      (*ctx.runtime_map)["buf_accept_no_real_buffer"] += 1.0;
+    rebuffer->cleanupVirtualBuffer();
+    return result;  // return empty, let resize-only path handle it
+  }
+
   if (ctx.runtime_map)
-    (*ctx.runtime_map)["buf_accept"] += 1.0;
+    (*ctx.runtime_map)["buf_accept_with_buffer"] += 1.0;
 
   if (best_buf_is_original) {
     result.type = MoveOption::BUFFER_ONLY;

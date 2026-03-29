@@ -186,23 +186,29 @@ LocalReduceToPi::localPinCapacitance(ParasiticNode *node)
   float pin_cap = 0.0;
 
   if (pin) {
-    Port *port = network_->port(pin);
-    LibertyPort *lib_port = network_->libertyPort(port);
-    // Look up PtVertex safely (nullptr if not in PtGraph)
+    // Safety: verify pin is still valid by checking network lookup.
+    // Parasitic nodes may hold stale pin pointers after buffer insertion.
     sta::Vertex *sta_vtx = graph_->pinLoadVertex(pin);
+    if (!sta_vtx && !network_->isTopLevelPort(pin)) {
+      // Pin has no vertex and is not a top-level port — likely stale
+      return pin_cap;
+    }
     const PtVertex *pt_vp = (sta_vtx && pt_graph_)
         ? pt_graph_->ptVertex(sta_vtx) : nullptr;
     if (pt_vp && (pt_vp->type() == PtVertexType::RefInput
                   || pt_vp->type() == PtVertexType::RefOutput)) {
-      if (lib_port) {
-        if (!includes_pin_caps_) {
-          pin_cap = pt_graph_->getRefPinCapacitance(*pt_vp, rf_, corner_, min_max_);
-          pin_caps_one_value_ &= lib_port->capacitanceIsOneValue();
-        }
-      } else if (network_->isTopLevelPort(pin))
-        pin_cap = sdc_->portExtCap(port, rf_, corner_, min_max_);
+      if (!includes_pin_caps_) {
+        pin_cap = pt_graph_->getRefPinCapacitance(*pt_vp, rf_, corner_, min_max_);
+        sta::LibertyPort *ref_port = pt_vp->libertyPort();
+        if (ref_port)
+          pin_caps_one_value_ &= ref_port->capacitanceIsOneValue();
+      }
     }
     else {
+      Port *port = network_->port(pin);
+      if (!port)
+        return pin_cap;
+      LibertyPort *lib_port = network_->libertyPort(port);
       if (lib_port) {
         if (!includes_pin_caps_) {
           pin_cap = sdc_->pinCapacitance(pin, rf_, corner_, min_max_);
