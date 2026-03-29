@@ -1106,6 +1106,7 @@ ParallelLrVisitor::copy() const
   new_visitor->setClockPeriod(clock_period_);
   new_visitor->setPruningControl(pruning_control_);
   new_visitor->setMoveType(move_type_);  // also creates LrRebuffer if needed
+  new_visitor->setModifiedInstancesTracker(modified_instances_tracker_);
   return new_visitor;
 }
 
@@ -1184,6 +1185,10 @@ ParallelLrVisitor::applyResizeChangesToDb(rsz::Resizer *resizer)
     //         best_cell_->name());
     // fflush(stdout);
     db_sta_->replaceCell(pt_graph_->refInstance(), best_cell_);
+    // Track this instance as modified for dirty-instance filtering
+    if (modified_instances_tracker_) {
+      modified_instances_tracker_->push_back(pt_graph_->refInstance());
+    }
   }
   std::chrono::steady_clock::time_point mid_time = std::chrono::steady_clock::now();
   std::chrono::duration<double> mid_duration = mid_time - start_time;

@@ -96,6 +96,12 @@ public:
   // Functions for runtime profiling
   void printRuntimeProfile() const;
 
+  // Track instances that were actually cell-swapped during resize.
+  // Pointer to shared vector; writes occur inside g_odb_sta_access_mutex.
+  void setModifiedInstancesTracker(std::vector<sta::Instance*>* tracker) {
+    modified_instances_tracker_ = tracker;
+  }
+
   // Lightweight precheck: evaluate small neighborhood, return cost change without applying.
   float trySwapPrecheck(sta::Instance *inst, int col_padding = 1, int row_padding = 1);
 
@@ -146,6 +152,7 @@ protected:
   LrRebuffer *rebuffer_ = nullptr;
   MoveType move_type_ = MoveType::Resizing;
   int resize_change_count_ = 0;
+  std::vector<sta::Instance*>* modified_instances_tracker_ = nullptr;
 
   std::map<std::string, double> runtime_map_ = {
     {"visit", 0.0},
