@@ -14,7 +14,6 @@
 #include <fcntl.h>        // open, O_WRONLY
 #include <unistd.h>       // fork, pipe, _exit, read, write, close, dup, dup2
 #include <sys/wait.h>     // waitpid
-#include <execinfo.h>      // backtrace, backtrace_symbols_fd
 #include <omp.h>          // omp_set_num_threads
 
 #include "odb/db.h"
@@ -72,22 +71,7 @@ static int g_child_pipe_fd = -1;
 // forked children.  Writes a sentinel slack value to the pipe so the parent's
 // read_all() succeeds and marks this solution as failed, rather than blocking
 // on EOF from a dead child.
-static void child_fatal_handler(int sig) {
-  // Print signal number and backtrace to stderr (signal-safe).
-  const char msg[] = "[CHILD FATAL] signal=";
-  (void)write(STDERR_FILENO, msg, sizeof(msg) - 1);
-  char buf[16];
-  int pos = 0;
-  if (sig >= 10) { buf[pos++] = '0' + (sig / 10); }
-  buf[pos++] = '0' + (sig % 10);
-  buf[pos++] = '\n';
-  (void)write(STDERR_FILENO, buf, pos);
-
-  // Dump stack trace (signal-safe: writes directly to fd, no malloc).
-  void* frames[64];
-  int n = backtrace(frames, 64);
-  backtrace_symbols_fd(frames, n, STDERR_FILENO);
-
+static void child_fatal_handler(int /*sig*/) {
   if (g_child_pipe_fd >= 0) {
     sta::Slack sentinel = std::numeric_limits<sta::Slack>::lowest();
     uint32_t log_len = 0;
@@ -2054,17 +2038,7 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
   sta->networkChanged();
   sta->updateTiming(false);
 
-  // --- repairSetup is NOT safe in forked children. -------------------------
-  // Even after networkChanged() rebuilds the STA graph, the Resizer's internal
-  // Move objects (SizeUpMove, BufferMove, etc.) hold stale state:
-  //   - CheckCapacitanceLimits has cached Corner*/Pin* from the parent
-  //   - SizeUpMove::doMove → replaceCell → checkMaxCapViolation dereferences
-  //     these stale pointers → SIGSEGV in checkCapacitance()
-  // repairSetup should only run in the PARENT after the best solution is
-  // applied, where the Resizer was properly initialized.
-  // ------------------------------------------------------------------------
-
-  // Evaluate final worst slack after legalization.
+  // Collect cut output pins and find affected endpoints.
   sta::PinSeq cut_output_pins;
   for (sta::Net* output_net : candidate_cut.primary_outputs()) {
     sta::NetPinIterator* pin_iter = network->pinIterator(output_net);
@@ -2087,7 +2061,9 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
       /*thru_disabled=*/false,
       /*thru_constants=*/false);
 
+  // First pass: find worst endpoint for repairSetup.
   sta::Slack worst_slack = std::numeric_limits<sta::Slack>::infinity();
+  sta::Vertex* worst_vertex = nullptr;
   int endpoint_count = fanout_endpoints.size();
 
   sta::Graph* graph = sta->ensureGraph();
@@ -2101,8 +2077,20 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
     sta::Slack slack = sta->vertexSlack(vertex, sta::MinMax::max());
     if (slack < worst_slack) {
       worst_slack = slack;
+      worst_vertex = vertex;
     }
   }
+
+  // NOTE: repairSetup cannot run in forked children — not even with a fresh
+  // Resizer.  The crash is in BufferMove::doMove → rebufferPin → isTopLevelPort
+  // on a dangling Pin*.  The root cause: repairSetup calls
+  // sta->vertexWorstSlackPath() which returns a Path* containing Pin*
+  // references from before InsertAbcMapSolution.  Even though networkChanged()
+  // rebuilt the graph, the Path traversal visits pins along the timing path
+  // that are stale.  This is a fundamental STA limitation — Path objects hold
+  // internal references that become invalid after netlist replacement.
+  // repairSetup should only run in the PARENT after the best solution is
+  // selected and permanently applied.
 
   // Log the evaluation result
   logger->info(utl::RES, 345,
