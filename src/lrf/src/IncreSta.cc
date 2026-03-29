@@ -855,11 +855,11 @@ IncreSta::collectCriticalPathInstances(float slack_threshold,
     }
   }
 
-  printf("[LRF] Critical-path filter: %zu/%zu instances selected "
-         "(threshold=%.4e, endpoints=%zu)\n",
-         selected_vertex_ids.size(), task_arranger->vertexCount(),
-         slack_threshold, critical_endpoints.size());
-  fflush(stdout);
+//   printf("[LRF] Critical-path filter: %zu/%zu instances selected "
+//          "(threshold=%.4e, endpoints=%zu)\n",
+//          selected_vertex_ids.size(), task_arranger->vertexCount(),
+//          slack_threshold, critical_endpoints.size());
+//   fflush(stdout);
 }
 
 void
@@ -904,6 +904,8 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
   // --- Prepare modified-instance tracker ---
   modified_instances_.clear();
   modified_instances_.reserve(task_arranger->vertexCount() / 20);
+  cell_swap_records_.clear();
+  cell_swap_records_.reserve(task_arranger->vertexCount() / 20);
 
   auto start_resize = std::chrono::high_resolution_clock::now();
   ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
@@ -913,6 +915,7 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
   visitor->setPruningControl(&pruning_control_);
   visitor->setMoveType(MoveType::Resizing);
   visitor->setModifiedInstancesTracker(&modified_instances_);
+  visitor->setCellSwapRecordTracker(&cell_swap_records_);
   local_sta_->runResize(resizer, visitor);
   auto end_resize = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_resize = end_resize - start_resize;
@@ -943,9 +946,9 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
   }
   resize_iteration_++;
 
-  printf("[LRF] Resize pass: %zu instances modified, %zu dirty neighbors\n",
-         modified_instances_.size(), dirty_neighborhood_.size());
-  fflush(stdout);
+//   printf("[LRF] Resize pass: %zu instances modified, %zu dirty neighbors\n",
+//          modified_instances_.size(), dirty_neighborhood_.size());
+//   fflush(stdout);
 
   // --- Pruning: update iteration counter and detect K ---
   pruning_control_.iteration++;

@@ -102,6 +102,13 @@ public:
     modified_instances_tracker_ = tracker;
   }
 
+  // Track cell swap records (instance, old_cell) for incremental leakage.
+  // Pointer to shared vector; writes occur inside g_odb_sta_access_mutex.
+  using CellSwapRecord = std::pair<sta::Instance*, sta::LibertyCell*>;
+  void setCellSwapRecordTracker(std::vector<CellSwapRecord>* tracker) {
+    cell_swap_record_tracker_ = tracker;
+  }
+
   // Lightweight precheck: evaluate small neighborhood, return cost change without applying.
   float trySwapPrecheck(sta::Instance *inst, int col_padding = 1, int row_padding = 1);
 
@@ -153,6 +160,7 @@ protected:
   MoveType move_type_ = MoveType::Resizing;
   int resize_change_count_ = 0;
   std::vector<sta::Instance*>* modified_instances_tracker_ = nullptr;
+  std::vector<CellSwapRecord>* cell_swap_record_tracker_ = nullptr;
 
   std::map<std::string, double> runtime_map_ = {
     {"visit", 0.0},

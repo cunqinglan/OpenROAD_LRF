@@ -1027,7 +1027,6 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
                             std::string lr_helper_method)
 {
   est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
-  est_parasitics->setIncrementalParasiticsEnabled(true);
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   lrf::LocalSta *local_sta = incre_sta->localSta();
@@ -1073,55 +1072,61 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     }
   }
 
+  // Pre-compute initial total leakage for incremental tracking
+  float total_leakage = 0;
+  for (odb::dbInst *db_inst : block->getInsts()) {
+    sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(db_inst);
+    if (!sta_inst) continue;
+    sta::LibertyCell *lib_cell = sta->getDbNetwork()->libertyCell(sta_inst);
+    if (lib_cell) {
+      auto it = cell_leakage_map.find(lib_cell);
+      if (it != cell_leakage_map.end())
+        total_leakage += it->second;
+    }
+  }
+
   for (size_t i = 0; i < iterations; ++i) {
     sta->findRequireds();
     incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
 
-    // --- Incremental parasitic + timing update ---
-    // Only invalidate parasitics for nets connected to modified instances.
-    // replaceCell() already did per-vertex delay invalidation inside the
-    // parallel resize pass, so we do NOT call sta->delaysInvalid() (which
-    // would destroy the incremental state and force a full O(V+E) pass).
-    const auto& modified_insts = incre_sta->modifiedInstances();
-    if (modified_insts.empty()) {
-      // No changes — still need timing for correct slack queries
-      sta->updateTiming(false);
-    } else {
-      sta::dbNetwork *network = sta->getDbNetwork();
-      std::unordered_set<const sta::Net*> modified_nets;
-      for (sta::Instance *inst : modified_insts) {
+    // --- Incremental timing update ---
+    // Update wire parasitics only for nets connected to modified instances.
+    {
+      const sta::Network *network = sta->getDbNetwork();
+      std::unordered_set<sta::Net*> dirty_nets;
+      for (sta::Instance *inst : incre_sta->modifiedInstances()) {
         sta::InstancePinIterator *pin_iter = network->pinIterator(inst);
         while (pin_iter->hasNext()) {
           sta::Pin *pin = pin_iter->next();
-          const sta::Net *net = network->net(pin);
-          if (net) {
-            modified_nets.insert(net);
-          }
+          sta::Net *net = network->net(pin);
+          if (net)
+            dirty_nets.insert(net);
         }
         delete pin_iter;
       }
-      for (const sta::Net *net : modified_nets) {
-        est_parasitics->parasiticsInvalid(net);
-      }
-      est_parasitics->updateParasitics();
-      // Incremental: only propagates delays/arrivals for invalidated vertices
-      sta->updateTiming(false);
+      if (!dirty_nets.empty())
+        est_parasitics->updateWireParasiticsForNets(dirty_nets);
     }
+    // Re-invalidate delays so the delay calculator picks up new parasitic values.
+    for (sta::Instance *inst : incre_sta->modifiedInstances()) {
+      sta->delaysInvalidFrom(inst);
+    }
+    // Incremental: only propagates delays/arrivals for the invalidated cone.
+    sta->updateTiming(false);
     tns = sta->totalNegativeSlack(sta::MinMax::max());
     wns = sta->worstSlack(sta::MinMax::max());
 
-    // Fast leakage: sum pre-built cell leakage map instead of sta->power()
-    float leakage = 0;
-    for (odb::dbInst *db_inst : block->getInsts()) {
-      sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(db_inst);
-      if (!sta_inst) continue;
-      sta::LibertyCell *lib_cell = sta->getDbNetwork()->libertyCell(sta_inst);
-      if (lib_cell) {
-        auto it = cell_leakage_map.find(lib_cell);
-        if (it != cell_leakage_map.end())
-          leakage += it->second;
-      }
+    // Incremental leakage: adjust running total by swap deltas
+    for (const auto& rec : incre_sta->cellSwapRecords()) {
+      sta::LibertyCell *new_cell = sta->getDbNetwork()->libertyCell(rec.first);
+      float old_lk = 0, new_lk = 0;
+      auto it_old = cell_leakage_map.find(rec.second);
+      if (it_old != cell_leakage_map.end()) old_lk = it_old->second;
+      auto it_new = cell_leakage_map.find(new_cell);
+      if (it_new != cell_leakage_map.end()) new_lk = it_new->second;
+      total_leakage += (new_lk - old_lk);
     }
+    float leakage = total_leakage;
 
     incre_sta->lmUpdate();
 
@@ -1149,7 +1154,6 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
       odb::dbDatabase::undoEco(block);
       incre_sta->clearModifiedTracking();
       // ECO already finalized — skip the post-loop cleanup.
-      est_parasitics->setIncrementalParasiticsEnabled(false);
       delete incre_sta;
       return;
     } else if (no_improve_count_ < num_no_improve_tolerance) {
@@ -1161,6 +1165,18 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
       incre_sta->clearModifiedTracking();
+      // After undoEco, leakage state is reverted — recompute
+      total_leakage = 0;
+      for (odb::dbInst *db_inst : block->getInsts()) {
+        sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(db_inst);
+        if (!sta_inst) continue;
+        sta::LibertyCell *lib_cell = sta->getDbNetwork()->libertyCell(sta_inst);
+        if (lib_cell) {
+          auto it = cell_leakage_map.find(lib_cell);
+          if (it != cell_leakage_map.end())
+            total_leakage += it->second;
+        }
+      }
       odb::dbDatabase::beginEco(block);
       eco_iter++;
     }
@@ -1174,7 +1190,6 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     odb::dbDatabase::undoEco(block);
     incre_sta->clearModifiedTracking();
   }
-  est_parasitics->setIncrementalParasiticsEnabled(false);
   delete incre_sta;
 }
 

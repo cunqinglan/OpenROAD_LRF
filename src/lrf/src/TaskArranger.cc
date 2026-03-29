@@ -1031,34 +1031,27 @@ TaskArranger::createTask(InstVertex* inst_vertex)
 void
 TaskArranger::runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex)
 {
-  if (inst_vertex->move_mask_ == 0) {
-    // Non-selected: lightweight slew-only pass to keep timing fresh
-    // for downstream selected instances. No cell evaluation.
-    visitor->visitSlewOnly(inst_vertex->inst());
-  } else {
-    // Topology validation: check if this vertex is ready to visit
+  if (inst_vertex->move_mask_ != 0) {
+    // Selected instance: full evaluation + DB apply
     if (enable_topology_check_ && topology_checker_) {
       topology_checker_->onVisit(inst_vertex, std::this_thread::get_id());
     }
 
     if (visitor->visit(inst_vertex->inst(), inst_vertex->objectIdx()))
     {
-      // Topology validation: mark before modification
       if (enable_topology_check_ && topology_checker_) {
         topology_checker_->onBeforeModify(inst_vertex, std::this_thread::get_id());
       }
 
-      // Use the global mutex to protect DB/STA modification
-      // ensuring exclusive access against other readers and writers.
       visitor->applyChangesToDb(resizer_);
 
-      // Topology validation: mark after modification
       if (enable_topology_check_ && topology_checker_) {
         topology_checker_->onAfterModify(inst_vertex, std::this_thread::get_id());
       }
     }
   }
-  // Always cascade dependencies regardless of selected_
+  // Non-selected: skip visitSlewOnly, just cascade dependencies.
+  // The global sta->updateTiming(false) at iteration end provides correct timing.
   std::vector<VertexId> zero_ref_vertices = decreOutRefCount(inst_vertex);
   for (VertexId zero_ref_id : zero_ref_vertices) {
     InstVertex* zero_ref_vertex = vertex(zero_ref_id);

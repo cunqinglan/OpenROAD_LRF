@@ -1107,6 +1107,7 @@ ParallelLrVisitor::copy() const
   new_visitor->setPruningControl(pruning_control_);
   new_visitor->setMoveType(move_type_);  // also creates LrRebuffer if needed
   new_visitor->setModifiedInstancesTracker(modified_instances_tracker_);
+  new_visitor->setCellSwapRecordTracker(cell_swap_record_tracker_);
   return new_visitor;
 }
 
@@ -1184,6 +1185,10 @@ ParallelLrVisitor::applyResizeChangesToDb(rsz::Resizer *resizer)
     //         from_lib_cell->name(),
     //         best_cell_->name());
     // fflush(stdout);
+    // Record old cell for incremental leakage tracking (before replaceCell)
+    if (cell_swap_record_tracker_) {
+      cell_swap_record_tracker_->push_back({pt_graph_->refInstance(), from_lib_cell});
+    }
     db_sta_->replaceCell(pt_graph_->refInstance(), best_cell_);
     // Track this instance as modified for dirty-instance filtering
     if (modified_instances_tracker_) {

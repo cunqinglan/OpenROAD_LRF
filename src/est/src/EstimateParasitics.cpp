@@ -1332,7 +1332,31 @@ EstimateParasitics::updateWireParasiticsNoDeleteNetwork()
   }
 }
 
-void 
+void
+EstimateParasitics::updateWireParasiticsForNets(
+    const std::unordered_set<sta::Net*>& dirty_nets)
+{
+  initBlock();
+  if (!wire_signal_cap_.empty()) {
+    sta_->ensureClkNetwork();
+    sta_->setParasiticAnalysisPts(true);
+    sta::LibertyLibrary* default_lib = network_->defaultLibertyLibrary();
+    network_->Network::clear();
+    network_->setDefaultLibertyLibrary(default_lib);
+
+    sortClkAndSignalLayers();
+
+    for (sta::Net *net : dirty_nets) {
+      estimateWireParasiticNoDeleteNetwork(net);
+    }
+
+    for (sta::Net *net : dirty_nets) {
+      checkIfParasiticsNetworkExists(net);
+    }
+  }
+}
+
+void
 EstimateParasitics::estimateWireParasiticNoDeleteNetwork(const sta::Net* net)
 {
   sta::PinSet *drivers = network_->drivers(net);

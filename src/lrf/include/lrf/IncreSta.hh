@@ -84,6 +84,10 @@ public:
   // Access modified instances from last resize pass (for incremental parasitic update)
   const std::vector<sta::Instance*>& modifiedInstances() const { return modified_instances_; }
 
+  // Record of a cell swap: (instance, old_cell). New cell = current cell after swap.
+  using CellSwapRecord = std::pair<sta::Instance*, sta::LibertyCell*>;
+  const std::vector<CellSwapRecord>& cellSwapRecords() const { return cell_swap_records_; }
+
   // Reset tracking state (call when ECO reverts)
   void clearModifiedTracking();
 
@@ -178,6 +182,8 @@ protected:
 
   // Dirty tracking: instances modified in last resize pass
   std::vector<sta::Instance*> modified_instances_;
+  // Cell swap records: (instance, old_cell) for incremental leakage tracking
+  std::vector<CellSwapRecord> cell_swap_records_;
   // Neighbor set: instances adjacent to modified ones (union of fanin/fanout)
   std::unordered_set<sta::Instance*> dirty_neighborhood_;
   // Iteration counter for dirty filtering (0 = first iteration, skip dirty check)
