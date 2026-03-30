@@ -186,13 +186,15 @@ LocalReduceToPi::localPinCapacitance(ParasiticNode *node)
   float pin_cap = 0.0;
 
   if (pin) {
-    // Safety: verify pin is still valid by checking network lookup.
-    // Parasitic nodes may hold stale pin pointers after buffer insertion.
-    sta::Vertex *sta_vtx = graph_->pinLoadVertex(pin);
-    if (!sta_vtx && !network_->isTopLevelPort(pin)) {
-      // Pin has no vertex and is not a top-level port — likely stale
+    // Safety: check vertexId before calling pinLoadVertex.
+    // Pins without a valid vertex (unconnected, hierarchical, or stale after undoEco)
+    // would cause pinLoadVertex → ObjectTable::pointer(null) to segfault.
+    sta::VertexId vid = network_->vertexId(pin);
+    if (vid == sta::object_id_null && !network_->isTopLevelPort(pin)) {
       return pin_cap;
     }
+    sta::Vertex *sta_vtx = (vid != sta::object_id_null)
+        ? graph_->vertex(vid) : nullptr;
     const PtVertex *pt_vp = (sta_vtx && pt_graph_)
         ? pt_graph_->ptVertex(sta_vtx) : nullptr;
     if (pt_vp && (pt_vp->type() == PtVertexType::RefInput

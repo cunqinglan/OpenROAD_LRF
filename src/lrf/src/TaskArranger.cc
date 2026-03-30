@@ -118,6 +118,7 @@ TaskArranger::rebuild()
   inst_to_vid_.clear();
   vertex_ref_counts_.reset();
   num_com_ = 0;
+  topo_edge_count_ = 0;
   incremental_ = false;
   dirty_ = false;
 
@@ -454,11 +455,15 @@ TaskArranger::makeEdges()
   printf("Verification complete. Starting makeEdges...\n");
   fflush(stdout);
   
+  // Phase 1: topological edges (driver → fanout)
   for (size_t vid = 0; vid < vertices_.size(); vid++) {
     InstVertex &inst_vertex = vertices_[vid];
     if (inst_vertex.inst())
       makeInstDrvrWireMEE(inst_vertex.inst());
   }
+  // Record boundary so Phase 2 only sees topological edges when enumerating fanouts.
+  topo_edge_count_ = edges_.size();
+  // Phase 2: MEE edges (sibling chain + cross-sibling)
   for (size_t vid = 0; vid < vertices_.size(); vid++) {
     InstVertex& inst_vertex = vertices_[vid];
     if (inst_vertex.inst())
@@ -574,20 +579,18 @@ TaskArranger::makeSiblingFanoutsMEE(InstVertex* inst_vertex)
     fflush(stdout);
     return;
   }
-  // First, get all fanout instances of this instance.
-  // Finally, connect the last one to all others' fanout instances.
-  // Then, sort them by level. And create MEE among them.
+  // Collect only topological fanouts (edges from Phase 1) as siblings.
+  // MEE edges added by earlier Phase 2 iterations must be excluded.
   std::vector<InstVertex*> fanout_inst_vertices;
   InstVertexOutEdgeIterator edge_iter_init(inst_vertex, this);
   while (edge_iter_init.hasNext()) {
-    InstEdge *inst_edge = edge(edge_iter_init.next());
-    InstVertex* to_inst_vertex = vertex(inst_edge->to());
+    EdgeId eid = edge_iter_init.next();
+    if (eid >= topo_edge_count_)
+      continue;
+    InstVertex* to_inst_vertex = vertex(edge(eid)->to());
     fanout_inst_vertices.push_back(to_inst_vertex);
   }
   if (fanout_inst_vertices.empty()) {
-    // printf("  No fanout instances found for instance %s, skipping sibling MEE creation.\n",
-    //        network_->name(inst));
-    //        fflush(stdout);
     return;
   }
   sort(fanout_inst_vertices.begin(),
@@ -595,14 +598,15 @@ TaskArranger::makeSiblingFanoutsMEE(InstVertex* inst_vertex)
         InstVertexLevelLess());
 
   InstVertex* last_inst_vertex = fanout_inst_vertices[fanout_inst_vertices.size() - 1];
-  
+
   std::set<VertexId> sib_fanout_ids_set;
   for (size_t i = 0; i < fanout_inst_vertices.size() - 1; i++) {
     InstVertexOutEdgeIterator edge_iter_temp(fanout_inst_vertices[i], this);
     while (edge_iter_temp.hasNext()) {
       EdgeId temp_edge_id = edge_iter_temp.next();
-      InstEdge* temp_edge = edge(temp_edge_id);
-      sib_fanout_ids_set.insert(temp_edge->to());
+      if (temp_edge_id >= topo_edge_count_)
+        continue;
+      sib_fanout_ids_set.insert(edge(temp_edge_id)->to());
     }
   }
   for (VertexId fid : sib_fanout_ids_set) {

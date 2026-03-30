@@ -233,6 +233,9 @@ protected:
 
   // Number of combinational vertices.
   size_t num_com_ = 0;
+  // Edge count after Phase 1 (topological edges only).
+  // Phase 2 uses this to skip MEE edges when enumerating fanouts.
+  size_t topo_edge_count_ = 0;
   // Safe mapping from Instance* to VertexId to avoid mutating STA internals.
   std::unordered_map<const sta::Instance*, VertexId> inst_to_vid_;
   bool use_direct_inst_id1_ = false;
