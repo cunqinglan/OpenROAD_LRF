@@ -86,6 +86,7 @@ static void child_fatal_handler(int /*sig*/) {
 namespace abc {
   //struct Map_MappingSolution_t;
   extern void * Abc_NtkMapEnumPassStore( Abc_Ntk_t * pNtk, int nMaxSolutions, int fVerbose );
+  extern void * Abc_NtkMapBeamPassStore( Abc_Ntk_t * pNtk, int nMaxSolutions, int fVerbose );
   extern void Abc_NtkMapEnumFreeStore( void * pStore );
   extern void Abc_FrameSetLibGen( void * pLib );
   
@@ -1368,10 +1369,11 @@ bool PositionDrivenStrategy::remapOneCut(
       abc::Abc_NtkStrash(logic_network.get(), 0, 0, 0),
       &abc::Abc_NtkDelete);
 
-  void* pMan = abc::Abc_NtkMapEnumPassStore(
-      strashed_network.get(),
-      nMaxSolutions,
-      fVerbose);
+  void* pMan = config_.use_beam_search
+      ? abc::Abc_NtkMapBeamPassStore(
+            strashed_network.get(), nMaxSolutions, fVerbose)
+      : abc::Abc_NtkMapEnumPassStore(
+            strashed_network.get(), nMaxSolutions, fVerbose);
 
   // Restore stdout after ABC calls.
   if (saved_stdout >= 0) {

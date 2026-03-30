@@ -29,6 +29,9 @@ struct RemapConfig {
   int uct_rounds     = 1;
   double uct_c       = 1.414;
 
+  // Use beam search instead of exhaustive backtracking for mapping enumeration.
+  bool use_beam_search = false;
+
   // Candidate-vertex search cap in getWorstVertices / getWorstVerticesForEndpoint.
   size_t max_candidates = 100;
 };

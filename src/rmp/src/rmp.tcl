@@ -186,6 +186,7 @@ sta::define_cmd_args "position_driven_remap" {
   [-uct_rounds n]
   [-uct_c c]
   [-max_candidates n]
+  [-use_beam_search]
 }
 
 proc position_driven_remap { args } {
@@ -193,7 +194,7 @@ proc position_driven_remap { args } {
     keys {-corner -percentage -max_percentage -slack_threshold
           -max_vertices_per_endpoint -max_cut_instances -max_cut_pis
           -max_solutions -uct_batch_size -uct_rounds -uct_c -max_candidates} \
-    flags {-detailed_placement -verbose}
+    flags {-detailed_placement -verbose -use_beam_search}
   set corner [sta::parse_corner keys]
 
   # Defaults: -1.0 signals "not set" for percentage/max_percentage;
@@ -225,6 +226,7 @@ proc position_driven_remap { args } {
   set uct_rounds                5
   set uct_c                     1.414
   set max_candidates            100
+  set use_beam_search [info exists flags(-use_beam_search)]
 
   if { [info exists keys(-max_vertices_per_endpoint)] } {
     set max_vertices_per_endpoint $keys(-max_vertices_per_endpoint)
@@ -254,5 +256,6 @@ proc position_driven_remap { args } {
   rmp::position_driven_remap_cmd $corner $percentage $max_percentage \
       $slack_threshold $has_threshold $run_dpl $verbose \
       $max_vertices_per_endpoint $max_cut_instances $max_cut_pis \
-      $max_solutions $uct_batch_size $uct_rounds $uct_c $max_candidates
+      $max_solutions $uct_batch_size $uct_rounds $uct_c $max_candidates \
+      $use_beam_search
 }

@@ -132,7 +132,8 @@ void position_driven_remap_cmd(Corner* corner,
                                int uct_batch_size,
                                int uct_rounds,
                                double uct_c,
-                               int max_candidates) {
+                               int max_candidates,
+                               int use_beam_search) {
   rmp::RemapConfig config;
   config.max_vertices_per_endpoint = static_cast<size_t>(max_vertices_per_endpoint);
   config.max_cut_instances         = static_cast<size_t>(max_cut_instances);
@@ -142,6 +143,7 @@ void position_driven_remap_cmd(Corner* corner,
   config.uct_rounds                = uct_rounds;
   config.uct_c                     = uct_c;
   config.max_candidates            = static_cast<size_t>(max_candidates);
+  config.use_beam_search           = (use_beam_search != 0);
 
   getRestructure()->positionDrivenRemap(
       corner,
