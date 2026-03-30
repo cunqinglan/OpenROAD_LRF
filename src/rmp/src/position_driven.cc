@@ -1418,6 +1418,13 @@ bool PositionDrivenStrategy::remapOneCut(
 
   logger_->info(utl::RES, 359, "Found {} enumerated solutions to evaluate.", num_solutions);
 
+  struct RankedSolution {
+    int solution_index;
+    abc::Map_MappingSolution_t* pSolution;
+    sta::Slack raw_slack;
+  };
+  std::vector<RankedSolution> all_successful;
+
   abc::Map_MappingSolution_t* pSolutionBest = nullptr;
   sta::Slack best_slack = std::numeric_limits<sta::Slack>::lowest();
   int best_solution_index = -1;
@@ -1436,7 +1443,7 @@ bool PositionDrivenStrategy::remapOneCut(
         logger_->warn(utl::RES, 358, "Solution {} child failed: {}",
                       idx + 1, res.log);
       } else {
-        logger_->warn(utl::RES, 358, "Solution {} child failed.", idx + 1);
+        logger_->warn(utl::RES, 365, "Solution {} child failed.", idx + 1);
       }
       continue;
     }
@@ -1447,6 +1454,8 @@ bool PositionDrivenStrategy::remapOneCut(
 
     abc::Map_MappingSolutionSetEvalResult(
         res.pSolution, static_cast<float>(res.slack));
+
+    all_successful.push_back({idx, res.pSolution, res.slack});
 
     if (res.slack > best_slack) {
       best_slack = res.slack;
@@ -1503,7 +1512,7 @@ bool PositionDrivenStrategy::remapOneCut(
                           "UCT solution {} child failed: {}",
                           idx + 1, res.log);
           } else {
-            logger_->warn(utl::RES, 372,
+            logger_->warn(utl::RES, 376,
                           "UCT solution {} child failed.", idx + 1);
           }
           continue;
@@ -1515,6 +1524,8 @@ bool PositionDrivenStrategy::remapOneCut(
 
         abc::Map_MappingSolutionSetEvalResult(
             res.pSolution, static_cast<float>(res.slack));
+
+        all_successful.push_back({idx, res.pSolution, res.slack});
 
         if (res.slack > best_slack) {
           best_slack = res.slack;
@@ -1543,12 +1554,66 @@ bool PositionDrivenStrategy::remapOneCut(
     logger_->info(utl::RES, 374, "UCT initialization failed, skipping.");
   }
 
-  // Apply the best solution.
+  // Phase 2: Re-rank top-K candidates with ECO-based repairSetup.
+  // Sort all successful results by raw slack descending (best first).
+  std::sort(all_successful.begin(), all_successful.end(),
+            [](const RankedSolution& a, const RankedSolution& b) {
+              return a.raw_slack > b.raw_slack;
+            });
+
+  const int top_k = config_.top_k;
+  odb::dbBlock* block = remapper.getDb()->getChip()->getBlock();
+
+  abc::Map_MappingSolution_t* pFinalBest = nullptr;
+  sta::Slack final_best_slack = std::numeric_limits<sta::Slack>::lowest();
+  int final_best_index = -1;
+
+  if (top_k > 0 && all_successful.size() > 1) {
+    const int k = std::min(top_k, static_cast<int>(all_successful.size()));
+    logger_->info(utl::RES, 451,
+                  "Phase 2: re-evaluating top {} candidates with repairSetup.", k);
+
+    for (int i = 0; i < k; i++) {
+      auto& cand = all_successful[i];
+      logger_->info(utl::RES, 452,
+                    "Phase 2 candidate {}/{}: solution {} (raw slack={:.4e})",
+                    i + 1, k, cand.solution_index + 1, cand.raw_slack);
+
+      sta::Slack post_repair_slack = reEvaluateWithRepair(
+          cand.pSolution, map_man, logic_network.get(),
+          candidate_cut, remapper);
+
+      odb::dbDatabase::undoEco(block);
+      sta->networkChanged();
+      sta->updateTiming(false);
+
+      logger_->info(utl::RES, 453,
+                    "Phase 2 candidate {}/{}: post-repair slack={:.4e}",
+                    i + 1, k, post_repair_slack);
+
+      if (post_repair_slack > final_best_slack) {
+        final_best_slack = post_repair_slack;
+        pFinalBest = cand.pSolution;
+        final_best_index = cand.solution_index;
+      }
+    }
+
+    logger_->info(utl::RES, 454,
+                  "Phase 2 winner: solution {} (post-repair slack={:.4e})",
+                  final_best_index + 1, final_best_slack);
+  } else {
+    // Skip Phase 2: use Phase 1 winner directly.
+    pFinalBest = pSolutionBest;
+    final_best_slack = best_slack;
+    final_best_index = best_solution_index;
+  }
+
+  // Apply the final best solution permanently.
   bool applied = false;
-  if (pSolutionBest) {
+  if (pFinalBest) {
     logger_->info(utl::RES, 346,
         "Best solution found (index {}) with worst slack = {:.4e}",
-        best_solution_index + 1, best_slack);
+        final_best_index + 1, final_best_slack);
 
     // Suppress ABC output when not verbose.
     int saved_stdout2 = -1;
@@ -1563,7 +1628,7 @@ bool PositionDrivenStrategy::remapOneCut(
     }
 
     candidate_cut.InsertAbcMapSolution(
-        pSolutionBest,
+        pFinalBest,
         map_man,
         logic_network.get(),
         *remapper.getAbcLibrary(),
@@ -1579,50 +1644,6 @@ bool PositionDrivenStrategy::remapOneCut(
     }
 
     remapper.performIncreDpl(candidate_cut, remapper.getDpl());
-    // Place newly inserted (unplaced) cells at the PI/PO centroid.
-    // Do NOT call performIncreDpl — it invokes DPL which calls
-    // EstimateParasitics::parasiticsInvalid, causing EST-0104 on the
-    // next updateTiming().  Instead, compute centroid and set locations
-    // directly.
-    // {
-    //   long sum_x = 0, sum_y = 0;
-    //   int cnt = 0;
-    //   auto accum = [&](sta::Net* net, bool want_driver) {
-    //     std::unique_ptr<sta::NetPinIterator> npit(network->pinIterator(net));
-    //     while (npit->hasNext()) {
-    //       const sta::Pin* pin = npit->next();
-    //       if (network->direction(pin)->isAnyOutput() != want_driver)
-    //         continue;
-    //       if (network->isTopLevelPort(pin))
-    //         continue;
-    //       sta::Instance* inst = network->instance(pin);
-    //       odb::dbInst* db = inst ? network->staToDb(inst) : nullptr;
-    //       if (!db)
-    //         continue;
-    //       int x, y;
-    //       db->getLocation(x, y);
-    //       sum_x += x;
-    //       sum_y += y;
-    //       ++cnt;
-    //     }
-    //   };
-    //   for (sta::Net* net : candidate_cut.primary_inputs())
-    //     accum(net, /*want_driver=*/true);
-    //   for (sta::Net* net : candidate_cut.primary_outputs())
-    //     accum(net, /*want_driver=*/false);
-    //   odb::Point centroid = (cnt > 0)
-    //       ? odb::Point(sum_x / cnt, sum_y / cnt)
-    //       : odb::Point(0, 0);
-    //   for (const sta::Instance* sta_inst : candidate_cut.cut_instances()) {
-    //     odb::dbInst* db = network->staToDb(sta_inst);
-    //     if (!db)
-    //       continue;
-    //     if (db->getPlacementStatus() == odb::dbPlacementStatus::NONE) {
-    //       db->setLocation(centroid.x(), centroid.y());
-    //       db->setPlacementStatus(odb::dbPlacementStatus::PLACED);
-    //     }
-    //   }
-    // }
 
     logger_->info(utl::RES, 364, "Best solution permanently applied.");
     applied = true;
@@ -2038,7 +2059,7 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
       failed_exits++;
     }
   }
-  logger_->info(utl::RES, 389,
+  logger_->info(utl::RES, 435,
                 "Child reap summary: {} clean, {} failed, {} signaled (total {}).",
                 clean_exits, failed_exits, signaled,
                 static_cast<int>(children.size()));
