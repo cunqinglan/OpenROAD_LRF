@@ -59,6 +59,17 @@ class PositionDrivenStrategy : public ExtractLocalWindow
       const sta::PinSet& fanout_endpoints,
       sta::dbSta* sta);
 
+  // Phase 2: Re-evaluate a single solution with localized repairSetup
+  // in the parent process. Uses ECO journaling so changes can be undone.
+  // Returns post-repair worst slack, or lowest() on failure.
+  // After return, the ECO is on the stack (caller must undoEco to revert).
+  sta::Slack reEvaluateWithRepair(
+      abc::Map_MappingSolution_t* pSolution,
+      abc::Map_Man_t* pMan,
+      abc::Abc_Ntk_t* pOriginalNetwork,
+      cut::LogicCut& candidate_cut,
+      SeqRemapper& remapper);
+
   // Fork-evaluate a range of solutions [iStart, iEnd) in parallel.
   // Returns results for each solution including slack and log output.
   std::vector<SolutionEvalResult> forkEvaluateSolutions(
