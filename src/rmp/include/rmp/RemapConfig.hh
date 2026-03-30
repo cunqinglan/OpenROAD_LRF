@@ -34,6 +34,10 @@ struct RemapConfig {
 
   // Candidate-vertex search cap in getWorstVertices / getWorstVerticesForEndpoint.
   size_t max_candidates = 100;
+
+  // Number of top solutions from Phase 1 to re-evaluate with repairSetup
+  // in Phase 2. Set to 0 to skip Phase 2 (raw slack ranking only).
+  int top_k = 5;
 };
 
 }  // namespace rmp
