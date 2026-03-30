@@ -2214,6 +2214,25 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
 
   // Collect cut output pins and find affected endpoints.
   g_child_step = 7;  // findFanoutPins
+  sta::PinSet fanout_endpoints = getCutFanoutEndpoints(candidate_cut, sta, network);
+  int endpoint_count = fanout_endpoints.size();
+  sta::Slack worst_slack = getWorstSlackFromEndpoints(fanout_endpoints, sta);
+
+  g_child_step = 8;  // done
+
+  // Log the evaluation result
+  logger->info(utl::RES, 345,
+               "Solution evaluated: {} endpoints, Worst Slack = {:.4e}",
+               endpoint_count, worst_slack);
+
+  return worst_slack;
+}
+
+sta::PinSet PositionDrivenStrategy::getCutFanoutEndpoints(
+    cut::LogicCut& candidate_cut,
+    sta::dbSta* sta,
+    sta::dbNetwork* network)
+{
   sta::PinSeq cut_output_pins;
   for (sta::Net* output_net : candidate_cut.primary_outputs()) {
     sta::NetPinIterator* pin_iter = network->pinIterator(output_net);
@@ -2227,7 +2246,7 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
     delete pin_iter;
   }
 
-  sta::PinSet fanout_endpoints = sta->findFanoutPins(
+  return sta->findFanoutPins(
       &cut_output_pins,
       /*flat=*/true,
       /*endpoints_only=*/true,
@@ -2235,32 +2254,23 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
       /*pin_levels=*/-1,
       /*thru_disabled=*/false,
       /*thru_constants=*/false);
+}
 
-  // Find worst slack among cut-affected endpoints.
+sta::Slack PositionDrivenStrategy::getWorstSlackFromEndpoints(
+    const sta::PinSet& fanout_endpoints,
+    sta::dbSta* sta)
+{
   sta::Slack worst_slack = std::numeric_limits<sta::Slack>::infinity();
-  int endpoint_count = fanout_endpoints.size();
-
   sta::Graph* graph = sta->ensureGraph();
   for (const sta::Pin* pin : fanout_endpoints) {
     sta::Vertex* vertex = nullptr;
     sta::Vertex* bidir = nullptr;
     graph->pinVertices(pin, vertex, bidir);
-    if (!vertex) {
-      continue;
-    }
+    if (!vertex) continue;
     sta::Slack slack = sta->vertexSlack(vertex, sta::MinMax::max());
-    if (slack < worst_slack) {
-      worst_slack = slack;
-    }
+    if (slack < worst_slack) worst_slack = slack;
   }
-
-  g_child_step = 8;  // done
-
-  // Log the evaluation result
-  logger->info(utl::RES, 345,
-               "Solution evaluated: {} endpoints, Worst Slack = {:.4e}",
-               endpoint_count, worst_slack);
-
   return worst_slack;
 }
+
 } // namespace rmp
