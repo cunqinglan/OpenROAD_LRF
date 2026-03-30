@@ -821,10 +821,9 @@ void LogicCut::InsertAbcMapSolution(abc::Map_MappingSolution_t* pSolution,
       abc::Abc_NtkFromMap(pMan, pOriginalNetwork, 0);
   
   if (!abc_mapped_network) {
-    logger->error(utl::CUT,
-                  50,
-                  "Failed to create mapped ABC network from solution.");
-    return;
+    throw std::runtime_error(
+        "Failed to create mapped ABC network from solution "
+        "(invalid cut assignments).");
   }
 
   // Convert to netlist form (required by InsertMappedAbcNetwork)
