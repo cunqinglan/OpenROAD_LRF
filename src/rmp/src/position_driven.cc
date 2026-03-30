@@ -67,16 +67,34 @@ using sta::VertexOutEdgeIterator;
 // before _exit().  Only meaningful in forked children.
 static int g_child_pipe_fd = -1;
 
+// Step marker for diagnosing where a child crashed.
+// 0=init, 1=InsertAbcMapSolution, 2=setIncrParasitics,
+// 3=networkChanged, 4=updateTiming, 5=trySizeUp,
+// 6=findFanoutPins, 7=getSlack, 8=done
+static volatile sig_atomic_t g_child_step = 0;
+
 // Handler for fatal signals (SIGABRT, SIGSEGV, SIGBUS, SIGFPE, SIGILL) in
-// forked children.  Writes a sentinel slack value to the pipe so the parent's
-// read_all() succeeds and marks this solution as failed, rather than blocking
-// on EOF from a dead child.
-static void child_fatal_handler(int /*sig*/) {
+// forked children.  Writes a sentinel slack value and diagnostic info to the
+// pipe so the parent can report which signal and step caused the crash.
+static void child_fatal_handler(int sig) {
   if (g_child_pipe_fd >= 0) {
     sta::Slack sentinel = std::numeric_limits<sta::Slack>::lowest();
-    uint32_t log_len = 0;
+    // Encode signal and step into a short diagnostic string
+    char diag[64];
+    int len = 0;
+    diag[len++] = '['; diag[len++] = 'S'; diag[len++] = 'I'; diag[len++] = 'G';
+    // signal number (up to 3 digits)
+    if (sig >= 100) diag[len++] = '0' + (sig / 100) % 10;
+    if (sig >= 10)  diag[len++] = '0' + (sig / 10) % 10;
+    diag[len++] = '0' + sig % 10;
+    diag[len++] = ' '; diag[len++] = 's'; diag[len++] = 't';
+    diag[len++] = 'e'; diag[len++] = 'p'; diag[len++] = '=';
+    diag[len++] = '0' + (g_child_step % 10);
+    diag[len++] = ']'; diag[len++] = '\n';
+    uint32_t log_len = static_cast<uint32_t>(len);
     (void)write(g_child_pipe_fd, &sentinel, sizeof(sentinel));
     (void)write(g_child_pipe_fd, &log_len, sizeof(log_len));
+    (void)write(g_child_pipe_fd, diag, log_len);
     close(g_child_pipe_fd);
     g_child_pipe_fd = -1;
   }
@@ -1414,7 +1432,12 @@ bool PositionDrivenStrategy::remapOneCut(
     logger_->info(utl::RES, 355, "--- Solution {}/{} ---", idx + 1, num_solutions);
 
     if (!res.success) {
-      logger_->warn(utl::RES, 358, "Solution {} child failed.", idx + 1);
+      if (!res.log.empty()) {
+        logger_->warn(utl::RES, 358, "Solution {} child failed: {}",
+                      idx + 1, res.log);
+      } else {
+        logger_->warn(utl::RES, 358, "Solution {} child failed.", idx + 1);
+      }
       continue;
     }
 
@@ -1475,8 +1498,14 @@ bool PositionDrivenStrategy::remapOneCut(
         int idx = res.solution_index;
 
         if (!res.success) {
-          logger_->warn(utl::RES, 372,
-                        "UCT solution {} child failed.", idx + 1);
+          if (!res.log.empty()) {
+            logger_->warn(utl::RES, 372,
+                          "UCT solution {} child failed: {}",
+                          idx + 1, res.log);
+          } else {
+            logger_->warn(utl::RES, 372,
+                          "UCT solution {} child failed.", idx + 1);
+          }
           continue;
         }
 
@@ -1869,8 +1898,10 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
       signal(SIGILL,  child_fatal_handler);
 
       logger_->redirectStringBegin();
+      g_child_step = 0;
 
       try {
+        g_child_step = 1;  // InsertAbcMapSolution
         candidate_cut.InsertAbcMapSolution(
             pSolution,
             map_man,
@@ -1888,11 +1919,13 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
         // throws EST-0104.  In a forked child we don't need accurate
         // parasitics — just set incremental mode so the guard skips the
         // error check and processes the invalid nets normally.
+        g_child_step = 2;  // setIncrementalParasitics
         est::EstimateParasitics* est = remapper.getEstimateParasitics();
         if (est && !est->isIncrementalParasiticsEnabled()) {
           est->setIncrementalParasiticsEnabled(true);
         }
 
+        g_child_step = 3;  // evaluateSolution (networkChanged+updateTiming+sizeUp+slack)
         sta::Slack slack = evaluateSolution(
             pSolution,
             map_man,
@@ -1975,6 +2008,7 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
   }
 
   // Reap all children
+  int clean_exits = 0, failed_exits = 0, signaled = 0;
   for (size_t j = 0; j < children.size(); ++j) {
     int status;
     waitpid(children[j].pid, &status, 0);
@@ -1985,6 +2019,9 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
                       "Solution {} child exited with code {}.",
                       children[j].solution_index + 1, exit_code);
         results[j].success = false;
+        failed_exits++;
+      } else {
+        clean_exits++;
       }
     } else if (WIFSIGNALED(status)) {
       int sig = WTERMSIG(status);
@@ -1992,13 +2029,19 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
                     "Solution {} child killed by signal {} ({}).",
                     children[j].solution_index + 1, sig, strsignal(sig));
       results[j].success = false;
+      signaled++;
     } else {
       logger_->warn(utl::RES, 387,
                     "Solution {} child ended with unknown status 0x{:x}.",
                     children[j].solution_index + 1, status);
       results[j].success = false;
+      failed_exits++;
     }
   }
+  logger_->info(utl::RES, 389,
+                "Child reap summary: {} clean, {} failed, {} signaled (total {}).",
+                clean_exits, failed_exits, signaled,
+                static_cast<int>(children.size()));
 
   return results;
 }
@@ -2159,14 +2202,18 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
   // and rebuilds it; updateTiming() recomputes delays and arrivals.
   // NOTE: incremental_parasitics must be enabled BEFORE this call (done in
   // the child setup in forkEvaluateSolutions) to avoid EST-0104.
+  g_child_step = 4;  // networkChanged
   sta->networkChanged();
+  g_child_step = 5;  // updateTiming
   sta->updateTiming(false);
 
   // Lightweight gate size-up: upsize cut instances to strongest equivalents.
   // This replaces repairSetup which cannot run in forked children (stale Path*).
+  g_child_step = 6;  // trySizeUpCutInstances
   trySizeUpCutInstances(sta, network, candidate_cut, logger);
 
   // Collect cut output pins and find affected endpoints.
+  g_child_step = 7;  // findFanoutPins
   sta::PinSeq cut_output_pins;
   for (sta::Net* output_net : candidate_cut.primary_outputs()) {
     sta::NetPinIterator* pin_iter = network->pinIterator(output_net);
@@ -2206,6 +2253,8 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
       worst_slack = slack;
     }
   }
+
+  g_child_step = 8;  // done
 
   // Log the evaluation result
   logger->info(utl::RES, 345,
