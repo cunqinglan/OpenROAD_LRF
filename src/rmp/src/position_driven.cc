@@ -2228,6 +2228,96 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
   return worst_slack;
 }
 
+sta::Slack PositionDrivenStrategy::reEvaluateWithRepair(
+    abc::Map_MappingSolution_t* pSolution,
+    abc::Map_Man_t* pMan,
+    abc::Abc_Ntk_t* pOriginalNetwork,
+    cut::LogicCut& candidate_cut,
+    SeqRemapper& remapper)
+{
+  sta::dbSta* sta = remapper.getSta();
+  sta::dbNetwork* network = sta->getDbNetwork();
+  odb::dbBlock* block = remapper.getDb()->getChip()->getBlock();
+  rsz::Resizer* resizer = remapper.getResizer();
+  utl::Logger* logger = remapper.getLogger();
+
+  odb::dbDatabase::beginEco(block);
+
+  try {
+    // Suppress ABC stdout when not verbose.
+    int saved_stdout = -1;
+    if (!verbose_) {
+      fflush(stdout);
+      saved_stdout = dup(STDOUT_FILENO);
+      int devnull = open("/dev/null", O_WRONLY);
+      if (devnull >= 0) {
+        dup2(devnull, STDOUT_FILENO);
+        close(devnull);
+      }
+    }
+
+    // Apply the solution to ODB.
+    candidate_cut.InsertAbcMapSolution(
+        pSolution,
+        pMan,
+        pOriginalNetwork,
+        *remapper.getAbcLibrary(),
+        network,
+        sta,
+        remapper.getNameGenerator(),
+        logger);
+
+    // Restore stdout.
+    if (saved_stdout >= 0) {
+      fflush(stdout);
+      dup2(saved_stdout, STDOUT_FILENO);
+      close(saved_stdout);
+    }
+
+    // Place new cells.
+    remapper.performIncreDpl(candidate_cut, remapper.getDpl());
+
+    // Rebuild STA.
+    sta->networkChanged();
+    sta->updateTiming(false);
+
+    // Get fanout endpoints and run localized repairSetup on those with
+    // negative slack.
+    sta::PinSet fanout_endpoints
+        = getCutFanoutEndpoints(candidate_cut, sta, network);
+
+    sta::Graph* graph = sta->ensureGraph();
+    for (const sta::Pin* pin : fanout_endpoints) {
+      sta::Vertex* vertex = nullptr;
+      sta::Vertex* bidir = nullptr;
+      graph->pinVertices(pin, vertex, bidir);
+      if (!vertex) continue;
+      sta::Slack slack = sta->vertexSlack(vertex, sta::MinMax::max());
+      if (slack < 0) {
+        resizer->repairSetup(pin);
+      }
+    }
+
+    // Re-time after repairs.
+    sta->updateTiming(false);
+
+    // Measure post-repair worst slack.
+    fanout_endpoints = getCutFanoutEndpoints(candidate_cut, sta, network);
+    sta::Slack worst_slack = getWorstSlackFromEndpoints(fanout_endpoints, sta);
+
+    odb::dbDatabase::endEco(block);
+
+    return worst_slack;
+
+  } catch (...) {
+    odb::dbDatabase::endEco(block);
+    odb::dbDatabase::undoEco(block);
+    sta->networkChanged();
+    sta->updateTiming(false);
+    return std::numeric_limits<sta::Slack>::lowest();
+  }
+}
+
 sta::PinSet PositionDrivenStrategy::getCutFanoutEndpoints(
     cut::LogicCut& candidate_cut,
     sta::dbSta* sta,
