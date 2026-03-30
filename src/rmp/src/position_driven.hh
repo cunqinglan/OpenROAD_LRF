@@ -50,6 +50,15 @@ class PositionDrivenStrategy : public ExtractLocalWindow
                               cut::LogicCut& candidate_cut,
                               SeqRemapper& remapper);
 
+  sta::PinSet getCutFanoutEndpoints(
+      cut::LogicCut& candidate_cut,
+      sta::dbSta* sta,
+      sta::dbNetwork* network);
+
+  sta::Slack getWorstSlackFromEndpoints(
+      const sta::PinSet& fanout_endpoints,
+      sta::dbSta* sta);
+
   // Fork-evaluate a range of solutions [iStart, iEnd) in parallel.
   // Returns results for each solution including slack and log output.
   std::vector<SolutionEvalResult> forkEvaluateSolutions(
