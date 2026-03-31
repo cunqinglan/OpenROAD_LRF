@@ -37,7 +37,9 @@ struct RemapConfig {
 
   // Number of top solutions from Phase 1 to re-evaluate with repairSetup
   // in Phase 2. Set to 0 to skip Phase 2 (raw slack ranking only).
-  int top_k = 5;
+  // Disabled by default: repairSetup in forked children crashes due to
+  // stale STA pointers after networkChanged(). Enable when fixed.
+  int top_k = 0;
 };
 
 }  // namespace rmp
