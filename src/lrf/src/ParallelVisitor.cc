@@ -200,13 +200,12 @@ ParallelLrVisitor::trySwap(sta::Instance *inst)
              db_sta_->network()->pathName(inst));
       fflush(stdout);
     }
-    if (best_cell_ == ori_cell) {
-      return false;
-    }
-    // First compute the final timing after choosing best cell
-    if (best_cell_ != equiv_cells->at(equiv_cells->size() - 1)) 
+    // Recompute timing for best_cell_ and always write back so that
+    // downstream instances see up-to-date slews from upstream changes.
+    if (best_cell_ != equiv_cells->at(equiv_cells->size() - 1))
       local_sta_->increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, best_cell_);
-    return true;
+    updateTimingFromPtGraph();
+    return best_cell_ != ori_cell;
   }
   printf("ParallelLrVisitor::visit no liberty cell for instance %s\n",
          db_sta_->network()->pathName(inst));
@@ -330,13 +329,12 @@ ParallelLrVisitor::trySwapByArray(sta::Instance *inst, int col_padding, int row_
     }
   }
 
-  if (best_cell_ == ori_cell)
-    return false;
-
-  // Recompute final timing for best cell
+  // Recompute timing for best_cell_ and always write back so that
+  // downstream instances see up-to-date slews from upstream changes.
   if (best_cell_ != candidates.back())
     local_sta_->increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, best_cell_);
-  return true;
+  updateTimingFromPtGraph();
+  return best_cell_ != ori_cell;
 }
 
 bool
@@ -531,13 +529,15 @@ ParallelLrVisitor::trySwapByArrayPruned(sta::Instance *inst, int col_padding, in
     ps.iters_since_reorder = 0;
   }
 
+  // Recompute timing for best_cell_ and always write back so that
+  // downstream instances see up-to-date slews from upstream changes.
+  if (best_cell_ != candidates.back())
+    local_sta_->increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, best_cell_);
+  updateTimingFromPtGraph();
   if (best_cell_ == ori_cell)
     return false;
 
   resize_change_count_++;
-
-  if (best_cell_ != candidates.back())
-    local_sta_->increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, best_cell_);
   return true;
 }
 
@@ -886,14 +886,13 @@ ParallelLrVisitor::trySwapV1(sta::Instance *inst)
         best_cost = cost;
       }
     }
-    if (best_cell_ == ori_cell) {
-      return false;
-    }
-    // First compute the final timing after choosing best cell
-    if (best_cell_ != legal_equiv_cells[legal_equiv_cells.size() - 1].first) 
+    // Recompute timing for best_cell_ and always write back so that
+    // downstream instances see up-to-date slews from upstream changes.
+    if (best_cell_ != legal_equiv_cells[legal_equiv_cells.size() - 1].first)
       local_sta_->increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, best_cell_);
-    return true;
-  } 
+    updateTimingFromPtGraph();
+    return best_cell_ != ori_cell;
+  }
   printf("ParallelLrVisitor::visit no liberty cell for instance %s\n",
          db_sta_->network()->pathName(inst));
   fflush(stdout);
@@ -1060,16 +1059,9 @@ ParallelLrVisitor::visit(sta::Instance *inst,
       }
       break; // Only test first legal equiv cell for now
     }
-    if (best_cell_ == ori_cell) {
-      // printf("ParallelLrVisitor::visit no better cell found for instance %s with cell %s, delaylmsum = %f\n",
-      //       db_sta_->network()->pathName(inst),
-      //       ori_cell->name(),
-      //       best_result.delay_lm_sum * 1e12);
-      // fflush(stdout);
-      return false;
-    }
-    return true;
-  } 
+    updateTimingFromPtGraph();
+    return best_cell_ != ori_cell;
+  }
   printf("Warning: ParallelLrVisitor::visit no liberty cell for instance %s\n",
          db_sta_->network()->pathName(inst));
   fflush(stdout);
@@ -1174,11 +1166,13 @@ ParallelLrVisitor::applyResizeChangesToDb(rsz::Resizer *resizer)
   std::chrono::steady_clock::time_point mid_time = std::chrono::steady_clock::now();
   std::chrono::duration<double> mid_duration = mid_time - start_time;
   runtime_map_["swap"] += mid_duration.count();
-  updateTimingFromPtGraph();
+  // Timing write-back is already done in trySwap*/trySwapByArray* before
+  // returning.  Since virtualReplaceCell only accepts equivCellsArcs-
+  // compatible cells, replaceCell does not alter the graph edge structure,
+  // so the slew/path values written earlier remain valid — no second
+  // updateTimingFromPtGraph() is needed here.
   std::chrono::steady_clock::time_point end_time = std::chrono::steady_clock::now();
   std::chrono::duration<double> duration = end_time - start_time;
-  std::chrono::duration<double> update_duration = end_time - mid_time;
-  runtime_map_["writeTimingToDb"] += duration.count();
   runtime_map_["applyDb"] += duration.count();
 }
 

@@ -261,6 +261,24 @@ public:
                                   size_t thread_num,
                                   std::string lr_helper_method = "LRHelper");
 
+  // Test LocalSTA accuracy vs OpenSTA over a sequence of resizes.
+  // Applies a fixed resize sequence using LocalSTA (incremental write-back, no
+  // global updateTiming), then re-applies the same sequence using OpenSTA (full
+  // updateTiming after each step).  Compares per-step slew and slack to measure
+  // cumulative accuracy drift.
+  void testLocalStaAccuracy(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t max_steps);
+
+  // Single-instance diagnostic: compares LocalSTA vs OpenSTA slew/delay
+  // at every vertex and edge, first without cell swap (baseline), then
+  // with a cell swap, to pinpoint exactly where errors enter.
+  void testSingleInstanceDiagnostic(sta::dbSta* sta,
+                                     rsz::Resizer *resizer,
+                                     odb::dbBlock *block,
+                                     const char *inst_name);
+
 protected:
   void printSlewComparison(char *inst_name, sta::dbSta* sta, 
                        LocalSta *local_sta, odb::dbInst *db_inst, 

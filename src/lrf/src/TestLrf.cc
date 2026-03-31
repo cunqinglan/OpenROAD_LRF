@@ -3757,4 +3757,1075 @@ TestLrf::testParallelKKTProjection(sta::dbSta* sta,
   fflush(stdout);
 }
 
+// ============================================================
+//  testLocalStaAccuracy — three-run comparison of LocalSTA vs
+//  OpenSTA over a sequence of gate resizes.
+//
+//  Run A  (LocalSTA cumulative):
+//         makePtGraph → increAndGetLocalTimingCost →
+//         replaceCell + writeBack.  No sta->updateTiming().
+//         Measures: total error including cumulative drift.
+//
+//  Run B+C (combined single-step + OpenSTA ground truth):
+//         For each step from an OpenSTA-correct starting state:
+//           C: LocalSTA compute + snapshot (single-step error)
+//           B: replaceCell + updateTiming + snapshot (ground truth)
+//         Measures: single-step intrinsic error of LocalSTA.
+//
+//  Error decomposition:
+//    total_error[i]       = |RunA[i] - RunB[i]|
+//    single_step_error[i] = |RunC[i] - RunB[i]|
+//    drift_error[i]       ≈ total_error - single_step_error
+// ============================================================
+
+static const char *vertexTypeName(PtVertexType t) {
+  switch (t) {
+    case PtVertexType::RefDriver:    return "RefDriver";
+    case PtVertexType::RefInput:     return "RefInput";
+    case PtVertexType::RefOutput:    return "RefOutput";
+    case PtVertexType::SiblingLoad:  return "SibLoad";
+    case PtVertexType::SiblingDrvr:  return "SibDrvr";
+    default:                         return "Other";
+  }
+}
+
+void
+TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
+                               odb::dbBlock *block, size_t max_steps)
+{
+  printf("\n========================================\n");
+  printf(" LocalSTA vs OpenSTA Accuracy Test\n");
+  printf("========================================\n\n");
+  fflush(stdout);
+
+  // ---- Setup ----
+  sta->updateTiming(true);
+  sta->findRequireds();
+  IncreSta *incre_sta = new IncreSta(sta, 1);
+  LocalSta *local_sta = incre_sta->localSta();
+  resizer->makeEquivCells();
+  sta::ArcDelayCalc *arc_delay_calc = sta->arcDelayCalc()->copy();
+
+  // ---- Phase 0: Generate a deterministic resize sequence ----
+  struct ResizeStep {
+    sta::Instance *inst;
+    sta::LibertyCell *orig_cell;
+    sta::LibertyCell *target_cell;
+  };
+  std::vector<ResizeStep> sequence;
+
+  for (odb::dbInst *db_inst : block->getInsts()) {
+    if (sequence.size() >= max_steps) break;
+    sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(db_inst);
+    if (!sta_inst) continue;
+    sta::LibertyCell *orig_cell = sta->network()->libertyCell(sta_inst);
+    if (!orig_cell) continue;
+    sta::LibertyCellSeq *equiv_cells = sta->equivCells(orig_cell);
+    if (!equiv_cells || equiv_cells->size() < 2) continue;
+    sta::LibertyCell *target = nullptr;
+    for (sta::LibertyCell *ec : *equiv_cells) {
+      if (ec != orig_cell && sta::equivCellsArcs(orig_cell, ec)) {
+        target = ec;
+        break;
+      }
+    }
+    if (!target) continue;
+    sequence.push_back({sta_inst, orig_cell, target});
+  }
+
+  printf("Generated %zu resize steps (requested %zu)\n\n",
+         sequence.size(), max_steps);
+  fflush(stdout);
+
+  if (sequence.empty()) {
+    printf("No resizable instances found. Aborting.\n");
+    delete arc_delay_calc;
+    delete incre_sta;
+    return;
+  }
+
+  // ---- Snapshot structures ----
+  struct VertexSnap {
+    std::string name;
+    PtVertexType type;
+    std::vector<float> slews_ps;   // indexed by rf * ap_count + ap
+  };
+  struct StepSnap {
+    float slack_ps;
+    std::map<std::string, VertexSnap> vertex_map;
+  };
+
+  auto snapshotFromPtGraph = [&](PtGraph *pg) -> StepSnap {
+    StepSnap snap;
+    snap.slack_ps = local_sta->localSlackAroundRef(pg) * 1e12;
+    for (PtVertex &pv : pg->ptVertices()) {
+      if (pv.type() == PtVertexType::Sentinel || !pv.vertex()) continue;
+      VertexSnap vs;
+      vs.name = pv.vertex()->name(sta->network());
+      vs.type = pv.type();
+      const sta::Slew *slews = pv.slews();
+      for (int i = 0; i < pv.slewCount(); i++)
+        vs.slews_ps.push_back(static_cast<float>(slews[i] * 1e12));
+      snap.vertex_map[vs.name] = vs;
+    }
+    return snap;
+  };
+
+  auto writeBackTiming = [&](PtGraph *pt_graph) {
+    for (PtVertex &pv : pt_graph->ptVertices()) {
+      if (pv.type() == PtVertexType::Sentinel || !pv.vertex()) continue;
+      PtVertexType type = pv.type();
+      if (type == PtVertexType::RefInput
+       || type == PtVertexType::RefOutput
+       || type == PtVertexType::SiblingLoad) {
+        pt_graph->writeSlewToGraph(pv, pv.vertex());
+        pt_graph->writePathsToGraph(pv, pv.vertex());
+      }
+    }
+  };
+
+  // Helper: compute per-vertex-type slew errors between two snapshots
+  struct TypeErrorAccum {
+    double sum = 0.0;
+    double max_val = 0.0;
+    size_t count = 0;
+    void add(double err) { sum += err; max_val = std::max(max_val, err); count++; }
+    double mean() const { return count > 0 ? sum / count : 0.0; }
+  };
+
+  auto compareSlewByType = [&](const StepSnap &a, const StepSnap &b,
+      std::map<PtVertexType, TypeErrorAccum> &accum) {
+    for (auto &[vname, av] : a.vertex_map) {
+      auto it = b.vertex_map.find(vname);
+      if (it == b.vertex_map.end()) continue;
+      auto &bv = it->second;
+      size_t n = std::min(av.slews_ps.size(), bv.slews_ps.size());
+      for (size_t s = 0; s < n; s++) {
+        double err = std::abs(av.slews_ps[s] - bv.slews_ps[s]);
+        accum[av.type].add(err);
+      }
+    }
+  };
+
+  // Helper: compute overall slew stats
+  struct SlewStats {
+    double max_err = 0.0;
+    double sum_err = 0.0;
+    size_t count = 0;
+    double mean() const { return count > 0 ? sum_err / count : 0.0; }
+  };
+  auto computeSlewStats = [&](const StepSnap &a, const StepSnap &b) -> SlewStats {
+    SlewStats st;
+    for (auto &[vname, av] : a.vertex_map) {
+      auto it = b.vertex_map.find(vname);
+      if (it == b.vertex_map.end()) continue;
+      auto &bv = it->second;
+      size_t n = std::min(av.slews_ps.size(), bv.slews_ps.size());
+      for (size_t s = 0; s < n; s++) {
+        double err = std::abs(av.slews_ps[s] - bv.slews_ps[s]);
+        st.max_err = std::max(st.max_err, err);
+        st.sum_err += err;
+        st.count++;
+      }
+    }
+    return st;
+  };
+
+  // ================================================================
+  //  Run A: LocalSTA cumulative (no updateTiming)
+  // ================================================================
+  printf("===== Run A: LocalSTA Path (no updateTiming) =====\n");
+  fflush(stdout);
+  std::vector<StepSnap> run_a_snaps;
+
+  for (size_t i = 0; i < sequence.size(); i++) {
+    auto &step = sequence[i];
+    PtGraph *pt_graph = local_sta->makePtGraph(step.inst, false);
+    local_sta->increAndGetLocalTimingCost(pt_graph, arc_delay_calc,
+                                          step.target_cell);
+    run_a_snaps.push_back(snapshotFromPtGraph(pt_graph));
+    sta->replaceCell(step.inst, step.target_cell);
+    writeBackTiming(pt_graph);
+
+    if ((i + 1) % 10 == 0 || i + 1 == sequence.size()) {
+      printf("  ... completed %zu / %zu steps\n", i + 1, sequence.size());
+      fflush(stdout);
+    }
+  }
+
+  // ================================================================
+  //  Exp0: Full traversal accuracy with selective resize.
+  //  Traverse ALL instances: resize the N from the sequence,
+  //  updateLocalTiming for the rest.  Compare global graph slew
+  //  against updateTiming (which applies the same resizes).
+  // ================================================================
+  {
+    // Restore and get clean baseline
+    for (auto &step : sequence)
+      sta->replaceCell(step.inst, step.orig_cell);
+    sta->updateTiming(true);
+    sta->findRequireds();
+
+    printf("\n===== Exp0: Full traversal with %zu resizes =====\n", sequence.size());
+    fflush(stdout);
+
+    sta::Corner *corner = sta->corners()->findCorner("default");
+    sta::DcalcAnalysisPt *dap = corner->findDcalcAnalysisPt(sta::MinMax::max());
+
+    // Build resize lookup: instance → target_cell
+    std::map<sta::Instance*, sta::LibertyCell*> resize_map;
+    for (auto &step : sequence)
+      resize_map[step.inst] = step.target_cell;
+
+    // Traverse ALL instances
+    struct SlewRecord { sta::Vertex *vtx; std::string name; float after_r; float open_r; };
+    std::vector<SlewRecord> all_records;
+    size_t inst_count = 0, resize_count = 0;
+    for (odb::dbInst *db_inst : block->getInsts()) {
+      sta::Instance *inst = sta->getDbNetwork()->dbToSta(db_inst);
+      if (!inst || !sta->network()->libertyCell(inst)) continue;
+      if (sta->network()->libertyCell(inst)->hasSequentials()) continue;
+
+      PtGraph *pg = local_sta->makePtGraph(inst, false);
+      auto it = resize_map.find(inst);
+      if (it != resize_map.end()) {
+        // This instance should be resized
+        local_sta->increAndGetLocalTimingCost(pg, arc_delay_calc, it->second);
+        sta->replaceCell(inst, it->second);
+        resize_count++;
+      } else {
+        // Normal traversal — just recompute timing
+        local_sta->updateLocalTiming(pg, arc_delay_calc);
+      }
+      writeBackTiming(pg);
+      inst_count++;
+    }
+    printf("  Pass 0: Traversed %zu instances (%zu resized)\n", inst_count, resize_count);
+
+    // Pass 1: second traversal (no resize, just updateLocalTiming)
+    size_t pass1_count = 0;
+    for (odb::dbInst *db_inst : block->getInsts()) {
+      sta::Instance *inst = sta->getDbNetwork()->dbToSta(db_inst);
+      if (!inst || !sta->network()->libertyCell(inst)) continue;
+      if (sta->network()->libertyCell(inst)->hasSequentials()) continue;
+      PtGraph *pg = local_sta->makePtGraph(inst, false);
+      local_sta->updateLocalTiming(pg, arc_delay_calc);
+      writeBackTiming(pg);
+      pass1_count++;
+    }
+    printf("  Pass 1: Traversed %zu instances (no resize)\n", pass1_count);
+
+    // Collect slews from ALL driver vertices in the design
+    sta::VertexIterator vtx_iter(sta->graph());
+    while (vtx_iter.hasNext()) {
+      sta::Vertex *vtx = vtx_iter.next();
+      if (!sta->network()->isDriver(vtx->pin())) continue;
+      SlewRecord rec;
+      rec.vtx = vtx;
+      rec.name = vtx->name(sta->network());
+      rec.after_r = sta->graph()->slew(vtx, sta::RiseFall::rise(), dap->index()) * 1e12;
+      rec.open_r = 0;
+      all_records.push_back(rec);
+    }
+
+    // updateTiming for ground truth
+    sta->updateTiming(true);
+    sta->findRequireds();
+
+    // Read ground truth
+    for (auto &rec : all_records)
+      rec.open_r = sta->graph()->slew(rec.vtx, sta::RiseFall::rise(), dap->index()) * 1e12;
+
+    // Stats
+    double sum_err = 0, max_err = 0;
+    size_t nonzero = 0;
+    std::sort(all_records.begin(), all_records.end(),
+              [](const SlewRecord &a, const SlewRecord &b) {
+                return std::abs(a.after_r - a.open_r) > std::abs(b.after_r - b.open_r);
+              });
+    for (auto &rec : all_records) {
+      double err = std::abs(rec.after_r - rec.open_r);
+      sum_err += err;
+      max_err = std::max(max_err, err);
+      if (err > 0.001) nonzero++;
+    }
+    printf("  Driver vertices: %zu  non-zero err (>0.001ps): %zu\n",
+           all_records.size(), nonzero);
+    printf("  Slew error: mean=%.6f ps  max=%.6f ps\n",
+           all_records.size() > 0 ? sum_err / all_records.size() : 0.0, max_err);
+
+    // Top 10 worst
+    printf("\n  Top 10 worst:\n");
+    printf("  %-40s %12s %12s %12s\n", "Vertex", "LocalSTA", "OpenSTA", "Err(ps)");
+    for (size_t j = 0; j < std::min(all_records.size(), (size_t)10); j++) {
+      auto &r = all_records[j];
+      printf("  %-40.40s %12.4f %12.4f %12.4f\n",
+             r.name.c_str(), r.after_r, r.open_r, r.after_r - r.open_r);
+    }
+    fflush(stdout);
+  }
+
+  // ================================================================
+  //  Experiment 1: After Run A (all resizes applied + write-back),
+  //  compare global graph slews against updateTiming ground truth.
+  //  This tests multi-instance resize write-back accuracy.
+  // ================================================================
+  {
+    printf("\n===== Exp1: Post-resize global slew vs updateTiming =====\n");
+    fflush(stdout);
+
+    sta::Corner *corner = sta->corners()->findCorner("default");
+    sta::DcalcAnalysisPt *dap = corner->findDcalcAnalysisPt(sta::MinMax::max());
+
+    // Multi-pass full traversal: process ALL instances repeatedly
+    // to check convergence of slew write-back.
+    size_t full_count = 0;
+    for (int pass = 0; pass < 3; pass++) {
+      full_count = 0;
+      for (odb::dbInst *db_inst : block->getInsts()) {
+        sta::Instance *inst = sta->getDbNetwork()->dbToSta(db_inst);
+        if (!inst || !sta->network()->libertyCell(inst)) continue;
+        if (sta->network()->libertyCell(inst)->hasSequentials()) continue;
+        PtGraph *pg = local_sta->makePtGraph(inst, false);
+        local_sta->updateLocalTiming(pg, arc_delay_calc);
+        writeBackTiming(pg);
+        full_count++;
+      }
+      printf("  Pass %d: processed %zu instances\n", pass, full_count);
+      fflush(stdout);
+    }
+    fflush(stdout);
+
+    // Collect all unique vertices touched by any PtGraph in the sequence,
+    // grouped by type.  Read their current slew (after full traversal).
+    struct VtxRecord {
+      std::string name;
+      PtVertexType type;
+      float wb_rise, wb_fall;     // after write-back
+      float open_rise, open_fall; // after updateTiming
+    };
+    std::vector<VtxRecord> records;
+    std::set<sta::Vertex*> seen;
+
+    for (auto &step : sequence) {
+      PtGraph *pg = local_sta->makePtGraph(step.inst, false);
+      for (PtVertex &pv : pg->ptVertices()) {
+        if (!pv.vertex() || pv.type() == PtVertexType::Sentinel) continue;
+        if (seen.count(pv.vertex())) continue;
+        seen.insert(pv.vertex());
+        VtxRecord rec;
+        rec.name = pv.vertex()->name(sta->network());
+        rec.type = pv.type();
+        rec.wb_rise = sta->graph()->slew(pv.vertex(), sta::RiseFall::rise(), dap->index()) * 1e12;
+        rec.wb_fall = sta->graph()->slew(pv.vertex(), sta::RiseFall::fall(), dap->index()) * 1e12;
+        rec.open_rise = rec.open_fall = 0;
+        records.push_back(rec);
+      }
+    }
+
+    // Now do updateTiming to get ground truth
+    sta->updateTiming(true);
+    sta->findRequireds();
+
+    // Re-read slews in the same order
+    seen.clear();
+    size_t idx = 0;
+    for (auto &step : sequence) {
+      PtGraph *pg = local_sta->makePtGraph(step.inst, false);
+      for (PtVertex &pv : pg->ptVertices()) {
+        if (!pv.vertex() || pv.type() == PtVertexType::Sentinel) continue;
+        if (seen.count(pv.vertex())) continue;
+        seen.insert(pv.vertex());
+        if (idx < records.size()) {
+          records[idx].open_rise = sta->graph()->slew(pv.vertex(), sta::RiseFall::rise(), dap->index()) * 1e12;
+          records[idx].open_fall = sta->graph()->slew(pv.vertex(), sta::RiseFall::fall(), dap->index()) * 1e12;
+        }
+        idx++;
+      }
+    }
+
+    // Aggregate errors by vertex type
+    std::map<PtVertexType, TypeErrorAccum> type_errs;
+    for (auto &r : records) {
+      double err_r = std::abs(r.wb_rise - r.open_rise);
+      double err_f = std::abs(r.wb_fall - r.open_fall);
+      double err = std::max(err_r, err_f);
+      type_errs[r.type].add(err);
+    }
+
+    printf("  Vertices collected: %zu\n\n", records.size());
+    printf("  %-12s | %10s %10s %8s\n", "Type", "Mean(ps)", "Max(ps)", "Count");
+    printf("  %s\n", std::string(50, '-').c_str());
+    PtVertexType types_show[] = {
+      PtVertexType::RefDriver, PtVertexType::RefInput,
+      PtVertexType::RefOutput, PtVertexType::SiblingLoad,
+      PtVertexType::SiblingDrvr
+    };
+    for (PtVertexType t : types_show) {
+      auto &e = type_errs[t];
+      if (e.count == 0) continue;
+      printf("  %-12s | %10.4f %10.4f %8zu\n",
+             vertexTypeName(t), e.mean(), e.max_val, e.count);
+    }
+
+    // Print top 10 worst vertices
+    std::sort(records.begin(), records.end(),
+              [](const VtxRecord &a, const VtxRecord &b) {
+                return std::max(std::abs(a.wb_rise-a.open_rise), std::abs(a.wb_fall-a.open_fall))
+                     > std::max(std::abs(b.wb_rise-b.open_rise), std::abs(b.wb_fall-b.open_fall));
+              });
+    printf("\n  Top 10 worst vertices:\n");
+    printf("  %-35s %-10s %10s %10s %10s\n",
+           "Vertex", "Type", "WB_rise", "Open_rise", "Err_rise");
+    size_t show = std::min(records.size(), (size_t)10);
+    for (size_t j = 0; j < show; j++) {
+      auto &r = records[j];
+      printf("  %-35.35s %-10s %10.3f %10.3f %10.3f\n",
+             r.name.c_str(), vertexTypeName(r.type),
+             r.wb_rise, r.open_rise, r.wb_rise - r.open_rise);
+    }
+    fflush(stdout);
+  }
+
+  // ================================================================
+  //  Experiment 2: find a complete sibling group, clear + traverse all
+  //  covering instances, verify SibDrvr slew matches updateTiming.
+  //  No cell swap — test pure slew propagation accuracy.
+  // ================================================================
+  {
+    printf("\n===== Experiment: Complete sibling group verification =====\n");
+    fflush(stdout);
+
+    // Restore original cells and update timing (clean start)
+    for (auto &step : sequence) {
+      sta->replaceCell(step.inst, step.orig_cell);
+    }
+    sta->updateTiming(true);
+    sta->findRequireds();
+
+    sta::dbNetwork *db_net = sta->getDbNetwork();
+    sta::Corner *corner = sta->corners()->findCorner("default");
+    sta::DcalcAnalysisPt *dap = corner->findDcalcAnalysisPt(sta::MinMax::max());
+
+    // Pick a multi-input SibDrvr from first instance's PtGraph
+    PtGraph *pg0 = local_sta->makePtGraph(sequence[0].inst, false);
+    sta::Instance *target_sib_inst = nullptr;
+    sta::Vertex *target_sib_drvr = nullptr;
+    int target_input_count = 0;
+
+    for (PtVertex &pv : pg0->ptVertices()) {
+      if (pv.type() != PtVertexType::SiblingDrvr || !pv.vertex()) continue;
+      // Find how many inputs this gate has
+      sta::Instance *sib_inst = db_net->instance(pv.vertex()->pin());
+      int in_cnt = 0;
+      sta::InstancePinIterator *pit = db_net->pinIterator(sib_inst);
+      while (pit->hasNext()) {
+        sta::Pin *p = pit->next();
+        if (db_net->isLoad(p)) in_cnt++;
+      }
+      delete pit;
+      if (in_cnt >= 2) {
+        target_sib_inst = sib_inst;
+        target_sib_drvr = pv.vertex();
+        target_input_count = in_cnt;
+        break;
+      }
+    }
+
+    if (!target_sib_inst) {
+      printf("  No multi-input SibDrvr found, skipping.\n");
+    } else {
+      printf("  Target SibDrvr: %s (%s, %d inputs)\n",
+             db_net->pathName(target_sib_inst),
+             db_net->libertyCell(target_sib_inst)->name(),
+             target_input_count);
+
+      // Find all nets connected to the target's input pins,
+      // then find all instances on those nets that would have
+      // this SibDrvr in their PtGraph.
+      std::set<sta::Instance*> covering_instances;
+      sta::InstancePinIterator *pit = db_net->pinIterator(target_sib_inst);
+      while (pit->hasNext()) {
+        sta::Pin *pin = pit->next();
+        if (!db_net->isLoad(pin)) continue;
+        // This is an input pin; find all other instances on its net
+        sta::Net *net = db_net->net(pin);
+        if (!net) continue;
+        printf("  Input pin %s on net %s:\n",
+               db_net->name(pin), db_net->name(net));
+        sta::NetConnectedPinIterator *nit = db_net->connectedPinIterator(net);
+        while (nit->hasNext()) {
+          const sta::Pin *npin = nit->next();
+          sta::Instance *ninst = db_net->instance(npin);
+          if (ninst && ninst != target_sib_inst
+              && db_net->isLoad(npin) && db_net->libertyCell(ninst)) {
+            covering_instances.insert(ninst);
+            printf("    covering instance: %s (%s)\n",
+                   db_net->pathName(ninst), db_net->libertyCell(ninst)->name());
+          }
+        }
+        delete nit;
+      }
+      delete pit;
+      printf("  Total covering instances: %zu\n", covering_instances.size());
+
+      // Clear target SibDrvr slew to 0
+      for (const sta::RiseFall *rf : sta::RiseFall::range())
+        for (size_t ap = 0; ap < 2; ap++)
+          sta->graph()->setSlew(target_sib_drvr, rf, ap, sta::Slew(0.0));
+
+      // Process all covering instances with LocalSTA (no cell swap)
+      // Use updateLocalTiming which does findLocalDelays + arrivals + requireds
+      for (sta::Instance *inst : covering_instances) {
+        PtGraph *pg = local_sta->makePtGraph(inst, false);
+        local_sta->updateLocalTiming(pg, arc_delay_calc);
+        writeBackTiming(pg);
+      }
+
+      // Read merged slew
+      float merge_r = sta->graph()->slew(target_sib_drvr,
+                        sta::RiseFall::rise(), dap->index()) * 1e12;
+      float merge_f = sta->graph()->slew(target_sib_drvr,
+                        sta::RiseFall::fall(), dap->index()) * 1e12;
+
+      // updateTiming for ground truth
+      sta->updateTiming(true);
+      sta->findRequireds();
+      float open_r = sta->graph()->slew(target_sib_drvr,
+                       sta::RiseFall::rise(), dap->index()) * 1e12;
+      float open_f = sta->graph()->slew(target_sib_drvr,
+                       sta::RiseFall::fall(), dap->index()) * 1e12;
+
+      printf("\n  Result for %s:\n", target_sib_drvr->name(sta->network()));
+      printf("    Merged slew:  rise=%.4f ps  fall=%.4f ps\n", merge_r, merge_f);
+      printf("    OpenSTA slew: rise=%.4f ps  fall=%.4f ps\n", open_r, open_f);
+      printf("    Error:        rise=%.4f ps  fall=%.4f ps\n",
+             merge_r - open_r, merge_f - open_f);
+      fflush(stdout);
+    }
+  }
+
+  // ================================================================
+  //  Restore to initial state
+  // ================================================================
+  printf("\nRestoring original cells ...\n");
+  fflush(stdout);
+  for (auto &step : sequence) {
+    sta->replaceCell(step.inst, step.orig_cell);
+  }
+  sta->updateTiming(true);
+  sta->findRequireds();
+  printf("Reset complete.\n\n");
+  fflush(stdout);
+
+  // ================================================================
+  //  Run B+C combined: single-step LocalSTA + OpenSTA ground truth
+  //  Each step starts from a fully-updated OpenSTA state.
+  // ================================================================
+  printf("===== Run B+C: Single-step LocalSTA + OpenSTA =====\n");
+  fflush(stdout);
+  std::vector<StepSnap> run_b_snaps;  // OpenSTA ground truth
+  std::vector<StepSnap> run_c_snaps;  // LocalSTA single-step
+
+  for (size_t i = 0; i < sequence.size(); i++) {
+    auto &step = sequence[i];
+
+    // --- Run C: LocalSTA compute from current (correct) state ---
+    PtGraph *pt_local = local_sta->makePtGraph(step.inst, false);
+    local_sta->increAndGetLocalTimingCost(pt_local, arc_delay_calc,
+                                          step.target_cell);
+    run_c_snaps.push_back(snapshotFromPtGraph(pt_local));
+
+    // --- Run B: OpenSTA ground truth ---
+    sta->replaceCell(step.inst, step.target_cell);
+    sta->updateTiming(true);
+    sta->findRequireds();
+    PtGraph *pt_open = local_sta->makePtGraph(step.inst, true);
+    run_b_snaps.push_back(snapshotFromPtGraph(pt_open));
+
+    if ((i + 1) % 10 == 0 || i + 1 == sequence.size()) {
+      printf("  ... completed %zu / %zu steps\n", i + 1, sequence.size());
+      fflush(stdout);
+    }
+  }
+
+  // ================================================================
+  //  Analysis 1: Error decomposition table
+  // ================================================================
+  size_t N = sequence.size();
+  printf("\n========================================\n");
+  printf(" Error Source Decomposition\n");
+  printf("========================================\n\n");
+  printf("%-5s %-30s %-16s | %10s %10s %10s | %10s %10s %10s\n",
+         "Step", "Instance", "Cell",
+         "TotSlkE", "1StpSlkE", "DriftSlkE",
+         "TotSlwMax", "1StpSlwMx", "DriftSlwMx");
+  printf("%s\n", std::string(130, '-').c_str());
+
+  double sum_total_slack = 0, max_total_slack = 0;
+  double sum_1step_slack = 0, max_1step_slack = 0;
+  double sum_drift_slack = 0, max_drift_slack = 0;
+  double sum_total_slew = 0, max_total_slew = 0;
+  double sum_1step_slew = 0, max_1step_slew = 0;
+  (void)0; // drift slew computed inline per step
+
+  // Per-vertex-type accumulators for single-step error
+  std::map<PtVertexType, TypeErrorAccum> type_accum_1step;
+  // Per-vertex-type accumulators for total error
+  std::map<PtVertexType, TypeErrorAccum> type_accum_total;
+
+  for (size_t i = 0; i < N; i++) {
+    double total_slack_err = std::abs(run_a_snaps[i].slack_ps - run_b_snaps[i].slack_ps);
+    double step_slack_err  = std::abs(run_c_snaps[i].slack_ps - run_b_snaps[i].slack_ps);
+    double drift_slack_err = std::abs(total_slack_err - step_slack_err);
+
+    SlewStats total_slew = computeSlewStats(run_a_snaps[i], run_b_snaps[i]);
+    SlewStats step_slew  = computeSlewStats(run_c_snaps[i], run_b_snaps[i]);
+
+    // Accumulate per-type errors
+    compareSlewByType(run_c_snaps[i], run_b_snaps[i], type_accum_1step);
+    compareSlewByType(run_a_snaps[i], run_b_snaps[i], type_accum_total);
+
+    printf("%-5zu %-30.30s %-16s | %10.3f %10.3f %10.3f | %10.3f %10.3f %10.3f\n",
+           i, sta->network()->pathName(sequence[i].inst),
+           sequence[i].target_cell->name(),
+           total_slack_err, step_slack_err, drift_slack_err,
+           total_slew.max_err, step_slew.max_err,
+           std::max(0.0, total_slew.max_err - step_slew.max_err));
+
+    sum_total_slack += total_slack_err; max_total_slack = std::max(max_total_slack, total_slack_err);
+    sum_1step_slack += step_slack_err;  max_1step_slack = std::max(max_1step_slack, step_slack_err);
+    sum_drift_slack += drift_slack_err; max_drift_slack = std::max(max_drift_slack, drift_slack_err);
+    sum_total_slew += total_slew.max_err; max_total_slew = std::max(max_total_slew, total_slew.max_err);
+    sum_1step_slew += step_slew.max_err;  max_1step_slew = std::max(max_1step_slew, step_slew.max_err);
+  }
+
+  printf("%s\n", std::string(130, '-').c_str());
+  printf("Slack error (ps):  total  mean=%.3f max=%.3f  |  1-step mean=%.3f max=%.3f  |  drift mean=%.3f max=%.3f\n",
+         N > 0 ? sum_total_slack/N : 0.0, max_total_slack,
+         N > 0 ? sum_1step_slack/N : 0.0, max_1step_slack,
+         N > 0 ? sum_drift_slack/N : 0.0, max_drift_slack);
+  printf("Max slew err (ps): total  mean=%.3f max=%.3f  |  1-step mean=%.3f max=%.3f\n",
+         N > 0 ? sum_total_slew/N : 0.0, max_total_slew,
+         N > 0 ? sum_1step_slew/N : 0.0, max_1step_slew);
+
+
+  // ================================================================
+  //  Analysis 2: Slew error by vertex type (single-step)
+  // ================================================================
+  printf("\n========================================\n");
+  printf(" Slew Error by Vertex Type\n");
+  printf("========================================\n\n");
+  printf("%-12s | %10s %10s %8s | %10s %10s %8s\n",
+         "Type", "1Step Mean", "1Step Max", "Count",
+         "Total Mean", "Total Max", "Count");
+  printf("%s\n", std::string(80, '-').c_str());
+
+  PtVertexType types_to_show[] = {
+    PtVertexType::RefDriver, PtVertexType::RefInput,
+    PtVertexType::RefOutput, PtVertexType::SiblingLoad,
+    PtVertexType::SiblingDrvr
+  };
+  for (PtVertexType t : types_to_show) {
+    auto &s = type_accum_1step[t];
+    auto &a = type_accum_total[t];
+    if (s.count == 0 && a.count == 0) continue;
+    printf("%-12s | %10.3f %10.3f %8zu | %10.3f %10.3f %8zu\n",
+           vertexTypeName(t), s.mean(), s.max_val, s.count,
+           a.mean(), a.max_val, a.count);
+  }
+
+  // ================================================================
+  //  Analysis 3: Detailed vertex-level report for first 3 steps
+  //              (single-step errors only, no cumulative drift)
+  // ================================================================
+  printf("\n========================================\n");
+  printf(" Detailed Vertex Report (first 3 steps, single-step)\n");
+  printf("========================================\n");
+
+  size_t detail_steps = std::min(N, (size_t)3);
+  for (size_t i = 0; i < detail_steps; i++) {
+    printf("\n--- Step %zu: %s -> %s ---\n", i,
+           sta->network()->pathName(sequence[i].inst),
+           sequence[i].target_cell->name());
+    printf("  %-40s %-10s  %10s  %10s  %10s\n",
+           "Vertex", "Type", "LocalSlw", "OpenSlw", "Err(ps)");
+
+    auto &cs = run_c_snaps[i];
+    auto &bs = run_b_snaps[i];
+
+    // Collect and sort by error descending
+    struct VtxErr { std::string name; const char *type; float local_slw; float open_slw; float err; };
+    std::vector<VtxErr> errs;
+    for (auto &[vname, cv] : cs.vertex_map) {
+      auto it = bs.vertex_map.find(vname);
+      if (it == bs.vertex_map.end()) continue;
+      auto &bv = it->second;
+      size_t n = std::min(cv.slews_ps.size(), bv.slews_ps.size());
+      float max_err = 0.0;
+      float local_worst = 0.0, open_worst = 0.0;
+      for (size_t s = 0; s < n; s++) {
+        float e = std::abs(cv.slews_ps[s] - bv.slews_ps[s]);
+        if (e > max_err) { max_err = e; local_worst = cv.slews_ps[s]; open_worst = bv.slews_ps[s]; }
+      }
+      if (max_err > 0.01)
+        errs.push_back({vname, vertexTypeName(cv.type), local_worst, open_worst, max_err});
+    }
+    std::sort(errs.begin(), errs.end(),
+              [](const VtxErr &a, const VtxErr &b) { return a.err > b.err; });
+    size_t show = std::min(errs.size(), (size_t)15);
+    for (size_t j = 0; j < show; j++) {
+      auto &e = errs[j];
+      printf("  %-40.40s %-10s  %10.3f  %10.3f  %10.3f\n",
+             e.name.c_str(), e.type, e.local_slw, e.open_slw, e.err);
+    }
+    printf("  Slack: local=%.3f ps, open=%.3f ps, err=%.3f ps\n",
+           cs.slack_ps, bs.slack_ps, std::abs(cs.slack_ps - bs.slack_ps));
+  }
+
+  printf("\n========================================\n");
+  printf(" End LocalSTA Accuracy Test\n");
+  printf("========================================\n");
+  fflush(stdout);
+
+  delete arc_delay_calc;
+  delete incre_sta;
+}
+
+// ============================================================
+//  testSingleInstanceDiagnostic — per-vertex, per-edge comparison
+//  of LocalSTA vs OpenSTA for a single instance.
+//
+//  Phase 1 (baseline): compute for current cell, compare with
+//           global graph — should be near-zero error.
+//  Phase 2 (after swap): compute for target cell, compare with
+//           OpenSTA after real swap + updateTiming.
+// ============================================================
+void
+TestLrf::testSingleInstanceDiagnostic(sta::dbSta* sta, rsz::Resizer *resizer,
+                                       odb::dbBlock *block, const char *inst_name)
+{
+  printf("\n========================================\n");
+  printf(" Single Instance Diagnostic\n");
+  printf("========================================\n\n");
+  fflush(stdout);
+
+  sta->updateTiming(true);
+  sta->findRequireds();
+  IncreSta *incre_sta = new IncreSta(sta, 1);
+  LocalSta *local_sta = incre_sta->localSta();
+  resizer->makeEquivCells();
+  sta::ArcDelayCalc *arc_delay_calc = sta->arcDelayCalc()->copy();
+  sta::dbNetwork *db_network = sta->getDbNetwork();
+  sta::Graph *graph = sta->graph();
+
+  // Find instance
+  odb::dbInst *db_inst = nullptr;
+  if (inst_name && inst_name[0]) {
+    db_inst = block->findInst(inst_name);
+  }
+  if (!db_inst) {
+    // Pick first resizable instance
+    for (odb::dbInst *di : block->getInsts()) {
+      sta::Instance *si = db_network->dbToSta(di);
+      if (!si) continue;
+      sta::LibertyCell *c = sta->network()->libertyCell(si);
+      if (!c) continue;
+      sta::LibertyCellSeq *eq = sta->equivCells(c);
+      if (!eq || eq->size() < 2) continue;
+      db_inst = di;
+      break;
+    }
+  }
+  if (!db_inst) {
+    printf("No suitable instance found.\n");
+    delete arc_delay_calc;
+    delete incre_sta;
+    return;
+  }
+
+  sta::Instance *sta_inst = db_network->dbToSta(db_inst);
+  sta::LibertyCell *orig_cell = sta->network()->libertyCell(sta_inst);
+  sta::LibertyCell *target_cell = nullptr;
+  for (sta::LibertyCell *ec : *sta->equivCells(orig_cell)) {
+    if (ec != orig_cell && sta::equivCellsArcs(orig_cell, ec)) {
+      target_cell = ec;
+      break;
+    }
+  }
+
+  printf("Instance: %s\n", db_network->pathName(sta_inst));
+  printf("Current cell: %s\n", orig_cell->name());
+  printf("Target cell:  %s\n", target_cell ? target_cell->name() : "(none)");
+  fflush(stdout);
+
+  // ── Helper: compare PtGraph vs global graph ──────────────
+  auto compareWithGlobal = [&](const char *phase, PtGraph *pg) {
+    printf("\n--- %s: Vertex Slew Comparison ---\n", phase);
+    printf("  %-40s %-10s %12s %12s %12s\n",
+           "Vertex", "Type", "Local(ps)", "Global(ps)", "Err(ps)");
+
+    size_t slew_mismatch = 0, slew_total = 0;
+    double max_slew_err = 0;
+    for (PtVertex &pv : pg->ptVertices()) {
+      if (pv.type() == PtVertexType::Sentinel || !pv.vertex()) continue;
+      sta::Vertex *sv = pv.vertex();
+      for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+        for (const sta::DcalcAnalysisPt *dap : sta->corners()->dcalcAnalysisPts()) {
+          float local_s = delayAsFloat(pg->slew(pv, rf, dap->index())) * 1e12;
+          float global_s = delayAsFloat(graph->slew(sv, rf, dap->index())) * 1e12;
+          float err = std::abs(local_s - global_s);
+          slew_total++;
+          if (err > 0.001) {
+            slew_mismatch++;
+            if (err > max_slew_err) max_slew_err = err;
+            printf("  %-40.40s %-10s %12.4f %12.4f %12.4f  %s\n",
+                   sv->name(sta->network()), vertexTypeName(pv.type()),
+                   local_s, global_s, err, rf->name());
+          }
+        }
+      }
+    }
+    printf("  Slew: %zu / %zu mismatches (> 0.001ps), max err = %.4f ps\n",
+           slew_mismatch, slew_total, max_slew_err);
+
+    printf("\n--- %s: Edge Delay Comparison ---\n", phase);
+    printf("  %-50s %12s %12s %12s\n",
+           "Edge / Arc", "Local(ps)", "Global(ps)", "Err(ps)");
+
+    size_t delay_mismatch = 0, delay_total = 0;
+    double max_delay_err = 0;
+    for (const PtEdge &pe : pg->ptEdges()) {
+      sta::Edge *se = const_cast<sta::Edge*>(pe.edge());
+      if (!se) continue;
+      sta::TimingArcSet *arc_set = se->timingArcSet();
+      if (!arc_set) continue;
+      for (sta::TimingArc *arc : arc_set->arcs()) {
+        for (const sta::DcalcAnalysisPt *dap : sta->corners()->dcalcAnalysisPts()) {
+          float local_d = delayAsFloat(pg->arcDelay(pe, arc, dap->index())) * 1e12;
+          float global_d = delayAsFloat(graph->arcDelay(se, arc, dap->index())) * 1e12;
+          float err = std::abs(local_d - global_d);
+          delay_total++;
+          if (err > 0.001) {
+            delay_mismatch++;
+            if (err > max_delay_err) max_delay_err = err;
+
+            const sta::RiseFall *in_rf = arc->fromEdge()->asRiseFall();
+            const PtVertex &from_pv = pg->ptVertex(pe.ptFromId());
+            const PtVertex &to_pv = pg->ptVertex(pe.ptToId());
+            float local_in_slew = from_pv.vertex()
+                ? delayAsFloat(pg->slew(from_pv, in_rf, dap->index())) * 1e12 : 0;
+            float global_in_slew = from_pv.vertex()
+                ? delayAsFloat(graph->slew(from_pv.vertex(), in_rf, dap->index())) * 1e12 : 0;
+
+            printf("  %-50.50s %12.4f %12.4f %12.4f\n",
+                   se->to_string(sta->network()).c_str(),
+                   local_d, global_d, err);
+            printf("    in_slew(%s): local=%.4f global=%.4f  |  from=%s(%s) to=%s(%s)\n",
+                   in_rf->name(), local_in_slew, global_in_slew,
+                   from_pv.vertex() ? from_pv.vertex()->name(sta->network()) : "?",
+                   vertexTypeName(from_pv.type()),
+                   to_pv.vertex() ? to_pv.vertex()->name(sta->network()) : "?",
+                   vertexTypeName(to_pv.type()));
+          }
+        }
+      }
+    }
+    // Gate delay breakdown by edge type
+    std::map<std::string, size_t> arc_type_counts;
+    for (const PtEdge &pe : pg->ptEdges()) {
+      if (!pe.edge() || !pe.edge()->timingArcSet()) continue;
+      const PtVertex &from_pv = pg->ptVertex(pe.ptFromId());
+      const PtVertex &to_pv = pg->ptVertex(pe.ptToId());
+      std::string key = std::string(vertexTypeName(from_pv.type()))
+                      + "->" + vertexTypeName(to_pv.type());
+      arc_type_counts[key] += pe.edge()->timingArcSet()->arcs().size();
+    }
+    printf("  Gate delay: %zu / %zu mismatches (> 0.001ps), max err = %.4f ps\n",
+           delay_mismatch, delay_total, max_delay_err);
+    printf("  Gate arc breakdown: ");
+    for (auto &[k, v] : arc_type_counts) printf("%s=%zu  ", k.c_str(), v);
+    printf("\n");
+
+    // Wire delay comparison (fanout wire edges)
+    printf("\n--- %s: Wire Delay Comparison ---\n", phase);
+    printf("  %-40s %-10s -> %-10s %10s %10s %10s %10s\n",
+           "Driver", "Type", "LoadType", "Local(ps)", "Global(ps)", "Err(ps)", "RF");
+    size_t wire_mismatch = 0, wire_total = 0;
+    double max_wire_err = 0;
+    for (const PtEdge &pe : pg->ptEdges()) {
+      if (!pe.isWire()) continue;
+      sta::Edge *se = const_cast<sta::Edge*>(pe.edge());
+      if (!se) continue;
+      const PtVertex &from_pv = pg->ptVertex(pe.ptFromId());
+      const PtVertex &to_pv = pg->ptVertex(pe.ptToId());
+      for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+        for (const sta::DcalcAnalysisPt *dap : sta->corners()->dcalcAnalysisPts()) {
+          float local_wd = delayAsFloat(pg->wireArcDelay(pe, rf, dap->index())) * 1e12;
+          float global_wd = delayAsFloat(graph->wireArcDelay(se, rf, dap->index())) * 1e12;
+          float err = std::abs(local_wd - global_wd);
+          wire_total++;
+          if (err > 0.001) {
+            wire_mismatch++;
+            if (err > max_wire_err) max_wire_err = err;
+            printf("  %-40.40s %-10s -> %-10s %10.4f %10.4f %10.4f %s\n",
+                   from_pv.vertex() ? from_pv.vertex()->name(sta->network()) : "?",
+                   vertexTypeName(from_pv.type()),
+                   vertexTypeName(to_pv.type()),
+                   local_wd, global_wd, err, rf->name());
+          }
+        }
+      }
+    }
+    printf("  Wire delay: %zu / %zu mismatches (> 0.001ps), max err = %.4f ps\n",
+           wire_mismatch, wire_total, max_wire_err);
+
+    // Arrival / Required comparison
+    printf("\n--- %s: Arrival/Required Comparison ---\n", phase);
+    printf("  %-40s %-10s %12s %12s %12s  %s\n",
+           "Vertex", "Type", "Local(ps)", "Global(ps)", "Err(ps)", "Kind");
+    size_t arr_mismatch = 0, arr_total = 0, req_mismatch = 0, req_total = 0;
+    double max_arr_err = 0, max_req_err = 0;
+    for (PtVertex &pv : pg->ptVertices()) {
+      if (pv.type() == PtVertexType::Sentinel || !pv.vertex()) continue;
+      sta::Vertex *sv = pv.vertex();
+      sta::Path *pt_paths = pv.paths();
+      sta::Path *sta_paths = sv->paths();
+      if (!pt_paths || !sta_paths) continue;
+      sta::TagGroup *pt_tg = pg->tagGroup(pv);
+      sta::TagGroup *sta_tg = sta->search()->tagGroup(sv);
+      if (!pt_tg || !sta_tg || pt_tg->index() != sta_tg->index()) continue;
+      size_t count = pt_tg->pathCount();
+      for (size_t j = 0; j < count; j++) {
+        // Arrival
+        float local_a = delayAsFloat(pt_paths[j].arrival()) * 1e12;
+        float global_a = delayAsFloat(sta_paths[j].arrival()) * 1e12;
+        float a_err = std::abs(local_a - global_a);
+        arr_total++;
+        if (a_err > 0.01) {
+          arr_mismatch++;
+          if (a_err > max_arr_err) max_arr_err = a_err;
+          printf("  %-40.40s %-10s %12.4f %12.4f %12.4f  arrival\n",
+                 sv->name(sta->network()), vertexTypeName(pv.type()),
+                 local_a, global_a, a_err);
+        }
+        // Required
+        float local_r = delayAsFloat(pt_paths[j].required()) * 1e12;
+        float global_r = delayAsFloat(sta_paths[j].required()) * 1e12;
+        float r_err = std::abs(local_r - global_r);
+        req_total++;
+        if (r_err > 0.01) {
+          req_mismatch++;
+          if (r_err > max_req_err) max_req_err = r_err;
+          printf("  %-40.40s %-10s %12.4f %12.4f %12.4f  required\n",
+                 sv->name(sta->network()), vertexTypeName(pv.type()),
+                 local_r, global_r, r_err);
+        }
+      }
+    }
+    printf("  Arrival:  %zu / %zu mismatches (> 0.01ps), max err = %.4f ps\n",
+           arr_mismatch, arr_total, max_arr_err);
+    printf("  Required: %zu / %zu mismatches (> 0.01ps), max err = %.4f ps\n\n",
+           req_mismatch, req_total, max_req_err);
+    fflush(stdout);
+  };
+
+  // ================================================================
+  //  Phase 1: Baseline — compute for current cell (no swap)
+  // ================================================================
+  printf("\n======== Phase 1: Baseline (no cell swap, current = %s) ========\n",
+         orig_cell->name());
+  fflush(stdout);
+
+  PtGraph *pg1 = local_sta->makePtGraph(sta_inst, false);
+  local_sta->updateLocalTiming(pg1, arc_delay_calc);
+  compareWithGlobal("Phase1-Baseline", pg1);
+
+  // ================================================================
+  //  Phase 2: Resize A + write-back, then check neighbor B
+  //  This simulates the production flow:
+  //    1. LocalSTA computes timing for A with target_cell
+  //    2. replaceCell + writeBackTiming (update global graph)
+  //    3. Pick a neighbor B on A's fanout, build PtGraph for B
+  //    4. LocalSTA computes B's timing (reads boundary from global graph)
+  //    5. OpenSTA updateTiming (ground truth)
+  //    6. Compare B's local timing vs ground truth
+  // ================================================================
+  if (!target_cell) {
+    printf("No target cell available, skipping Phase 2.\n");
+  } else {
+    printf("======== Phase 2: Resize + write-back + check neighbor ========\n");
+    printf("  Resizing %s: %s -> %s\n",
+           db_network->pathName(sta_inst), orig_cell->name(), target_cell->name());
+    fflush(stdout);
+
+    // Step 1-2: LocalSTA resize A + write-back
+    PtGraph *pg_a = local_sta->makePtGraph(sta_inst, false);
+    local_sta->increAndGetLocalTimingCost(pg_a, arc_delay_calc, target_cell);
+    sta->replaceCell(sta_inst, target_cell);
+    // Write-back: same as production (ref unconditional, sibling greater-merge)
+    for (PtVertex &pv : pg_a->ptVertices()) {
+      if (pv.type() == PtVertexType::Sentinel || !pv.vertex()) continue;
+      PtVertexType type = pv.type();
+      if (type == PtVertexType::RefInput || type == PtVertexType::RefOutput) {
+        pg_a->writeSlewToGraph(pv, pv.vertex());
+        pg_a->writePathsToGraph(pv, pv.vertex());
+      } else if (type == PtVertexType::SiblingLoad
+              || type == PtVertexType::SiblingDrvr) {
+        pg_a->writeSlewToGraph(pv, pv.vertex());
+        pg_a->writePathsToGraph(pv, pv.vertex());
+      }
+    }
+
+    // Step 3: Find a neighbor on A's fanout net
+    sta::Instance *neighbor_inst = nullptr;
+    for (PtVertex &pv : pg_a->ptVertices()) {
+      // Look for a load on RefOutput's fanout — its instance is a neighbor
+      if (!pv.vertex()) continue;
+      sta::Instance *inst = sta->network()->instance(pv.vertex()->pin());
+      if (inst && inst != sta_inst
+          && sta->network()->libertyCell(inst)) {
+        sta::LibertyCellSeq *eq = sta->equivCells(sta->network()->libertyCell(inst));
+        if (eq && eq->size() >= 2) {
+          neighbor_inst = inst;
+          break;
+        }
+      }
+    }
+
+    if (!neighbor_inst) {
+      printf("  No suitable neighbor found, skipping.\n");
+    } else {
+      printf("  Neighbor: %s (%s)\n",
+             db_network->pathName(neighbor_inst),
+             sta->network()->libertyCell(neighbor_inst)->name());
+      fflush(stdout);
+
+      // Step 4: LocalSTA computes B's timing (no swap, just compute)
+      PtGraph *pg_b = local_sta->makePtGraph(neighbor_inst, false);
+      local_sta->updateLocalTiming(pg_b, arc_delay_calc);
+
+      // Step 5: OpenSTA ground truth
+      sta->updateTiming(true);
+      sta->findRequireds();
+
+      // Step 6: Compare B's local timing vs global graph
+      compareWithGlobal("Phase2-Neighbor-after-resize", pg_b);
+    }
+
+    // Restore
+    sta->replaceCell(sta_inst, orig_cell);
+    sta->updateTiming(true);
+    sta->findRequireds();
+  }
+
+  printf("========================================\n");
+  printf(" End Single Instance Diagnostic\n");
+  printf("========================================\n");
+  fflush(stdout);
+
+  delete arc_delay_calc;
+  delete incre_sta;
+}
+
 }  // namespace lrf

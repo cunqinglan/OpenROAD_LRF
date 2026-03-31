@@ -521,9 +521,19 @@ LocalSta::topoSortVertices(PtGraph *pt_graph)
 void
 LocalSta::findLocalDelays(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc)
 {
+  // Clear slews for load vertices only.  Driver slews are cleared
+  // inside findDriverDelays1 when each driver is processed; their
+  // global-graph values from initVertexAndEdges must survive until
+  // then so that the max-merge in annotateDelaySlew works correctly.
+  for (PtVertex &pv : pt_graph->ptVertices()) {
+    if (pv.type() == PtVertexType::Sentinel) continue;
+    if (!pv.isRoot() && pv.isLoad())
+      initSlew(pv, pt_graph);
+  }
+
   for (VertexId vertex_id : pt_graph->sortedVertexIds()) {
     PtVertex &pt_vertex = pt_graph->ptVertex(vertex_id);
-    findVertexDelays(vertex_id,  arc_delay_calc, pt_graph);
+    findVertexDelays(vertex_id, arc_delay_calc, pt_graph);
   }
 }
 
@@ -540,12 +550,23 @@ LocalSta::seedRootSlew(PtVertex &pt_vertex, PtGraph *pt_graph,
   }
   Vertex *vertex = pt_vertex.vertex();
 
-  if (pt_vertex.type() == PtVertexType::RefDriver
-      || pt_vertex.type() == PtVertexType::RefInput) {
-    if (vertex->isDriver(network_)) {
-      seedDrvrSlew(pt_vertex, pt_graph, arc_delay_calc);
-    } else {
-      loadSlewFromGraph(pt_vertex, pt_graph);
+  if (vertex->isDriver(network_)
+      && network_->isTopLevelPort(vertex->pin())) {
+    // True top-level input port: use inputPortDelay path.
+    seedDrvrSlew(pt_vertex, pt_graph, arc_delay_calc);
+  } else if (vertex->isDriver(network_)) {
+    // Internal cell driver as PtGraph root (e.g. RefDriver).
+    // Its timing was computed by OpenSTA via full timing arcs +
+    // Elmore wire delay.  Just read pre-computed values from the
+    // global graph for the driver and all its wire fanout loads.
+    loadSlewFromGraph(pt_vertex, pt_graph);
+    PtVertexOutEdgeIterator out_iter(pt_vertex.objectIdx(), pt_graph);
+    while (out_iter.hasNext()) {
+      PtEdge &wire_edge = out_iter.next();
+      if (!wire_edge.isWire()) continue;
+      PtVertex &load_pv = pt_graph->ptVertex(wire_edge.ptToId());
+      if (load_pv.vertex())
+        loadSlewFromGraph(load_pv, pt_graph);
     }
   } else {
     loadSlewFromGraph(pt_vertex, pt_graph);
@@ -654,8 +675,11 @@ LocalSta::seedNoDrvrSlew(PtVertex &pt_drvr_vertex,
   if (bidirectDrvrSlewFromLoad(drvr_pin)) {
     Vertex *load_vertex = graph_->pinLoadVertex(drvr_pin);
     slew = graph_->slew(load_vertex, rf, ap_index);
-  } else if (drvr_vertex->slewAnnotated(rf, slew_min_max)) {
-     slew = graph_->slew(drvr_vertex, rf, ap_index);
+  } else {
+    // For internal cell drivers (RefDriver boundary vertices), load
+    // the current slew from the global graph so that downstream wire
+    // delay / load slew calculations see the correct driver slew.
+    slew = graph_->slew(drvr_vertex, rf, ap_index);
   }
 
   // Use local slew
@@ -753,7 +777,7 @@ LocalSta::findPortIndex(const LibertyCell *cell,
 }
 
 
-void 
+void
 LocalSta::findVertexDelays(VertexId pt_vertex_id,
                            ArcDelayCalc *arc_delay_calc,
                            PtGraph *pt_graph)

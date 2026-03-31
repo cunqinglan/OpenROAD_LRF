@@ -818,6 +818,26 @@ Timing::testTimingComputeAndWriteBack(const std::vector<odb::dbInst*> &insts)
   test_lrf.testTimingComputeAndWriteBack(sta, resizer, design_->getBlock(), insts);
 }
 
+void
+Timing::testLocalStaAccuracy(size_t max_steps)
+{
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testLocalStaAccuracy(sta, resizer, design_->getBlock(), max_steps);
+}
+
+void
+Timing::testSingleInstanceDiagnostic(const char *inst_name)
+{
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testSingleInstanceDiagnostic(sta, resizer, design_->getBlock(), inst_name);
+}
+
 void 
 Timing::testReportVertices() {
   design_->updateParasiticsNoDeleteNetwork();
