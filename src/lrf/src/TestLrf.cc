@@ -1202,25 +1202,16 @@ TestLrf::testParallelLrResizeByArraySpeedup(sta::dbSta* sta,
     sta->findRequireds();
     incre_sta->parallelResizeByArraySpeedup(resizer, avg_delay, avg_leakage, PT_tradeoff);
 
-    // --- Incremental parasitic + timing update ---
+    // --- Full parasitic update + incremental timing ---
+    // Use proven full parasitic update (safe, <2% of total runtime).
+    // Core speedup comes from critical-path filtering + incremental STA.
+    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    // Hazard 4 fix: invalidate modified instances AND their upstream fanin drivers.
+    // Do NOT call sta->delaysInvalid() — it destroys incremental state.
+    // replaceCell() already invalidated the modified cone; re-invalidate here
+    // so the delay calculator picks up the new parasitic values.
     {
       sta::dbNetwork *network = sta->getDbNetwork();
-      std::unordered_set<sta::Net*> dirty_nets;
-      for (sta::Instance *inst : incre_sta->modifiedInstances()) {
-        sta::InstancePinIterator *pin_iter = network->pinIterator(inst);
-        while (pin_iter->hasNext()) {
-          sta::Pin *pin = pin_iter->next();
-          sta::Net *net = network->net(pin);
-          if (net)
-            dirty_nets.insert(net);
-        }
-        delete pin_iter;
-      }
-      if (!dirty_nets.empty())
-        est_parasitics->updateWireParasiticsForNets(dirty_nets);
-
-      // Hazard 4 fix: invalidate modified instances AND their upstream fanin drivers.
-      // Sizing changes input-pin capacitance, which affects the driving net's delay.
       for (sta::Instance *inst : incre_sta->modifiedInstances()) {
         sta->delaysInvalidFrom(inst);
         // Also invalidate fanin drivers whose output load changed
