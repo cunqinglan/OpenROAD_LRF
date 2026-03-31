@@ -91,6 +91,12 @@ public:
   // Reset tracking state (call when ECO reverts)
   void clearModifiedTracking();
 
+  // Speedup variant: critical-path filtering + dirty tracking + incremental STA.
+  // Fixes: tracker on criticalPathSizing visitor (hazard 1),
+  //        dirty bypass every 3 iterations (hazard 2).
+  void parallelResizeByArraySpeedup(rsz::Resizer *resizer, float avg_delay,
+                                    float avg_power, float PT_tradeoff);
+
   void parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
                          int top_n = 100);
   void parallelBufferingV2(rsz::Resizer *resizer, float PT_tradeoff,

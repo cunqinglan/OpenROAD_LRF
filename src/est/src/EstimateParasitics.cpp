@@ -1340,10 +1340,14 @@ EstimateParasitics::updateWireParasiticsForNets(
   if (!wire_signal_cap_.empty()) {
     sta_->ensureClkNetwork();
     sta_->setParasiticAnalysisPts(true);
+    // Hazard 3 fix: clear the driver-pin cache so stale entries from
+    // cell swaps don't cause wrong Steiner trees.  Network::clear()
+    // nulls default_liberty_ + clears the cache; we restore the library
+    // immediately.  The driver-pin map is lazily rebuilt by
+    // Network::drivers() on the next lookup.
     sta::LibertyLibrary* default_lib = network_->defaultLibertyLibrary();
     network_->Network::clear();
     network_->setDefaultLibertyLibrary(default_lib);
-
     sortClkAndSignalLayers();
 
     for (sta::Net *net : dirty_nets) {

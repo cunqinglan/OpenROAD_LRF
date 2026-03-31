@@ -871,8 +871,8 @@ IncreSta::clearModifiedTracking()
 }
 
 void
-IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float avg_power,
-                      float PT_tradeoff)
+IncreSta::parallelResizeByArraySpeedup(rsz::Resizer *resizer, float avg_delay,
+                                       float avg_power, float PT_tradeoff)
 {
   auto start_total = std::chrono::high_resolution_clock::now();
 
@@ -887,15 +887,18 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
   }
   makeEquivCellArray();
 
-  // --- Critical-path filtering ---
-  // Only process instances on paths with slack <= WNS/2.
-  // WNS is negative, so WNS/2 is less negative (closer to 0).
-  // e.g. WNS = -1.0 -> threshold = -0.5 -> select paths with slack in [-1.0, -0.5]
+  // --- Critical-path filtering (Hazard 2 fix: bypass dirty filter every 3 iters) ---
   float slack_threshold = wns / 2.0;
   TaskArranger *task_arranger = local_sta_->taskArranger();
   if (wns < 0.0) {
+    // Every 3rd iteration, skip dirty filter to catch newly-critical instances
+    size_t saved_iteration = resize_iteration_;
+    if (resize_iteration_ > 0 && (resize_iteration_ % 3 == 0)) {
+      resize_iteration_ = 0;  // temporarily disable dirty filter
+    }
     std::vector<size_t> selected_vertex_ids;
     collectCriticalPathInstances(slack_threshold, selected_vertex_ids);
+    resize_iteration_ = saved_iteration;  // restore
     if (!selected_vertex_ids.empty()) {
       task_arranger->markSelectedInstances(selected_vertex_ids);
     }
@@ -920,6 +923,30 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
   auto end_resize = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_resize = end_resize - start_resize;
 
+  // --- Pruning: update iteration counter ---
+  pruning_control_.iteration++;
+
+  // --- Power optimization: criticalPathSizing with tracker (Hazard 1 fix) ---
+  double wns_after_resize = sta_->worstSlack(MinMax::max());
+  if (isPowerOptimizationMode()) {
+    sta_->updateTiming(true);
+    sta_->findRequireds();
+    wns_after_resize = sta_->worstSlack(MinMax::max());
+
+    ParallelLrVisitor *critical_path_visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
+    critical_path_visitor->init(avg_delay, avg_power, wns_after_resize,
+        PT_tradeoff, &swappable_cells_cache_, &inst_info_map_);
+    critical_path_visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+    critical_path_visitor->setMoveType(MoveType::Resizing);
+    // Hazard 1 fix: track modifications from criticalPathSizing too
+    critical_path_visitor->setModifiedInstancesTracker(&modified_instances_);
+    critical_path_visitor->setCellSwapRecordTracker(&cell_swap_records_);
+
+    LrSizer lr_sizer(sta_, lr_helper_, critical_path_visitor);
+    lr_sizer.criticalPathSizing();
+    delete critical_path_visitor;
+  }
+
   // --- Update dirty neighborhood for next iteration ---
   const sta::Network *network = sta_->getDbNetwork();
   dirty_neighborhood_.clear();
@@ -935,9 +962,8 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
         const sta::Pin *conn_pin = net_iter->next();
         if (!network->isTopLevelPort(conn_pin)) {
           sta::Instance *neighbor = network->instance(conn_pin);
-          if (neighbor) {
+          if (neighbor)
             dirty_neighborhood_.insert(neighbor);
-          }
         }
       }
       delete net_iter;
@@ -946,37 +972,76 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
   }
   resize_iteration_++;
 
-//   printf("[LRF] Resize pass: %zu instances modified, %zu dirty neighbors\n",
-//          modified_instances_.size(), dirty_neighborhood_.size());
-//   fflush(stdout);
+  auto end_total = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_total = end_total - start_total;
+}
+
+void
+IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float avg_power,
+                      float PT_tradeoff)
+{
+  auto start_total = std::chrono::high_resolution_clock::now();
+
+  local_sta_->initParallel();
+  Slack wns = sta_->worstSlack(MinMax::max());
+
+  if (!swap_cell_presaved_) {
+    makeSwappableCellsCache(resizer);
+  }
+  if (!swap_cell_leakage_presaved_) {
+    preSaveLibCellLeakage();
+  }
+  makeEquivCellArray();
+
+  auto start_resize = std::chrono::high_resolution_clock::now();
+  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
+  visitor->init(avg_delay, avg_power, wns, PT_tradeoff,
+      &swappable_cells_cache_, &inst_info_map_);
+  visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+  visitor->setPruningControl(&pruning_control_);
+  visitor->setMoveType(MoveType::Resizing);
+  // visitor ownership is transferred to TaskArranger::visitOrdered.
+  local_sta_->runResize(resizer, visitor);
+  auto end_resize = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_resize = end_resize - start_resize;
+
+  sta_->updateTiming(true);
+  sta_->findRequireds();
+  double tns_after_resize = sta_->totalNegativeSlack(MinMax::max());
+  double wns_after_resize = sta_->worstSlack(MinMax::max());
+  // printf("After parallel LR resize, TNS: %e, WNS: %e\n", tns_after_resize, wns_after_resize);
+  // printf("parallel resize time: %f s\n", diff_resize.count());
 
   // --- Pruning: update iteration counter and detect K ---
   pruning_control_.iteration++;
+  printf("Pruning: iteration %d, enabled=%d, K=%d\n",
+         pruning_control_.iteration, pruning_control_.enabled, pruning_control_.K);
+  fflush(stdout);
 
-  // Only run full internal STA when criticalPathSizing is needed (WNS >= 0).
-  double wns_after_resize = sta_->worstSlack(MinMax::max());
   if (isPowerOptimizationMode()) {
-    sta_->updateTiming(true);
-    sta_->findRequireds();
-    wns_after_resize = sta_->worstSlack(MinMax::max());
-
     ParallelLrVisitor *critical_path_visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
     critical_path_visitor->init(avg_delay, avg_power, wns_after_resize,
         PT_tradeoff, &swappable_cells_cache_, &inst_info_map_);
     critical_path_visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
     critical_path_visitor->setMoveType(MoveType::Resizing);
 
+    // Time the critical-path sizing phase
     auto start_cps = std::chrono::high_resolution_clock::now();
     LrSizer lr_sizer(sta_, lr_helper_, critical_path_visitor);
     lr_sizer.criticalPathSizing();
     auto end_cps = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> diff_cps = end_cps - start_cps;
 
+    double tns_after_cps = sta_->totalNegativeSlack(MinMax::max());
+    double wns_after_cps = sta_->worstSlack(MinMax::max());
+    // printf("After critical path sizing, TNS: %e, WNS: %e\n", tns_after_cps, wns_after_cps);
+    // printf("critical path sizing time: %f s\n", diff_cps.count());
     delete critical_path_visitor;
   }
 
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_total = end_total - start_total;
+  // printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
 }
 
 void

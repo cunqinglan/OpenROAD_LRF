@@ -1026,6 +1026,122 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
                             float PT_tradeoff,
                             std::string lr_helper_method)
 {
+  // printf("----- Testing Parallel LR Resize By Array -----\n");
+  sta::Corner *corner = sta->corners()->findCorner("default");
+  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+  sta->findRequireds();
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+
+  incre_sta->makeLRHelper(lr_helper_method);
+  lrf::LRHelper *lr_helper = incre_sta->lrHelper();
+  lr_helper->setRatcons(ratcons);
+
+  incre_sta->setMaxResizeNum(max_resize_num);
+  incre_sta->lmUpdate();
+
+  odb::dbDatabase::beginEco(block);
+  float best_leakage = std::numeric_limits<float>::max();
+  size_t no_improve_count_ = 0;
+  size_t eco_iter = 0;
+  sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
+  sta::Slack best_tns = sta->totalNegativeSlack(sta::MinMax::max());
+  sta::Slack tns, wns;
+  // printf("Initial WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+  local_sta->initParallel();
+
+  for (size_t i = 0; i < iterations; ++i) {
+    sta->findRequireds();
+    // printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
+    auto start = std::chrono::high_resolution_clock::now();
+    incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    auto end = std::chrono::high_resolution_clock::now();
+    // printf("parallelResizeByArray took %f seconds\n",
+           // std::chrono::duration<double>(end - start).count());
+
+    est_parasitics->updateWireParasiticsNoDeleteNetwork();
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+    tns = sta->totalNegativeSlack(sta::MinMax::max());
+    wns = sta->worstSlack(sta::MinMax::max());
+
+    float leakage = 0;
+    for (odb::dbInst *inst : block->getInsts()) {
+      sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(inst);
+      if (!sta_inst) continue;
+      sta::PowerResult power_result = sta->power(sta_inst, corner);
+      leakage += power_result.leakage();
+    }
+
+    // printf("Evaluation took %f seconds\n",
+           // std::chrono::duration<double>(end - start).count());
+    // printf("Worst Negative Slack: %f\n", wns * 1e12);
+    // printf("Total Negative Slack: %f\n", tns * 1e12);
+    // printf("Total Leakage Power: %f\n", leakage * 1e10);
+    // fflush(stdout);
+    incre_sta->lmUpdate();
+
+    if (wns > best_wns && wns < 0) {
+      best_wns = wns;
+      best_tns = tns;
+      best_leakage = leakage;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      // printf("Improvement in WNS, accepting.\n");
+      no_improve_count_ = 0;
+    } else if (wns >= 0.0 && (wns > best_wns || leakage < best_leakage)) {
+      best_wns = wns;
+      best_tns = tns;
+      best_leakage = leakage;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      // printf("WNS positive, WNS or leakage improved, accepting.\n");
+      no_improve_count_ = 0;
+    } else if (no_improve_count_ < num_no_improve_tolerance) {
+      no_improve_count_++;
+      continue;
+    } else if (eco_iter > 2) {
+      // printf("No improvement for %zu ECO iterations, terminating.\n", eco_iter);
+      break;
+    } else {
+      // printf("Reverting to previous design.\n");
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
+      odb::dbDatabase::beginEco(block);
+      eco_iter++;
+    }
+  }
+  tns = sta->totalNegativeSlack(sta::MinMax::max());
+  wns = sta->worstSlack(sta::MinMax::max());
+  if (wns > best_wns) {
+    odb::dbDatabase::endEco(block);
+    // printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
+  } else {
+    odb::dbDatabase::endEco(block);
+    odb::dbDatabase::undoEco(block);
+    // printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  }
+  delete incre_sta;
+}
+
+////////////////////////////////////////////////////////////////
+// Speedup variant: critical-path filtering + incremental STA
+////////////////////////////////////////////////////////////////
+
+void
+TestLrf::testParallelLrResizeByArraySpeedup(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons,
+                            float PT_tradeoff,
+                            std::string lr_helper_method)
+{
   est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
@@ -1054,10 +1170,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   const bool is_large_design = (num_insts > 100000);
   bool had_improvement = false;
 
-  // Pre-build LibertyCell → leakage map for fast leakage computation.
-  // This replaces the expensive per-instance sta->power() call with a
-  // simple cell lookup, reducing leakage computation from O(N * power_analysis)
-  // to O(N * hash_lookup).
+  // Pre-build LibertyCell -> leakage map for fast leakage computation.
   std::unordered_map<sta::LibertyCell*, float> cell_leakage_map;
   {
     sta::Corner *corner = sta->corners()->findCorner("default");
@@ -1072,7 +1185,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     }
   }
 
-  // Pre-compute initial total leakage for incremental tracking
+  // Compute initial total leakage from the map.
   float total_leakage = 0;
   for (odb::dbInst *db_inst : block->getInsts()) {
     sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(db_inst);
@@ -1087,12 +1200,11 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
 
   for (size_t i = 0; i < iterations; ++i) {
     sta->findRequireds();
-    incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    incre_sta->parallelResizeByArraySpeedup(resizer, avg_delay, avg_leakage, PT_tradeoff);
 
-    // --- Incremental timing update ---
-    // Update wire parasitics only for nets connected to modified instances.
+    // --- Incremental parasitic + timing update ---
     {
-      const sta::Network *network = sta->getDbNetwork();
+      sta::dbNetwork *network = sta->getDbNetwork();
       std::unordered_set<sta::Net*> dirty_nets;
       for (sta::Instance *inst : incre_sta->modifiedInstances()) {
         sta::InstancePinIterator *pin_iter = network->pinIterator(inst);
@@ -1106,17 +1218,28 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
       }
       if (!dirty_nets.empty())
         est_parasitics->updateWireParasiticsForNets(dirty_nets);
-    }
-    // Re-invalidate delays so the delay calculator picks up new parasitic values.
-    for (sta::Instance *inst : incre_sta->modifiedInstances()) {
-      sta->delaysInvalidFrom(inst);
+
+      // Hazard 4 fix: invalidate modified instances AND their upstream fanin drivers.
+      // Sizing changes input-pin capacitance, which affects the driving net's delay.
+      for (sta::Instance *inst : incre_sta->modifiedInstances()) {
+        sta->delaysInvalidFrom(inst);
+        // Also invalidate fanin drivers whose output load changed
+        sta::InstancePinIterator *pin_iter = network->pinIterator(inst);
+        while (pin_iter->hasNext()) {
+          sta::Pin *pin = pin_iter->next();
+          if (network->isLoad(pin)) {
+            sta->delaysInvalidFromFanin(pin);
+          }
+        }
+        delete pin_iter;
+      }
     }
     // Incremental: only propagates delays/arrivals for the invalidated cone.
     sta->updateTiming(false);
     tns = sta->totalNegativeSlack(sta::MinMax::max());
     wns = sta->worstSlack(sta::MinMax::max());
 
-    // Incremental leakage: adjust running total by swap deltas
+    // Incremental leakage: adjust running total by swap deltas.
     for (const auto& rec : incre_sta->cellSwapRecords()) {
       sta::LibertyCell *new_cell = sta->getDbNetwork()->libertyCell(rec.first);
       float old_lk = 0, new_lk = 0;
@@ -1147,13 +1270,9 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
       no_improve_count_ = 0;
       had_improvement = true;
     } else if (is_large_design && had_improvement && wns < best_wns) {
-      // Large-design early termination: timing degraded after we had
-      // an improvement — revert immediately and stop. Each iteration is
-      // too expensive to waste on tolerance in large designs.
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
       incre_sta->clearModifiedTracking();
-      // ECO already finalized — skip the post-loop cleanup.
       delete incre_sta;
       return;
     } else if (no_improve_count_ < num_no_improve_tolerance) {
@@ -1165,7 +1284,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
       incre_sta->clearModifiedTracking();
-      // After undoEco, leakage state is reverted — recompute
+      // After undoEco, recompute leakage from scratch
       total_leakage = 0;
       for (odb::dbInst *db_inst : block->getInsts()) {
         sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(db_inst);
