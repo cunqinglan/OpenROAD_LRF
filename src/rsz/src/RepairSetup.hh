@@ -139,6 +139,7 @@ class RepairSetup : public sta::dbStaState
       int num_threads,
       bool verbose,
       int max_iterations);
+  bool hasDestructiveMoves() const;
   void traverseFaninCone(sta::Vertex* endpoint,
                          std::unordered_map<sta::Instance*, float>& crit_insts,
                          std::unordered_set<sta::Vertex*>& visited,
