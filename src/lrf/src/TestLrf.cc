@@ -1,5 +1,6 @@
 #include <map>
 #include <tuple>
+#include <tcl.h>
 #include "db_sta/dbSta.hh"
 #include "sta/ArcDelayCalc.hh"
 #include "rsz/Resizer.hh"
@@ -1606,14 +1607,16 @@ TestLrf::testParallelLrResizeByArrayWithBufferingV2(sta::dbSta* sta,
                             float PT_tradeoff,
                             std::string lr_helper_method)
 {
-  printf("----- Testing V2 Resize By Array With Buffering -----\n");
+  printf("----- Testing Parallel LR Resize+Buffering V2 (revert-halve ECO) -----\n");
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   lrf::LocalSta *local_sta = incre_sta->localSta();
 
   incre_sta->makeLRHelper(lr_helper_method);
-  incre_sta->lrHelper()->setRatcons(ratcons);
+  lrf::LRHelper *lr_helper = incre_sta->lrHelper();
+  lr_helper->setRatcons(ratcons);
+
   incre_sta->setMaxResizeNum(max_resize_num);
   incre_sta->lmUpdate();
 
@@ -1626,74 +1629,160 @@ TestLrf::testParallelLrResizeByArrayWithBufferingV2(sta::dbSta* sta,
   float avg_leakage = incre_sta->averageLeakage();
   local_sta->initParallel();
 
-  size_t no_improve = 0;
   size_t eco_iter = 0;
-  // Rows are buffered and printed as a clean table at the end
+  bool in_eco = false;
 
   for (size_t i = 0; i < iterations; ++i) {
-    // ---- Snapshot before resize ----
+    // ── Resize phase (V2) ──
     sta->findRequireds();
-    auto before_rsz = helper.snapshot();
-
-    // ---- Resize phase ----
-    auto t0 = std::chrono::high_resolution_clock::now();
+    printf("----- LR ResizeByArrayV2 Iteration %zu -----\n", i+1);
+    auto start = std::chrono::high_resolution_clock::now();
     incre_sta->parallelResizeByArrayV2(resizer, avg_delay, avg_leakage, PT_tradeoff);
-    auto t1 = std::chrono::high_resolution_clock::now();
-    double rsz_sec = std::chrono::duration<double>(t1 - t0).count();
+    auto end = std::chrono::high_resolution_clock::now();
+    double runtime = std::chrono::duration<double>(end - start).count();
 
     local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
     sta->delaysInvalid();
     sta->updateTiming(true);
+
+    IterationHelper::Metrics cur = helper.snapshot(runtime);
+    printf("After resize: WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW (%.1fs)\n",
+           cur.wns_ps, cur.tns_ps, cur.leakage * 1e10, runtime);
+    fflush(stdout);
     incre_sta->lmUpdate();
 
-    auto after_rsz = helper.snapshot(rsz_sec);
-    bool should_break = false;
-    const char *decision = helper.ecoDecision(after_rsz, best,
-                                              no_improve, num_no_improve_tolerance,
-                                              eco_iter, should_break);
-    helper.recordRow(i+1, "resize", after_rsz, before_rsz, decision);
-    if (should_break) break;
+    double cur_wns = cur.wns_ps / 1e12;
+    double best_wns_s = best.wns_ps / 1e12;
 
-    // ---- Buffering phase (after iteration 3, if WNS < 0) ----
-    if (after_rsz.wns_ps < 0 && i > 3) {
-      sta->findRequireds();
-      auto before_buf = helper.snapshot();
-
+    // ── ECO decision: warmup first 3 iters, then revert-halve ──
+    if ((cur_wns > best_wns_s && cur_wns < 0)
+        || (cur_wns >= 0.0 && (cur_wns > best_wns_s || cur.leakage < best.leakage))) {
+      best = cur;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      eco_iter = 0;
+      in_eco = false;
+      helper.recordRow(i+1, "resize", cur, best, "accept");
+      printf("Decision: accept\n");
+    } else if (i < 3) {
+      best = cur;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      helper.recordRow(i+1, "resize", cur, best, "accept(warmup)");
+      printf("Decision: accept(warmup)\n");
+    } else {
+      if (!in_eco) {
+        int change_count = incre_sta->lastChangeCount();
+        TaskArranger *ta = local_sta->taskArranger();
+        int total = static_cast<int>(ta->vertexCount());
+        float init_ratio = (total > 0)
+            ? static_cast<float>(change_count) * 1.5f / total : 0.3f;
+        incre_sta->setAdaptiveTopRatio(init_ratio);
+        in_eco = true;
+        printf("First regression, init eco ratio=%.4f\n", init_ratio);
+      } else {
+        float new_ratio = incre_sta->adaptiveTopRatio() * 0.25f;
+        incre_sta->setAdaptiveTopRatio(new_ratio);
+        printf("ECO halve ratio to %.4f\n", new_ratio);
+      }
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
       local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
-      auto tb0 = std::chrono::high_resolution_clock::now();
-      incre_sta->parallelBufferingV2(resizer, PT_tradeoff);
-      auto tb1 = std::chrono::high_resolution_clock::now();
-      double buf_sec = std::chrono::duration<double>(tb1 - tb0).count();
-
       sta->delaysInvalid();
       sta->updateTiming(true);
+      odb::dbDatabase::beginEco(block);
+      eco_iter++;
+      helper.recordRow(i+1, "resize", cur, best, "revert+halve");
+      printf("Decision: revert+halve (eco_iter=%zu)\n", eco_iter);
+      if (eco_iter > 6) {
+        printf("Too many ECO iterations, terminating.\n");
+        break;
+      }
+    }
+    fflush(stdout);
+
+    // ── Buffering phase (V2, after iter 3, only when WNS < 0) ──
+    sta::Slack wns_after_resize = sta->worstSlack(sta::MinMax::max());
+    if (wns_after_resize < 0 && i > 3) {
+      printf("----- BufferingV2 pass (iter %zu) -----\n", i+1);
+      double wns_before = wns_after_resize * 1e12;
+      double tns_before = sta->totalNegativeSlack(sta::MinMax::max()) * 1e12;
       sta->findRequireds();
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+
+      auto buf_start = std::chrono::high_resolution_clock::now();
+      incre_sta->parallelBufferingV2(resizer, PT_tradeoff);
+      auto buf_end = std::chrono::high_resolution_clock::now();
+      double buf_runtime = std::chrono::duration<double>(buf_end - buf_start).count();
+
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
+
+      IterationHelper::Metrics buf_cur = helper.snapshot(buf_runtime);
+      double wns_delta = buf_cur.wns_ps - wns_before;
+      double tns_delta = buf_cur.tns_ps - tns_before;
+      printf("Buffering diff: WNS %.3f -> %.3f ps (delta=%+.3f), "
+             "TNS %.3f -> %.3f ps (delta=%+.3f), Leakage %.3f uW (%.1fs)\n",
+             wns_before, buf_cur.wns_ps, wns_delta,
+             tns_before, buf_cur.tns_ps, tns_delta,
+             buf_cur.leakage * 1e10, buf_runtime);
+      fflush(stdout);
       incre_sta->lmUpdate();
 
-      auto after_buf = helper.snapshot(buf_sec);
-      const char *buf_decision = helper.ecoDecision(after_buf, best,
-                                                    no_improve, num_no_improve_tolerance,
-                                                    eco_iter, should_break,
-                                                    /*allow_revert=*/false);
-      helper.recordRow(i+1, "buffer", after_buf, before_buf, buf_decision);
+      // Accept if WNS improved or within 1.1x slack margin
+      double buf_wns = buf_cur.wns_ps / 1e12;
+      best_wns_s = best.wns_ps / 1e12;
+      double wns_thresh = best_wns_s < 0 ? best_wns_s * 1.1 : 0;  // allow 10% WNS degradation
+      if ((buf_wns > best_wns_s && buf_wns < 0)
+          || (buf_wns >= 0.0 && (buf_wns > best_wns_s || buf_cur.leakage < best.leakage))) {
+        best = buf_cur;
+        odb::dbDatabase::endEco(block);
+        odb::dbDatabase::beginEco(block);
+        helper.recordRow(i+1, "buffer", buf_cur, best, "accept");
+        printf("Buffering: accept (WNS improved)\n");
+      } else if (buf_wns >= wns_thresh && buf_cur.leakage < best.leakage) {
+        // WNS within margin and leakage improved
+        best = buf_cur;
+        odb::dbDatabase::endEco(block);
+        odb::dbDatabase::beginEco(block);
+        helper.recordRow(i+1, "buffer", buf_cur, best, "accept(margin)");
+        printf("Buffering: accept (WNS within 1.1x margin, leakage improved)\n");
+      } else {
+        odb::dbDatabase::endEco(block);
+        odb::dbDatabase::undoEco(block);
+        local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+        sta->delaysInvalid();
+        sta->updateTiming(true);
+        odb::dbDatabase::beginEco(block);
+        helper.recordRow(i+1, "buffer", buf_cur, best, "revert");
+        printf("Buffering: revert (WNS=%.3f < thresh=%.3f or no leakage gain)\n",
+               buf_wns * 1e12, wns_thresh * 1e12);
+      }
+      fflush(stdout);
     }
   }
 
-  helper.printSummary(best);
-
-  // Final accept/revert
-  double final_wns = sta->worstSlack(sta::MinMax::max()) * 1e12;
-  double best_wns_ps = best.wns_ps;
-  if (final_wns > best_wns_ps) {
+  // Final check
+  IterationHelper::Metrics final_m = helper.snapshot();
+  double final_wns = final_m.wns_ps / 1e12;
+  double best_wns_s = best.wns_ps / 1e12;
+  if (final_wns > best_wns_s) {
     odb::dbDatabase::endEco(block);
     printf("Final design accepted with WNS: %.3f, TNS: %.3f\n",
-           final_wns, sta->totalNegativeSlack(sta::MinMax::max()) * 1e12);
+           final_m.wns_ps, final_m.tns_ps);
   } else {
     odb::dbDatabase::endEco(block);
     odb::dbDatabase::undoEco(block);
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+    local_sta->taskArranger()->markDirty();
     printf("Reverted to best design with WNS: %.3f, TNS: %.3f\n",
            best.wns_ps, best.tns_ps);
   }
+
+  helper.printSummary(best);
   delete incre_sta;
 }
 
@@ -1734,7 +1823,26 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
   size_t eco_iter = 0;
   bool in_eco = false;  // true after first regression triggers revert-halve
 
+  const size_t replace_interval = 3;  // re-placement every K iterations
+
   for (size_t i = 0; i < iterations; ++i) {
+    // Periodic re-placement for accurate parasitics
+    if (i > 0 && i % replace_interval == 0) {
+      printf("[RE-PLACEMENT] Iteration %zu: running global_placement + estimate_parasitics\n", i+1);
+      fflush(stdout);
+      auto rp_start = std::chrono::high_resolution_clock::now();
+      Tcl_Eval(sta->tclInterp(), "global_placement -routability_driven -init_density_penalty 0.05 -initial_place_max_iter 10");
+      Tcl_Eval(sta->tclInterp(), "estimate_parasitics -placement");
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
+      local_sta->taskArranger()->markDirty();
+      auto rp_end = std::chrono::high_resolution_clock::now();
+      printf("[RE-PLACEMENT] took %.1f seconds\n",
+             std::chrono::duration<double>(rp_end - rp_start).count());
+      fflush(stdout);
+    }
+
     sta->findRequireds();
     printf("----- Combined Resize+Buffering Iteration %zu -----\n", i+1);
     auto start = std::chrono::high_resolution_clock::now();
@@ -2699,14 +2807,13 @@ recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &gr
   printf("Recording Graph Timing from PtGraph for cell %s\n", 
           graph_timing.cell ? graph_timing.cell->name() : "nullptr");
   fflush(stdout);
-  // First copy slews and paths from pt_graph's vertex to graph_timing
+  // First copy slews and paths from pt_graph's vertex to graph_timing,
+  // and write back to the global graph using the same dispatch as
+  // ParallelVisitor::updateVertexInfo.
   for (PtVertex &pt_vertex : pt_graph->ptVertices()) {
     if (pt_vertex.type() == PtVertexType::Sentinel)
       continue;
-    // if (!pt_vertex.vertex() || (pt_vertex.type() != PtVertexType::RefInput
-    //  && pt_vertex.type() != PtVertexType::RefOutput)) 
-    //   continue;
-    // First copy slews from pt_vertex to graph_timing
+    // Record slews from pt_vertex to graph_timing
     std::string vertex_name = pt_vertex.vertex()->name(sta->network());
     TimingInfo vertex_timing_info;
     vertex_timing_info.type = TimingType::VERTEX;
@@ -2715,7 +2822,7 @@ recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &gr
     for (int i = 0; i < pt_vertex.slewCount(); ++i) {
       vertex_timing_info.slews.push_back(slews[i]);
     }
-    // Then copy paths (including arrivals and requireds)
+    // Record paths (including arrivals and requireds)
     sta::Path *pt_paths = pt_vertex.paths();
     vertex_timing_info.paths.clear();
     int path_count = pt_graph->tagGroup(pt_vertex)->pathCount();
@@ -2733,6 +2840,16 @@ recordGraphTimingFromPtGraph(sta::dbSta* sta, PtGraph *pt_graph, GraphTiming &gr
     }
     vertex_timing_info.tag_group_index = pt_vertex.tagGroupIndex();
     graph_timing.vertex_timing_map[vertex_name] = vertex_timing_info;
+
+    // Write back to global graph (consistent with ParallelVisitor::updateVertexInfo)
+    sta::Vertex *sta_vertex = pt_vertex.vertex();
+    PtVertexType type = pt_vertex.type();
+    if (type == PtVertexType::RefInput
+     || type == PtVertexType::RefOutput
+     || type == PtVertexType::SiblingLoad) {
+      pt_graph->writeSlewToGraph(pt_vertex, sta_vertex);
+      pt_graph->writePathsToGraph(pt_vertex, sta_vertex);
+    }
   }
 
   // Second copy delays from pt_graph's edges to graph_timing
