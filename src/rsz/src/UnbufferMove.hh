@@ -21,6 +21,7 @@ class UnbufferMove : public BaseMove
               float setup_slack_margin) override;
 
   const char* name() override { return "UnbufferMove"; }
+  bool isDestructive() const override { return true; }
 
   bool removeBufferIfPossible(sta::Instance* buffer, bool honorDontTouchFixed);
   bool canRemoveBuffer(sta::Instance* buffer, bool honorDontTouchFixed);
