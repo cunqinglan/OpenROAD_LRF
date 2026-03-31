@@ -32,6 +32,10 @@ struct RemapConfig {
   // Use beam search instead of exhaustive backtracking for mapping enumeration.
   bool use_beam_search = false;
 
+  // Beam search diversity weight. 0 = pure score (default), >0 encourages
+  // structurally diverse solutions during beam pruning. Suggested range 0.1-1.0.
+  float beam_diversity = 0.0;
+
   // Candidate-vertex search cap in getWorstVertices / getWorstVerticesForEndpoint.
   size_t max_candidates = 100;
 
