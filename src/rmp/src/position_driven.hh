@@ -67,7 +67,7 @@ class PositionDrivenStrategy : public ExtractLocalWindow
       abc::Map_MappingSolution_t* pSolution,
       abc::Map_Man_t* pMan,
       abc::Abc_Ntk_t* pOriginalNetwork,
-      cut::LogicCut& candidate_cut,
+      cut::LogicCut candidate_cut,  // by value: each call gets its own copy
       SeqRemapper& remapper);
 
   // Fork-evaluate a range of solutions [iStart, iEnd) in parallel.

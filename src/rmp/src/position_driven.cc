@@ -1601,6 +1601,10 @@ bool PositionDrivenStrategy::remapOneCut(
     logger_->info(utl::RES, 454,
                   "Phase 2 winner: solution {} (post-repair slack={:.4e})",
                   final_best_index + 1, final_best_slack);
+
+    // Ensure STA is fully consistent after all ECO undo cycles.
+    sta->networkChanged();
+    sta->updateTiming(false);
   } else {
     // Skip Phase 2: use Phase 1 winner directly.
     pFinalBest = pSolutionBest;
@@ -2254,7 +2258,7 @@ sta::Slack PositionDrivenStrategy::reEvaluateWithRepair(
     abc::Map_MappingSolution_t* pSolution,
     abc::Map_Man_t* pMan,
     abc::Abc_Ntk_t* pOriginalNetwork,
-    cut::LogicCut& candidate_cut,
+    cut::LogicCut candidate_cut,  // by value: each call gets its own copy
     SeqRemapper& remapper)
 {
   sta::dbSta* sta = remapper.getSta();
