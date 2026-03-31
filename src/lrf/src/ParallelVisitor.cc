@@ -201,11 +201,13 @@ ParallelLrVisitor::trySwap(sta::Instance *inst)
       fflush(stdout);
     }
     if (best_cell_ == ori_cell) {
+      updateTimingFromPtGraph();
       return false;
     }
     // First compute the final timing after choosing best cell
-    if (best_cell_ != equiv_cells->at(equiv_cells->size() - 1)) 
+    if (best_cell_ != equiv_cells->at(equiv_cells->size() - 1))
       local_sta_->increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, best_cell_);
+    updateTimingFromPtGraph();
     return true;
   }
   printf("ParallelLrVisitor::visit no liberty cell for instance %s\n",
@@ -330,12 +332,15 @@ ParallelLrVisitor::trySwapByArray(sta::Instance *inst, int col_padding, int row_
     }
   }
 
-  if (best_cell_ == ori_cell)
+  if (best_cell_ == ori_cell) {
+    updateTimingFromPtGraph();
     return false;
+  }
 
   // Recompute final timing for best cell
   if (best_cell_ != candidates.back())
     local_sta_->increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, best_cell_);
+  updateTimingFromPtGraph();
   return true;
 }
 
@@ -531,13 +536,16 @@ ParallelLrVisitor::trySwapByArrayPruned(sta::Instance *inst, int col_padding, in
     ps.iters_since_reorder = 0;
   }
 
-  if (best_cell_ == ori_cell)
+  if (best_cell_ == ori_cell) {
+    updateTimingFromPtGraph();
     return false;
+  }
 
   resize_change_count_++;
 
   if (best_cell_ != candidates.back())
     local_sta_->increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, best_cell_);
+  updateTimingFromPtGraph();
   return true;
 }
 
@@ -887,13 +895,15 @@ ParallelLrVisitor::trySwapV1(sta::Instance *inst)
       }
     }
     if (best_cell_ == ori_cell) {
+      updateTimingFromPtGraph();
       return false;
     }
     // First compute the final timing after choosing best cell
-    if (best_cell_ != legal_equiv_cells[legal_equiv_cells.size() - 1].first) 
+    if (best_cell_ != legal_equiv_cells[legal_equiv_cells.size() - 1].first)
       local_sta_->increAndGetLocalTimingCost(pt_graph_.get(), arc_delay_calc_, best_cell_);
+    updateTimingFromPtGraph();
     return true;
-  } 
+  }
   printf("ParallelLrVisitor::visit no liberty cell for instance %s\n",
          db_sta_->network()->pathName(inst));
   fflush(stdout);
@@ -1066,10 +1076,12 @@ ParallelLrVisitor::visit(sta::Instance *inst,
       //       ori_cell->name(),
       //       best_result.delay_lm_sum * 1e12);
       // fflush(stdout);
+      updateTimingFromPtGraph();
       return false;
     }
+    updateTimingFromPtGraph();
     return true;
-  } 
+  }
   printf("Warning: ParallelLrVisitor::visit no liberty cell for instance %s\n",
          db_sta_->network()->pathName(inst));
   fflush(stdout);
@@ -1171,14 +1183,9 @@ ParallelLrVisitor::applyResizeChangesToDb(rsz::Resizer *resizer)
     // fflush(stdout);
     db_sta_->replaceCell(pt_graph_->refInstance(), best_cell_);
   }
-  std::chrono::steady_clock::time_point mid_time = std::chrono::steady_clock::now();
-  std::chrono::duration<double> mid_duration = mid_time - start_time;
-  runtime_map_["swap"] += mid_duration.count();
-  updateTimingFromPtGraph();
   std::chrono::steady_clock::time_point end_time = std::chrono::steady_clock::now();
   std::chrono::duration<double> duration = end_time - start_time;
-  std::chrono::duration<double> update_duration = end_time - mid_time;
-  runtime_map_["writeTimingToDb"] += duration.count();
+  runtime_map_["swap"] += duration.count();
   runtime_map_["applyDb"] += duration.count();
 }
 
@@ -1709,6 +1716,7 @@ CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_paddi
         rebuffer_->bestBnet());
     if (rebuffer_->bestBnet()) {
       decision_ = Decision::ResizeAndBuffer;
+      updateTimingFromPtGraph();
       return true;
     }
     // Recompute failed — fall through to resize-only check
@@ -1721,10 +1729,12 @@ CombinedVisitor::tryCombined(sta::Instance *inst, int col_padding, int row_paddi
     best_cell_ = best_resize_cell;
     local_sta_->increAndGetLocalTimingCost(
         pt_graph_.get(), arc_delay_calc_, best_resize_cell);
+    updateTimingFromPtGraph();
     return true;
   }
 
   decision_ = Decision::NoChange;
+  updateTimingFromPtGraph();
   return false;
 }
 

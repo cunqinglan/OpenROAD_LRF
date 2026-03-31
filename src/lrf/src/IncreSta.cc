@@ -1485,6 +1485,10 @@ IncreSta::bufferingVerticesCandidateBySensitivityV2(
   visitor->init(avg_delay, avg_leakage, wns, 100.0f, nullptr);
   visitor->setPrecheckResults(&results);
 
+  // Ensure required times are computed before parallel dispatch
+  // (vertexSlack inside evaluate may trigger findRequireds which is not thread-safe)
+  sta_->findRequireds();
+
   // Dispatch all instances in parallel (no conflict graph)
   task_arranger->visitAll(visitor);
 

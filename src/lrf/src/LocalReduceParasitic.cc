@@ -356,9 +356,11 @@ LocalReduceToPiElmore::reduceElmoreDfsToPt(const Pin *drvr_pin,
 {
   const Pin *pin = parasitics_->pin(node);
   if (from_res && pin) {
-    if (network_->isLoad(pin)) {
-      // Look up the PtVertex for this load pin
-      sta::Vertex *load_vertex = graph_->pinLoadVertex(pin);
+    // Safety: verify pin has a valid vertex before dereferencing.
+    // Parasitic nodes may hold stale pin pointers after buffer insertion/undoEco.
+    sta::VertexId vid_check = network_->vertexId(pin);
+    if (vid_check != sta::object_id_null && network_->isLoad(pin)) {
+      sta::Vertex *load_vertex = graph_->vertex(vid_check);
       const PtVertex *pt_v = load_vertex
           ? pt_graph_->ptVertex(load_vertex) : nullptr;
       VertexId vid = pt_v ? pt_v->objectIdx() : sta::object_id_null;

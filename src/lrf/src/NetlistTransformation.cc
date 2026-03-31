@@ -61,12 +61,13 @@ updateTimingFromPtGraph(PtGraph *pt_graph)
     PtVertex &pt_vertex = pt_graph->ptVertex(vertex_id);
     if (!pt_vertex.vertex())
       continue;
+    sta::Vertex *sta_vertex = pt_vertex.vertex();
     PtVertexType type = pt_vertex.type();
     if (type == PtVertexType::RefInput
      || type == PtVertexType::RefOutput
      || type == PtVertexType::SiblingLoad) {
-      pt_graph->writeSlewToGraph(pt_vertex, pt_vertex.vertex());
-      pt_graph->writePathsToGraph(pt_vertex, pt_vertex.vertex());
+      pt_graph->writeSlewToGraph(pt_vertex, sta_vertex);
+      pt_graph->writePathsToGraph(pt_vertex, sta_vertex);
     }
   }
 }
@@ -426,12 +427,8 @@ ResizeOperator::apply(const MoveOption &move, PtGraph *pt_graph,
     }
     db_sta_->replaceCell(pt_graph->refInstance(), move.target_cell);
   }
-  auto mid = std::chrono::steady_clock::now();
-  runtime_map["swap"] += std::chrono::duration<double>(mid - start).count();
-  updateTimingFromPtGraph(pt_graph);
   auto end = std::chrono::steady_clock::now();
-  runtime_map["writeTimingToDb"] +=
-      std::chrono::duration<double>(end - start).count();
+  runtime_map["swap"] += std::chrono::duration<double>(end - start).count();
   runtime_map["applyDb"] +=
       std::chrono::duration<double>(end - start).count();
 }
@@ -904,11 +901,9 @@ CombinedOperator::tryBufferingOnTop1AndSmaller(
       (*ctx.runtime_map)["buf_reject_no_valid_option"] += 1.0;
     return result;
   }
-  if (best_buf_cost >= baseline_cost) {
-    if (ctx.runtime_map)
-      (*ctx.runtime_map)["buf_reject_cost_worse"] += 1.0;
-    return result;
-  }
+  // Removed baseline_cost gate: bufferForTiming already does fair comparison
+  // between buffers=0 and buffers>0 options within the same evaluateOption
+  // framework. If best option has buffers, it genuinely beat no-buffer.
 
   // Re-evaluate winner to rebuild rebuffer internal state for apply
   local_sta_->increAndGetLocalTimingCost(pt_graph, ctx.arc_delay_calc, best_buf_cell);
@@ -1150,6 +1145,10 @@ ParallelVisitor::visit(sta::Instance *inst, sta::VertexId vid)
         std::chrono::duration<double>(end_time - start_time).count();
     return false;  // no DB changes in precheck
   }
+
+  // Always write back timing so downstream instances see up-to-date
+  // slew/arrival on shared vertices, even when no resize/buffer is chosen.
+  updateTimingFromPtGraph(pt_graph_.get());
 
   // Track visit/change counts for pruning K detection
   resize_visit_count_++;
