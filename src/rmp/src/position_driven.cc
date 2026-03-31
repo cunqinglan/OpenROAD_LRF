@@ -1653,6 +1653,12 @@ bool PositionDrivenStrategy::remapOneCut(
       close(saved_stdout2);
     }
 
+    // Enable incremental parasitics before DPL to avoid EST-0104.
+    est::EstimateParasitics* est = remapper.getEstimateParasitics();
+    if (est && !est->isIncrementalParasiticsEnabled()) {
+      est->setIncrementalParasiticsEnabled(true);
+    }
+
     remapper.performIncreDpl(candidate_cut, remapper.getDpl());
 
     logger_->info(utl::RES, 364, "Best solution permanently applied.");
