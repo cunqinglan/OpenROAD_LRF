@@ -2023,7 +2023,8 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
     if (log_ok) {
       res.slack = slack;
       res.log = std::move(log);
-      res.success = true;
+      // Sentinel slack means the child caught an exception or fatal signal.
+      res.success = (slack != std::numeric_limits<sta::Slack>::lowest());
     }
     results.push_back(std::move(res));
   }
@@ -2331,10 +2332,8 @@ sta::Slack PositionDrivenStrategy::reEvaluateWithRepair(
     return worst_slack;
 
   } catch (...) {
+    // End the ECO but leave it on the stack — the caller will undoEco.
     odb::dbDatabase::endEco(block);
-    odb::dbDatabase::undoEco(block);
-    sta->networkChanged();
-    sta->updateTiming(false);
     return std::numeric_limits<sta::Slack>::lowest();
   }
 }
