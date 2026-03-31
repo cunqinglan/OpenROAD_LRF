@@ -506,8 +506,10 @@ void MakeWireParasitics::layerRC(int wire_length_dbu,
   // Reduce resistance if the net has NDR with increased width
   if (net->getNonDefaultRule()) {
     odb::dbTechLayerRule* rule = net->getNonDefaultRule()->getLayerRule(layer);
-    float ndr_ratio = (float) rule->getWidth() / layer->getWidth();
-    r_per_meter /= ndr_ratio;
+    if (rule) {
+      float ndr_ratio = (float) rule->getWidth() / layer->getWidth();
+      r_per_meter /= ndr_ratio;
+    }
   }
 
   const float wire_length = dbuToMeters(wire_length_dbu);

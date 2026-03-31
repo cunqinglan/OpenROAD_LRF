@@ -791,9 +791,11 @@ void EstimateParasitics::estimateWireParasiticSteiner(
           if (ndr) {
             std::vector<odb::dbTechLayerRule*> layer_rules;
             ndr->getLayerRules(layer_rules);
-            float ratio = (float) layer_rules.at(0)->getWidth()
-                          / layer_rules.at(0)->getLayer()->getWidth();
-            res /= ratio;
+            if (!layer_rules.empty()) {
+              float ratio = (float) layer_rules.at(0)->getWidth()
+                            / layer_rules.at(0)->getLayer()->getWidth();
+              res /= ratio;
+            }
           }
 
           // Make pi model for the wire.
@@ -1457,9 +1459,11 @@ EstimateParasitics::estimateWireParasiticSteinerNoDeleteNetwork(
           if (ndr) {
             std::vector<odb::dbTechLayerRule*> layer_rules;
             ndr->getLayerRules(layer_rules);
-            float ratio = (float) layer_rules.at(0)->getWidth()
-                          / layer_rules.at(0)->getLayer()->getWidth();
-            res /= ratio;
+            if (!layer_rules.empty()) {
+              float ratio = (float) layer_rules.at(0)->getWidth()
+                            / layer_rules.at(0)->getLayer()->getWidth();
+              res /= ratio;
+            }
           }
 
           // Make pi model for the wire.
@@ -1577,9 +1581,11 @@ EstimateParasitics::estimateWireParasiticSteinerLrf(
           if (ndr) {
             std::vector<odb::dbTechLayerRule*> layer_rules;
             ndr->getLayerRules(layer_rules);
-            float ratio = (float) layer_rules.at(0)->getWidth()
-                          / layer_rules.at(0)->getLayer()->getWidth();
-            res /= ratio;
+            if (!layer_rules.empty()) {
+              float ratio = (float) layer_rules.at(0)->getWidth()
+                            / layer_rules.at(0)->getLayer()->getWidth();
+              res /= ratio;
+            }
           }
 
           // Make pi model for the wire.
