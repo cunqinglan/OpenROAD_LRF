@@ -1562,49 +1562,55 @@ bool PositionDrivenStrategy::remapOneCut(
             });
 
   const int top_k = config_.top_k;
-  odb::dbBlock* block = remapper.getDb()->getChip()->getBlock();
 
   abc::Map_MappingSolution_t* pFinalBest = nullptr;
   sta::Slack final_best_slack = std::numeric_limits<sta::Slack>::lowest();
   int final_best_index = -1;
 
-  if (top_k > 0 && all_successful.size() > 1) {
+  if (top_k > 0 && static_cast<int>(all_successful.size()) > 1) {
     const int k = std::min(top_k, static_cast<int>(all_successful.size()));
     logger_->info(utl::RES, 451,
-                  "Phase 2: re-evaluating top {} candidates with repairSetup.", k);
+                  "Phase 2: re-evaluating top {} candidates with repairSetup (fork).", k);
 
+    // Build candidate list for fork-based Phase 2.
+    std::vector<std::pair<int, abc::Map_MappingSolution_t*>> phase2_candidates;
     for (int i = 0; i < k; i++) {
-      auto& cand = all_successful[i];
-      logger_->info(utl::RES, 452,
-                    "Phase 2 candidate {}/{}: solution {} (raw slack={:.4e})",
-                    i + 1, k, cand.solution_index + 1, cand.raw_slack);
+      phase2_candidates.push_back(
+          {all_successful[i].solution_index, all_successful[i].pSolution});
+    }
 
-      sta::Slack post_repair_slack = reEvaluateWithRepair(
-          cand.pSolution, map_man, logic_network.get(),
-          candidate_cut, remapper);
+    auto phase2_results = forkEvaluateWithRepair(
+        map_man, logic_network.get(), candidate_cut, remapper,
+        phase2_candidates);
 
-      odb::dbDatabase::undoEco(block);
-      sta->networkChanged();
-      sta->updateTiming(false);
-
+    for (size_t i = 0; i < phase2_results.size(); ++i) {
+      auto& res = phase2_results[i];
       logger_->info(utl::RES, 453,
-                    "Phase 2 candidate {}/{}: post-repair slack={:.4e}",
-                    i + 1, k, post_repair_slack);
+                    "Phase 2 candidate {}/{}: solution {} post-repair slack={:.4e}{}",
+                    i + 1, k, res.solution_index + 1, res.slack,
+                    res.success ? "" : " (FAILED)");
 
-      if (post_repair_slack > final_best_slack) {
-        final_best_slack = post_repair_slack;
-        pFinalBest = cand.pSolution;
-        final_best_index = cand.solution_index;
+      if (res.success && res.slack > final_best_slack) {
+        final_best_slack = res.slack;
+        pFinalBest = res.pSolution;
+        final_best_index = res.solution_index;
       }
     }
 
-    logger_->info(utl::RES, 454,
-                  "Phase 2 winner: solution {} (post-repair slack={:.4e})",
-                  final_best_index + 1, final_best_slack);
-
-    // Ensure STA is fully consistent after all ECO undo cycles.
-    sta->networkChanged();
-    sta->updateTiming(false);
+    // If Phase 2 found no valid result, fall back to Phase 1 winner.
+    if (pFinalBest == nullptr && pSolutionBest != nullptr) {
+      pFinalBest = pSolutionBest;
+      final_best_slack = best_slack;
+      final_best_index = best_solution_index;
+      logger_->info(utl::RES, 454,
+                    "Phase 2 found no valid result, using Phase 1 winner: "
+                    "solution {} (raw slack={:.4e})",
+                    final_best_index + 1, final_best_slack);
+    } else {
+      logger_->info(utl::RES, 454,
+                    "Phase 2 winner: solution {} (post-repair slack={:.4e})",
+                    final_best_index + 1, final_best_slack);
+    }
   } else {
     // Skip Phase 2: use Phase 1 winner directly.
     pFinalBest = pSolutionBest;
@@ -2254,92 +2260,192 @@ sta::Slack PositionDrivenStrategy::evaluateSolution(
   return worst_slack;
 }
 
-sta::Slack PositionDrivenStrategy::reEvaluateWithRepair(
-    abc::Map_MappingSolution_t* pSolution,
-    abc::Map_Man_t* pMan,
-    abc::Abc_Ntk_t* pOriginalNetwork,
-    cut::LogicCut candidate_cut,  // by value: each call gets its own copy
-    SeqRemapper& remapper)
+std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateWithRepair(
+    abc::Map_Man_t* map_man,
+    abc::Abc_Ntk_t* logic_network,
+    cut::LogicCut& candidate_cut,
+    SeqRemapper& remapper,
+    const std::vector<std::pair<int, abc::Map_MappingSolution_t*>>& candidates)
 {
   sta::dbSta* sta = remapper.getSta();
   sta::dbNetwork* network = sta->getDbNetwork();
-  odb::dbBlock* block = remapper.getDb()->getChip()->getBlock();
-  rsz::Resizer* resizer = remapper.getResizer();
-  utl::Logger* logger = remapper.getLogger();
 
-  odb::dbDatabase::beginEco(block);
+  struct ChildInfo {
+    pid_t pid;
+    int pipe_fd;
+    int solution_index;
+    abc::Map_MappingSolution_t* pSolution;
+  };
+  std::vector<ChildInfo> children;
 
-  try {
-    // Suppress ABC stdout when not verbose.
-    int saved_stdout = -1;
-    if (!verbose_) {
-      fflush(stdout);
-      saved_stdout = dup(STDOUT_FILENO);
-      int devnull = open("/dev/null", O_WRONLY);
-      if (devnull >= 0) {
-        dup2(devnull, STDOUT_FILENO);
-        close(devnull);
+  for (auto& [sol_idx, pSolution] : candidates) {
+    int pipefd[2];
+    if (pipe(pipefd) == -1) {
+      logger_->warn(utl::RES, 456, "Phase 2 solution {} pipe() failed.", sol_idx + 1);
+      continue;
+    }
+
+    pid_t pid = fork();
+    if (pid == -1) {
+      close(pipefd[0]);
+      close(pipefd[1]);
+      logger_->warn(utl::RES, 457, "Phase 2 solution {} fork() failed.", sol_idx + 1);
+      continue;
+    }
+
+    if (pid == 0) {
+      // === CHILD PROCESS ===
+      close(pipefd[0]);
+      omp_set_num_threads(1);
+      sta->setThreadCount(1);
+      freopen("/dev/null", "w", stdout);
+      freopen("/dev/null", "w", stderr);
+
+      g_child_pipe_fd = pipefd[1];
+      signal(SIGABRT, child_fatal_handler);
+      signal(SIGSEGV, child_fatal_handler);
+      signal(SIGBUS,  child_fatal_handler);
+      signal(SIGFPE,  child_fatal_handler);
+      signal(SIGILL,  child_fatal_handler);
+
+      logger_->redirectStringBegin();
+      g_child_step = 0;
+
+      try {
+        g_child_step = 1;  // InsertAbcMapSolution
+        candidate_cut.InsertAbcMapSolution(
+            pSolution, map_man, logic_network,
+            *remapper.getAbcLibrary(), network, sta,
+            remapper.getNameGenerator(), logger_);
+
+        g_child_step = 2;  // setIncrementalParasitics
+        est::EstimateParasitics* est = remapper.getEstimateParasitics();
+        if (est && !est->isIncrementalParasiticsEnabled()) {
+          est->setIncrementalParasiticsEnabled(true);
+        }
+
+        g_child_step = 3;  // evaluateSolution
+        sta::Slack raw_slack = evaluateSolution(
+            pSolution, map_man, logic_network,
+            candidate_cut, remapper);
+
+        // Phase 2: run localized repairSetup on cut-affected endpoints.
+        g_child_step = 9;  // repairSetup
+        rsz::Resizer* resizer = remapper.getResizer();
+        sta::PinSet fanout_endpoints =
+            getCutFanoutEndpoints(candidate_cut, sta, network);
+
+        sta::Graph* graph = sta->ensureGraph();
+        for (const sta::Pin* pin : fanout_endpoints) {
+          sta::Vertex* vertex = nullptr;
+          sta::Vertex* bidir = nullptr;
+          graph->pinVertices(pin, vertex, bidir);
+          if (!vertex) continue;
+          sta::Slack ep_slack = sta->vertexSlack(vertex, sta::MinMax::max());
+          if (ep_slack < 0) {
+            resizer->repairSetup(pin);
+          }
+        }
+
+        sta->updateTiming(false);
+
+        // Re-measure after repair.
+        fanout_endpoints = getCutFanoutEndpoints(candidate_cut, sta, network);
+        sta::Slack post_repair_slack =
+            getWorstSlackFromEndpoints(fanout_endpoints, sta);
+
+        g_child_step = 8;  // done
+
+        std::string log_output = logger_->redirectStringEnd();
+        uint32_t log_len = static_cast<uint32_t>(log_output.size());
+        write_all(pipefd[1], &post_repair_slack, sizeof(post_repair_slack));
+        write_all(pipefd[1], &log_len, sizeof(log_len));
+        if (log_len > 0)
+          write_all(pipefd[1], log_output.data(), log_len);
+      } catch (const std::exception& e) {
+        std::string log_output = logger_->redirectStringEnd();
+        std::string err_msg = log_output
+            + "\n[CHILD EXCEPTION] " + e.what() + "\n";
+        sta::Slack sentinel = std::numeric_limits<sta::Slack>::lowest();
+        uint32_t log_len = static_cast<uint32_t>(err_msg.size());
+        write_all(pipefd[1], &sentinel, sizeof(sentinel));
+        write_all(pipefd[1], &log_len, sizeof(log_len));
+        if (log_len > 0)
+          write_all(pipefd[1], err_msg.data(), log_len);
       }
+      close(pipefd[1]);
+      _exit(0);
     }
 
-    // Apply the solution to ODB.
-    candidate_cut.InsertAbcMapSolution(
-        pSolution,
-        pMan,
-        pOriginalNetwork,
-        *remapper.getAbcLibrary(),
-        network,
-        sta,
-        remapper.getNameGenerator(),
-        logger);
-
-    // Restore stdout.
-    if (saved_stdout >= 0) {
-      fflush(stdout);
-      dup2(saved_stdout, STDOUT_FILENO);
-      close(saved_stdout);
-    }
-
-    // Place new cells.
-    remapper.performIncreDpl(candidate_cut, remapper.getDpl());
-
-    // Rebuild STA.
-    sta->networkChanged();
-    sta->updateTiming(false);
-
-    // Get fanout endpoints and run localized repairSetup on those with
-    // negative slack.
-    sta::PinSet fanout_endpoints
-        = getCutFanoutEndpoints(candidate_cut, sta, network);
-
-    sta::Graph* graph = sta->ensureGraph();
-    for (const sta::Pin* pin : fanout_endpoints) {
-      sta::Vertex* vertex = nullptr;
-      sta::Vertex* bidir = nullptr;
-      graph->pinVertices(pin, vertex, bidir);
-      if (!vertex) continue;
-      sta::Slack slack = sta->vertexSlack(vertex, sta::MinMax::max());
-      if (slack < 0) {
-        resizer->repairSetup(pin);
-      }
-    }
-
-    // Re-time after repairs.
-    sta->updateTiming(false);
-
-    // Measure post-repair worst slack.
-    fanout_endpoints = getCutFanoutEndpoints(candidate_cut, sta, network);
-    sta::Slack worst_slack = getWorstSlackFromEndpoints(fanout_endpoints, sta);
-
-    odb::dbDatabase::endEco(block);
-
-    return worst_slack;
-
-  } catch (...) {
-    // End the ECO but leave it on the stack — the caller will undoEco.
-    odb::dbDatabase::endEco(block);
-    return std::numeric_limits<sta::Slack>::lowest();
+    // === PARENT PROCESS ===
+    close(pipefd[1]);
+    children.push_back({pid, pipefd[0], sol_idx, pSolution});
   }
+
+  // Collect results (same as forkEvaluateSolutions)
+  std::vector<SolutionEvalResult> results;
+  results.reserve(children.size());
+
+  for (size_t j = 0; j < children.size(); ++j) {
+    auto& child = children[j];
+    SolutionEvalResult res;
+    res.solution_index = child.solution_index;
+    res.pSolution = child.pSolution;
+    res.success = false;
+
+    sta::Slack slack;
+    uint32_t log_len;
+
+    if (!read_all(child.pipe_fd, &slack, sizeof(slack))) {
+      close(child.pipe_fd);
+      results.push_back(std::move(res));
+      continue;
+    }
+    if (!read_all(child.pipe_fd, &log_len, sizeof(log_len))) {
+      close(child.pipe_fd);
+      results.push_back(std::move(res));
+      continue;
+    }
+
+    std::string log(log_len, '\0');
+    bool log_ok = (log_len == 0) || read_all(child.pipe_fd, log.data(), log_len);
+    close(child.pipe_fd);
+
+    if (log_ok) {
+      res.slack = slack;
+      res.log = std::move(log);
+      res.success = (slack != std::numeric_limits<sta::Slack>::lowest());
+    }
+    results.push_back(std::move(res));
+  }
+
+  // Reap all children
+  int clean_exits = 0, failed_exits = 0, signaled = 0;
+  for (size_t j = 0; j < children.size(); ++j) {
+    int status;
+    waitpid(children[j].pid, &status, 0);
+    if (WIFEXITED(status)) {
+      int exit_code = WEXITSTATUS(status);
+      if (exit_code != 0) {
+        results[j].success = false;
+        failed_exits++;
+      } else {
+        clean_exits++;
+      }
+    } else if (WIFSIGNALED(status)) {
+      results[j].success = false;
+      signaled++;
+    } else {
+      results[j].success = false;
+      failed_exits++;
+    }
+  }
+  logger_->info(utl::RES, 455,
+                "Phase 2 reap: {} clean, {} failed, {} signaled (total {}).",
+                clean_exits, failed_exits, signaled,
+                static_cast<int>(children.size()));
+
+  return results;
 }
 
 sta::PinSet PositionDrivenStrategy::getCutFanoutEndpoints(
