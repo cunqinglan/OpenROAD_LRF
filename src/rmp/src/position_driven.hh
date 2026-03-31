@@ -59,17 +59,6 @@ class PositionDrivenStrategy : public ExtractLocalWindow
       const sta::PinSet& fanout_endpoints,
       sta::dbSta* sta);
 
-  // Phase 2: Re-evaluate a single solution with localized repairSetup
-  // in the parent process. Uses ECO journaling so changes can be undone.
-  // Returns post-repair worst slack, or lowest() on failure.
-  // After return, the ECO is on the stack (caller must undoEco to revert).
-  sta::Slack reEvaluateWithRepair(
-      abc::Map_MappingSolution_t* pSolution,
-      abc::Map_Man_t* pMan,
-      abc::Abc_Ntk_t* pOriginalNetwork,
-      cut::LogicCut candidate_cut,  // by value: each call gets its own copy
-      SeqRemapper& remapper);
-
   // Fork-evaluate a range of solutions [iStart, iEnd) in parallel.
   // Returns results for each solution including slack and log output.
   std::vector<SolutionEvalResult> forkEvaluateSolutions(
@@ -79,6 +68,16 @@ class PositionDrivenStrategy : public ExtractLocalWindow
       SeqRemapper& remapper,
       int iStart,
       int iEnd);
+
+  // Phase 2: Fork-evaluate specific solutions with repairSetup in children.
+  // Each child runs InsertAbcMapSolution + evaluation + localized repairSetup.
+  // Returns results with post-repair slack for each solution.
+  std::vector<SolutionEvalResult> forkEvaluateWithRepair(
+      abc::Map_Man_t* map_man,
+      abc::Abc_Ntk_t* logic_network,
+      cut::LogicCut& candidate_cut,
+      SeqRemapper& remapper,
+      const std::vector<std::pair<int, abc::Map_MappingSolution_t*>>& candidates);
 
   //void positionDrivenRemap (SeqRemapper& remapper);
   sta::Vertex* getFarthestOutputVertex(
