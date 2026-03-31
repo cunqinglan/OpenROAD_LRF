@@ -1265,6 +1265,13 @@ sta::Slack RepairSetup::getInstanceSlack(sta::Instance* inst)
   return worst_slack;
 }
 
+bool RepairSetup::hasDestructiveMoves() const
+{
+  return std::any_of(
+      move_sequence_.begin(), move_sequence_.end(),
+      [](const BaseMove* m) { return m->isDestructive(); });
+}
+
 bool RepairSetup::repairSetupBatched(
     std::vector<std::pair<sta::Vertex*, sta::Slack>>& violating_ends,
     const float setup_slack_margin,
@@ -1294,6 +1301,12 @@ bool RepairSetup::repairSetupBatched(
   static constexpr int max_batch_size = 8;
   const int effective_batch = std::min(num_threads, max_batch_size);
 
+  // When the move sequence contains destructive operations (e.g. UnbufferMove
+  // which calls deleteInstance / mergeNet), we must refresh timing after every
+  // successful repair.  Otherwise the next endpoint's vertexWorstSlackPath()
+  // may dereference vertices / edges that were freed, causing use-after-free.
+  const bool has_destructive = hasDestructiveMoves();
+
   est::IncrementalParasiticsGuard guard(estimate_parasitics_);
 
   for (int batch_start = 0; batch_start < actual_end_count;) {
@@ -1322,8 +1335,10 @@ bool RepairSetup::repairSetupBatched(
     // Phase 2: Sequential repair
     resizer_->journalBegin();
     bool batch_changed = false;
+    int processed = 0;
 
     for (int i = 0; i < batch_size; i++) {
+      processed++;
       const auto& a = analyses[i];
       if (!a.needs_repair) {
         --num_viols;
@@ -1342,6 +1357,13 @@ bool RepairSetup::repairSetupBatched(
       }
       if (repairPath(end_path, a.slack, setup_slack_margin)) {
         batch_changed = true;
+        // When destructive moves are in the sequence, the graph is
+        // structurally modified (vertices/edges deleted).  We must
+        // break immediately to update timing before touching the
+        // next endpoint, whose path data would otherwise be stale.
+        if (has_destructive) {
+          break;
+        }
       }
     }
 
@@ -1374,7 +1396,10 @@ bool RepairSetup::repairSetupBatched(
       resizer_->journalEndLite();
     }
 
-    batch_start = batch_end;
+    // Advance by number of endpoints actually processed, not the
+    // full batch.  When we broke early for a destructive move the
+    // remaining endpoints will be re-analysed in the next batch.
+    batch_start += processed;
 
     if (verbose) {
       printProgress(opto_iteration, true, false, false, num_viols);
