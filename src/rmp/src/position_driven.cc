@@ -1602,7 +1602,7 @@ bool PositionDrivenStrategy::remapOneCut(
       pFinalBest = pSolutionBest;
       final_best_slack = best_slack;
       final_best_index = best_solution_index;
-      logger_->info(utl::RES, 454,
+      logger_->info(utl::RES, 458,
                     "Phase 2 found no valid result, using Phase 1 winner: "
                     "solution {} (raw slack={:.4e})",
                     final_best_index + 1, final_best_slack);
