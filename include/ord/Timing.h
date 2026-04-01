@@ -186,6 +186,7 @@ class Timing
                                 float top_ratio = 0.3);
   void testSingleInstBuffering(char *inst_name);
   void testParallelKKTProjection(const char *lr_helper_method = "RapidLRHelper");
+  void testLocalStaAccuracy(size_t max_steps = 50);
   /////////////////////////////////////////////////////////////
   // End functions for testing LR sizing
   /////////////////////////////////////////////////////////////

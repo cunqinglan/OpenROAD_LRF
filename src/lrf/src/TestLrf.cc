@@ -3874,4 +3874,248 @@ TestLrf::testParallelKKTProjection(sta::dbSta* sta,
   fflush(stdout);
 }
 
+// ============================================================
+//  testLocalStaAccuracy — Full traversal with selective resize.
+//  Compares slew and arrival from LocalSTA write-back against
+//  updateTiming ground truth.
+// ============================================================
+void
+TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
+                               odb::dbBlock *block, size_t max_steps)
+{
+  printf("\n========================================\n");
+  printf(" LocalSTA Accuracy Test (slew + arrival)\n");
+  printf("========================================\n\n");
+  fflush(stdout);
+
+  sta->updateTiming(true);
+  sta->findRequireds();
+  IncreSta *incre_sta = new IncreSta(sta, 1);
+  LocalSta *local_sta = incre_sta->localSta();
+  resizer->makeEquivCells();
+  sta::ArcDelayCalc *arc_delay_calc = sta->arcDelayCalc()->copy();
+
+  // ---- Generate resize sequence ----
+  struct ResizeStep {
+    sta::Instance *inst;
+    sta::LibertyCell *orig_cell;
+    sta::LibertyCell *target_cell;
+  };
+  std::vector<ResizeStep> sequence;
+  for (odb::dbInst *db_inst : block->getInsts()) {
+    if (sequence.size() >= max_steps) break;
+    sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(db_inst);
+    if (!sta_inst) continue;
+    sta::LibertyCell *orig_cell = sta->network()->libertyCell(sta_inst);
+    if (!orig_cell) continue;
+    sta::LibertyCellSeq *equiv_cells = sta->equivCells(orig_cell);
+    if (!equiv_cells || equiv_cells->size() < 2) continue;
+    sta::LibertyCell *target = nullptr;
+    for (sta::LibertyCell *ec : *equiv_cells) {
+      if (ec != orig_cell && sta::equivCellsArcs(orig_cell, ec)) {
+        target = ec; break;
+      }
+    }
+    if (!target) continue;
+    sequence.push_back({sta_inst, orig_cell, target});
+  }
+  printf("Generated %zu resize steps\n\n", sequence.size());
+  fflush(stdout);
+
+  // ---- Write-back helper (matches ParallelVisitor::updateVertexInfo) ----
+  auto writeBackTiming = [&](PtGraph *pt_graph) {
+    for (PtVertex &pv : pt_graph->ptVertices()) {
+      if (pv.type() == PtVertexType::Sentinel || !pv.vertex()) continue;
+      PtVertexType type = pv.type();
+      if (type == PtVertexType::RefDriver
+       || type == PtVertexType::RefInput
+       || type == PtVertexType::RefOutput
+       || type == PtVertexType::SiblingLoad
+       || type == PtVertexType::SiblingDrvr) {
+        pt_graph->writeSlewToGraph(pv, pv.vertex());
+        pt_graph->writePathsToGraph(pv, pv.vertex());
+      }
+    }
+  };
+
+  // ---- Build resize lookup ----
+  std::map<sta::Instance*, sta::LibertyCell*> resize_map;
+  for (auto &step : sequence)
+    resize_map[step.inst] = step.target_cell;
+
+  // ---- Pass 0: full traversal with resize ----
+  size_t inst_count = 0, resize_count = 0;
+  for (odb::dbInst *db_inst : block->getInsts()) {
+    sta::Instance *inst = sta->getDbNetwork()->dbToSta(db_inst);
+    if (!inst || !sta->network()->libertyCell(inst)) continue;
+    if (sta->network()->libertyCell(inst)->hasSequentials()) continue;
+    PtGraph *pg = local_sta->makePtGraph(inst, false);
+    auto it = resize_map.find(inst);
+    if (it != resize_map.end()) {
+      local_sta->increAndGetLocalTimingCost(pg, arc_delay_calc, it->second);
+      sta->replaceCell(inst, it->second);
+      resize_count++;
+    } else {
+      local_sta->updateLocalTiming(pg, arc_delay_calc);
+    }
+    writeBackTiming(pg);
+    inst_count++;
+  }
+  printf("Pass 0: %zu instances (%zu resized)\n", inst_count, resize_count);
+
+  // ---- Pass 1: second traversal (no resize) ----
+  size_t pass1_count = 0;
+  for (odb::dbInst *db_inst : block->getInsts()) {
+    sta::Instance *inst = sta->getDbNetwork()->dbToSta(db_inst);
+    if (!inst || !sta->network()->libertyCell(inst)) continue;
+    if (sta->network()->libertyCell(inst)->hasSequentials()) continue;
+    PtGraph *pg = local_sta->makePtGraph(inst, false);
+    local_sta->updateLocalTiming(pg, arc_delay_calc);
+    writeBackTiming(pg);
+    pass1_count++;
+  }
+  printf("Pass 1: %zu instances (no resize)\n\n", pass1_count);
+  fflush(stdout);
+
+  // ---- Snapshot: read slew + arrival from global graph ----
+  sta::Corner *corner = sta->corners()->findCorner("default");
+  sta::DcalcAnalysisPt *dap = corner->findDcalcAnalysisPt(sta::MinMax::max());
+
+  struct VtxRecord {
+    sta::Vertex *vtx;
+    std::string name;
+    bool is_driver;
+    float wb_slew_r, wb_slew_f;
+    float open_slew_r, open_slew_f;
+    float wb_arr_r, wb_arr_f;
+    float open_arr_r, open_arr_f;
+  };
+  std::vector<VtxRecord> records;
+
+  sta::VertexIterator vtx_iter(sta->graph());
+  while (vtx_iter.hasNext()) {
+    sta::Vertex *vtx = vtx_iter.next();
+    VtxRecord rec;
+    rec.vtx = vtx;
+    rec.name = vtx->name(sta->network());
+    rec.is_driver = sta->network()->isDriver(vtx->pin());
+    rec.wb_slew_r = sta->graph()->slew(vtx, sta::RiseFall::rise(), dap->index()) * 1e12;
+    rec.wb_slew_f = sta->graph()->slew(vtx, sta::RiseFall::fall(), dap->index()) * 1e12;
+    // Read arrival from paths
+    sta::Path *paths = vtx->paths();
+    sta::TagGroup *tg = sta->search()->tagGroup(vtx);
+    rec.wb_arr_r = rec.wb_arr_f = 0;
+    if (paths && tg) {
+      for (size_t i = 0; i < tg->pathCount(); i++) {
+        float arr = paths[i].arrival() * 1e12;
+        int rf_idx = paths[i].rfIndex(sta);
+        if (rf_idx == 0) rec.wb_arr_r = std::max(rec.wb_arr_r, arr);
+        else             rec.wb_arr_f = std::max(rec.wb_arr_f, arr);
+      }
+    }
+    rec.open_slew_r = rec.open_slew_f = 0;
+    rec.open_arr_r = rec.open_arr_f = 0;
+    records.push_back(rec);
+  }
+
+  // ---- updateTiming for ground truth ----
+  sta->updateTiming(true);
+  sta->findRequireds();
+
+  // ---- Read ground truth ----
+  for (auto &rec : records) {
+    rec.open_slew_r = sta->graph()->slew(rec.vtx, sta::RiseFall::rise(), dap->index()) * 1e12;
+    rec.open_slew_f = sta->graph()->slew(rec.vtx, sta::RiseFall::fall(), dap->index()) * 1e12;
+    sta::Path *paths = rec.vtx->paths();
+    sta::TagGroup *tg = sta->search()->tagGroup(rec.vtx);
+    if (paths && tg) {
+      for (size_t i = 0; i < tg->pathCount(); i++) {
+        float arr = paths[i].arrival() * 1e12;
+        int rf_idx = paths[i].rfIndex(sta);
+        if (rf_idx == 0) rec.open_arr_r = std::max(rec.open_arr_r, arr);
+        else             rec.open_arr_f = std::max(rec.open_arr_f, arr);
+      }
+    }
+  }
+
+  // ---- Statistics ----
+  // Slew stats (drivers only, skip sequentials)
+  double slew_sum = 0, slew_max = 0;
+  size_t slew_nonzero = 0, slew_count = 0;
+  // Arrival stats (all vertices)
+  double arr_sum = 0, arr_max = 0;
+  size_t arr_nonzero = 0, arr_count = 0;
+
+  for (auto &rec : records) {
+    if (rec.is_driver) {
+      double serr = std::max(std::abs(rec.wb_slew_r - rec.open_slew_r),
+                             std::abs(rec.wb_slew_f - rec.open_slew_f));
+      slew_sum += serr;
+      slew_max = std::max(slew_max, serr);
+      if (serr > 0.001) slew_nonzero++;
+      slew_count++;
+    }
+    double aerr = std::max(std::abs(rec.wb_arr_r - rec.open_arr_r),
+                           std::abs(rec.wb_arr_f - rec.open_arr_f));
+    arr_sum += aerr;
+    arr_max = std::max(arr_max, aerr);
+    if (aerr > 0.001) arr_nonzero++;
+    arr_count++;
+  }
+
+  printf("=== Slew (driver vertices) ===\n");
+  printf("  Count: %zu  non-zero (>0.001ps): %zu\n", slew_count, slew_nonzero);
+  printf("  Mean: %.6f ps  Max: %.6f ps\n\n",
+         slew_count > 0 ? slew_sum / slew_count : 0.0, slew_max);
+
+  printf("=== Arrival (all vertices) ===\n");
+  printf("  Count: %zu  non-zero (>0.001ps): %zu\n", arr_count, arr_nonzero);
+  printf("  Mean: %.6f ps  Max: %.6f ps\n\n",
+         arr_count > 0 ? arr_sum / arr_count : 0.0, arr_max);
+
+  // Top 10 worst by slew error
+  std::sort(records.begin(), records.end(),
+            [](const VtxRecord &a, const VtxRecord &b) {
+              return std::max(std::abs(a.wb_slew_r-a.open_slew_r), std::abs(a.wb_slew_f-a.open_slew_f))
+                   > std::max(std::abs(b.wb_slew_r-b.open_slew_r), std::abs(b.wb_slew_f-b.open_slew_f));
+            });
+  printf("Top 10 worst SLEW:\n");
+  printf("  %-40s %10s %10s %10s\n", "Vertex", "WB(ps)", "Open(ps)", "Err(ps)");
+  for (size_t j = 0; j < std::min(records.size(), (size_t)10); j++) {
+    auto &r = records[j];
+    double e_r = r.wb_slew_r - r.open_slew_r;
+    double e_f = r.wb_slew_f - r.open_slew_f;
+    double e = std::abs(e_r) > std::abs(e_f) ? e_r : e_f;
+    float wb = std::abs(e_r) > std::abs(e_f) ? r.wb_slew_r : r.wb_slew_f;
+    float op = std::abs(e_r) > std::abs(e_f) ? r.open_slew_r : r.open_slew_f;
+    printf("  %-40.40s %10.3f %10.3f %10.3f\n", r.name.c_str(), wb, op, e);
+  }
+
+  // Top 10 worst by arrival error
+  std::sort(records.begin(), records.end(),
+            [](const VtxRecord &a, const VtxRecord &b) {
+              return std::max(std::abs(a.wb_arr_r-a.open_arr_r), std::abs(a.wb_arr_f-a.open_arr_f))
+                   > std::max(std::abs(b.wb_arr_r-b.open_arr_r), std::abs(b.wb_arr_f-b.open_arr_f));
+            });
+  printf("\nTop 10 worst ARRIVAL:\n");
+  printf("  %-40s %10s %10s %10s\n", "Vertex", "WB(ps)", "Open(ps)", "Err(ps)");
+  for (size_t j = 0; j < std::min(records.size(), (size_t)10); j++) {
+    auto &r = records[j];
+    double e_r = r.wb_arr_r - r.open_arr_r;
+    double e_f = r.wb_arr_f - r.open_arr_f;
+    double e = std::abs(e_r) > std::abs(e_f) ? e_r : e_f;
+    float wb = std::abs(e_r) > std::abs(e_f) ? r.wb_arr_r : r.wb_arr_f;
+    float op = std::abs(e_r) > std::abs(e_f) ? r.open_arr_r : r.open_arr_f;
+    printf("  %-40.40s %10.3f %10.3f %10.3f\n", r.name.c_str(), wb, op, e);
+  }
+
+  printf("\n========================================\n");
+  printf(" End LocalSTA Accuracy Test\n");
+  printf("========================================\n");
+  fflush(stdout);
+
+  delete arc_delay_calc;
+  delete incre_sta;
+}
+
 }  // namespace lrf

@@ -261,6 +261,13 @@ public:
                                   size_t thread_num,
                                   std::string lr_helper_method = "LRHelper");
 
+  // Test LocalSTA slew + arrival accuracy: full traversal with selective
+  // resize, compare global graph against updateTiming ground truth.
+  void testLocalStaAccuracy(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t max_steps);
+
 protected:
   void printSlewComparison(char *inst_name, sta::dbSta* sta, 
                        LocalSta *local_sta, odb::dbInst *db_inst, 
