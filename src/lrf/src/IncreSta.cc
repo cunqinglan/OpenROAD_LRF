@@ -16,9 +16,7 @@
 #include "lrf/LrfClass.hh"
 #include "parasitics/ConcreteParasitics.hh"
 #include "TaskArranger.hh"
-#include "ParallelVisitor.hh"
 #include "NetlistTransformation.hh"
-#include "LrRebuffer.hh"
 #include "LrRebufferV2.hh"
 #include "rsz/Resizer.hh"
 #include "ParallelLibData.hh"
@@ -618,227 +616,14 @@ IncreSta::makeSwappableCellsCache(rsz::Resizer *resizer)
 //////////////////////////////////////////////////////////
 // APIs for LR resizing
 ///////////////////////////////////////////////////////////
-void 
-IncreSta::parallelResize(rsz::Resizer *resizer, float avg_delay, float avg_power,
-                      float PT_tradeoff)
-{
-  auto start_total = std::chrono::high_resolution_clock::now();
-  Slack wns = sta_->worstSlack(MinMax::max());
-
-  if (!swap_cell_presaved_) {
-    auto start_cache = std::chrono::high_resolution_clock::now();
-    makeSwappableCellsCache(resizer);
-    auto end_cache = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> diff_cache = end_cache - start_cache;
-    printf("makeSwappableCellsCache took %f s\n", diff_cache.count());
-  }
-  if (!swap_cell_leakage_presaved_) {
-    auto start_presave = std::chrono::high_resolution_clock::now();
-    preSaveLibCellLeakage();
-    auto end_presave = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> diff_presave = end_presave - start_presave;
-    printf("preSaveLibCellLeakage took %f s\n", diff_presave.count());
-  }
-
-  // float average_delay = averageDelayOnCritPath();
-  // float average_power = averageLeakage();
-  printf("Average delay: %f, average power: %f\n", avg_delay * 1e12, avg_power * 1e9);
-  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
-  visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &swappable_cells_cache_, &inst_info_map_);
-
-  auto start_resize = std::chrono::high_resolution_clock::now();
-  local_sta_->runResize(resizer, visitor);
-  auto end_resize = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> diff_resize = end_resize - start_resize;
-  printf("local_sta_->runResize took %f s\n", diff_resize.count());
-
-  auto end_total = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> diff_total = end_total - start_total;
-  printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
-}
-
-void 
-IncreSta::parallelResizeV1(rsz::Resizer *resizer, float avg_delay, float avg_power,
-                      float PT_tradeoff)
-{
-  auto start_total = std::chrono::high_resolution_clock::now();
-
-  // We first create a serials of instance visitors
-  local_sta_->initParallel();
-  Slack wns = sta_->worstSlack(MinMax::max());
-  TaskArranger *task_arranger = local_sta_->taskArranger();
-
-  if (parallel_lib_data_ == nullptr) {
-    auto start_pld = std::chrono::high_resolution_clock::now();
-    makeParallelLibData(resizer, task_arranger);
-    auto end_pld = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> diff_pld = end_pld - start_pld;
-    printf("makeParallelLibData took %f s\n", diff_pld.count());
-  }
-
-  // float average_delay = averageDelayOnCritPath();
-  // float average_power = averageLeakage();
-  printf("Average delay: %f, average power: %f\n", avg_delay * 1e12, avg_power * 1e9);
-  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
-  visitor->init(avg_delay, avg_power, wns, PT_tradeoff, parallel_lib_data_);
-
-  auto start_resize = std::chrono::high_resolution_clock::now();
-  local_sta_->runResize(resizer, visitor);
-  auto end_resize = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> diff_resize = end_resize - start_resize;
-  printf("local_sta_->runResize took %f s\n", diff_resize.count());
-
-  auto end_total = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> diff_total = end_total - start_total;
-  printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
-}
-
 void
 IncreSta::setMaxResizeNum(size_t max_resize_num)
 {
   local_sta_->taskArranger()->setMaxResizeNum(max_resize_num);
 }
 
-void 
-IncreSta::parallelResizeAdaptive(rsz::Resizer *resizer, float avg_delay, float avg_power,
-                      float PT_tradeoff)
-{
-  printf("IncreSta::parallelResizeAdaptive start\n");
-  auto start_total = std::chrono::high_resolution_clock::now();
-
-  // We first create a serials of instance visitors
-  local_sta_->initParallel();
-  Slack wns = sta_->worstSlack(MinMax::max());
-  TaskArranger *task_arranger = local_sta_->taskArranger();
-
-  if (!swap_cell_presaved_) {
-    auto start_cache = std::chrono::high_resolution_clock::now();
-    makeSwappableCellsCache(resizer);
-    auto end_cache = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> diff_cache = end_cache - start_cache;
-    printf("makeSwappableCellsCache took %f s\n", diff_cache.count());
-  }
-  if (!swap_cell_leakage_presaved_) {
-    auto start_presave = std::chrono::high_resolution_clock::now();
-    preSaveLibCellLeakage();
-    auto end_presave = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> diff_presave = end_presave - start_presave;
-    printf("preSaveLibCellLeakage took %f s\n", diff_presave.count());
-  }
-
-  auto start_resize = std::chrono::high_resolution_clock::now();
-  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
-  visitor->init(avg_delay, avg_power, wns, PT_tradeoff, 
-      &swappable_cells_cache_, &inst_info_map_);
-  visitor->setMoveType(MoveType::Resizing);
-  local_sta_->runResize(resizer, visitor);
-  auto end_resize = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> diff_resize = end_resize - start_resize;
-
-  // Use distinct variable names to avoid shadowing Slack
-  sta_->updateTiming(true);
-  sta_->findRequireds();
-  double tns_after_resize = sta_->totalNegativeSlack(MinMax::max());
-  double wns_after_resize = sta_->worstSlack(MinMax::max());
-  printf("After parallel LR resize, TNS: %e, WNS: %e\n", tns_after_resize, wns_after_resize);
-  printf("parallel resize time: %f s\n", diff_resize.count());
-
-  if (isPowerOptimizationMode()) {
-    ParallelLrVisitor *critical_path_visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
-    critical_path_visitor->init(avg_delay, avg_power, wns_after_resize,
-        PT_tradeoff, &swappable_cells_cache_, &inst_info_map_);
-    critical_path_visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
-    critical_path_visitor->setMoveType(MoveType::Resizing);
-
-    // Time the critical-path sizing phase
-    auto start_cps = std::chrono::high_resolution_clock::now();
-    LrSizer lr_sizer(sta_, lr_helper_, critical_path_visitor);
-    lr_sizer.criticalPathSizing();
-    auto end_cps = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> diff_cps = end_cps - start_cps;
-
-    double tns_after_cps = sta_->totalNegativeSlack(MinMax::max());
-    double wns_after_cps = sta_->worstSlack(MinMax::max());
-    printf("After critical path sizing, TNS: %e, WNS: %e\n", tns_after_cps, wns_after_cps);
-    printf("critical path sizing time: %f s\n", diff_cps.count());
-    delete critical_path_visitor;
-  }
-
-  auto end_total = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> diff_total = end_total - start_total;
-  printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
-}
-
 void
-IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float avg_power,
-                      float PT_tradeoff)
-{
-  auto start_total = std::chrono::high_resolution_clock::now();
-
-  local_sta_->initParallel();
-  Slack wns = sta_->worstSlack(MinMax::max());
-
-  if (!swap_cell_presaved_) {
-    makeSwappableCellsCache(resizer);
-  }
-  if (!swap_cell_leakage_presaved_) {
-    preSaveLibCellLeakage();
-  }
-  makeEquivCellArray();
-
-  auto start_resize = std::chrono::high_resolution_clock::now();
-  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
-  visitor->init(avg_delay, avg_power, wns, PT_tradeoff,
-      &swappable_cells_cache_, &inst_info_map_);
-  visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
-  visitor->setPruningControl(&pruning_control_);
-  visitor->setMoveType(MoveType::Resizing);
-  // visitor ownership is transferred to TaskArranger::visitOrdered.
-  local_sta_->runResize(resizer, visitor);
-  auto end_resize = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> diff_resize = end_resize - start_resize;
-
-  sta_->updateTiming(true);
-  sta_->findRequireds();
-  double tns_after_resize = sta_->totalNegativeSlack(MinMax::max());
-  double wns_after_resize = sta_->worstSlack(MinMax::max());
-  printf("After parallel LR resize, TNS: %e, WNS: %e\n", tns_after_resize, wns_after_resize);
-  printf("parallel resize time: %f s\n", diff_resize.count());
-
-  // --- Pruning: update iteration counter and detect K ---
-  pruning_control_.iteration++;
-  printf("Pruning: iteration %d, enabled=%d, K=%d\n",
-         pruning_control_.iteration, pruning_control_.enabled, pruning_control_.K);
-  fflush(stdout);
-
-  if (isPowerOptimizationMode()) {
-    ParallelLrVisitor *critical_path_visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
-    critical_path_visitor->init(avg_delay, avg_power, wns_after_resize,
-        PT_tradeoff, &swappable_cells_cache_, &inst_info_map_);
-    critical_path_visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
-    critical_path_visitor->setMoveType(MoveType::Resizing);
-
-    // Time the critical-path sizing phase
-    auto start_cps = std::chrono::high_resolution_clock::now();
-    LrSizer lr_sizer(sta_, lr_helper_, critical_path_visitor);
-    lr_sizer.criticalPathSizing();
-    auto end_cps = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> diff_cps = end_cps - start_cps;
-
-    double tns_after_cps = sta_->totalNegativeSlack(MinMax::max());
-    double wns_after_cps = sta_->worstSlack(MinMax::max());
-    printf("After critical path sizing, TNS: %e, WNS: %e\n", tns_after_cps, wns_after_cps);
-    printf("critical path sizing time: %f s\n", diff_cps.count());
-    delete critical_path_visitor;
-  }
-
-  auto end_total = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> diff_total = end_total - start_total;
-  printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
-}
-
-void
-IncreSta::parallelResizeByArrayV2(rsz::Resizer *resizer, float avg_delay,
+IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
                                   float avg_power, float PT_tradeoff)
 {
   auto start_total = std::chrono::high_resolution_clock::now();
@@ -873,7 +658,7 @@ IncreSta::parallelResizeByArrayV2(rsz::Resizer *resizer, float avg_delay,
   sta_->findRequireds();
   double tns_after = sta_->totalNegativeSlack(sta::MinMax::max());
   double wns_after = sta_->worstSlack(sta::MinMax::max());
-  printf("After V2 parallel resize, TNS: %e, WNS: %e\n", tns_after, wns_after);
+  printf("After parallel resize, TNS: %e, WNS: %e\n", tns_after, wns_after);
   printf("parallel resize time: %f s\n", diff_resize.count());
 
   // Pruning: update iteration counter (K detection done in TaskArranger)
@@ -884,14 +669,14 @@ IncreSta::parallelResizeByArrayV2(rsz::Resizer *resizer, float avg_delay,
 
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_total = end_total - start_total;
-  printf("IncreSta::parallelResizeV2 total time %f s\n", diff_total.count());
+  printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
 }
 
 void
-IncreSta::parallelBufferingV2(rsz::Resizer *resizer, float PT_tradeoff,
+IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
                               int top_n)
 {
-  printf("IncreSta::parallelBufferingV2 start\n");
+  printf("IncreSta::parallelBuffering start\n");
   auto start_total = std::chrono::high_resolution_clock::now();
 
   float avg_delay = averageDelayOnCritPath();
@@ -902,7 +687,7 @@ IncreSta::parallelBufferingV2(rsz::Resizer *resizer, float PT_tradeoff,
   TaskArranger *task_arranger = local_sta_->taskArranger();
 
   // Screen buffering candidates via sensitivity-based evaluation
-  std::vector<size_t> selected = bufferingVerticesCandidateBySensitivityV2(
+  std::vector<size_t> selected = bufferingVerticesCandidateBySensitivity(
       resizer, avg_delay, avg_leakage, top_n);
   if (selected.empty()) {
     printf("No buffering candidates found. Skipping.\n");
@@ -910,7 +695,7 @@ IncreSta::parallelBufferingV2(rsz::Resizer *resizer, float PT_tradeoff,
   }
   task_arranger->markSelectedInstances(selected);
 
-  // Create V2 visitor with BufferOperator only
+  // Create visitor with BufferOperator only
   auto *visitor = new ParallelVisitor(sta_, local_sta_, resizer);
   visitor->setTaskArranger(task_arranger);
 
@@ -932,20 +717,20 @@ IncreSta::parallelBufferingV2(rsz::Resizer *resizer, float PT_tradeoff,
   sta_->findRequireds();
   double tns_after = sta_->totalNegativeSlack(sta::MinMax::max());
   double wns_after = sta_->worstSlack(sta::MinMax::max());
-  printf("After V2 buffering, TNS: %.4f ps, WNS: %.4f ps\n",
+  printf("After buffering, TNS: %.4f ps, WNS: %.4f ps\n",
          tns_after * 1e12, wns_after * 1e12);
   printf("  buffering time: %.3f s\n",
          std::chrono::duration<double>(end_buf - start_buf).count());
 
   auto end_total = std::chrono::high_resolution_clock::now();
-  printf("IncreSta::parallelBufferingV2 total time %.3f s\n",
+  printf("IncreSta::parallelBuffering total time %.3f s\n",
          std::chrono::duration<double>(end_total - start_total).count());
 }
 
 std::vector<size_t>
 IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
-                               float avg_power, float PT_tradeoff,
-                               float top_ratio)
+                                 float avg_power, float PT_tradeoff,
+                                 float top_ratio)
 {
   printf("IncreSta::precedingResizeCheck start\n");
   auto start_total = std::chrono::high_resolution_clock::now();
@@ -954,6 +739,8 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
   local_sta_->initParallel();
   if (!equiv_cell_array_built_)
     makeEquivCellArray();
+  if (!swap_cell_leakage_presaved_)
+    preSaveLibCellLeakage();
 
   Slack wns = sta_->worstSlack(MinMax::max());
   TaskArranger *task_arranger = local_sta_->taskArranger();
@@ -963,12 +750,16 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
   for (size_t i = 0; i < results.size(); i++)
     results[i] = {nullptr, -std::numeric_limits<float>::infinity(), i};
 
-  // Create PrecheckVisitor — stores results via visitor->visit(), no DB changes.
-  PrecheckVisitor *visitor = new PrecheckVisitor(
-      sta_, local_sta_, resizer, &results);
-  visitor->init(avg_delay, avg_power, wns, PT_tradeoff,
-                &swappable_cells_cache_, &inst_info_map_);
-  visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+  // Create ParallelVisitor with ResizePrecheckOperator
+  auto *visitor = new ParallelVisitor(sta_, local_sta_, resizer);
+
+  auto precheck_op = std::make_unique<ResizePrecheckOperator>(sta_, local_sta_);
+  precheck_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+  precheck_op->setInstInfoMap(&inst_info_map_);
+  visitor->setOperator(std::move(precheck_op));
+
+  visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &inst_info_map_);
+  visitor->setPrecheckResults(&results);
 
   // Run embarrassingly parallel precheck (no conflict graph)
   task_arranger->visitAll(visitor);
@@ -1018,167 +809,12 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
   printf("precedingResizeCheck total time: %f s\n", diff_total.count());
   fflush(stdout);
 
-  return selected_ids;
-}
-
-void
-IncreSta::parallelResizeByArrayWithPrecheck(
-    rsz::Resizer *resizer, float avg_delay, float avg_power,
-    float PT_tradeoff, float top_ratio)
-{
-  auto start_total = std::chrono::high_resolution_clock::now();
-
-  // Ensure swappable cells cache and leakage data are populated
-  if (!swap_cell_presaved_) {
-    makeSwappableCellsCache(resizer);
-  }
-  if (!swap_cell_leakage_presaved_) {
-    preSaveLibCellLeakage();
-  }
-
-  // Phase 1: Precheck — returns filtered top instances sorted by benefit
-  auto t_precheck_start = std::chrono::high_resolution_clock::now();
-  auto vertex_ids = precedingResizeCheck(resizer, avg_delay, avg_power,
-                                       PT_tradeoff, top_ratio);
-  auto t_precheck_end = std::chrono::high_resolution_clock::now();
-  double precheck_sec = std::chrono::duration<double>(t_precheck_end - t_precheck_start).count();
-
-  // Phase 2: Mark selected instances
-  TaskArranger *task_arranger = local_sta_->taskArranger();
-  task_arranger->markSelectedInstances(vertex_ids);
-    
-  // Phase 3: Resize (only selected instances visited in runTask)
-  Slack wns = sta_->worstSlack(MinMax::max());
-  auto t_resize_start = std::chrono::high_resolution_clock::now();
-  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
-  visitor->init(avg_delay, avg_power, wns, PT_tradeoff,
-      &swappable_cells_cache_, &inst_info_map_);
-  visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
-  visitor->setMoveType(MoveType::Resizing);
-  local_sta_->runResize(resizer, visitor);
-  auto t_resize_end = std::chrono::high_resolution_clock::now();
-  double resize_sec = std::chrono::duration<double>(t_resize_end - t_resize_start).count();
-
-  sta_->updateTiming(true);
-  sta_->findRequireds();
-  double tns = sta_->totalNegativeSlack(MinMax::max());
-  double wns_after = sta_->worstSlack(MinMax::max());
-  printf("After parallel LR resize with precheck, TNS: %e, WNS: %e\n", tns, wns_after);
-  printf("  precheck time: %.3f s, resize time: %.3f s, ratio: %.2f\n",
-         precheck_sec, resize_sec,
-         resize_sec > 0 ? precheck_sec / resize_sec : 0.0);
-
-  if (isPowerOptimizationMode()) {
-    ParallelLrVisitor *cp_visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
-    cp_visitor->init(avg_delay, avg_power, wns_after,
-        PT_tradeoff, &swappable_cells_cache_, &inst_info_map_);
-    cp_visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
-    cp_visitor->setMoveType(MoveType::Resizing);
-    auto start_cps = std::chrono::high_resolution_clock::now();
-    LrSizer lr_sizer(sta_, lr_helper_, cp_visitor);
-    lr_sizer.criticalPathSizing();
-    auto end_cps = std::chrono::high_resolution_clock::now();
-    printf("After critical path sizing, TNS: %e, WNS: %e\n",
-           sta_->totalNegativeSlack(MinMax::max()),
-           (double)sta_->worstSlack(MinMax::max()));
-    printf("critical path sizing time: %f s\n",
-           std::chrono::duration<double>(end_cps - start_cps).count());
-    delete cp_visitor;
-  }
-
-  auto end_total = std::chrono::high_resolution_clock::now();
-  printf("parallelResizeByArrayWithPrecheck total time %.3f s\n",
-         std::chrono::duration<double>(end_total - start_total).count());
-}
-
-std::vector<size_t>
-IncreSta::precedingResizeCheckV2(rsz::Resizer *resizer, float avg_delay,
-                                 float avg_power, float PT_tradeoff,
-                                 float top_ratio)
-{
-  printf("IncreSta::precedingResizeCheckV2 start\n");
-  auto start_total = std::chrono::high_resolution_clock::now();
-
-  // Ensure prerequisites
-  local_sta_->initParallel();
-  if (!equiv_cell_array_built_)
-    makeEquivCellArray();
-  if (!swap_cell_leakage_presaved_)
-    preSaveLibCellLeakage();
-
-  Slack wns = sta_->worstSlack(MinMax::max());
-  TaskArranger *task_arranger = local_sta_->taskArranger();
-
-  // Pre-allocate results with 1:1 mapping to TaskArranger vertices.
-  std::vector<ResizeBenefit> results(task_arranger->vertexCount());
-  for (size_t i = 0; i < results.size(); i++)
-    results[i] = {nullptr, -std::numeric_limits<float>::infinity(), i};
-
-  // Create ParallelVisitor with ResizePrecheckOperator
-  auto *visitor = new ParallelVisitor(sta_, local_sta_, resizer);
-
-  auto precheck_op = std::make_unique<ResizePrecheckOperator>(sta_, local_sta_);
-  precheck_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
-  precheck_op->setInstInfoMap(&inst_info_map_);
-  visitor->setOperator(std::move(precheck_op));
-
-  visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &inst_info_map_);
-  visitor->setPrecheckResults(&results);
-
-  // Run embarrassingly parallel precheck (no conflict graph)
-  task_arranger->visitAll(visitor);
-
-  // Sort by cost_change descending
-  std::sort(results.begin(), results.end(),
-            [](const ResizeBenefit &a, const ResizeBenefit &b) {
-              return a.cost_change > b.cost_change;
-            });
-
-  // Count positive before filtering (for logging)
-  size_t positive_count = 0;
-  for (const auto &r : results) {
-    if (r.cost_change > 0.0f)
-      positive_count++;
-  }
-  printf("PrecheckV2: %zu/%zu instances have positive benefit\n",
-         positive_count, results.size());
-
-  // Filter: keep top_ratio fraction, remove non-positive
-  size_t top_n = static_cast<size_t>(results.size() * top_ratio);
-  results.resize(top_n);
-  results.erase(
-    std::remove_if(results.begin(), results.end(),
-                   [](const ResizeBenefit &b) { return b.cost_change <= 0.0f; }),
-    results.end());
-
-  auto end_total = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> diff_total = end_total - start_total;
-
-  // Extract vertex indices
-  std::vector<size_t> selected_ids;
-  selected_ids.reserve(results.size());
-
-  // Print top results (cap at 20 for display)
-  size_t print_n = std::min(results.size(), static_cast<size_t>(20));
-  printf("Selected %zu instances (top_ratio=%.2f), top %zu:\n",
-         results.size(), top_ratio, print_n);
-  for (size_t i = 0; i < results.size(); i++) {
-    selected_ids.push_back(results[i].vertex_idx);
-    if (i < print_n) {
-      printf("  [%zu] %s  cost_change=%.6f  vertex_idx=%zu\n", i,
-             network_->pathName(results[i].inst),
-             results[i].cost_change, results[i].vertex_idx);
-    }
-  }
-  printf("precedingResizeCheckV2 total time: %f s\n", diff_total.count());
-  fflush(stdout);
-
   pruning_control_.last_selected_count = static_cast<int>(selected_ids.size());
   return selected_ids;
 }
 
 void
-IncreSta::parallelResizeByArrayWithPrecheckV2(
+IncreSta::parallelResizeByArrayWithPrecheck(
     rsz::Resizer *resizer, float avg_delay, float avg_power,
     float PT_tradeoff, float top_ratio)
 {
@@ -1199,7 +835,7 @@ IncreSta::parallelResizeByArrayWithPrecheckV2(
       : top_ratio;
 
   auto t_precheck_start = std::chrono::high_resolution_clock::now();
-  auto vertex_ids = precedingResizeCheckV2(resizer, avg_delay, avg_power,
+  auto vertex_ids = precedingResizeCheck(resizer, avg_delay, avg_power,
                                            PT_tradeoff, effective_ratio);
   auto t_precheck_end = std::chrono::high_resolution_clock::now();
   double precheck_sec = std::chrono::duration<double>(t_precheck_end - t_precheck_start).count();
@@ -1227,7 +863,7 @@ IncreSta::parallelResizeByArrayWithPrecheckV2(
   sta_->findRequireds();
   double tns = sta_->totalNegativeSlack(MinMax::max());
   double wns_after = sta_->worstSlack(MinMax::max());
-  printf("After V2 parallel LR resize with precheck, TNS: %e, WNS: %e\n", tns, wns_after);
+  printf("After parallel LR resize with precheck, TNS: %e, WNS: %e\n", tns, wns_after);
   printf("  precheck time: %.3f s, resize time: %.3f s, ratio: %.2f\n",
          precheck_sec, resize_sec,
          resize_sec > 0 ? precheck_sec / resize_sec : 0.0);
@@ -1240,7 +876,7 @@ IncreSta::parallelResizeByArrayWithPrecheckV2(
   // Adaptive instance filtering: store stats for caller to decide activation
   {
     TaskArranger *ta = local_sta_->taskArranger();
-    pruning_control_.last_change_count = ta->lastV2ChangeCount();
+    pruning_control_.last_change_count = ta->lastChangeCount();
     printf("InstanceFilter: selected=%d, changed=%d, total=%d, adaptive_ratio=%.4f\n",
            pruning_control_.last_selected_count,
            pruning_control_.last_change_count,
@@ -1272,7 +908,7 @@ IncreSta::parallelResizeByArrayWithPrecheckV2(
   }
 
   auto end_total = std::chrono::high_resolution_clock::now();
-  printf("parallelResizeByArrayWithPrecheckV2 total time %.3f s\n",
+  printf("parallelResizeByArrayWithPrecheck total time %.3f s\n",
          std::chrono::duration<double>(end_total - start_total).count());
 }
 
@@ -1392,8 +1028,6 @@ IncreSta::bufferingVerticesCandidate(int top_n)
   return selected;
 }
 
-// Sensitivity-based buffering candidate screening (parallel).
-// Uses the unified sensitivity formula on each net's buffer tree.
 std::vector<size_t>
 IncreSta::bufferingVerticesCandidateBySensitivity(
     rsz::Resizer *resizer, float avg_delay, float avg_leakage, int top_n)
@@ -1405,69 +1039,7 @@ IncreSta::bufferingVerticesCandidateBySensitivity(
   Slack wns = sta_->worstSlack(MinMax::max());
   TaskArranger *task_arranger = local_sta_->taskArranger();
 
-  // Initialize LrRebuffer via BufferInsertion move type
-  LrRebuffer::initGlobalPreamble(sta_, resizer);
-
-  // Pre-allocate results
-  std::vector<ResizeBenefit> results(task_arranger->vertexCount());
-  for (size_t i = 0; i < results.size(); i++)
-    results[i] = {nullptr, -std::numeric_limits<float>::infinity(), i};
-
-  // Create BufferSensitivityVisitor and dispatch via visitAll
-  BufferSensitivityVisitor *visitor = new BufferSensitivityVisitor(
-      sta_, local_sta_, resizer, &results);
-  visitor->init(avg_delay, avg_leakage, wns, 100.0f, nullptr, nullptr);
-  visitor->setMoveType(MoveType::BufferInsertion);
-  task_arranger->visitAll(visitor);
-
-  // Sort by sensitivity descending
-  std::sort(results.begin(), results.end(),
-            [](const ResizeBenefit &a, const ResizeBenefit &b) {
-              return a.cost_change > b.cost_change;
-            });
-
-  // Filter non-positive sensitivity
-  results.erase(
-      std::remove_if(results.begin(), results.end(),
-                     [](const ResizeBenefit &b) { return b.cost_change <= 0.0f; }),
-      results.end());
-
-  // Take top_n
-  size_t keep = std::min(static_cast<size_t>(top_n), results.size());
-  results.resize(keep);
-
-  auto end_total = std::chrono::high_resolution_clock::now();
-  double total_sec = std::chrono::duration<double>(end_total - start_total).count();
-
-  std::vector<size_t> selected_ids;
-  selected_ids.reserve(keep);
-  size_t print_n = std::min(keep, static_cast<size_t>(20));
-  printf("Sensitivity screening: %zu instances with positive sensitivity, "
-         "selected top %zu (%.3f s)\n", results.size(), keep, total_sec);
-  for (size_t i = 0; i < keep; i++) {
-    selected_ids.push_back(results[i].vertex_idx);
-    if (i < print_n) {
-      printf("  [%zu] %s  sensitivity=%.6e  vertex_idx=%zu\n", i,
-             network_->pathName(results[i].inst),
-             results[i].cost_change, results[i].vertex_idx);
-    }
-  }
-
-  return selected_ids;
-}
-
-std::vector<size_t>
-IncreSta::bufferingVerticesCandidateBySensitivityV2(
-    rsz::Resizer *resizer, float avg_delay, float avg_leakage, int top_n)
-{
-  printf("IncreSta::bufferingVerticesCandidateBySensitivityV2 start\n");
-  auto start_total = std::chrono::high_resolution_clock::now();
-
-  local_sta_->initParallel();
-  Slack wns = sta_->worstSlack(MinMax::max());
-  TaskArranger *task_arranger = local_sta_->taskArranger();
-
-  // Initialize LrRebufferV2 global preamble
+  // Initialize LrRebuffer global preamble
   LrRebufferV2::initGlobalPreamble(sta_, resizer);
 
   // Pre-allocate results
@@ -1514,7 +1086,7 @@ IncreSta::bufferingVerticesCandidateBySensitivityV2(
   std::vector<size_t> selected_ids;
   selected_ids.reserve(keep);
   size_t print_n = std::min(keep, static_cast<size_t>(20));
-  printf("SensitivityV2 screening: %zu instances with positive sensitivity, "
+  printf("Sensitivity screening: %zu instances with positive sensitivity, "
          "selected top %zu (%.3f s)\n", results.size(), keep, total_sec);
   for (size_t i = 0; i < keep; i++) {
     selected_ids.push_back(results[i].vertex_idx);
@@ -1528,80 +1100,10 @@ IncreSta::bufferingVerticesCandidateBySensitivityV2(
   return selected_ids;
 }
 
-// Apply buffering to the top_n most critical vertices (by Cout/Cin ratio
-// among negative-slack gates) in parallel.
-void
-IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
-                            int top_n)
-{
-  printf("IncreSta::parallelBuffering start\n");
-  auto start_total = std::chrono::high_resolution_clock::now();
-
-  // Compute average delay/leakage for swapCost normalization
-  float avg_delay = averageDelayOnCritPath();
-  float avg_leakage = averageLeakage();
-  printf("Buffering avg_delay: %e, avg_leakage: %e\n", avg_delay, avg_leakage);
-
-  // Ensure required times are up-to-date (LMs depend on them)
-  sta_->findRequireds();
-
-  local_sta_->initParallel();
-  TaskArranger *task_arranger = local_sta_->taskArranger();
-
-  // Phase 1: Screen — select top_n candidates by sensitivity
-  auto t_screen_start = std::chrono::high_resolution_clock::now();
-  std::vector<size_t> selected = bufferingVerticesCandidateBySensitivity(
-      resizer, avg_delay, avg_leakage, top_n);
-  auto t_screen_end = std::chrono::high_resolution_clock::now();
-  double screen_sec = std::chrono::duration<double>(t_screen_end - t_screen_start).count();
-
-  if (selected.empty()) {
-    printf("No buffering candidates found. Skipping.\n");
-    return;
-  }
-
-  // Phase 2: Mark selected instances
-  task_arranger->markSelectedInstances(selected);
-
-  // Phase 3: Parallel buffer insertion on selected instances
-  Slack wns = sta_->worstSlack(MinMax::max());
-
-  // Initialize global STA/Resizer state once in serial before going parallel.
-  LrRebuffer::initGlobalPreamble(sta_, resizer);
-
-  auto start_buffer = std::chrono::high_resolution_clock::now();
-  ParallelLrVisitor *visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
-  visitor->init(avg_delay, avg_leakage, wns, PT_tradeoff, nullptr, nullptr);
-  visitor->setMoveType(MoveType::BufferInsertion);
-  task_arranger->visitOrdered(sta_, local_sta_, resizer, visitor);
-  // Buffer insertion changed the netlist; mark dirty so next
-  // visitOrdered() rebuilds the graph from updated netlist.
-  task_arranger->markDirty();
-  auto end_buffer = std::chrono::high_resolution_clock::now();
-  double buffer_sec = std::chrono::duration<double>(end_buffer - start_buffer).count();
-
-  printf("DEBUG: TNS before full update = %.3f ps, WNS = %.3f ps\n",
-         sta_->totalNegativeSlack(MinMax::max()) * 1e12,
-         sta_->worstSlack(MinMax::max()) * 1e12);
-  fflush(stdout);
-  sta_->updateTiming(true);
-  sta_->findRequireds();
-  double tns_after = sta_->totalNegativeSlack(MinMax::max());
-  double wns_after = sta_->worstSlack(MinMax::max());
-  printf("After parallel LR Buffering, TNS: %.4f ps, WNS: %.4f ps\n",
-         tns_after * 1e12, wns_after * 1e12);
-  printf("  screening time: %.3f s, buffering time: %.3f s\n",
-         screen_sec, buffer_sec);
-
-  auto end_total = std::chrono::high_resolution_clock::now();
-  printf("IncreSta::parallelBuffering total time %.3f s\n",
-         std::chrono::duration<double>(end_total - start_total).count());
-}
-
 void
 IncreSta::parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
-                                     float avg_power, float PT_tradeoff,
-                                     int buffer_top_n)
+                                       float avg_power, float PT_tradeoff,
+                                       int buffer_top_n)
 {
   printf("IncreSta::parallelResizeAndBuffering start\n");
   auto start_total = std::chrono::high_resolution_clock::now();
@@ -1615,73 +1117,9 @@ IncreSta::parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
     preSaveLibCellLeakage();
   makeEquivCellArray();
 
-  // Screen buffering candidates by sensitivity and annotate on InstVertex
-  TaskArranger *task_arranger = local_sta_->taskArranger();
-  std::vector<size_t> buf_candidates =
-      bufferingVerticesCandidateBySensitivity(resizer, avg_delay, avg_power,
-                                             buffer_top_n);
-  printf("Buffer candidates (sensitivity): %zu (of %zu total)\n",
-         buf_candidates.size(), task_arranger->vertexCount());
-
-  // All instances get resize; buffer candidates also get buffer bit
-  for (size_t i = 0; i < task_arranger->vertexCount(); i++)
-    task_arranger->vertex(i)->move_mask_ = InstVertex::kMoveResize;
-  for (size_t vid : buf_candidates)
-    task_arranger->vertex(vid)->move_mask_ |= InstVertex::kMoveBuffer;
-
-  // Initialize global STA/Resizer state for buffering (serial preamble)
-  LrRebuffer::initGlobalPreamble(sta_, resizer);
-
-  // Create CombinedVisitor and run single-pass resize + buffering
-  auto start_resize = std::chrono::high_resolution_clock::now();
-  CombinedVisitor *visitor = new CombinedVisitor(sta_, local_sta_, resizer,
-                                                 task_arranger);
-  visitor->init(avg_delay, avg_power, wns, PT_tradeoff,
-                &swappable_cells_cache_, &inst_info_map_);
-  visitor->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
-
-  task_arranger->visitOrdered(sta_, local_sta_, resizer, visitor);
-
-  // If any buffers were inserted, mark graph dirty for next pass
-  task_arranger->markDirty();
-
-  auto end_resize = std::chrono::high_resolution_clock::now();
-  printf("parallelResizeAndBuffering pass time: %.3f s\n",
-         std::chrono::duration<double>(end_resize - start_resize).count());
-
-  sta_->updateTiming(true);
-  sta_->findRequireds();
-
-  double tns_after = sta_->totalNegativeSlack(MinMax::max());
-  double wns_after = sta_->worstSlack(MinMax::max());
-  printf("After parallelResizeAndBuffering, TNS: %e, WNS: %e\n",
-         tns_after, wns_after);
-
-  auto end_total = std::chrono::high_resolution_clock::now();
-  printf("IncreSta::parallelResizeAndBuffering total time %.3f s\n",
-         std::chrono::duration<double>(end_total - start_total).count());
-}
-
-void
-IncreSta::parallelResizeAndBufferingV2(rsz::Resizer *resizer, float avg_delay,
-                                       float avg_power, float PT_tradeoff,
-                                       int buffer_top_n)
-{
-  printf("IncreSta::parallelResizeAndBufferingV2 start\n");
-  auto start_total = std::chrono::high_resolution_clock::now();
-
-  local_sta_->initParallel();
-  Slack wns = sta_->worstSlack(MinMax::max());
-
-  if (!swap_cell_presaved_)
-    makeSwappableCellsCache(resizer);
-  if (!swap_cell_leakage_presaved_)
-    preSaveLibCellLeakage();
-  makeEquivCellArray();
-
   // Screen buffering candidates by sensitivity, top 100
   TaskArranger *task_arranger = local_sta_->taskArranger();
-  std::vector<size_t> buf_candidates = bufferingVerticesCandidateBySensitivityV2(
+  std::vector<size_t> buf_candidates = bufferingVerticesCandidateBySensitivity(
       resizer, avg_delay, avg_power, buffer_top_n);
   printf("Buffer candidates (sensitivity): %zu (of %zu total)\n",
          buf_candidates.size(), task_arranger->vertexCount());
@@ -1713,7 +1151,7 @@ IncreSta::parallelResizeAndBufferingV2(rsz::Resizer *resizer, float avg_delay,
   task_arranger->markDirty();
 
   auto end_resize = std::chrono::high_resolution_clock::now();
-  printf("parallelResizeAndBufferingV2 pass time: %.3f s\n",
+  printf("parallelResizeAndBuffering pass time: %.3f s\n",
          std::chrono::duration<double>(end_resize - start_resize).count());
 
   sta_->updateTiming(true);
@@ -1721,11 +1159,11 @@ IncreSta::parallelResizeAndBufferingV2(rsz::Resizer *resizer, float avg_delay,
 
   double tns_after = sta_->totalNegativeSlack(MinMax::max());
   double wns_after = sta_->worstSlack(MinMax::max());
-  printf("After parallelResizeAndBufferingV2, TNS: %e, WNS: %e\n",
+  printf("After parallelResizeAndBuffering, TNS: %e, WNS: %e\n",
          tns_after, wns_after);
 
   auto end_total = std::chrono::high_resolution_clock::now();
-  printf("IncreSta::parallelResizeAndBufferingV2 total time %.3f s\n",
+  printf("IncreSta::parallelResizeAndBuffering total time %.3f s\n",
          std::chrono::duration<double>(end_total - start_total).count());
 }
 

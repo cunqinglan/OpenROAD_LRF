@@ -36,7 +36,6 @@ using sta::Level;
 using sta::ObjectIdx;
 using rsz::Resizer;
 
-class ParallelLrVisitor;
 class ParallelVisitor;
 class LocalSta;
 class InstVertex;
@@ -148,19 +147,15 @@ public:
   // Dependency-ordered traversal: visits instances in topological order,
   // calling visitor->visit() + visitor->applyChangesToDb() per instance.
   void visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer,
-                    ParallelLrVisitor *visitor);
-  void visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer,
                     ParallelVisitor *visitor);
   // Embarrassingly parallel: dispatches all combinational instances to
   // visitor->visit() with no dependency graph. The visitor defines what to do.
-  void visitAll(ParallelLrVisitor *visitor);
   void visitAll(ParallelVisitor *visitor);
   std::set<VertexId> decreOutRefCount(InstVertex *inst_vertex);
   std::set<VertexId> decreOutRefCount(InstVertex &inst_vertex);
   size_t decreRefCount(VertexId vid);
   void getZeroRefComInstVertices(std::vector<InstVertex*>& zero_ref_vertices);
   void createTask(InstVertex* inst_vertex);
-  void runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex);
   void runTask(ParallelVisitor *visitor, InstVertex* inst_vertex);
   void finishTasks();
 
@@ -204,12 +199,11 @@ public:
 
   // Aggregate change stats from all visitors and update PruningControl.
   // Must be called before visitors are deleted.
-  void updatePruningStats();
-  void updatePruningStatsV2(PruningControl *pruning_control = nullptr);
+  void updatePruningStats(PruningControl *pruning_control = nullptr);
 
-  // Last aggregated V2 change stats (valid after visitOrdered returns)
-  int lastV2VisitCount() const { return last_v2_visit_count_; }
-  int lastV2ChangeCount() const { return last_v2_change_count_; }
+  // Last aggregated change stats (valid after visitOrdered returns)
+  int lastVisitCount() const { return last_visit_count_; }
+  int lastChangeCount() const { return last_change_count_; }
 
   void setMaxResizeNum(size_t max_resize_num) { max_resize_num_ = max_resize_num; }
   size_t vertexCount() const { return vertices_.size(); }
@@ -245,24 +239,21 @@ protected:
   std::mutex visited_inst_names_mutex_;
   // Mutex removed: apply_change_to_db_mutex_ is replaced by g_odb_sta_access_mutex
   // Visitors for each thread
-  std::vector<ParallelLrVisitor *> visitors_;
-  std::vector<ParallelVisitor *> visitors_v2_;
+  std::vector<ParallelVisitor *> visitors_;
   // Maximum resize number allowed in one iteration
   size_t max_resize_num_ = 1000000;
   // Flag of if the first time visitOrdered
   bool incremental_ = false;
   // Flag set after netlist-modifying operations (e.g. buffer insertion)
   bool dirty_ = false;
-  // Flag: true when dispatching with ParallelVisitor (v2) vs ParallelLrVisitor
-  bool use_v2_visitors_ = false;
   
   // Topology validation
   bool enable_topology_check_ = false;
   std::unique_ptr<TopologyChecker> topology_checker_;
 
-  // Aggregated V2 visit/change counts (set by updatePruningStatsV2)
-  int last_v2_visit_count_ = 0;
-  int last_v2_change_count_ = 0;
+  // Aggregated visit/change counts (set by updatePruningStats)
+  int last_visit_count_ = 0;
+  int last_change_count_ = 0;
 
 private:
   friend class InstVertexOutEdgeIterator;

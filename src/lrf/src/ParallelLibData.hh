@@ -9,7 +9,6 @@ namespace rsz {
 }
 
 namespace lrf {
-class ParallelLrVisitor;
 class TaskArranger;
 
 // This data saves swappable cells information for LR sizing
@@ -43,7 +42,5 @@ protected:
   std::vector<ParallelLocalCellInfo> cell_info_vec_;
   const std::unordered_map<const sta::Instance*, VertexId> *inst_to_vid_map_;
 
-private:
-  friend class ParallelLrVisitor;
 };
 }
