@@ -415,7 +415,7 @@ protected:
 private:
   friend class IncreSta;
   friend class TestLrf;
-  friend class LrRebufferV2;
+  friend class LrRebuffer;
 };
 
 

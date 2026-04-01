@@ -1,7 +1,7 @@
 #include "NetlistTransformation.hh"
 #include "LocalSta.hh"
 #include "PtGraph.hh"
-#include "LrRebufferV2.hh"
+#include "LrRebuffer.hh"
 #include "TaskArranger.hh"
 #include "sta/GraphDelayCalc.hh"
 #include "sta/Liberty.hh"
@@ -563,7 +563,7 @@ BufferOperator::BufferOperator(sta::dbSta *db_sta, LocalSta *local_sta,
   : db_sta_(db_sta), local_sta_(local_sta), resizer_(resizer)
 {
   if (ctx) {
-    rebuffer_ = std::make_unique<LrRebufferV2>(resizer, local_sta, ctx);
+    rebuffer_ = std::make_unique<LrRebuffer>(resizer, local_sta, ctx);
     rebuffer_->init();
   }
   // If ctx is nullptr, rebuffer_ stays null until setEvalContext() is called.
@@ -580,7 +580,7 @@ BufferOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   }
       
 
-  // Sync pt_graph into eval context so LrRebufferV2 sees the right graph
+  // Sync pt_graph into eval context so LrRebuffer sees the right graph
   ctx.pt_graph = pt_graph;
 
   // Collect RefOutput driver pins before rebufferPin (may reallocate)
@@ -611,7 +611,7 @@ void
 BufferOperator::setEvalContext(EvalContext *ctx)
 {
   // Recreate rebuffer with new context (per-thread copy)
-  rebuffer_ = std::make_unique<LrRebufferV2>(resizer_, local_sta_, ctx);
+  rebuffer_ = std::make_unique<LrRebuffer>(resizer_, local_sta_, ctx);
   rebuffer_->init();
 }
 
@@ -722,7 +722,7 @@ CombinedOperator::tryBufferingOnCandidates(
     sta::LibertyCell *ori_cell, float ori_cost)
 {
   MoveOption result;
-  LrRebufferV2 *rebuffer = buffer_op_ ? buffer_op_->rebuffer() : nullptr;
+  LrRebuffer *rebuffer = buffer_op_ ? buffer_op_->rebuffer() : nullptr;
   if (!rebuffer)
     return result;
 
@@ -823,7 +823,7 @@ CombinedOperator::tryBufferingOnTop1AndSmaller(
     sta::LibertyCell *ori_cell, float baseline_cost)
 {
   MoveOption result;
-  LrRebufferV2 *rebuffer = buffer_op_ ? buffer_op_->rebuffer() : nullptr;
+  LrRebuffer *rebuffer = buffer_op_ ? buffer_op_->rebuffer() : nullptr;
   if (!rebuffer || !resize_op_->equiv_cell_array_ || !resize_op_->equiv_cell_pos_map_) {
     if (ctx.runtime_map)
       (*ctx.runtime_map)["buf_reject_no_rebuffer"] += 1.0;

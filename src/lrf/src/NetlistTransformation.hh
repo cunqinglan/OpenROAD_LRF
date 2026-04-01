@@ -30,7 +30,6 @@ class LocalSta;
 class PtGraph;
 class PtVertex;
 class LrRebuffer;
-class LrRebufferV2;
 class LocalCellInfo;
 class TaskArranger;
 
@@ -160,7 +159,7 @@ public:
              std::map<std::string, double> &runtime_map) override;
   std::unique_ptr<LrOperator> copy() const override;
 
-  LrRebufferV2 *rebuffer() { return rebuffer_.get(); }
+  LrRebuffer *rebuffer() { return rebuffer_.get(); }
   rsz::Resizer *resizer() { return resizer_; }
   // Update the EvalContext pointer (called after copy() when new visitor's ctx is ready)
   void setEvalContext(EvalContext *ctx) override;
@@ -169,7 +168,7 @@ protected:
   sta::dbSta *db_sta_;
   LocalSta *local_sta_;
   rsz::Resizer *resizer_;
-  std::unique_ptr<LrRebufferV2> rebuffer_;
+  std::unique_ptr<LrRebuffer> rebuffer_;
 };
 
 // ─── BufferSensitivityOperator ───────────────────────────
@@ -200,7 +199,7 @@ public:
   void setInstInfoMap(std::unordered_map<sta::Instance*, LocalCellInfo*> *map) override;
   void setSlackMargin(float margin) override;
   void setEvalContext(EvalContext *ctx) override;
-  LrRebufferV2 *rebuffer() { return buffer_op_ ? buffer_op_->rebuffer() : nullptr; }
+  LrRebuffer *rebuffer() { return buffer_op_ ? buffer_op_->rebuffer() : nullptr; }
 
 private:
   // Two-phase buffering: try buffering on each candidate cell, return

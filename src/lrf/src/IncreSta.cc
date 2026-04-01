@@ -17,7 +17,7 @@
 #include "parasitics/ConcreteParasitics.hh"
 #include "TaskArranger.hh"
 #include "NetlistTransformation.hh"
-#include "LrRebufferV2.hh"
+#include "LrRebuffer.hh"
 #include "rsz/Resizer.hh"
 #include "ParallelLibData.hh"
 #include "LrSizer.hh"
@@ -667,6 +667,28 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
          pruning_control_.iteration, pruning_control_.enabled, pruning_control_.K);
   fflush(stdout);
 
+  if (isPowerOptimizationMode()) {
+    ParallelVisitor *cp_visitor = new ParallelVisitor(sta_, local_sta_, resizer);
+    std::unique_ptr<ResizeOperator> cp_resize_op =
+        std::make_unique<ResizeOperator>(sta_, local_sta_);
+    cp_resize_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+    cp_resize_op->setPruningControl(&pruning_control_);
+    cp_visitor->setOperator(std::move(cp_resize_op));
+    cp_visitor->init(avg_delay, avg_power, wns_after, PT_tradeoff, &inst_info_map_);
+    std::chrono::high_resolution_clock::time_point start_cps =
+        std::chrono::high_resolution_clock::now();
+    LrSizer lr_sizer(sta_, lr_helper_, cp_visitor);
+    lr_sizer.criticalPathSizing();
+    std::chrono::high_resolution_clock::time_point end_cps =
+        std::chrono::high_resolution_clock::now();
+    printf("After critical path sizing, TNS: %e, WNS: %e\n",
+           sta_->totalNegativeSlack(MinMax::max()),
+           (double)sta_->worstSlack(MinMax::max()));
+    printf("critical path sizing time: %f s\n",
+           std::chrono::duration<double>(end_cps - start_cps).count());
+    delete cp_visitor;
+  }
+
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_total = end_total - start_total;
   printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
@@ -1040,7 +1062,7 @@ IncreSta::bufferingVerticesCandidateBySensitivity(
   TaskArranger *task_arranger = local_sta_->taskArranger();
 
   // Initialize LrRebuffer global preamble
-  LrRebufferV2::initGlobalPreamble(sta_, resizer);
+  LrRebuffer::initGlobalPreamble(sta_, resizer);
 
   // Pre-allocate results
   std::vector<ResizeBenefit> results(task_arranger->vertexCount());
@@ -1131,7 +1153,7 @@ IncreSta::parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
     task_arranger->vertex(vid)->move_mask_ |= InstVertex::kMoveBuffer;
 
   // Initialize global STA/Resizer state for buffering (serial preamble)
-  LrRebufferV2::initGlobalPreamble(sta_, resizer);
+  LrRebuffer::initGlobalPreamble(sta_, resizer);
 
   // Create ParallelVisitor with CombinedOperator
   auto start_resize = std::chrono::high_resolution_clock::now();
@@ -1161,6 +1183,28 @@ IncreSta::parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
   double wns_after = sta_->worstSlack(MinMax::max());
   printf("After parallelResizeAndBuffering, TNS: %e, WNS: %e\n",
          tns_after, wns_after);
+
+  if (isPowerOptimizationMode()) {
+    ParallelVisitor *cp_visitor = new ParallelVisitor(sta_, local_sta_, resizer);
+    std::unique_ptr<ResizeOperator> cp_resize_op =
+        std::make_unique<ResizeOperator>(sta_, local_sta_);
+    cp_resize_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+    cp_resize_op->setPruningControl(&pruning_control_);
+    cp_visitor->setOperator(std::move(cp_resize_op));
+    cp_visitor->init(avg_delay, avg_power, wns_after, PT_tradeoff, &inst_info_map_);
+    std::chrono::high_resolution_clock::time_point start_cps =
+        std::chrono::high_resolution_clock::now();
+    LrSizer lr_sizer(sta_, lr_helper_, cp_visitor);
+    lr_sizer.criticalPathSizing();
+    std::chrono::high_resolution_clock::time_point end_cps =
+        std::chrono::high_resolution_clock::now();
+    printf("After critical path sizing, TNS: %e, WNS: %e\n",
+           sta_->totalNegativeSlack(MinMax::max()),
+           (double)sta_->worstSlack(MinMax::max()));
+    printf("critical path sizing time: %f s\n",
+           std::chrono::duration<double>(end_cps - start_cps).count());
+    delete cp_visitor;
+  }
 
   auto end_total = std::chrono::high_resolution_clock::now();
   printf("IncreSta::parallelResizeAndBuffering total time %.3f s\n",
