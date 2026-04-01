@@ -513,24 +513,6 @@ Timing::averageDelayOnCritPath() {
 // Functions of testing IncreSta
 ////////////////////////////////////////////
 void
-Timing::testBufferInsertion(char *inst_name) {
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  test_lrf.testBufferInsertion(inst_name, sta, resizer, design_->getBlock());
-}
-
-void
-Timing::testSingleInstBuffering(char *inst_name) {
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  test_lrf.testSingleInstBuffering(inst_name, sta, resizer, design_->getBlock());
-}
-
-void
 Timing::testLocalDelayCompute(char *inst_name) {
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
@@ -566,74 +548,13 @@ Timing::testPtGraphErrors(char* inst_name) {
   test_lrf.testDifferenceBetweenLocalAndOpen(inst_name, sta, resizer, design_->getBlock());
 }
 
-void 
-Timing::testParallelVisitor(const std::vector<odb::dbInst*>& db_insts) {
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  test_lrf.testParallelVisitor(db_insts, sta, resizer, design_->getBlock());
-}
-
-void 
+void
 Timing::testMEEAssignments() {
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
   sta::dbSta* sta = getSta();
   lrf::TestLrf test_lrf;
   test_lrf.testMEEAssignments(sta, resizer, design_->getBlock());
-}
-
-void 
-Timing::testParallelResize() {
-  printf("Starting testParallelResize\n");
-  printf("First compute all parasitic networks...\n");
-  fflush(stdout);
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  printf("Starting testParallelResize\n");
-  fflush(stdout);
-  test_lrf.testParallelResize(sta, resizer, design_->getBlock());
-}
-
-void
-Timing::testParallelLrResizing(size_t max_resize_num, size_t iterations, 
-  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method) {
-  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  printf("Starting testParallelLrResizing with %zu threads\n", thread_num);
-  printf("First compute all parasitic networks...\n");
-  fflush(stdout);
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  printf("Starting testParallelLrResizing\n");
-  fflush(stdout);
-  test_lrf.testParallelLrResizing(sta, resizer, design_->getBlock(), 
-thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons, 
-  PT_tradeoff, lr_helper_method);
-}
-
-void
-Timing::testParallelResizingBuffering(size_t max_resize_num, size_t iterations,
-  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method) {
-  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  printf("Starting testParallelResizingBuffering with %zu threads\n", thread_num);
-  printf("First compute all parasitic networks...\n");
-  fflush(stdout);
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  printf("Starting testParallelResizingBuffering\n");
-  fflush(stdout);
-  test_lrf.testParallelLrResizingBuffering(sta, resizer, design_->getBlock(),
-    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method);
 }
 
 void
@@ -648,38 +569,6 @@ Timing::testParallelResizeByArray(size_t max_resize_num, size_t iterations,
   sta::dbSta* sta = getSta();
   lrf::TestLrf test_lrf;
   test_lrf.testParallelLrResizeByArray(sta, resizer, design_->getBlock(),
-    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method);
-}
-
-void
-Timing::testParallelResizeByArrayV2(size_t max_resize_num, size_t iterations,
-  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method) {
-  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  printf("Starting testParallelResizeByArrayV2 with %zu threads\n", thread_num);
-  fflush(stdout);
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  test_lrf.testParallelLrResizeByArrayV2(sta, resizer, design_->getBlock(),
-    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method);
-}
-
-void
-Timing::testParallelResizeByArrayWithBufferingV2(size_t max_resize_num, size_t iterations,
-  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method) {
-  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  printf("Starting testParallelResizeByArrayWithBufferingV2 with %zu threads\n", thread_num);
-  fflush(stdout);
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  test_lrf.testParallelLrResizeByArrayWithBufferingV2(sta, resizer, design_->getBlock(),
     thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
     PT_tradeoff, lr_helper_method);
 }
@@ -733,38 +622,6 @@ Timing::testParallelResizeByArrayWithPrecheck(size_t max_resize_num,
 }
 
 void
-Timing::testParallelResizeByArrayWithPrecheckV2(size_t max_resize_num,
-  size_t iterations, size_t num_no_improve_tolerance, bool ratcons,
-  float PT_tradeoff, const char *lr_helper_method, float top_ratio) {
-  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  printf("Starting testParallelResizeByArrayWithPrecheckV2 with %zu threads\n", thread_num);
-  fflush(stdout);
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  test_lrf.testParallelLrResizeByArrayWithPrecheckV2(sta, resizer, design_->getBlock(),
-    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method, top_ratio);
-}
-
-void
-Timing::testParallelResizeByArrayWithPrecheckBufferingV2(size_t max_resize_num,
-  size_t iterations, size_t num_no_improve_tolerance, bool ratcons,
-  float PT_tradeoff, const char *lr_helper_method, float top_ratio) {
-  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  printf("Starting testParallelResizeByArrayWithPrecheckBufferingV2 with %zu threads\n", thread_num);
-  fflush(stdout);
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  test_lrf.testParallelLrResizeByArrayWithPrecheckBufferingV2(sta, resizer, design_->getBlock(),
-    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method, top_ratio);
-}
-
-void
 Timing::testParallelResizeByArrayWithPrecheckBuffering(size_t max_resize_num,
   size_t iterations, size_t num_no_improve_tolerance, bool ratcons,
   float PT_tradeoff, const char *lr_helper_method, float top_ratio) {
@@ -809,26 +666,6 @@ Timing::testParallelKKTProjection(const char *lr_helper_method)
 }
 
 void
-Timing::testLocalStaAccuracy(size_t max_steps)
-{
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  test_lrf.testLocalStaAccuracy(sta, resizer, design_->getBlock(), max_steps);
-}
-
-void
-Timing::testTimingComputeAndWriteBack(const std::vector<odb::dbInst*> &insts)
-{
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  test_lrf.testTimingComputeAndWriteBack(sta, resizer, design_->getBlock(), insts);
-}
-
-void 
 Timing::testReportVertices() {
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();

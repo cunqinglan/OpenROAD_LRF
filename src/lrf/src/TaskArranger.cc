@@ -14,7 +14,6 @@
 #include "sta/Liberty.hh"
 #include "sta/TimingRole.hh"
 #include "sta/DispatchQueue.hh"
-#include "ParallelVisitor.hh"
 #include "db_sta/dbSta.hh"
 #include "LocalSta.hh"
 #include "rsz/Resizer.hh"
@@ -842,69 +841,8 @@ TaskArranger::finishTasks()
   }
 }
 
-void 
-TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer,
-                           ParallelLrVisitor *visitor)
-{
-  use_v2_visitors_ = false;
-  if (incremental_)
-    reinit();
-  // Clear previous visit records
-  clearVisitedInstVertices();
-  resizer_ = resizer;
-  
-  // Initialize topology checker if enabled
-  if (enable_topology_check_) {
-    printf("Topology check enabled.\n");
-    topology_checker_ = std::make_unique<TopologyChecker>(this);
-  }
-  
-  // Clean up old visitors if any
-  for (auto v : visitors_) delete v;
-  visitors_.clear();
-
-  std::vector<InstVertex*> zero_ref_vertices;
-  getZeroRefComInstVertices(zero_ref_vertices);
-  
-  visitors_.reserve(thread_count_);
-  visitors_.push_back(visitor);
-  printf("Visit with %u threads\n", thread_count_);
-  fflush(stdout);
-  for (size_t i = 1; i < thread_count_; i++) {
-    visitors_.emplace_back(visitor->copy());
-  }
-  for (size_t i = 0; i < zero_ref_vertices.size(); i++) {
-    createTask(zero_ref_vertices[i]);
-  }
-  finishTasks();
-  
-  // Aggregate change stats from all thread visitors and detect K
-  // (first iteration where change_rate < threshold). Must run before
-  // visitors are deleted since it reads their counters.
-  updatePruningStats();
-
-  int cnt = 0;
-  for (auto v : visitors_) {
-    // printf("Visitor %d runtime profile:\n", cnt);
-    v->printRuntimeProfile();
-    // v->printVisitedInstNames();
-    delete v;
-    cnt++;
-  }
-  visitors_.clear();
-  
-  // Print topology violations if any
-  if (enable_topology_check_ && topology_checker_) {
-    topology_checker_->printViolations();
-    topology_checker_.reset();
-  }
-
-  // Next time we visit, reuse the graph.
-  incremental_ = true;
-}
-
 void
-TaskArranger::visitAll(ParallelLrVisitor *visitor)
+TaskArranger::visitAll(ParallelVisitor *visitor)
 {
   if (dirty_)
     rebuild();
@@ -950,52 +888,6 @@ TaskArranger::visitAll(ParallelLrVisitor *visitor)
 }
 
 void
-TaskArranger::visitAll(ParallelVisitor *visitor)
-{
-  if (dirty_)
-    rebuild();
-
-  // Clean up old visitors if any
-  for (auto v : visitors_v2_) delete v;
-  visitors_v2_.clear();
-
-  printf("visitAll (V2): %zu combinational instances out of %zu total, %u threads\n",
-         num_com_, vertices_.size(), thread_count_);
-  fflush(stdout);
-
-  // Create visitor copies for each thread
-  visitors_v2_.reserve(thread_count_);
-  visitors_v2_.push_back(visitor);
-  for (size_t i = 1; i < thread_count_; i++) {
-    visitors_v2_.emplace_back(visitor->copy());
-  }
-
-  // Dispatch all combinational instances (no dependency graph)
-  const size_t total = vertices_.size();
-  for (size_t i = 0; i < total; i++) {
-    if (vertices_[i].type() != VertexType::COMBINATIONAL)
-      continue;
-    InstVertex *iv = &vertices_[i];
-    VertexId vid = static_cast<VertexId>(i);
-    if (!dispatch_queue_) {
-      visitors_v2_[0]->visit(iv->inst(), vid);
-    } else {
-      dispatch_queue_->dispatch([this, iv, vid](int tid) {
-        visitors_v2_[tid]->visit(iv->inst(), vid);
-      });
-    }
-  }
-  finishTasks();
-
-  // Cleanup visitors
-  for (auto v : visitors_v2_) {
-    v->printRuntimeProfile();
-    delete v;
-  }
-  visitors_v2_.clear();
-}
-
-void
 TaskArranger::markSelectedInstances(const std::vector<size_t> &vertex_ids)
 {
   // Reset all vertices to skip, then mark selected for resize
@@ -1021,115 +913,39 @@ TaskArranger::createTask(InstVertex* inst_vertex)
   if (!dispatch_queue_) {
     if (thread_count_ == 1) {
       // Single-threaded execution
-      if (use_v2_visitors_)
-        runTask(visitors_v2_[0], inst_vertex);
-      else
-        runTask(visitors_[0], inst_vertex);
+      runTask(visitors_[0], inst_vertex);
       return;
     } else {
       throw std::runtime_error("Dispatch queue is null in multi-threaded mode.");
     }
   }
   dispatch_queue_->dispatch([inst_vertex, this](int id) {
-    if (use_v2_visitors_)
-      runTask(visitors_v2_[id], inst_vertex);
-    else
-      runTask(visitors_[id], inst_vertex);
+    runTask(visitors_[id], inst_vertex);
   });
 }
 
 void
-TaskArranger::runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex)
+TaskArranger::updatePruningStats(PruningControl *pc_override)
 {
-  if (inst_vertex->move_mask_ == 0) {
-    // Non-selected: lightweight slew-only pass to keep timing fresh
-    // for downstream selected instances. No cell evaluation.
-    visitor->visitSlewOnly(inst_vertex->inst());
-  } else {
-    // Topology validation: check if this vertex is ready to visit
-    if (enable_topology_check_ && topology_checker_) {
-      topology_checker_->onVisit(inst_vertex, std::this_thread::get_id());
-    }
-
-    if (visitor->visit(inst_vertex->inst(), inst_vertex->objectIdx()))
-    {
-      // Topology validation: mark before modification
-      if (enable_topology_check_ && topology_checker_) {
-        topology_checker_->onBeforeModify(inst_vertex, std::this_thread::get_id());
-      }
-
-      // Use the global mutex to protect DB/STA modification
-      // ensuring exclusive access against other readers and writers.
-      visitor->applyChangesToDb(resizer_);
-
-      // Topology validation: mark after modification
-      if (enable_topology_check_ && topology_checker_) {
-        topology_checker_->onAfterModify(inst_vertex, std::this_thread::get_id());
-      }
-    }
-  }
-  // Always cascade dependencies regardless of selected_
-  std::set<VertexId> zero_ref_vertices = decreOutRefCount(inst_vertex);
-  for (VertexId zero_ref_id : zero_ref_vertices) {
-    InstVertex* zero_ref_vertex = vertex(zero_ref_id);
-    createTask(zero_ref_vertex);
-  }
-}
-
-void
-TaskArranger::updatePruningStats()
-{
+  last_visit_count_ = 0;
+  last_change_count_ = 0;
   if (visitors_.empty())
     return;
-  PruningControl *pc = visitors_[0]->pruningControl();
-  if (!pc)
-    return;
 
-  int total_visit = 0, total_change = 0;
-  for (auto *v : visitors_) {
-    total_visit += v->resizeVisitCount();
-    total_change += v->resizeChangeCount();
-  }
-  if (total_visit == 0)
-    return;
-
-  float change_rate = static_cast<float>(total_change) / total_visit;
-  printf("Pruning: change_rate=%.4f (%d/%d), iteration=%d, enabled=%d, K=%d\n",
-         change_rate, total_change, total_visit,
-         pc->iteration, pc->enabled, pc->K);
-  fflush(stdout);
-
-  if (pc->K == -1 && change_rate < pc->change_threshold) {
-    pc->K = pc->iteration;
-    pc->enabled = true;
-    printf("Pruning: K detected at iteration %d, pruning enabled\n", pc->K);
-    fflush(stdout);
-  }
-}
-
-void
-TaskArranger::updatePruningStatsV2(PruningControl *pc_override)
-{
-  last_v2_visit_count_ = 0;
-  last_v2_change_count_ = 0;
-  if (visitors_v2_.empty())
-    return;
-
-  // Get PruningControl from first visitor (same pattern as V1)
   PruningControl *pc = pc_override;
   if (!pc)
-    pc = visitors_v2_[0]->pruningControl();
+    pc = visitors_[0]->pruningControl();
 
-  for (auto *v : visitors_v2_) {
-    last_v2_visit_count_ += v->resizeVisitCount();
-    last_v2_change_count_ += v->resizeChangeCount();
+  for (auto *v : visitors_) {
+    last_visit_count_ += v->resizeVisitCount();
+    last_change_count_ += v->resizeChangeCount();
   }
-  if (last_v2_visit_count_ == 0)
+  if (last_visit_count_ == 0)
     return;
 
-  float change_rate = static_cast<float>(last_v2_change_count_) / last_v2_visit_count_;
+  float change_rate = static_cast<float>(last_change_count_) / last_visit_count_;
   printf("Pruning: change_rate=%.4f (%d/%d)",
-         change_rate, last_v2_change_count_, last_v2_visit_count_);
+         change_rate, last_change_count_, last_visit_count_);
 
   if (pc) {
     printf(", iteration=%d, enabled=%d, K=%d", pc->iteration, pc->enabled, pc->K);
@@ -1277,16 +1093,11 @@ TaskArranger::printTopologyViolations() const
   }
 }
 
-////////////////////////////////////////////////////////////////
-// ParallelVisitor overloads (NetlistTransformation framework)
-////////////////////////////////////////////////////////////////
-
 void
 TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta,
                            rsz::Resizer *resizer,
                            ParallelVisitor *visitor)
 {
-  use_v2_visitors_ = true;
   if (incremental_)
     reinit();
   clearVisitedInstVertices();
@@ -1297,34 +1108,34 @@ TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta,
     topology_checker_ = std::make_unique<TopologyChecker>(this);
   }
 
-  for (auto v : visitors_v2_) delete v;
-  visitors_v2_.clear();
+  for (auto v : visitors_) delete v;
+  visitors_.clear();
 
   std::vector<InstVertex*> zero_ref_vertices;
   getZeroRefComInstVertices(zero_ref_vertices);
 
-  visitors_v2_.reserve(thread_count_);
-  visitors_v2_.push_back(visitor);
+  visitors_.reserve(thread_count_);
+  visitors_.push_back(visitor);
   printf("Visit with %u threads\n", thread_count_);
   fflush(stdout);
   for (size_t i = 1; i < thread_count_; i++) {
-    visitors_v2_.emplace_back(visitor->copy());
+    visitors_.emplace_back(visitor->copy());
   }
   for (size_t i = 0; i < zero_ref_vertices.size(); i++) {
     createTask(zero_ref_vertices[i]);
   }
   finishTasks();
 
-  // Aggregate pruning stats from V2 visitors before deleting them
-  updatePruningStatsV2();
+  // Aggregate pruning stats from visitors before deleting them
+  updatePruningStats();
 
   int cnt = 0;
-  for (auto v : visitors_v2_) {
+  for (auto v : visitors_) {
     v->printRuntimeProfile();
     delete v;
     cnt++;
   }
-  visitors_v2_.clear();
+  visitors_.clear();
 
   if (enable_topology_check_ && topology_checker_) {
     topology_checker_->printViolations();

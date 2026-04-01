@@ -41,7 +41,6 @@ typedef Map<const Net*, ConcreteParasiticNetwork**> ConcreteParasiticNetworkMap;
 typedef float LocalCost;
 
 class LocalParasitics;
-class ParallelLrVisitor;
 class ParallelVisitor;
 
 class LocalSta: public GraphDelayCalc {
@@ -101,7 +100,6 @@ public:
 
   // Functions for parallel LR
   void initParallel();
-  void runResize(rsz::Resizer *resizer, ParallelLrVisitor *visitor);
   void runResize(rsz::Resizer *resizer, ParallelVisitor *visitor);
 
   // Functions for ERC check
@@ -417,10 +415,7 @@ protected:
 private:
   friend class IncreSta;
   friend class TestLrf;
-  friend class LrRebuffer;
   friend class LrRebufferV2;
-  friend class ParallelLrVisitor;
-  friend class CombinedVisitor;
 };
 
 

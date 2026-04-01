@@ -2128,13 +2128,6 @@ LocalSta::initParallel()
   task_arranger_->init();
 }
 
-void 
-LocalSta::runResize(rsz::Resizer *resizer, ParallelLrVisitor *visitor)
-{
-  // task_arranger_->enableTopologyCheck(true);
-  task_arranger_->visitOrdered(sta_, this, resizer, visitor);
-}
-
 void
 LocalSta::runResize(rsz::Resizer *resizer, ParallelVisitor *visitor)
 {
