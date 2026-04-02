@@ -78,6 +78,17 @@ void updateTimingFromPtGraph(PtGraph *pt_graph);
 class LrOperator {
 public:
   virtual ~LrOperator() = default;
+
+  // PtGraph construction level requested by this operator.
+  //   Full       — complete local graph (fanout + fanin siblings)
+  //   DriverOnly — ref-instance pins + direct fanout loads only
+  enum class PtGraphLevel { Full, DriverOnly };
+  virtual PtGraphLevel ptGraphLevel() const { return PtGraphLevel::Full; }
+
+  // Pre-PtGraph skip: return true to skip this instance entirely
+  // (no PtGraph construction, no evaluation).
+  virtual bool skipInstance(sta::Instance *) const { return false; }
+
   virtual MoveOption evaluate(PtGraph *pt_graph, sta::Instance *inst,
                               EvalContext &ctx) = 0;
   virtual void apply(const MoveOption &move, PtGraph *pt_graph,
@@ -177,6 +188,8 @@ protected:
 class BufferSensitivityOperator : public BufferOperator {
 public:
   using BufferOperator::BufferOperator;
+  PtGraphLevel ptGraphLevel() const override { return PtGraphLevel::DriverOnly; }
+  bool skipInstance(sta::Instance *inst) const override;
   MoveOption evaluate(PtGraph *pt_graph, sta::Instance *inst,
                       EvalContext &ctx) override;
   void apply(const MoveOption &, PtGraph *,
@@ -305,7 +318,8 @@ protected:
     {"rebuffer_setup", 0.0},
     {"rebuffer_coarse", 0.0},
     {"rebuffer_precise", 0.0},
-    {"rebuffer_pin_count", 0.0}
+    {"rebuffer_pin_count", 0.0},
+    {"skip_count", 0.0}
   };
 };
 
