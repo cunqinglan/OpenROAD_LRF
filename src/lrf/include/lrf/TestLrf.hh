@@ -192,6 +192,17 @@ public:
                             odb::dbBlock *block,
                             size_t max_steps);
 
+  // Analyze slew violation pins: for each violated driver, check whether
+  // downsizing fanout loads and/or upsizing the driver can fix the violation.
+  void testSlewViolationFeasibility(sta::dbSta* sta,
+                                    rsz::Resizer *resizer,
+                                    odb::dbBlock *block);
+
+  // Repair slew violations by buffer insertion on violated driver nets.
+  void testRepairSlew(sta::dbSta* sta,
+                      rsz::Resizer *resizer,
+                      odb::dbBlock *block);
+
 protected:
   void printSlewComparison(char *inst_name, sta::dbSta* sta, 
                        LocalSta *local_sta, odb::dbInst *db_inst, 

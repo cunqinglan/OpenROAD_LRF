@@ -67,16 +67,30 @@ LocalParasitics::recomputePtParasitics(PtGraph *pt_graph)
     if (!pt_vertex.vertex() || !pt_vertex.vertex()->pin())
       continue;
     const Pin *drvr_pin = pt_vertex.vertex()->pin();
+    bool is_port = network_->isTopLevelPort(drvr_pin);
     const Net *net = findParasiticNet(drvr_pin);
+    if (is_port)
+      printf("[DBG-parasitic] port=%s net=%s\n",
+             network_->name(drvr_pin), net ? network_->name(net) : "NULL");
     for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
       ParasiticAnalysisPt *ap = dcalc_ap->parasiticAnalysisPt();
       Parasitic *parasitic_network = findLocalParasiticNetwork(net, ap);
-      if (!parasitic_network)
+      if (!parasitic_network) {
+        if (is_port)
+          printf("[DBG-parasitic]   ap=%d findLocalParasiticNetwork=NULL\n", ap->index());
         continue;
+      }
       ParasiticNode *drvr_node =
           parasitics_->findParasiticNode(parasitic_network, drvr_pin);
-      if (!drvr_node)
+      if (!drvr_node) {
+        if (is_port)
+          printf("[DBG-parasitic]   ap=%d parasitic_network OK but drvr_node=NULL\n", ap->index());
         continue;
+      }
+      if (is_port) {
+        printf("[DBG-parasitic]   ap=%d parasitic_network OK drvr_node OK objIdx=%d\n",
+               ap->index(), pt_vertex.objectIdx());
+      }
       for (const RiseFall *rf : RiseFall::range()) {
         PtPiElmore &pt_pi = pt_graph->makePtParasitic(
             pt_vertex.objectIdx(), rf, dcalc_ap->index());
@@ -87,6 +101,13 @@ LocalParasitics::recomputePtParasitics(PtGraph *pt_graph)
                                dcalc_ap->corner(),
                                dcalc_ap->constraintMinMax(), ap,
                                pt_pi);
+        if (is_port) {
+          float c2, rpi, c1;
+          pt_pi.piModel(c2, rpi, c1);
+          printf("[DBG-parasitic]     rf=%s objIdx=%d ap=%d cap=%.6e c2=%.6e rpi=%.6e c1=%.6e\n",
+                 rf->name(), pt_vertex.objectIdx(), dcalc_ap->index(),
+                 pt_pi.capacitance(), c2, rpi, c1);
+        }
       }
     }
   }

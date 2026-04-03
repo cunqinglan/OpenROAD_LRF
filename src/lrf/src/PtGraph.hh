@@ -130,6 +130,9 @@ public:
   // Skips if paths are null or tag groups don't match.
   void writePathsToGraph(const PtVertex &pt_vertex, sta::Vertex *sta_vertex);
 
+  // Print and reset writePathsToGraph diagnostic counters.
+  static void printWritePathStats();
+
   // Output informations of the PtGraph for debug purpose
   std::string to_string();
   void printGraph(bool dot_format = false);

@@ -126,6 +126,15 @@ LocalArrivalVisitor::findVertexArrival(VertexId vertex_id)
     // But when the vertex is a refoutput, its arrival
     // is needed.
     seedLocalRootArrivals(pt_vertex);
+  else if (pt_vertex.type() == PtVertexType::RefInput) {
+    // RefInput: arrival was copied from global graph by initVertexAndEdges.
+    // Recomputing from RefDriver would use the root's raw input_delay
+    // (missing input transition delay), producing incorrect values.
+    // Keep the global graph value and only recompute the arrival from
+    // the RefDriver gate arc + updated delay.
+    // TODO: proper fix is to make root arrival include input driver delay.
+    findVertexArrival(pt_vertex);
+  }
   else
     findVertexArrival(pt_vertex);
 }

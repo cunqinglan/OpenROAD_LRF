@@ -1947,6 +1947,252 @@ LrRebufferV2::buildVirtualBuffer(VertexId drvr_vertex_id,
   return info;
 }
 
+// ═══════════════════════════════════════════════════════════
+// repairSlew — standalone slew repair via buffer insertion
+// ═══════════════════════════════════════════════════════════
+
+static float computeSlewRCFactor(const sta::Network *network)
+{
+  const sta::LibertyLibrary *library = network->defaultLibertyLibrary();
+  if (!library) return 1.0f;
+  float factor = 0.0f;
+  for (auto rf : sta::RiseFall::range()) {
+    float th_low, th_high;
+    if (rf == sta::RiseFall::rise()) {
+      th_low = 1.0f - library->slewUpperThreshold(rf);
+      th_high = 1.0f - library->slewLowerThreshold(rf);
+    } else {
+      th_low = library->slewLowerThreshold(rf);
+      th_high = library->slewUpperThreshold(rf);
+    }
+    float t_high = -log(th_high);
+    float t_low = -log(th_low);
+    float rf_factor = (t_low - t_high) / library->slewDerateFromLibrary();
+    factor = std::max(factor, rf_factor);
+  }
+  const float pessimism = 0.10f;
+  return factor * (1.0f + pessimism);
+}
+
+int
+LrRebufferV2::repairSlew(const sta::Pin *drvr_pin, rsz::Resizer *resizer)
+{
+  if (network_->isTopLevelPort(drvr_pin))
+    return 0;
+
+  sta::LibertyPort *drvr_port = network_->libertyPort(drvr_pin);
+  if (!drvr_port)
+    return 0;
+
+  const sta::Corner *corner = sta_->cmdCorner();
+  est::EstimateParasitics *est = resizer->getEstimateParasitics();
+
+  // Build BufferedNet (Steiner tree)
+  BufferedNetPtr bnet = resizer->makeBufferedNet(drvr_pin, corner);
+  if (!bnet)
+    bnet = resizer->makeBufferedNetSteiner(drvr_pin, corner);
+  if (!bnet) {
+    printf("repairSlew: cannot build BufferedNet for %s\n",
+           network_->name(drvr_pin));
+    return 0;
+  }
+
+  float slew_rc_factor = computeSlewRCFactor(network_);
+  float r_drvr = drvr_port->driveResistance();
+  // Clip to strongest buffer resistance (same as RepairDesign)
+  for (auto &bs : buffer_sizes_) {
+    float r = resizer->bufferDriveResistance(bs.cell);
+    r_drvr = std::max(r_drvr, r);
+  }
+
+  // Phase 1: Bottom-up walk to propagate maxLoadSlew and compute cap/slew
+  struct NodeInfo {
+    float cap;
+    float max_load_slew;
+    int wire_length;     // dbu
+    sta::PinSeq load_pins;
+  };
+
+  using Walker = std::function<NodeInfo(const BufferedNetPtr&)>;
+  Walker walk = [&](const BufferedNetPtr& node) -> NodeInfo {
+    switch (node->type()) {
+      case BnetType::load: {
+        const sta::Pin *load_pin = node->loadPin();
+        sta::LibertyPort *lp = network_->libertyPort(load_pin);
+        float cap = lp ? lp->capacitance() : 0.0f;
+        float limit = local_sta_->getPortMaxSlewLimit(lp);
+        NodeInfo info;
+        info.cap = cap;
+        info.max_load_slew = limit;
+        info.wire_length = 0;
+        info.load_pins.push_back(load_pin);
+        return info;
+      }
+      case BnetType::wire:
+      case BnetType::via: {
+        NodeInfo child = walk(node->ref());
+        if (node->type() == BnetType::via) {
+          float r_via = const_cast<BufferedNet*>(node.get())->viaResistance(
+              corner, resizer, est);
+          child.max_load_slew -= r_via * child.cap * slew_rc_factor;
+          return child;
+        }
+        // wire
+        double wire_res, wire_cap;
+        const_cast<BufferedNet*>(node.get())->wireRC(
+            corner, resizer, est, wire_res, wire_cap);
+        int length = node->length();
+        double length_m = resizer->dbuToMeters(length);
+        double r_wire = length_m * wire_res;
+        double c_wire = length_m * wire_cap;
+        child.cap += c_wire;
+        child.wire_length += length;
+        child.max_load_slew -= r_wire * (c_wire / 2.0 + child.cap - c_wire)
+                               * slew_rc_factor;
+        return child;
+      }
+      case BnetType::junction: {
+        NodeInfo left = walk(node->ref());
+        NodeInfo right = walk(node->ref2());
+        NodeInfo info;
+        info.cap = left.cap + right.cap;
+        info.max_load_slew = std::min(left.max_load_slew,
+                                      right.max_load_slew);
+        info.wire_length = std::max(left.wire_length, right.wire_length);
+        for (auto *p : left.load_pins) info.load_pins.push_back(p);
+        for (auto *p : right.load_pins) info.load_pins.push_back(p);
+        return info;
+      }
+      default: {
+        NodeInfo info;
+        info.cap = 0;
+        info.max_load_slew = sta::INF;
+        info.wire_length = 0;
+        return info;
+      }
+    }
+  };
+
+  NodeInfo root = walk(bnet);
+  float load_slew = r_drvr * root.cap * slew_rc_factor;
+
+  // Check driver output slew limit
+  float drvr_slew_limit = local_sta_->getPortMaxSlewLimit(drvr_port);
+  float effective_limit = std::min(drvr_slew_limit, root.max_load_slew);
+
+  printf("repairSlew: pin=%s r_drvr=%.3e cap=%.3e slew_est=%.3eps "
+         "limit=%.3eps (drvr=%.3eps load=%.3eps) loads=%zu\n",
+         network_->name(drvr_pin), r_drvr, root.cap,
+         load_slew * 1e12, effective_limit * 1e12,
+         drvr_slew_limit * 1e12, root.max_load_slew * 1e12,
+         root.load_pins.size());
+
+  if (load_slew <= effective_limit) {
+    printf("repairSlew: no violation, skip\n");
+    return 0;
+  }
+
+  // Phase 2: Insert buffer to split loads
+  // Strategy: find the max load cap that keeps slew under limit
+  // max_cap = effective_limit / (r_drvr * slew_rc_factor)
+  float max_cap = effective_limit / (r_drvr * slew_rc_factor);
+  printf("repairSlew: need to reduce cap from %.3e to %.3e\n",
+         root.cap, max_cap);
+
+  // Sort loads by capacitance (descending) to greedily group
+  struct LoadInfo {
+    const sta::Pin *pin;
+    float cap;
+  };
+  std::vector<LoadInfo> loads;
+  for (const sta::Pin *lp : root.load_pins) {
+    sta::LibertyPort *port = network_->libertyPort(lp);
+    float c = port ? port->capacitance() : 0.0f;
+    loads.push_back({lp, c});
+  }
+  std::sort(loads.begin(), loads.end(),
+            [](const LoadInfo &a, const LoadInfo &b) { return a.cap > b.cap; });
+
+  // Greedily split: accumulate loads into a buffer group until cap exceeds budget
+  // The remaining loads stay on the original driver
+  int inserted = 0;
+  float remaining_cap = root.cap;
+
+  while (remaining_cap > max_cap && loads.size() > 1) {
+    // Collect loads for the buffer group (heaviest first)
+    sta::PinSeq buf_loads;
+    float buf_group_cap = 0.0f;
+    float target_split = remaining_cap - max_cap;  // how much cap to move away
+
+    // Move loads to buffer group until we've moved enough cap
+    auto it = loads.begin();
+    while (it != loads.end() && buf_group_cap < target_split) {
+      buf_loads.push_back(const_cast<sta::Pin*>(it->pin));
+      buf_group_cap += it->cap;
+      it = loads.erase(it);
+    }
+
+    if (buf_loads.empty())
+      break;
+
+    // Choose buffer cell: smallest that can drive the group load
+    sta::LibertyCell *buf_cell = resizer->findTargetCell(
+        resizer->buffer_lowest_drive_, buf_group_cap, false);
+
+    // Compute insertion location (centroid of buffer group loads)
+    int sum_x = 0, sum_y = 0;
+    sta::dbNetwork *db_network = resizer->getDbNetwork();
+    for (const sta::Pin *p : buf_loads) {
+      odb::Point loc = db_network->location(p);
+      sum_x += loc.x();
+      sum_y += loc.y();
+    }
+    odb::Point buf_loc(sum_x / (int)buf_loads.size(),
+                       sum_y / (int)buf_loads.size());
+
+    printf("repairSlew: inserting buffer %s for %zu loads (cap=%.3e), "
+           "remaining=%zu loads (cap=%.3e)\n",
+           buf_cell->name(), buf_loads.size(), buf_group_cap,
+           loads.size(), remaining_cap - buf_group_cap);
+
+    // Insert buffer
+    sta::Instance *buf_inst = resizer->insertBufferBeforeLoads(
+        nullptr, &buf_loads, buf_cell, &buf_loc, "slew_repair");
+    if (!buf_inst) {
+      printf("repairSlew: insertBufferBeforeLoads failed\n");
+      break;
+    }
+    inserted++;
+
+    // Resize buffer to target slew
+    sta::LibertyPort *buf_in, *buf_out;
+    buf_cell->bufferPorts(buf_in, buf_out);
+    sta::Pin *buf_out_pin = network_->findPin(buf_inst, buf_out);
+    if (buf_out_pin)
+      resizer->resizeToTargetSlew(buf_out_pin);
+
+    // Update: remaining cap = original loads' cap + buffer input cap
+    sta::LibertyCell *final_buf_cell = network_->libertyCell(buf_inst);
+    final_buf_cell->bufferPorts(buf_in, buf_out);
+    float buf_in_cap = buf_in ? buf_in->capacitance() : 0.0f;
+    remaining_cap = remaining_cap - buf_group_cap + buf_in_cap;
+
+    printf("repairSlew: after insert, remaining_cap=%.3e, "
+           "new_slew_est=%.3eps, limit=%.3eps\n",
+           remaining_cap, remaining_cap * r_drvr * slew_rc_factor * 1e12,
+           effective_limit * 1e12);
+  }
+
+  if (inserted > 0) {
+    // Update parasitics for the modified nets
+    est->updateParasitics();
+    printf("repairSlew: inserted %d buffers for pin %s\n",
+           inserted, network_->name(drvr_pin));
+  }
+
+  return inserted;
+}
+
 void
 LrRebufferV2::buildVirtualParasitics(VertexId drvr_vertex_id,
                                     const BufferedNetPtr& option,

@@ -16,6 +16,7 @@
 #include "LocalSearch.hh"
 #include "PtGraph.hh"
 #include "NetlistTransformation.hh"
+#include "LrRebufferV2.hh"
 #include "sta/DispatchQueue.hh"
 #include "TaskArranger.hh"
 #include "sta/TimingRole.hh"
@@ -822,6 +823,50 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     printf("Worst Negative Slack: %f\n", wns * 1e12);
     printf("Total Negative Slack: %f\n", tns * 1e12);
     printf("Total Leakage Power: %f\n", leakage * 1e10);
+
+    // Slew violation check (same method as Python eval get_score)
+    {
+      double slew_viol_total = 0.0;
+      size_t slew_viol_count = 0;
+      sta::dbNetwork *db_net = sta->getDbNetwork();
+      for (odb::dbITerm *iterm : block->getITerms()) {
+        odb::dbNet *net = iterm->getNet();
+        if (!net) continue;
+        auto sig = net->getSigType();
+        if (sig == odb::dbSigType::POWER || sig == odb::dbSigType::GROUND
+            || sig == odb::dbSigType::CLOCK)
+          continue;
+        odb::dbMTerm *mterm = iterm->getMTerm();
+        if (!mterm) continue;
+        sta::LibertyPort *lib_port = sta->network()->libertyPort(
+            db_net->dbToSta(mterm));
+        if (!lib_port) continue;
+        float limit = local_sta->getPortMaxSlewLimit(lib_port);
+        if (limit <= 0 || limit >= 1.0) continue;
+        sta::Pin *sta_pin = db_net->dbToSta(iterm);
+        if (!sta_pin) continue;
+        sta::Vertex *vtx = sta->graph()->pinLoadVertex(sta_pin);
+        if (!vtx) vtx = sta->graph()->pinDrvrVertex(sta_pin);
+        if (!vtx) continue;
+        float slew = 0.0;
+        for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+          for (const sta::DcalcAnalysisPt *dap : sta->corners()->dcalcAnalysisPts()) {
+            float s = delayAsFloat(sta->graph()->slew(vtx, rf, dap->index()));
+            slew = std::max(slew, s);
+          }
+        }
+        if (slew > limit) {
+          slew_viol_total += (slew - limit) * 1e9;
+          slew_viol_count++;
+        }
+      }
+      if (slew_viol_count > 0)
+        printf("[VIOL] Iter %zu: %zu slew violations, total=%.4f ns\n",
+               i+1, slew_viol_count, slew_viol_total);
+      else
+        printf("[VIOL] Iter %zu: No slew violation\n", i+1);
+    }
+
     fflush(stdout);
     incre_sta->lmUpdate();
 
@@ -909,6 +954,77 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     sta->updateTiming(true);
     local_sta->taskArranger()->markDirty();
     printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+    // Violation check after revert + updateTiming
+    // Compare graph->slew() vs sta->vertexSlew() (which calls findDelays)
+    {
+      double viol_graph = 0, viol_vtxslew = 0;
+      size_t cnt_graph = 0, cnt_vtxslew = 0;
+      sta::dbNetwork *db_net = sta->getDbNetwork();
+      size_t diff_count = 0;
+      for (odb::dbITerm *iterm : block->getITerms()) {
+        odb::dbNet *net = iterm->getNet();
+        if (!net) continue;
+        auto sig = net->getSigType();
+        if (sig == odb::dbSigType::POWER || sig == odb::dbSigType::GROUND
+            || sig == odb::dbSigType::CLOCK)
+          continue;
+        odb::dbMTerm *mterm = iterm->getMTerm();
+        if (!mterm) continue;
+        sta::LibertyPort *lib_port = sta->network()->libertyPort(
+            db_net->dbToSta(mterm));
+        if (!lib_port) continue;
+        float limit = local_sta->getPortMaxSlewLimit(lib_port);
+        if (limit <= 0 || limit >= 1.0) continue;
+        sta::Pin *sta_pin = db_net->dbToSta(iterm);
+        if (!sta_pin) continue;
+        sta::Vertex *vtx = sta->graph()->pinLoadVertex(sta_pin);
+        if (!vtx) vtx = sta->graph()->pinDrvrVertex(sta_pin);
+        if (!vtx) continue;
+        // Method 1: graph->slew() (cached)
+        float slew_g = 0.0;
+        for (const sta::RiseFall *rf : sta::RiseFall::range())
+          for (const sta::DcalcAnalysisPt *dap : sta->corners()->dcalcAnalysisPts())
+            slew_g = std::max(slew_g, (float)delayAsFloat(
+                sta->graph()->slew(vtx, rf, dap->index())));
+        // Method 2: vertexSlew (calls findDelays)
+        float slew_v = 0.0;
+        for (const sta::RiseFall *rf : sta::RiseFall::range())
+          for (sta::Corner *c : *sta->corners())
+            slew_v = std::max(slew_v, (float)delayAsFloat(
+                sta->vertexSlew(vtx, rf, c, sta::MinMax::max())));
+        if (slew_g > limit) { viol_graph += (slew_g - limit) * 1e9; cnt_graph++; }
+        if (slew_v > limit) { viol_vtxslew += (slew_v - limit) * 1e9; cnt_vtxslew++; }
+        if (std::abs(slew_g - slew_v) > 1e-15 && diff_count < 5) {
+          printf("  DIFF: %s  graph=%.4f ps  vertexSlew=%.4f ps  limit=%.4f ps\n",
+                 sta->network()->pathName(sta_pin),
+                 slew_g * 1e12, slew_v * 1e12, limit * 1e12);
+          diff_count++;
+        }
+      }
+      printf("[VIOL] After revert: graph->slew(): %zu viols, %.4f ns\n", cnt_graph, viol_graph);
+      printf("[VIOL] After revert: vertexSlew():  %zu viols, %.4f ns\n", cnt_vtxslew, viol_vtxslew);
+      // Spot check: print fanout217/Y specifically
+      for (odb::dbITerm *iterm : block->getITerms()) {
+        std::string pname = sta->getDbNetwork()->name(sta->getDbNetwork()->dbToSta(iterm));
+        if (pname.find("fanout217") != std::string::npos && pname.find("/Y") != std::string::npos) {
+          sta::Pin *sp = sta->getDbNetwork()->dbToSta(iterm);
+          sta::Vertex *v = sta->graph()->pinDrvrVertex(sp);
+          if (v) {
+            odb::dbMTerm *mt = iterm->getMTerm();
+            sta::LibertyPort *lp = sta->network()->libertyPort(sta->getDbNetwork()->dbToSta(mt));
+            float lim = local_sta->getPortMaxSlewLimit(lp);
+            printf("  [SPOT] %s: cell=%s graph_slew_rise=%.4f ps limit=%.4f ps\n",
+                   pname.c_str(),
+                   iterm->getInst()->getMaster()->getName().c_str(),
+                   delayAsFloat(sta->graph()->slew(v, sta::RiseFall::rise(),
+                     corner->findDcalcAnalysisPt(sta::MinMax::max())->index())) * 1e12,
+                   lim * 1e12);
+          }
+          break;
+        }
+      }
+      fflush(stdout);
+    }
   }
 
   delete incre_sta;
@@ -2053,8 +2169,26 @@ TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
   printf("Generated %zu resize steps\n\n", sequence.size());
   fflush(stdout);
 
-  // ---- Write-back helper (matches ParallelVisitor::updateVertexInfo) ----
-  auto writeBackTiming = [&](PtGraph *pt_graph) {
+  // ---- Watchpoint: track g16/A ----
+  sta::Vertex *watch_vtx = nullptr;
+  {
+    odb::dbInst *wi = block->findInst("g16");
+    if (wi) {
+      sta::Instance *wsi = sta->getDbNetwork()->dbToSta(wi);
+      sta::InstancePinIterator *pit = sta->network()->pinIterator(wsi);
+      while (pit->hasNext()) {
+        sta::Pin *p = pit->next();
+        if (std::string(sta->network()->portName(p)) == "A") {
+          watch_vtx = sta->graph()->pinLoadVertex(p);
+          break;
+        }
+      }
+      delete pit;
+    }
+  }
+
+  // ---- Write-back helper with watchpoint ----
+  auto writeBackTiming = [&](PtGraph *pt_graph, sta::Instance *ref_inst) {
     for (PtVertex &pv : pt_graph->ptVertices()) {
       if (pv.type() == PtVertexType::Sentinel || !pv.vertex()) continue;
       PtVertexType type = pv.type();
@@ -2063,6 +2197,29 @@ TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
        || type == PtVertexType::RefOutput
        || type == PtVertexType::SiblingLoad
        || type == PtVertexType::SiblingDrvr) {
+        if (pv.vertex() == watch_vtx) {
+          // Read current global + local arrival for tag 333 (rise, max)
+          float local_arr = 0, global_arr = 0;
+          sta::Path *pp = pv.paths();
+          sta::TagGroup *ptg = pt_graph->tagGroup(pv);
+          if (pp && ptg) {
+            for (size_t i = 0; i < ptg->pathCount(); i++)
+              if (pp[i].rfIndex(sta) == 0)
+                local_arr = std::max(local_arr, (float)(pp[i].arrival() * 1e12));
+          }
+          sta::Path *sp = watch_vtx->paths();
+          sta::TagGroup *stg = sta->search()->tagGroup(watch_vtx);
+          if (sp && stg) {
+            for (size_t i = 0; i < stg->pathCount(); i++)
+              if (sp[i].rfIndex(sta) == 0)
+                global_arr = std::max(global_arr, (float)(sp[i].arrival() * 1e12));
+          }
+          if (std::abs(local_arr - global_arr) > 0.001)
+            printf("[W-g16/A] ref=%s type=%s glb=%.3f → writing=%.3f (diff=%.3f)\n",
+                   sta->network()->pathName(ref_inst),
+                   ptVertexTypeName(type), global_arr, local_arr,
+                   local_arr - global_arr);
+        }
         pt_graph->writeSlewToGraph(pv, pv.vertex());
         pt_graph->writePathsToGraph(pv, pv.vertex());
       }
@@ -2081,6 +2238,42 @@ TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
     if (!inst || !sta->network()->libertyCell(inst)) continue;
     if (sta->network()->libertyCell(inst)->hasSequentials()) continue;
     PtGraph *pg = local_sta->makePtGraph(inst, false);
+    // Debug: watch g16's input pin A
+    bool is_g16 = (std::string(sta->network()->pathName(inst)) == "g16");
+    if (is_g16) {
+      sta::Corner *dc = sta->corners()->findCorner("default");
+      sta::DcalcAnalysisPt *ddap = dc->findDcalcAnalysisPt(sta::MinMax::max());
+      printf("[G16] All PtGraph vertices (%zu total):\n", pg->ptVertices().size());
+      for (size_t vi = 0; vi < pg->ptVertices().size(); vi++) {
+        PtVertex &pv = pg->ptVertices()[vi];
+        if (!pv.vertex()) { printf("  [%zu] sentinel\n", vi); continue; }
+        const sta::Pin *pin = pv.vertex()->pin();
+        bool is_port = pin ? sta->network()->isTopLevelPort(pin) : false;
+        bool is_drvr = pin ? sta->network()->isDriver(pin) : false;
+        bool is_load = pin ? sta->network()->isLoad(pin) : false;
+        printf("  [%zu] %s type=%s hasFanin=%d isPort=%d isDrvr=%d isLoad=%d",
+               vi, pv.vertex()->name(sta->network()),
+               ptVertexTypeName(pv.type()), pv.hasFanin(),
+               is_port, is_drvr, is_load);
+        // Print in-edge count and out-edge count
+        int in_cnt = 0, out_cnt = 0;
+        PtVertexInEdgeIterator in_iter(vi, pg);
+        while (in_iter.hasNext()) { in_iter.next(); in_cnt++; }
+        PtVertexOutEdgeIterator out_iter(vi, pg);
+        while (out_iter.hasNext()) { out_iter.next(); out_cnt++; }
+        printf(" inEdges=%d outEdges=%d", in_cnt, out_cnt);
+        // Print arrivals
+        sta::Path *pp = pv.paths();
+        sta::TagGroup *ptg = pg->tagGroup(pv);
+        if (pp && ptg) {
+          printf(" arrivals:");
+          for (size_t i = 0; i < ptg->pathCount(); i++)
+            printf("[rf=%d arr=%.3f] ", pp[i].rfIndex(sta), pp[i].arrival()*1e12);
+        } else printf(" NO_PATHS");
+        printf("\n");
+      }
+      fflush(stdout);
+    }
     auto it = resize_map.find(inst);
     if (it != resize_map.end()) {
       local_sta->increAndGetLocalTimingCost(pg, arc_delay_calc, it->second);
@@ -2089,10 +2282,27 @@ TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
     } else {
       local_sta->updateLocalTiming(pg, arc_delay_calc);
     }
-    writeBackTiming(pg);
+    if (is_g16) {
+      printf("[G16] After updateLocalTiming:\n");
+      for (PtVertex &pv : pg->ptVertices()) {
+        if (!pv.vertex()) continue;
+        sta::Path *pp = pv.paths();
+        sta::TagGroup *ptg = pg->tagGroup(pv);
+        printf("  %s (type=%s): ", pv.vertex()->name(sta->network()),
+               ptVertexTypeName(pv.type()));
+        if (pp && ptg) {
+          for (size_t i = 0; i < ptg->pathCount(); i++)
+            printf("[tag=%d rf=%d arr=%.3f] ", pp[i].tagIndex(sta), pp[i].rfIndex(sta), pp[i].arrival()*1e12);
+        } else printf("NO PATHS");
+        printf("\n");
+      }
+      fflush(stdout);
+    }
+    writeBackTiming(pg, inst);
     inst_count++;
   }
   printf("Pass 0: %zu instances (%zu resized)\n", inst_count, resize_count);
+  PtGraph::printWritePathStats();
 
   // ---- Pass 1: second traversal (no resize) ----
   size_t pass1_count = 0;
@@ -2102,11 +2312,59 @@ TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
     if (sta->network()->libertyCell(inst)->hasSequentials()) continue;
     PtGraph *pg = local_sta->makePtGraph(inst, false);
     local_sta->updateLocalTiming(pg, arc_delay_calc);
-    writeBackTiming(pg);
+    writeBackTiming(pg, inst);
     pass1_count++;
   }
-  printf("Pass 1: %zu instances (no resize)\n\n", pass1_count);
+  printf("Pass 1: %zu instances (no resize)\n", pass1_count);
+  PtGraph::printWritePathStats();
+  printf("\n");
   fflush(stdout);
+
+  // ---- Debug: fanin cone arrival after write-back, before updateTiming ----
+  {
+    sta::Corner *dc = sta->corners()->findCorner("default");
+    sta::DcalcAnalysisPt *ddap = dc->findDcalcAnalysisPt(sta::MinMax::max());
+    const char *pins[] = {
+      "g158293/A", "g163646/Y", "g163646/A",
+      "g184873/Y", "g184873/A", "g184873/B", "g184873/C",
+      "g16/Y", "g16/A", nullptr
+    };
+    printf("--- Fanin cone arrival (after writeBack, before updateTiming) ---\n");
+    for (int k = 0; pins[k]; k++) {
+      std::string pname(pins[k]);
+      std::string inst_name = pname.substr(0, pname.rfind('/'));
+      std::string pin_short = pname.substr(pname.rfind('/') + 1);
+      odb::dbInst *di = block->findInst(inst_name.c_str());
+      if (!di) { printf("  %s: inst not found\n", pins[k]); continue; }
+      sta::Instance *si = sta->getDbNetwork()->dbToSta(di);
+      sta::InstancePinIterator *pit = sta->network()->pinIterator(si);
+      while (pit->hasNext()) {
+        sta::Pin *p = pit->next();
+        if (std::string(sta->network()->portName(p)) == pin_short) {
+          sta::Vertex *v = sta->network()->isDriver(p)
+              ? sta->graph()->pinDrvrVertex(p) : sta->graph()->pinLoadVertex(p);
+          if (!v) break;
+          // Read all paths for this vertex
+          sta::Path *paths = v->paths();
+          sta::TagGroup *tg = sta->search()->tagGroup(v);
+          printf("  %s:", pins[k]);
+          if (paths && tg) {
+            for (size_t i = 0; i < tg->pathCount(); i++) {
+              printf(" [tag=%d rf=%d arr=%.3f]",
+                     paths[i].tagIndex(sta), paths[i].rfIndex(sta),
+                     paths[i].arrival() * 1e12);
+            }
+          } else {
+            printf(" NO PATHS");
+          }
+          printf("\n");
+          break;
+        }
+      }
+      delete pit;
+    }
+    fflush(stdout);
+  }
 
   // ---- Snapshot: read slew + arrival from global graph ----
   sta::Corner *corner = sta->corners()->findCorner("default");
@@ -2169,40 +2427,76 @@ TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
     }
   }
 
-  // ---- Statistics ----
-  // Slew stats (drivers only, skip sequentials)
-  double slew_sum = 0, slew_max = 0;
-  size_t slew_nonzero = 0, slew_count = 0;
-  // Arrival stats (all vertices)
-  double arr_sum = 0, arr_max = 0;
-  size_t arr_nonzero = 0, arr_count = 0;
+  // ---- Statistics: separate load vs driver ----
+  struct ErrAccum { double sum=0, mx=0; size_t cnt=0, nz=0;
+    void add(double e) { sum+=std::abs(e); mx=std::max(mx,std::abs(e)); cnt++; if(std::abs(e)>0.001) nz++; }
+    double mean() const { return cnt>0 ? sum/cnt : 0; }
+  };
+  ErrAccum slew_drv, arr_load_comb, arr_load_seq, arr_drv, arr_all;
 
   for (auto &rec : records) {
+    double aerr = std::max(std::abs(rec.wb_arr_r - rec.open_arr_r),
+                           std::abs(rec.wb_arr_f - rec.open_arr_f));
+    arr_all.add(aerr);
     if (rec.is_driver) {
       double serr = std::max(std::abs(rec.wb_slew_r - rec.open_slew_r),
                              std::abs(rec.wb_slew_f - rec.open_slew_f));
-      slew_sum += serr;
-      slew_max = std::max(slew_max, serr);
-      if (serr > 0.001) slew_nonzero++;
-      slew_count++;
+      slew_drv.add(serr);
+      arr_drv.add(aerr);
+    } else {
+      // Check if this load pin belongs to a sequential cell
+      sta::Instance *inst = sta->network()->instance(rec.vtx->pin());
+      bool is_seq = inst && sta->network()->libertyCell(inst)
+                    && sta->network()->libertyCell(inst)->hasSequentials();
+      if (is_seq) arr_load_seq.add(aerr);
+      else        arr_load_comb.add(aerr);
     }
-    double aerr = std::max(std::abs(rec.wb_arr_r - rec.open_arr_r),
-                           std::abs(rec.wb_arr_f - rec.open_arr_f));
-    arr_sum += aerr;
-    arr_max = std::max(arr_max, aerr);
-    if (aerr > 0.001) arr_nonzero++;
-    arr_count++;
   }
 
   printf("=== Slew (driver vertices) ===\n");
-  printf("  Count: %zu  non-zero (>0.001ps): %zu\n", slew_count, slew_nonzero);
-  printf("  Mean: %.6f ps  Max: %.6f ps\n\n",
-         slew_count > 0 ? slew_sum / slew_count : 0.0, slew_max);
+  printf("  Count: %zu  non-zero: %zu  mean: %.6f ps  max: %.6f ps\n\n",
+         slew_drv.cnt, slew_drv.nz, slew_drv.mean(), slew_drv.mx);
+
+  printf("=== Arrival (combinational load vertices) ===\n");
+  printf("  Count: %zu  non-zero: %zu  mean: %.6f ps  max: %.6f ps\n",
+         arr_load_comb.cnt, arr_load_comb.nz, arr_load_comb.mean(), arr_load_comb.mx);
+  // Histogram of comb load arrival errors
+  {
+    size_t h[7] = {}; // 0: <1ps, 1: 1-5, 2: 5-10, 3: 10-20, 4: 20-50, 5: 50-100, 6: >=100
+    size_t comb_port = 0; // top-level ports (no liberty cell)
+    for (auto &rec : records) {
+      if (rec.is_driver) continue;
+      sta::Instance *inst = sta->network()->instance(rec.vtx->pin());
+      if (inst && sta->network()->libertyCell(inst)
+          && sta->network()->libertyCell(inst)->hasSequentials()) continue;
+      bool is_port = !inst || !sta->network()->libertyCell(inst);
+      double aerr = std::max(std::abs(rec.wb_arr_r - rec.open_arr_r),
+                             std::abs(rec.wb_arr_f - rec.open_arr_f));
+      if (is_port && aerr > 1.0) { comb_port++; continue; }
+      if (aerr < 1.0)        h[0]++;
+      else if (aerr < 5.0)   h[1]++;
+      else if (aerr < 10.0)  h[2]++;
+      else if (aerr < 20.0)  h[3]++;
+      else if (aerr < 50.0)  h[4]++;
+      else if (aerr < 100.0) h[5]++;
+      else                    h[6]++;
+    }
+    printf("  Histogram (excl ports): <1ps=%zu  1-5=%zu  5-10=%zu  10-20=%zu  20-50=%zu  50-100=%zu  >=100=%zu\n",
+           h[0], h[1], h[2], h[3], h[4], h[5], h[6]);
+    printf("  Top-level ports with >1ps err: %zu\n\n", comb_port);
+  }
+
+  printf("=== Arrival (sequential load vertices — CLK/D/etc) ===\n");
+  printf("  Count: %zu  non-zero: %zu  mean: %.6f ps  max: %.6f ps\n\n",
+         arr_load_seq.cnt, arr_load_seq.nz, arr_load_seq.mean(), arr_load_seq.mx);
+
+  printf("=== Arrival (driver vertices) ===\n");
+  printf("  Count: %zu  non-zero: %zu  mean: %.6f ps  max: %.6f ps\n\n",
+         arr_drv.cnt, arr_drv.nz, arr_drv.mean(), arr_drv.mx);
 
   printf("=== Arrival (all vertices) ===\n");
-  printf("  Count: %zu  non-zero (>0.001ps): %zu\n", arr_count, arr_nonzero);
-  printf("  Mean: %.6f ps  Max: %.6f ps\n\n",
-         arr_count > 0 ? arr_sum / arr_count : 0.0, arr_max);
+  printf("  Count: %zu  non-zero: %zu  mean: %.6f ps  max: %.6f ps\n\n",
+         arr_all.cnt, arr_all.nz, arr_all.mean(), arr_all.mx);
 
   // Top 10 worst by slew error
   std::sort(records.begin(), records.end(),
@@ -2222,22 +2516,229 @@ TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
     printf("  %-40.40s %10.3f %10.3f %10.3f\n", r.name.c_str(), wb, op, e);
   }
 
-  // Top 10 worst by arrival error
+  // Top 10 worst arrival — LOAD vertices only
   std::sort(records.begin(), records.end(),
             [](const VtxRecord &a, const VtxRecord &b) {
-              return std::max(std::abs(a.wb_arr_r-a.open_arr_r), std::abs(a.wb_arr_f-a.open_arr_f))
-                   > std::max(std::abs(b.wb_arr_r-b.open_arr_r), std::abs(b.wb_arr_f-b.open_arr_f));
+              double ea = a.is_driver ? 0 : std::max(std::abs(a.wb_arr_r-a.open_arr_r), std::abs(a.wb_arr_f-a.open_arr_f));
+              double eb = b.is_driver ? 0 : std::max(std::abs(b.wb_arr_r-b.open_arr_r), std::abs(b.wb_arr_f-b.open_arr_f));
+              return ea > eb;
             });
-  printf("\nTop 10 worst ARRIVAL:\n");
+  printf("\nTop 10 worst ARRIVAL (load vertices only):\n");
   printf("  %-40s %10s %10s %10s\n", "Vertex", "WB(ps)", "Open(ps)", "Err(ps)");
-  for (size_t j = 0; j < std::min(records.size(), (size_t)10); j++) {
+  for (size_t j = 0, shown = 0; j < records.size() && shown < 10; j++) {
     auto &r = records[j];
+    if (r.is_driver) continue;
     double e_r = r.wb_arr_r - r.open_arr_r;
     double e_f = r.wb_arr_f - r.open_arr_f;
     double e = std::abs(e_r) > std::abs(e_f) ? e_r : e_f;
     float wb = std::abs(e_r) > std::abs(e_f) ? r.wb_arr_r : r.wb_arr_f;
     float op = std::abs(e_r) > std::abs(e_f) ? r.open_arr_r : r.open_arr_f;
     printf("  %-40.40s %10.3f %10.3f %10.3f\n", r.name.c_str(), wb, op, e);
+    shown++;
+  }
+
+  // Top 10 worst arrival — comb load only, with fanin driver info
+  printf("\nTop 10 worst ARRIVAL (comb load, excl seq cells):\n");
+  printf("  %-40s %-20s %10s %10s %10s %s\n", "Vertex", "Cell", "WB(ps)", "Open(ps)", "Err(ps)", "FaninInfo");
+  for (size_t j = 0, shown = 0; j < records.size() && shown < 10; j++) {
+    auto &r = records[j];
+    if (r.is_driver) continue;
+    sta::Instance *inst = sta->network()->instance(r.vtx->pin());
+    if (inst && sta->network()->libertyCell(inst)
+        && sta->network()->libertyCell(inst)->hasSequentials()) continue;
+    double e_r = r.wb_arr_r - r.open_arr_r;
+    double e_f = r.wb_arr_f - r.open_arr_f;
+    double e = std::abs(e_r) > std::abs(e_f) ? e_r : e_f;
+    if (std::abs(e) < 0.001) continue;
+    float wb = std::abs(e_r) > std::abs(e_f) ? r.wb_arr_r : r.wb_arr_f;
+    float op = std::abs(e_r) > std::abs(e_f) ? r.open_arr_r : r.open_arr_f;
+    const char *cell = (inst && sta->network()->libertyCell(inst))
+        ? sta->network()->libertyCell(inst)->name() : "?";
+    std::string fanin_info;
+    sta::VertexInEdgeIterator in_iter(r.vtx, sta->graph());
+    while (in_iter.hasNext()) {
+      sta::Edge *edge = in_iter.next();
+      if (edge->isWire()) {
+        sta::Vertex *drvr = edge->from(sta->graph());
+        sta::Instance *di = sta->network()->instance(drvr->pin());
+        bool drvr_seq = di && sta->network()->libertyCell(di)
+                        && sta->network()->libertyCell(di)->hasSequentials();
+        fanin_info = drvr_seq ? "fanin=SEQ" : "fanin=COMB";
+        break;
+      }
+    }
+    printf("  %-40.40s %-20.20s %10.3f %10.3f %10.3f %s\n",
+           r.name.c_str(), cell, wb, op, e, fanin_info.c_str());
+    shown++;
+  }
+
+  // Comb load error decomposition: for loads with >5ps error,
+  // check if the error comes from fanin driver arrival.
+  {
+    // Build a lookup: vertex -> record index
+    std::map<sta::Vertex*, size_t> vtx_idx;
+    for (size_t i = 0; i < records.size(); i++)
+      vtx_idx[records[i].vtx] = i;
+
+    printf("\nComb load error decomposition (err > 5ps, excl ports/seq):\n");
+    printf("  %-30s %8s | %-30s %8s %8s | %s\n",
+           "Load", "LoadErr", "FaninDrvr", "DrvrErr", "DrvrSlew", "Same?");
+    size_t decomp_shown = 0;
+    // Sort by error first
+    std::vector<size_t> sorted_idx;
+    for (size_t i = 0; i < records.size(); i++) sorted_idx.push_back(i);
+    std::sort(sorted_idx.begin(), sorted_idx.end(),
+              [&](size_t a, size_t b) {
+                auto ea = std::max(std::abs(records[a].wb_arr_r-records[a].open_arr_r),
+                                   std::abs(records[a].wb_arr_f-records[a].open_arr_f));
+                auto eb = std::max(std::abs(records[b].wb_arr_r-records[b].open_arr_r),
+                                   std::abs(records[b].wb_arr_f-records[b].open_arr_f));
+                return ea > eb;
+              });
+    for (size_t idx : sorted_idx) {
+      if (decomp_shown >= 20) break;
+      auto &r = records[idx];
+      if (r.is_driver) continue;
+      sta::Instance *inst = sta->network()->instance(r.vtx->pin());
+      if (!inst || !sta->network()->libertyCell(inst)) continue;
+      if (sta->network()->libertyCell(inst)->hasSequentials()) continue;
+      double load_err = std::max(std::abs(r.wb_arr_r - r.open_arr_r),
+                                 std::abs(r.wb_arr_f - r.open_arr_f));
+      if (load_err < 5.0) continue;
+      // Find fanin driver
+      sta::VertexInEdgeIterator in_iter(r.vtx, sta->graph());
+      while (in_iter.hasNext()) {
+        sta::Edge *edge = in_iter.next();
+        if (!edge->isWire()) continue;
+        sta::Vertex *drvr = edge->from(sta->graph());
+        auto dit = vtx_idx.find(drvr);
+        if (dit != vtx_idx.end()) {
+          auto &dr = records[dit->second];
+          double drvr_err = std::max(std::abs(dr.wb_arr_r - dr.open_arr_r),
+                                     std::abs(dr.wb_arr_f - dr.open_arr_f));
+          double slew_err = std::max(std::abs(dr.wb_slew_r - dr.open_slew_r),
+                                     std::abs(dr.wb_slew_f - dr.open_slew_f));
+          bool same_sign = (r.wb_arr_r - r.open_arr_r) * (dr.wb_arr_r - dr.open_arr_r) > 0;
+          printf("  %-30.30s %8.2f | %-30.30s %8.2f %8.2f | %s\n",
+                 r.name.c_str(), load_err,
+                 dr.name.c_str(), drvr_err, slew_err,
+                 same_sign ? "YES" : "NO");
+        } else {
+          printf("  %-30.30s %8.2f | (driver not in records)\n",
+                 r.name.c_str(), load_err);
+        }
+        break;
+      }
+      decomp_shown++;
+    }
+    fflush(stdout);
+  }
+
+  // Top 10 worst arrival — DRIVER vertices only
+  std::sort(records.begin(), records.end(),
+            [](const VtxRecord &a, const VtxRecord &b) {
+              double ea = a.is_driver ? std::max(std::abs(a.wb_arr_r-a.open_arr_r), std::abs(a.wb_arr_f-a.open_arr_f)) : 0;
+              double eb = b.is_driver ? std::max(std::abs(b.wb_arr_r-b.open_arr_r), std::abs(b.wb_arr_f-b.open_arr_f)) : 0;
+              return ea > eb;
+            });
+  printf("\nTop 10 worst ARRIVAL (driver vertices only):\n");
+  printf("  %-40s %10s %10s %10s\n", "Vertex", "WB(ps)", "Open(ps)", "Err(ps)");
+  for (size_t j = 0, shown = 0; j < records.size() && shown < 10; j++) {
+    auto &r = records[j];
+    if (!r.is_driver) continue;
+    double e_r = r.wb_arr_r - r.open_arr_r;
+    double e_f = r.wb_arr_f - r.open_arr_f;
+    double e = std::abs(e_r) > std::abs(e_f) ? e_r : e_f;
+    float wb = std::abs(e_r) > std::abs(e_f) ? r.wb_arr_r : r.wb_arr_f;
+    float op = std::abs(e_r) > std::abs(e_f) ? r.open_arr_r : r.open_arr_f;
+    printf("  %-40.40s %10.3f %10.3f %10.3f\n", r.name.c_str(), wb, op, e);
+    shown++;
+  }
+
+  // ================================================================
+  //  Slew Violation Analysis: compare eval-flow violation check
+  //  before vs after updateTiming.
+  // ================================================================
+  {
+    printf("\n========================================\n");
+    printf(" Slew Violation Analysis\n");
+    printf("========================================\n\n");
+    fflush(stdout);
+
+    sta::Corner *corner = sta->corners()->findCorner("default");
+
+    // Helper: compute slew violations like test_lrf.py get_score()
+    // Uses Timing.h-style API: getPinSlew vs getMaxSlewLimit per ITerm
+    auto computeSlewViolations = [&](const char *label) {
+      double slew_total = 0.0;
+      size_t violation_count = 0;
+      size_t pin_count = 0;
+      struct ViolPin { std::string name; float slew; float limit; float diff; };
+      std::vector<ViolPin> worst;
+
+      for (odb::dbITerm *iterm : block->getITerms()) {
+        odb::dbNet *net = iterm->getNet();
+        if (!net) continue;
+        auto sig = net->getSigType();
+        if (sig == odb::dbSigType::POWER || sig == odb::dbSigType::GROUND
+            || sig == odb::dbSigType::CLOCK)
+          continue;
+
+        odb::dbMTerm *mterm = iterm->getMTerm();
+        if (!mterm) continue;
+
+        // Get slew limit
+        float limit = local_sta->getPortMaxSlewLimit(
+            sta->network()->libertyPort(sta->getDbNetwork()->dbToSta(mterm)));
+        if (limit <= 0 || limit >= 1.0) continue;  // no valid limit
+
+        // Get actual slew from global graph
+        sta::Pin *sta_pin = sta->getDbNetwork()->dbToSta(iterm);
+        if (!sta_pin) continue;
+        sta::Vertex *vtx = sta->graph()->pinLoadVertex(sta_pin);
+        if (!vtx) vtx = sta->graph()->pinDrvrVertex(sta_pin);
+        if (!vtx) continue;
+
+        float slew = 0.0;
+        for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+          for (const sta::DcalcAnalysisPt *dcalc_ap : sta->corners()->dcalcAnalysisPts()) {
+            float s = sta->graph()->slew(vtx, rf, dcalc_ap->index());
+            slew = std::max(slew, (float)delayAsFloat(s));
+          }
+        }
+
+        pin_count++;
+        if (slew > limit) {
+          float diff = (slew - limit) * 1e9;  // convert to ns
+          slew_total += diff;
+          violation_count++;
+          if (worst.size() < 10 || diff > worst.back().diff)
+            worst.push_back({sta->network()->pathName(sta_pin),
+                             slew * 1e12f, limit * 1e12f, diff});
+        }
+      }
+
+      // Sort worst and keep top 10
+      std::sort(worst.begin(), worst.end(),
+                [](const ViolPin &a, const ViolPin &b) { return a.diff > b.diff; });
+      if (worst.size() > 10) worst.resize(10);
+
+      printf("[%s] Pins checked: %zu  Violations: %zu  Total: %.4f ns\n",
+             label, pin_count, violation_count, slew_total);
+      if (!worst.empty()) {
+        printf("  Top violations:\n");
+        printf("  %-40s %10s %10s %10s\n", "Pin", "Slew(ps)", "Limit(ps)", "Diff(ns)");
+        for (auto &v : worst)
+          printf("  %-40.40s %10.3f %10.3f %10.4f\n",
+                 v.name.c_str(), v.slew, v.limit, v.diff);
+      }
+      fflush(stdout);
+    };
+
+    // Check violations AFTER updateTiming (ground truth)
+    sta->updateTiming(true);
+    sta->findRequireds();
+    computeSlewViolations("After updateTiming");
   }
 
   printf("\n========================================\n");
@@ -2247,6 +2748,517 @@ TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
 
   delete arc_delay_calc;
   delete incre_sta;
+}
+
+// ============================================================
+//  testSlewViolationFeasibility — Analyze each slew violation:
+//  can it be fixed by resize (downsize loads + upsize driver)?
+// ============================================================
+void
+TestLrf::testSlewViolationFeasibility(sta::dbSta* sta,
+                                       rsz::Resizer *resizer,
+                                       odb::dbBlock *block)
+{
+  printf("\n========================================\n");
+  printf(" Slew Violation Resize Feasibility\n");
+  printf("========================================\n\n");
+  fflush(stdout);
+
+  sta->updateTiming(true);
+  sta->findRequireds();
+  resizer->makeEquivCells();
+
+  IncreSta *incre_sta = new IncreSta(sta, 1);
+  LocalSta *local_sta = incre_sta->localSta();
+  sta::ArcDelayCalc *arc_delay_calc = sta->arcDelayCalc()->copy();
+  sta::dbNetwork *db_net = sta->getDbNetwork();
+  sta::Corner *corner = sta->corners()->findCorner("default");
+  sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(sta::MinMax::max());
+
+  // Collect all violation driver pins (output pins with slew > limit)
+  struct ViolDriver {
+    sta::Pin *drvr_pin;
+    sta::Vertex *drvr_vtx;
+    float slew;
+    float limit;
+    std::string name;
+  };
+  std::vector<ViolDriver> viol_drivers;
+
+  for (odb::dbITerm *iterm : block->getITerms()) {
+    odb::dbNet *net = iterm->getNet();
+    if (!net) continue;
+    auto sig = net->getSigType();
+    if (sig == odb::dbSigType::POWER || sig == odb::dbSigType::GROUND
+        || sig == odb::dbSigType::CLOCK)
+      continue;
+    odb::dbMTerm *mterm = iterm->getMTerm();
+    if (!mterm) continue;
+    sta::LibertyPort *lib_port = sta->network()->libertyPort(
+        db_net->dbToSta(mterm));
+    if (!lib_port) continue;
+    float limit = local_sta->getPortMaxSlewLimit(lib_port);
+    if (limit <= 0 || limit >= 1.0) continue;
+
+    sta::Pin *sta_pin = db_net->dbToSta(iterm);
+    if (!sta_pin) continue;
+    if (!sta->network()->isDriver(sta_pin)) continue;
+    sta::Vertex *vtx = sta->graph()->pinDrvrVertex(sta_pin);
+    if (!vtx) continue;
+
+    float slew = 0.0;
+    for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+      float s = delayAsFloat(sta->graph()->slew(vtx, rf, dcalc_ap->index()));
+      slew = std::max(slew, s);
+    }
+    if (slew > limit) {
+      viol_drivers.push_back({sta_pin, vtx, slew, limit,
+                              sta->network()->pathName(sta_pin)});
+    }
+  }
+
+  // Sort by excess (worst first)
+  std::sort(viol_drivers.begin(), viol_drivers.end(),
+            [](const ViolDriver &a, const ViolDriver &b) {
+              return (a.slew - a.limit) > (b.slew - b.limit);
+            });
+
+  printf("Found %zu driver pins with slew violation\n\n", viol_drivers.size());
+
+  // Helper: estimate max output slew for a given port driving load_cap
+  auto estimateMaxSlew = [&](sta::LibertyPort *port, float load_cap) -> float {
+    if (!port) return 0;
+    sta::LibertyCell *cell = port->libertyCell();
+    float max_slew = 0;
+    for (sta::TimingArcSet *arc_set : cell->timingArcSets()) {
+      if (arc_set->role()->isTimingCheck()) continue;
+      for (sta::TimingArc *arc : arc_set->arcs()) {
+        if (arc->to() != port) continue;
+        sta::GateTimingModel *model
+            = dynamic_cast<sta::GateTimingModel*>(arc->model());
+        if (!model) continue;
+        sta::Slew in_slew = 50e-12;  // 50ps typical input slew
+        sta::ArcDelay arc_delay;
+        sta::Slew arc_slew;
+        model->gateDelay(dcalc_ap->operatingConditions(),
+                         in_slew, load_cap, false, arc_delay, arc_slew);
+        max_slew = std::max(max_slew, delayAsFloat(arc_slew));
+      }
+    }
+    return max_slew;
+  };
+
+  for (auto &vd : viol_drivers) {
+    printf("=== Driver: %s ===\n", vd.name.c_str());
+    printf("  Slew: %.3f ps  Limit: %.3f ps  Excess: %.3f ps\n",
+           vd.slew * 1e12, vd.limit * 1e12, (vd.slew - vd.limit) * 1e12);
+
+    sta::Instance *drvr_inst = sta->network()->instance(vd.drvr_pin);
+    sta::LibertyCell *drvr_cell = sta->network()->libertyCell(drvr_inst);
+    sta::LibertyPort *drvr_port = sta->network()->libertyPort(vd.drvr_pin);
+    float drvr_res = drvr_port ? drvr_port->driveResistance() : 0;
+    printf("  Driver cell: %s  inst: %s  R_drvr: %.2f ohm\n",
+           drvr_cell ? drvr_cell->name() : "?",
+           sta->network()->pathName(drvr_inst), drvr_res);
+
+    // Build PtGraph and compute LM cost for this instance
+    {
+      PtGraph *pg = local_sta->makePtGraph(drvr_inst, false);
+      DelayLmSumResult cost = local_sta->increAndGetLocalTimingCost(
+          pg, arc_delay_calc, drvr_cell);
+      printf("  delay_lm_sum: %.6f\n", cost.delay_lm_sum);
+
+      // Check vertex slack from global graph
+      printf("  Vertex timing:\n");
+      for (PtVertex &pv : pg->ptVertices()) {
+        if (pv.type() == PtVertexType::Sentinel || !pv.vertex()) continue;
+        sta::Vertex *sv = pv.vertex();
+        sta::Path *wp = sta->vertexWorstSlackPath(sv, sta::MinMax::max());
+        float slk = wp ? delayAsFloat(wp->slack(sta)) * 1e12 : 0;
+        float arr = wp ? delayAsFloat(wp->arrival()) * 1e12 : 0;
+        float req = wp ? delayAsFloat(wp->required()) * 1e12 : 0;
+        if (pv.type() == PtVertexType::RefInput
+         || pv.type() == PtVertexType::RefOutput
+         || pv.type() == PtVertexType::RefDriver) {
+          printf("    %-12s %-30.30s arr=%.1f req=%.1f slack=%.1f ps%s\n",
+                 ptVertexTypeName(pv.type()),
+                 sv->name(sta->network()),
+                 arr, req, slk,
+                 wp ? "" : " (no path)");
+        }
+      }
+    }
+
+    sta::Net *net = sta->network()->net(vd.drvr_pin);
+    if (!net) { printf("  No net!\n\n"); continue; }
+
+    // Enumerate fanout loads
+    struct FanoutLoad {
+      const sta::Pin *pin;
+      sta::LibertyCell *cell;
+      sta::LibertyPort *port;
+      float cap;
+      float min_cap;
+      std::string pin_name;
+      std::string cell_name;
+      std::string min_cell_name;
+    };
+    std::vector<FanoutLoad> loads;
+    float total_cap = 0.0, total_min_cap = 0.0;
+
+    sta::NetConnectedPinIterator *pin_iter
+        = sta->network()->connectedPinIterator(net);
+    while (pin_iter->hasNext()) {
+      const sta::Pin *pin = pin_iter->next();
+      if (pin == vd.drvr_pin) continue;
+      if (!sta->network()->isLoad(pin)) continue;
+      sta::LibertyPort *load_port = sta->network()->libertyPort(pin);
+      if (!load_port) continue;
+      sta::Instance *load_inst = sta->network()->instance(pin);
+      sta::LibertyCell *load_cell = sta->network()->libertyCell(load_inst);
+
+      float cap = load_port->capacitance();
+      float min_cap = cap;
+      std::string min_cell_name = load_cell ? load_cell->name() : "?";
+
+      if (load_cell) {
+        sta::LibertyCellSeq *equivs = sta->equivCells(load_cell);
+        if (equivs) {
+          for (sta::LibertyCell *ec : *equivs) {
+            sta::LibertyPort *ep = ec->findLibertyPort(load_port->name());
+            if (ep && ep->capacitance() < min_cap) {
+              min_cap = ep->capacitance();
+              min_cell_name = ec->name();
+            }
+          }
+        }
+      }
+
+      total_cap += cap;
+      total_min_cap += min_cap;
+      loads.push_back({pin, load_cell, load_port, cap, min_cap,
+                       sta->network()->pathName(pin),
+                       load_cell ? load_cell->name() : "?",
+                       min_cell_name});
+    }
+    delete pin_iter;
+
+    // Wire cap
+    float total_load_cap = sta->graphDelayCalc()->loadCap(vd.drvr_pin, dcalc_ap);
+    float wire_cap = total_load_cap - total_cap;
+    if (wire_cap < 0) wire_cap = 0;
+
+    printf("  Fanout: %zu loads\n", loads.size());
+    printf("  Load cap: %.4f fF (pin: %.4f + wire: %.4f)\n",
+           total_load_cap * 1e15, total_cap * 1e15, wire_cap * 1e15);
+    printf("  Min cap (all downsize): %.4f fF (pin: %.4f + wire: %.4f)\n",
+           (total_min_cap + wire_cap) * 1e15, total_min_cap * 1e15, wire_cap * 1e15);
+
+    // Case 1: downsize all loads, keep current driver
+    float min_total_load = total_min_cap + wire_cap;
+    float est_min_slew = estimateMaxSlew(drvr_port, min_total_load);
+    printf("  [Case 1] Downsize all loads: slew %.3f ps -> %s\n",
+           est_min_slew * 1e12,
+           est_min_slew <= vd.limit ? "FIXABLE" : "NOT FIXABLE");
+
+    // Case 2: downsize all loads + upsize driver to strongest equiv
+    float best_slew = est_min_slew;
+    std::string best_drvr_name = drvr_cell ? drvr_cell->name() : "?";
+    if (drvr_cell) {
+      sta::LibertyCellSeq *drvr_equivs = sta->equivCells(drvr_cell);
+      if (drvr_equivs) {
+        for (sta::LibertyCell *ec : *drvr_equivs) {
+          sta::LibertyPort *ep = ec->findLibertyPort(drvr_port->name());
+          if (ep) {
+            float s = estimateMaxSlew(ep, min_total_load);
+            if (s < best_slew) {
+              best_slew = s;
+              best_drvr_name = ec->name();
+            }
+          }
+        }
+      }
+    }
+    printf("  [Case 2] + upsize driver to %s: slew %.3f ps -> %s\n",
+           best_drvr_name.c_str(), best_slew * 1e12,
+           best_slew <= vd.limit ? "FIXABLE" : "NOT FIXABLE");
+
+    // Case 3: keep current loads, only upsize driver
+    float best_drvr_only_slew = vd.slew;
+    std::string best_drvr_only_name = drvr_cell ? drvr_cell->name() : "?";
+    if (drvr_cell) {
+      sta::LibertyCellSeq *drvr_equivs = sta->equivCells(drvr_cell);
+      if (drvr_equivs) {
+        for (sta::LibertyCell *ec : *drvr_equivs) {
+          sta::LibertyPort *ep = ec->findLibertyPort(drvr_port->name());
+          if (ep) {
+            float s = estimateMaxSlew(ep, total_load_cap);
+            if (s < best_drvr_only_slew) {
+              best_drvr_only_slew = s;
+              best_drvr_only_name = ec->name();
+            }
+          }
+        }
+      }
+    }
+    printf("  [Case 3] Only upsize driver to %s: slew %.3f ps -> %s\n",
+           best_drvr_only_name.c_str(), best_drvr_only_slew * 1e12,
+           best_drvr_only_slew <= vd.limit ? "FIXABLE" : "NOT FIXABLE");
+
+    // Per-load details (sorted by cap, top 15)
+    std::sort(loads.begin(), loads.end(),
+              [](const FanoutLoad &a, const FanoutLoad &b) { return a.cap > b.cap; });
+    printf("\n  %-40s %-25s %10s %10s %-25s\n",
+           "Load Pin", "Cell", "Cap(fF)", "MinCap(fF)", "MinCell");
+    size_t show = std::min(loads.size(), (size_t)15);
+    for (size_t i = 0; i < show; i++) {
+      auto &ld = loads[i];
+      printf("  %-40.40s %-25.25s %10.4f %10.4f %-25.25s\n",
+             ld.pin_name.c_str(), ld.cell_name.c_str(),
+             ld.cap * 1e15, ld.min_cap * 1e15, ld.min_cell_name.c_str());
+    }
+    if (loads.size() > show)
+      printf("  ... and %zu more loads\n", loads.size() - show);
+    printf("\n");
+    fflush(stdout);
+  }
+
+  printf("========================================\n");
+  printf(" End Slew Violation Feasibility\n");
+  printf("========================================\n");
+  fflush(stdout);
+
+  delete arc_delay_calc;
+  delete incre_sta;
+}
+
+// ============================================================
+//  testRepairSlew — Demo: repair slew violations by buffer insertion
+// ============================================================
+void
+TestLrf::testRepairSlew(sta::dbSta* sta,
+                        rsz::Resizer *resizer,
+                        odb::dbBlock *block)
+{
+  printf("\n========================================\n");
+  printf(" Repair Slew Violations by Buffer Insertion\n");
+  printf("========================================\n");
+
+  sta::dbNetwork *db_network = sta->getDbNetwork();
+
+  // Step 1: Find all slew violations (same logic as MLCAD evaluation)
+  sta->ensureGraph();
+  sta->searchPreamble();
+  sta->ensureClkArrivals();
+  sta->findDelays();
+
+  sta::LibertyLibrary *default_lib = db_network->defaultLibertyLibrary();
+  float default_max_slew = sta::INF;
+  if (default_lib) {
+    bool exists = false;
+    default_lib->defaultMaxSlew(default_max_slew, exists);
+    if (!exists) default_max_slew = sta::INF;
+  }
+  printf("Default max slew limit: %.3f ps\n", default_max_slew * 1e12);
+
+  // Collect violated driver pins
+  struct ViolatedDriver {
+    const sta::Pin *drvr_pin;
+    float worst_slew;
+    float limit;
+  };
+  std::vector<ViolatedDriver> violations;
+
+  sta::Graph *graph = sta->graph();
+  sta::VertexIterator viter(graph);
+  while (viter.hasNext()) {
+    sta::Vertex *vertex = viter.next();
+    if (!vertex->isDriver(db_network))
+      continue;
+    const sta::Pin *pin = vertex->pin();
+    if (db_network->isTopLevelPort(pin))
+      continue;
+    sta::LibertyPort *port = db_network->libertyPort(pin);
+    if (!port)
+      continue;
+
+    // Get slew limit for this port
+    float limit = 0.0f;
+    bool exists = false;
+    port->slewLimit(sta::MinMax::max(), limit, exists);
+    if (!exists)
+      limit = default_max_slew;
+
+    // Check actual slew
+    const sta::DcalcAnalysisPt *dcalc_ap
+        = sta->cmdCorner()->findDcalcAnalysisPt(sta::MinMax::max());
+    float worst = 0.0f;
+    for (auto rf : sta::RiseFall::range()) {
+      float s = graph->slew(vertex, rf, dcalc_ap->index());
+      worst = std::max(worst, s);
+    }
+
+    if (worst > limit) {
+      violations.push_back({pin, worst, limit});
+    }
+  }
+
+  printf("Found %zu slew violations before repair\n", violations.size());
+  // Sort by severity (worst first)
+  std::sort(violations.begin(), violations.end(),
+            [](const ViolatedDriver &a, const ViolatedDriver &b) {
+              return (a.worst_slew - a.limit) > (b.worst_slew - b.limit);
+            });
+
+  for (size_t i = 0; i < std::min(violations.size(), size_t(20)); i++) {
+    auto &v = violations[i];
+    printf("  [%zu] %s: slew=%.3fps limit=%.3fps excess=%.3fps\n",
+           i, db_network->pathName(v.drvr_pin),
+           v.worst_slew * 1e12, v.limit * 1e12,
+           (v.worst_slew - v.limit) * 1e12);
+  }
+
+  if (violations.empty()) {
+    printf("No slew violations to repair.\n");
+    printf("========================================\n");
+    return;
+  }
+
+  // Step 2: For each violated driver, upsize to smallest equiv cell
+  // that fixes the slew violation.  Iterate until no more progress
+  // (handles cascaded buffer chains).
+  resizer->makeEquivCells();
+  const sta::DcalcAnalysisPt *dcalc_ap
+      = sta->cmdCorner()->findDcalcAnalysisPt(sta::MinMax::max());
+  int total_upsized = 0;
+
+  // Helper: estimate max output slew for a port driving load_cap
+  auto estimateMaxSlew = [&](sta::LibertyPort *port, float load_cap) -> float {
+    if (!port) return sta::INF;
+    sta::LibertyCell *cell = port->libertyCell();
+    float max_slew = 0;
+    for (sta::TimingArcSet *arc_set : cell->timingArcSets()) {
+      if (arc_set->role()->isTimingCheck()) continue;
+      for (sta::TimingArc *arc : arc_set->arcs()) {
+        if (arc->to() != port) continue;
+        sta::GateTimingModel *model
+            = dynamic_cast<sta::GateTimingModel*>(arc->model());
+        if (!model) continue;
+        sta::Slew in_slew = 50e-12;
+        sta::ArcDelay arc_delay;
+        sta::Slew arc_slew;
+        model->gateDelay(dcalc_ap->operatingConditions(),
+                         in_slew, load_cap, false, arc_delay, arc_slew);
+        max_slew = std::max(max_slew, delayAsFloat(arc_slew));
+      }
+    }
+    return max_slew;
+  };
+
+  // Multiple passes: upsizing one buffer may improve upstream slew,
+  // enabling further fixes in the chain.
+  for (int pass = 0; pass < 5; pass++) {
+    int upsized_this_pass = 0;
+
+    // Re-collect violations after each pass
+    sta->ensureGraph();
+    sta->findDelays();
+
+    for (auto &v : violations) {
+      sta::Vertex *vertex = graph->pinDrvrVertex(v.drvr_pin);
+      if (!vertex) continue;
+
+      // Re-check current slew
+      float worst = 0.0f;
+      for (auto rf : sta::RiseFall::range()) {
+        float s = graph->slew(vertex, rf, dcalc_ap->index());
+        worst = std::max(worst, s);
+      }
+      if (worst <= v.limit) continue;  // already fixed
+
+      sta::Instance *inst = sta->network()->instance(v.drvr_pin);
+      sta::LibertyCell *cur_cell = sta->network()->libertyCell(inst);
+      sta::LibertyPort *drvr_port = sta->network()->libertyPort(v.drvr_pin);
+      if (!cur_cell || !drvr_port) continue;
+
+      // Get current load cap
+      float load_cap = sta->graphDelayCalc()->loadCap(v.drvr_pin, dcalc_ap);
+
+      // Find smallest equiv cell (by area) that fixes the violation
+      sta::LibertyCellSeq *equivs = sta->equivCells(cur_cell);
+      if (!equivs) continue;
+
+      // Sort by area
+      std::vector<sta::LibertyCell*> sorted_equivs(equivs->begin(), equivs->end());
+      std::sort(sorted_equivs.begin(), sorted_equivs.end(),
+                [](sta::LibertyCell *a, sta::LibertyCell *b) {
+                  return a->area() < b->area();
+                });
+
+      sta::LibertyCell *best = nullptr;
+      for (sta::LibertyCell *ec : sorted_equivs) {
+        if (ec == cur_cell) continue;
+        if (!sta::equivCellsArcs(cur_cell, ec)) continue;
+        sta::LibertyPort *ep = ec->findLibertyPort(drvr_port->name());
+        if (!ep) continue;
+        float est_slew = estimateMaxSlew(ep, load_cap);
+        if (est_slew <= v.limit) {
+          best = ec;
+          break;  // smallest area that fixes
+        }
+      }
+
+      if (best) {
+        printf("  [pass %d] %s: %s -> %s (load=%.2ffF, est_slew=%.1fps)\n",
+               pass, db_network->pathName(v.drvr_pin),
+               cur_cell->name(), best->name(),
+               load_cap * 1e15,
+               estimateMaxSlew(best->findLibertyPort(drvr_port->name()), load_cap) * 1e12);
+        sta->replaceCell(inst, best);
+        upsized_this_pass++;
+        total_upsized++;
+      }
+    }
+
+    printf("  Pass %d: upsized %d cells\n", pass, upsized_this_pass);
+    fflush(stdout);
+    if (upsized_this_pass == 0) break;
+
+    // Update parasitics + timing for next pass
+    sta->delaysInvalid();
+  }
+
+  // Step 3: Final check
+  sta->findDelays();
+  int remaining = 0;
+  printf("\n--- Final violation check ---\n");
+  for (auto &v : violations) {
+    sta::Vertex *vertex = graph->pinDrvrVertex(v.drvr_pin);
+    if (!vertex) continue;
+    float worst = 0.0f;
+    for (auto rf : sta::RiseFall::range()) {
+      float s = graph->slew(vertex, rf, dcalc_ap->index());
+      worst = std::max(worst, s);
+    }
+    if (worst > v.limit) {
+      remaining++;
+      printf("  Still violated: %s slew=%.3fps limit=%.3fps\n",
+             db_network->pathName(v.drvr_pin),
+             worst * 1e12, v.limit * 1e12);
+    } else {
+      printf("  Fixed: %s slew=%.3fps limit=%.3fps\n",
+             db_network->pathName(v.drvr_pin),
+             worst * 1e12, v.limit * 1e12);
+    }
+  }
+
+  printf("\n========================================\n");
+  printf(" Repair Summary\n");
+  printf("  Violations before: %zu\n", violations.size());
+  printf("  Cells upsized:     %d\n", total_upsized);
+  printf("  Violations after:  %d\n", remaining);
+  printf("========================================\n");
+  fflush(stdout);
 }
 
 }  // namespace lrf

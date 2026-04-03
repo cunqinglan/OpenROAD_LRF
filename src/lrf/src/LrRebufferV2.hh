@@ -53,6 +53,13 @@ public:
 
   void cleanupVirtualBuffer();
 
+  // ── Slew violation repair ──
+  // Repair slew violations on a single driver net by inserting buffers.
+  // Uses Elmore RC model to estimate slew, propagates maxLoadSlew through
+  // the BufferedNet tree, and inserts buffers where slew exceeds the limit.
+  // Returns the number of buffers inserted.
+  int repairSlew(const sta::Pin *drvr_pin, rsz::Resizer *resizer);
+
 protected:
   float computeBufferAddedCost(float buffer_delay_seconds,
                                 float buffer_leakage,
