@@ -189,6 +189,7 @@ sta::define_cmd_args "position_driven_remap" {
   [-top_k n]
   [-use_beam_search]
   [-beam_diversity d]
+  [-child_timeout s]
 }
 
 proc position_driven_remap { args } {
@@ -196,7 +197,7 @@ proc position_driven_remap { args } {
     keys {-corner -percentage -max_percentage -slack_threshold
           -max_vertices_per_endpoint -max_cut_instances -max_cut_pis
           -max_solutions -uct_batch_size -uct_rounds -uct_c -max_candidates
-          -top_k -beam_diversity} \
+          -top_k -beam_diversity -child_timeout} \
     flags {-detailed_placement -verbose -use_beam_search}
   set corner [sta::parse_corner keys]
 
@@ -263,10 +264,14 @@ proc position_driven_remap { args } {
   if { [info exists keys(-beam_diversity)] } {
     set beam_diversity $keys(-beam_diversity)
   }
+  set child_timeout 30
+  if { [info exists keys(-child_timeout)] } {
+    set child_timeout $keys(-child_timeout)
+  }
 
   rmp::position_driven_remap_cmd $corner $percentage $max_percentage \
       $slack_threshold $has_threshold $run_dpl $verbose \
       $max_vertices_per_endpoint $max_cut_instances $max_cut_pis \
       $max_solutions $uct_batch_size $uct_rounds $uct_c $max_candidates \
-      $use_beam_search $top_k $beam_diversity
+      $use_beam_search $top_k $beam_diversity $child_timeout
 }

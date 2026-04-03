@@ -1,6 +1,7 @@
 #include "position_driven.hh"
 
 #include <algorithm>      // std::sort
+#include <chrono>         // steady_clock
 #include <utility>        // std::pair, tuple interface
 #include <cmath>          // std::ceil, std::floor
 #include <cstdint>        // uint32_t
@@ -14,6 +15,7 @@
 #include <fcntl.h>        // open, O_WRONLY
 #include <unistd.h>       // fork, pipe, _exit, read, write, close, dup, dup2
 #include <sys/wait.h>     // waitpid
+#include <poll.h>          // poll
 #include <omp.h>          // omp_set_num_threads
 
 #include "odb/db.h"
@@ -2001,62 +2003,104 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
     children.push_back({pid, pipefd[0], i, pSolution});
   }
 
-  // Collect results from all children
-  std::vector<SolutionEvalResult> results;
-  results.reserve(children.size());
+  // Collect results from all children using poll() with timeout.
+  // This avoids blocking on a hung child and allows killing timed-out children.
+  const int nChildren = static_cast<int>(children.size());
+  std::vector<SolutionEvalResult> results(nChildren);
+  std::vector<bool> collected(nChildren, false);
 
-  for (size_t j = 0; j < children.size(); ++j) {
-    auto& child = children[j];
-    SolutionEvalResult res;
-    res.solution_index = child.solution_index;
-    res.pSolution = child.pSolution;
-    res.success = false;
+  for (int j = 0; j < nChildren; ++j) {
+    results[j].solution_index = children[j].solution_index;
+    results[j].pSolution = children[j].pSolution;
+    results[j].success = false;
+  }
 
-    sta::Slack slack;
-    uint32_t log_len;
+  // Compute deadline: child_timeout seconds from now (0 = no timeout).
+  const int timeout_sec = config_.child_timeout;
+  auto deadline = std::chrono::steady_clock::now()
+      + std::chrono::seconds(timeout_sec > 0 ? timeout_sec : 3600);
 
-    if (!read_all(child.pipe_fd, &slack, sizeof(slack))) {
-      logger_->warn(utl::RES, 383,
-                    "Solution {} pipe read for slack failed.",
-                    child.solution_index + 1);
+  // Poll loop: collect results from children as they finish.
+  int nCollected = 0;
+  while (nCollected < nChildren) {
+    // Compute remaining ms until deadline.
+    auto now = std::chrono::steady_clock::now();
+    int remaining_ms = static_cast<int>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            deadline - now).count());
+    if (timeout_sec > 0 && remaining_ms <= 0) {
+      // Deadline exceeded — kill remaining children.
+      for (int j = 0; j < nChildren; ++j) {
+        if (!collected[j]) {
+          kill(children[j].pid, SIGKILL);
+          close(children[j].pipe_fd);
+          collected[j] = true;
+          nCollected++;
+          logger_->warn(utl::RES, 459,
+                        "Solution {} child killed (timeout {}s).",
+                        children[j].solution_index + 1, timeout_sec);
+        }
+      }
+      break;
+    }
+
+    // Build pollfd array for uncollected children.
+    std::vector<struct pollfd> pfds;
+    std::vector<int> pfd_to_child;
+    for (int j = 0; j < nChildren; ++j) {
+      if (collected[j]) continue;
+      struct pollfd pf;
+      pf.fd = children[j].pipe_fd;
+      pf.events = POLLIN | POLLHUP;
+      pf.revents = 0;
+      pfds.push_back(pf);
+      pfd_to_child.push_back(j);
+    }
+
+    int poll_timeout = timeout_sec > 0
+        ? std::min(remaining_ms, 5000)   // check deadline every 5s
+        : 5000;
+    int ret = poll(pfds.data(), pfds.size(), poll_timeout);
+    if (ret <= 0) continue;  // timeout or error — loop and recheck deadline
+
+    // Read from ready pipes.
+    for (size_t pi = 0; pi < pfds.size(); ++pi) {
+      if (!(pfds[pi].revents & (POLLIN | POLLHUP))) continue;
+      int j = pfd_to_child[pi];
+      auto& child = children[j];
+      auto& res = results[j];
+
+      sta::Slack slack;
+      uint32_t log_len;
+
+      bool ok = read_all(child.pipe_fd, &slack, sizeof(slack))
+             && read_all(child.pipe_fd, &log_len, sizeof(log_len));
+
+      if (ok) {
+        std::string log(log_len, '\0');
+        bool log_ok = (log_len == 0)
+            || read_all(child.pipe_fd, log.data(), log_len);
+        if (log_ok) {
+          res.slack = slack;
+          res.log = std::move(log);
+          res.success = (slack != std::numeric_limits<sta::Slack>::lowest());
+        }
+      }
+
       close(child.pipe_fd);
-      results.push_back(std::move(res));
-      continue;
+      collected[j] = true;
+      nCollected++;
     }
-
-    if (!read_all(child.pipe_fd, &log_len, sizeof(log_len))) {
-      logger_->warn(utl::RES, 384,
-                    "Solution {} pipe read for log_len failed.",
-                    child.solution_index + 1);
-      close(child.pipe_fd);
-      results.push_back(std::move(res));
-      continue;
-    }
-
-    std::string log(log_len, '\0');
-    bool log_ok = (log_len == 0) || read_all(child.pipe_fd, log.data(), log_len);
-    close(child.pipe_fd);
-
-    if (log_ok) {
-      res.slack = slack;
-      res.log = std::move(log);
-      // Sentinel slack means the child caught an exception or fatal signal.
-      res.success = (slack != std::numeric_limits<sta::Slack>::lowest());
-    }
-    results.push_back(std::move(res));
   }
 
   // Reap all children
-  int clean_exits = 0, failed_exits = 0, signaled = 0;
-  for (size_t j = 0; j < children.size(); ++j) {
+  int clean_exits = 0, failed_exits = 0, signaled = 0, timed_out = 0;
+  for (int j = 0; j < nChildren; ++j) {
     int status;
     waitpid(children[j].pid, &status, 0);
     if (WIFEXITED(status)) {
       int exit_code = WEXITSTATUS(status);
       if (exit_code != 0) {
-        logger_->warn(utl::RES, 385,
-                      "Solution {} child exited with code {}.",
-                      children[j].solution_index + 1, exit_code);
         results[j].success = false;
         failed_exits++;
       } else {
@@ -2064,23 +2108,21 @@ std::vector<SolutionEvalResult> PositionDrivenStrategy::forkEvaluateSolutions(
       }
     } else if (WIFSIGNALED(status)) {
       int sig = WTERMSIG(status);
-      logger_->warn(utl::RES, 386,
-                    "Solution {} child killed by signal {} ({}).",
-                    children[j].solution_index + 1, sig, strsignal(sig));
       results[j].success = false;
-      signaled++;
+      if (sig == SIGKILL) {
+        timed_out++;
+      } else {
+        signaled++;
+      }
     } else {
-      logger_->warn(utl::RES, 387,
-                    "Solution {} child ended with unknown status 0x{:x}.",
-                    children[j].solution_index + 1, status);
       results[j].success = false;
       failed_exits++;
     }
   }
   logger_->info(utl::RES, 435,
-                "Child reap summary: {} clean, {} failed, {} signaled (total {}).",
-                clean_exits, failed_exits, signaled,
-                static_cast<int>(children.size()));
+                "Child reap summary: {} clean, {} failed, {} signaled, "
+                "{} timed out (total {}).",
+                clean_exits, failed_exits, signaled, timed_out, nChildren);
 
   return results;
 }

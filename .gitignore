@@ -25,9 +25,6 @@ venv/
 
 *.log
 
-testremap/designs/asap7_all.lib
-testremap/log*
-
 include/ord/Version.hh
 
 build
@@ -77,3 +74,7 @@ lrf_api.sh
 log
 precheimprov.md
 VERSION.md
+
+testremap/designs/asap7_all.lib
+testremap/log*
+paper

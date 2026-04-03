@@ -22,11 +22,11 @@ struct RemapConfig {
   size_t max_cut_pis = 10;
 
   // Number of mapping solutions ABC enumerates in the initial pass.
-  int max_solutions = 80;
+  int max_solutions = 150;
 
   // UCT (Upper Confidence Tree) search parameters.
   int uct_batch_size = 20;
-  int uct_rounds     = 1;
+  int uct_rounds     = 3;
   double uct_c       = 1.414;
 
   // Use beam search instead of exhaustive backtracking for mapping enumeration.
@@ -34,7 +34,7 @@ struct RemapConfig {
 
   // Beam search diversity weight. 0 = pure score (default), >0 encourages
   // structurally diverse solutions during beam pruning. Suggested range 0.1-1.0.
-  float beam_diversity = 0.0;
+  float beam_diversity = 0.3;
 
   // Candidate-vertex search cap in getWorstVertices / getWorstVerticesForEndpoint.
   size_t max_candidates = 100;
@@ -44,6 +44,10 @@ struct RemapConfig {
   // Disabled by default: repairSetup in forked children crashes due to
   // stale STA pointers after networkChanged(). Enable when fixed.
   int top_k = 0;
+
+  // Per-child timeout in seconds. If a forked child doesn't complete within
+  // this limit, it is killed. 0 = no timeout (default).
+  int child_timeout = 0;
 };
 
 }  // namespace rmp
