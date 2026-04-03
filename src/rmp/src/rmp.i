@@ -135,7 +135,8 @@ void position_driven_remap_cmd(Corner* corner,
                                int max_candidates,
                                int use_beam_search,
                                int top_k,
-                               float beam_diversity) {
+                               float beam_diversity,
+                               int child_timeout) {
   rmp::RemapConfig config;
   config.max_vertices_per_endpoint = static_cast<size_t>(max_vertices_per_endpoint);
   config.max_cut_instances         = static_cast<size_t>(max_cut_instances);
@@ -148,6 +149,7 @@ void position_driven_remap_cmd(Corner* corner,
   config.use_beam_search           = (use_beam_search != 0);
   config.top_k                     = top_k;
   config.beam_diversity            = beam_diversity;
+  config.child_timeout             = child_timeout;
 
   getRestructure()->positionDrivenRemap(
       corner,
