@@ -185,6 +185,10 @@ public:
                                   size_t thread_num,
                                   std::string lr_helper_method = "LRHelper");
 
+  // Initialize netlist: downsize to min-leakage, then fix maxcap/maxslew.
+  void initializeMinLeakage(sta::dbSta* sta, rsz::Resizer *resizer,
+                            odb::dbBlock *block);
+
 protected:
   void printSlewComparison(char *inst_name, sta::dbSta* sta, 
                        LocalSta *local_sta, odb::dbInst *db_inst, 

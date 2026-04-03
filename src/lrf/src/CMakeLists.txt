@@ -34,6 +34,7 @@ add_library(lrf_lib
     RapidLrHelper.cc
     LrSizer.cc
     ViolationCheck.cc
+    Initializer.cc
   Rebranch.cc
 )
 

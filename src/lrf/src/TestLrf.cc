@@ -9,6 +9,7 @@
 #include "LrHelper.hh"
 #include "lrf/IncreSta.hh"
 #include "lrf/TestLrf.hh"
+#include "Initializer.hh"
 #include "odb/db.h"
 #include "sta/Liberty.hh"
 #include "sta/Corner.hh"
@@ -2003,6 +2004,15 @@ TestLrf::testParallelKKTProjection(sta::dbSta* sta,
   delete incre_sta;
   printf("----- End Test Parallel KKT Projection -----\n");
   fflush(stdout);
+}
+
+void
+TestLrf::initializeMinLeakage(sta::dbSta* sta, rsz::Resizer *resizer,
+                               odb::dbBlock *block)
+{
+  resizer->makeEquivCells();
+  Initializer initializer(sta, resizer, block);
+  initializer.run();
 }
 
 }  // namespace lrf
