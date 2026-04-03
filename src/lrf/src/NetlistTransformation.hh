@@ -114,7 +114,6 @@ public:
   void setRowPadding(int p) { row_padding_ = p; }
   void setPruningControl(PruningControl *prune_control) { pruning_control_ = prune_control; }
   PruningControl *pruningControl() const override { return pruning_control_; }
-
   friend class CombinedOperator;
 
 protected:

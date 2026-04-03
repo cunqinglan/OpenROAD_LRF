@@ -1,6 +1,9 @@
+#include <chrono>
+#include <cmath>
 #include <mutex>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "sta/Sta.hh"
 #include "sta/Corner.hh"
@@ -1445,21 +1448,95 @@ LocalSta::initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_c
   return delayLmSum(pt_graph, dcalc_ap, false);
 }
 
+// Swap ref cell and selectively recompute parasitics.
+// RefDriver parasitics always recomputed (input pin cap changes on cell swap).
+// RefOutput parasitics only recomputed if the output port cap actually changed.
+bool
+LocalSta::virtualReplaceCellSelective(PtGraph *pt_graph, LibertyCell *new_cell)
+{
+  if (!new_cell)
+    return pt_graph->refGate() != nullptr;
+  if (!sta::equivCellsArcs(pt_graph->refGate(), new_cell))
+    return false;
+
+  // Snapshot output port caps before swap.
+  std::vector<float> old_output_caps;
+  old_output_caps.reserve(4);
+  for (const auto &ptv : pt_graph->ptVertices()) {
+    if (ptv.type() == PtVertexType::RefOutput) {
+      LibertyPort *port = ptv.libertyPort();
+      old_output_caps.push_back(
+          port ? port->capacitance(RiseFall::rise(), MinMax::max()) : 0.0f);
+    }
+  }
+
+  // Swap cell.
+  pt_graph->setRefGate(new_cell);
+  pt_graph->updateTimingArcSets();
+  pt_graph->updateRefPorts();
+
+  // Always recompute RefDriver parasitics (input cap changed).
+  for (const auto &ptv : pt_graph->ptVertices()) {
+    if (ptv.type() == PtVertexType::RefDriver)
+      recomputeSinglePtParasitic(pt_graph, ptv.objectIdx());
+  }
+
+  // Only recompute RefOutput parasitics if port cap changed.
+  size_t oi = 0;
+  for (const auto &ptv : pt_graph->ptVertices()) {
+    if (ptv.type() != PtVertexType::RefOutput)
+      continue;
+    if (oi < old_output_caps.size()) {
+      LibertyPort *port = ptv.libertyPort();
+      float new_cap = port ? port->capacitance(RiseFall::rise(), MinMax::max()) : 0.0f;
+      if (new_cap != old_output_caps[oi])
+        recomputeSinglePtParasitic(pt_graph, ptv.objectIdx());
+    }
+    oi++;
+  }
+  return true;
+}
+
 DelayLmSumResult
 LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph,
                                      ArcDelayCalc *arc_delay_calc,
-                                     LibertyCell *equiv_cell)
+                                     LibertyCell *equiv_cell,
+                                     std::map<std::string, double> *runtime_map)
 {
-  if (!virtualReplaceCell(pt_graph, equiv_cell)) {
-    // Incompatible cell: return max cost to reject this candidate.
+  auto t0 = std::chrono::high_resolution_clock::now();
+
+  if (!virtualReplaceCellSelective(pt_graph, equiv_cell)) {
     return DelayLmSumResult{};
   }
+
+  auto t0b = std::chrono::high_resolution_clock::now();
+  auto t1 = t0b;
   findLocalDelays(pt_graph, arc_delay_calc);
+  auto t2 = std::chrono::high_resolution_clock::now();
   findLocalArrivals(pt_graph);
+  auto t3 = std::chrono::high_resolution_clock::now();
   findLocalRequireds(pt_graph);
+  auto t4 = std::chrono::high_resolution_clock::now();
   const Corner *corner = corners_->findCorner("default");
   DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
-  return delayLmSum(pt_graph, dcalc_ap, false);
+  auto result = delayLmSum(pt_graph, dcalc_ap, false);
+  auto t5 = std::chrono::high_resolution_clock::now();
+
+  if (runtime_map) {
+    (*runtime_map)["vrc_setRefGate"] +=
+        std::chrono::duration<double>(t0b - t0).count();
+    (*runtime_map)["vrc_recomputeParasitics"] +=
+        std::chrono::duration<double>(t1 - t0b).count();
+    (*runtime_map)["findLocalDelays"] +=
+        std::chrono::duration<double>(t2 - t1).count();
+    (*runtime_map)["findLocalArrivals"] +=
+        std::chrono::duration<double>(t3 - t2).count();
+    (*runtime_map)["findLocalRequireds"] +=
+        std::chrono::duration<double>(t4 - t3).count();
+    (*runtime_map)["delayLmSum"] +=
+        std::chrono::duration<double>(t5 - t4).count();
+  }
+  return result;
 }
 
 void

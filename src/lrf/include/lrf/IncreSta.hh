@@ -56,6 +56,8 @@ public:
   float maxInputSlew(const Pin* input_pin, const Corner* corner) const;
   float averageDelayOnCritPath();
   float averageLeakage();
+  // Fast total leakage using pre-computed inst_info_map_ (avoids sta->power()).
+  float totalLeakageFast();
 
   // APIs for parasitics estimation
   void setLocalStaParasiticsEst(est::EstimateParasitics *estimate_parasitics);
@@ -138,6 +140,7 @@ protected:
   PosMap equiv_cell_pos_map_;
   bool equiv_cell_array_built_ = false;
   PruningControl pruning_control_;
+
 };
 
 } // namespace lrf
