@@ -757,7 +757,6 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
                             std::string lr_helper_method)
 {
   printf("----- Testing Parallel LR Resize By Array (New Framework) -----\n");
-  sta::Corner *corner = sta->corners()->findCorner("default");
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
@@ -805,25 +804,31 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     printf("Iteration %zu took %f seconds\n", i+1,
            std::chrono::duration<double>(end - start).count());
 
+    auto t_sync0 = std::chrono::high_resolution_clock::now();
     local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+    auto t_sync1 = std::chrono::high_resolution_clock::now();
     sta->delaysInvalid();
     sta->updateTiming(true);
+    auto t_sync2 = std::chrono::high_resolution_clock::now();
     tns = sta->totalNegativeSlack(sta::MinMax::max());
     wns = sta->worstSlack(sta::MinMax::max());
 
-    float leakage = 0;
-    for (odb::dbInst *inst : block->getInsts()) {
-      sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(inst);
-      if (!sta_inst) continue;
-      sta::PowerResult power_result = sta->power(sta_inst, corner);
-      leakage += power_result.leakage();
-    }
+    float leakage = incre_sta->totalLeakageFast();
+    auto t_sync3 = std::chrono::high_resolution_clock::now();
 
     printf("Worst Negative Slack: %f\n", wns * 1e12);
     printf("Total Negative Slack: %f\n", tns * 1e12);
     printf("Total Leakage Power: %f\n", leakage * 1e10);
     fflush(stdout);
     incre_sta->lmUpdate();
+    auto t_sync4 = std::chrono::high_resolution_clock::now();
+    printf("[ITER_OVERHEAD] parasitic_sync=%.3f  global_sta=%.3f  leakage_calc=%.3f  lm_update=%.3f  total=%.3f\n",
+           std::chrono::duration<double>(t_sync1 - t_sync0).count(),
+           std::chrono::duration<double>(t_sync2 - t_sync1).count(),
+           std::chrono::duration<double>(t_sync3 - t_sync2).count(),
+           std::chrono::duration<double>(t_sync4 - t_sync3).count(),
+           std::chrono::duration<double>(t_sync4 - t_sync0).count());
+    fflush(stdout);
 
     // Adaptive instance filter (Phase 2 logic): detect regression, revert + reduce
     if (adaptive_mode) {

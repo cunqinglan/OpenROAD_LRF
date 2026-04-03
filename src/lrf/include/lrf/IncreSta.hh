@@ -56,6 +56,8 @@ public:
   float maxInputSlew(const Pin* input_pin, const Corner* corner) const;
   float averageDelayOnCritPath();
   float averageLeakage();
+  // Fast total leakage using pre-computed inst_info_map_ (avoids sta->power()).
+  float totalLeakageFast();
 
   // APIs for parasitics estimation
   void setLocalStaParasiticsEst(est::EstimateParasitics *estimate_parasitics);
