@@ -335,7 +335,36 @@ IncreSta::averageLeakage()
   return total_leakage / cnt;
 }
 
-void 
+float
+IncreSta::totalLeakageFast()
+{
+  float total_leakage = 0.0f;
+  sta::LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
+  while (inst_iter->hasNext()) {
+    sta::Instance *inst = inst_iter->next();
+    sta::LibertyCell *cell = network_->libertyCell(inst);
+    if (!cell)
+      continue;
+    auto it = inst_info_map_.find(inst);
+    if (it != inst_info_map_.end()) {
+      LocalCellInfo *info = it->second;
+      if (info->equiv_cells) {
+        for (size_t j = 0; j < info->equiv_cells->size(); j++) {
+          if ((*(info->equiv_cells))[j] == cell) {
+            total_leakage += info->cell_leakages[j];
+            break;
+          }
+        }
+      }
+    } else {
+      total_leakage += local_sta_->cellAvgLeakage(cell);
+    }
+  }
+  delete inst_iter;
+  return total_leakage;
+}
+
+void
 IncreSta::setLocalStaParasiticsEst(est::EstimateParasitics *estimate_parasitics)
 {
   local_sta_->setParasiticsEst(estimate_parasitics);

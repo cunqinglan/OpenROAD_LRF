@@ -206,16 +206,30 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   for (size_t i = 0; i < candidates.size(); i++) {
     sta::LibertyCell *cand = candidates[i];
 
-    if (!local_sta_->legalCheckBeforeSwap(inst, cand, nullptr, nullptr, pt_graph)
-        && cand != ori_cell)
+    auto t_lc0 = std::chrono::high_resolution_clock::now();
+    bool legal_before = local_sta_->legalCheckBeforeSwap(
+        inst, cand, nullptr, nullptr, pt_graph);
+    if (ctx.runtime_map) {
+      auto t_lc1 = std::chrono::high_resolution_clock::now();
+      (*ctx.runtime_map)["legalCheckBeforeSwap"] +=
+          std::chrono::duration<double>(t_lc1 - t_lc0).count();
+    }
+    if (!legal_before && cand != ori_cell)
       continue;
 
     float leakage = lookupLeakage(inst, cand);
     float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
-        pt_graph, ctx.arc_delay_calc, cand).delay_lm_sum;
+        pt_graph, ctx.arc_delay_calc, cand, ctx.runtime_map).delay_lm_sum;
 
-    if (!local_sta_->legalCheckAfterSwap(inst, cand, nullptr, nullptr, pt_graph)
-        && cand != ori_cell)
+    auto t_lc2 = std::chrono::high_resolution_clock::now();
+    bool legal_after = local_sta_->legalCheckAfterSwap(
+        inst, cand, nullptr, nullptr, pt_graph);
+    if (ctx.runtime_map) {
+      auto t_lc3 = std::chrono::high_resolution_clock::now();
+      (*ctx.runtime_map)["legalCheckAfterSwap"] +=
+          std::chrono::duration<double>(t_lc3 - t_lc2).count();
+    }
+    if (!legal_after && cand != ori_cell)
       continue;
 
     float cost = ctx.swapCost(delay_lm_sum, leakage);
@@ -326,16 +340,30 @@ ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
   for (size_t i = 0; i < candidates.size(); i++) {
     sta::LibertyCell *cand = candidates[i];
 
-    if (!local_sta_->legalCheckBeforeSwap(inst, cand, nullptr, nullptr, pt_graph)
-        && cand != ori_cell)
+    auto t_lc0 = std::chrono::high_resolution_clock::now();
+    bool legal_before = local_sta_->legalCheckBeforeSwap(
+        inst, cand, nullptr, nullptr, pt_graph);
+    if (ctx.runtime_map) {
+      auto t_lc1 = std::chrono::high_resolution_clock::now();
+      (*ctx.runtime_map)["legalCheckBeforeSwap"] +=
+          std::chrono::duration<double>(t_lc1 - t_lc0).count();
+    }
+    if (!legal_before && cand != ori_cell)
       continue;
 
     float leakage = lookupLeakage(inst, cand);
     float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
-        pt_graph, ctx.arc_delay_calc, cand).delay_lm_sum;
+        pt_graph, ctx.arc_delay_calc, cand, ctx.runtime_map).delay_lm_sum;
 
-    if (!local_sta_->legalCheckAfterSwap(inst, cand, nullptr, nullptr, pt_graph)
-        && cand != ori_cell)
+    auto t_lc2 = std::chrono::high_resolution_clock::now();
+    bool legal_after = local_sta_->legalCheckAfterSwap(
+        inst, cand, nullptr, nullptr, pt_graph);
+    if (ctx.runtime_map) {
+      auto t_lc3 = std::chrono::high_resolution_clock::now();
+      (*ctx.runtime_map)["legalCheckAfterSwap"] +=
+          std::chrono::duration<double>(t_lc3 - t_lc2).count();
+    }
+    if (!legal_after && cand != ori_cell)
       continue;
 
     float cost = ctx.swapCost(delay_lm_sum, leakage);
@@ -497,7 +525,7 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
       leakage = lk_it->second;
 
     float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
-        pt_graph, ctx.arc_delay_calc, cand).delay_lm_sum;
+        pt_graph, ctx.arc_delay_calc, cand, ctx.runtime_map).delay_lm_sum;
 
     if (!local_sta_->legalCheckAfterSwap(inst, cand, nullptr, nullptr, pt_graph)
         && cand != ori_cell)
@@ -1246,13 +1274,38 @@ ParallelVisitor::printRuntimeProfile() const
 {
   printf("ParallelVisitor Runtime Profile:\n");
   for (const auto &entry : runtime_map_) {
-    printf("  %s: %.6f seconds\n", entry.first.c_str(), entry.second);
+    printf("  %-30s: %.6f seconds\n", entry.first.c_str(), entry.second);
   }
-  double equiv_count = runtime_map_.at("equiv_cell_count");
-  double equiv_time = runtime_map_.at("equiv_cell_check");
+  auto safe_get = [&](const std::string &key) -> double {
+    auto it = runtime_map_.find(key);
+    return (it != runtime_map_.end()) ? it->second : 0.0;
+  };
+  double equiv_count = safe_get("equiv_cell_count");
+  double equiv_time = safe_get("equiv_cell_check");
   if (equiv_count > 0) {
     printf("  Average equiv cell check time: %.9f seconds\n",
            equiv_time / equiv_count);
+  }
+  // Print percentage breakdown within equiv_cell_check
+  if (equiv_time > 0.0) {
+    printf("\n  --- equiv_cell_check breakdown (%%  of %.3fs) ---\n", equiv_time);
+    const char *sub_keys[] = {
+      "legalCheckBeforeSwap", "vrc_setRefGate", "vrc_recomputeParasitics",
+      "findLocalDelays", "findLocalArrivals", "findLocalRequireds",
+      "delayLmSum", "legalCheckAfterSwap"
+    };
+    double accounted = 0.0;
+    for (const char *key : sub_keys) {
+      double val = safe_get(key);
+      accounted += val;
+      printf("    %-30s: %8.4fs  (%5.1f%%)\n", key, val,
+             val / equiv_time * 100.0);
+    }
+    double unaccounted = equiv_time - accounted;
+    if (unaccounted > 0.001) {
+      printf("    %-30s: %8.4fs  (%5.1f%%)\n", "(other/overhead)", unaccounted,
+             unaccounted / equiv_time * 100.0);
+    }
   }
 }
 
