@@ -1,5 +1,7 @@
 #pragma once
 
+#include <map>
+#include <string>
 #include "sta/Sta.hh"
 #include "PtGraph.hh"
 #include "sta/GraphDelayCalc.hh"
@@ -150,9 +152,13 @@ public:
   DelayLmSumResult initAndGetLocalTimingCost(PtGraph *pt_graph, sta::ArcDelayCalc *arc_delay_calc);
   DelayLmSumResult increAndGetLocalTimingCost(PtGraph *pt_graph,
                                     sta::ArcDelayCalc *arc_delay_calc,
-                                    sta::LibertyCell *equiv_cell);
+                                    sta::LibertyCell *equiv_cell,
+                                    std::map<std::string, double> *runtime_map = nullptr);
   sta::Slack localSlackAroundRef(PtGraph *pt_graph);
   bool virtualReplaceCell(PtGraph *pt_graph, sta::LibertyCell *new_cell);
+  // Swap ref cell with selective parasitic recompute: skip RefOutput
+  // drivers whose output port cap is unchanged after cell swap.
+  bool virtualReplaceCellSelective(PtGraph *pt_graph, sta::LibertyCell *new_cell);
 
 protected:
   const Pin *findNetParasiticDrvrPin(sta::Net *net) const;
