@@ -1154,21 +1154,25 @@ TestLrf::testParallelLrResizeByArraySpeedup(sta::dbSta* sta,
   incre_sta->setMaxResizeNum(max_resize_num);
   incre_sta->lmUpdate();
 
-  odb::dbDatabase::beginEco(block);
+  // No ECO undo in incremental-STA mode.
+  // ECO undo + incremental STA is unsafe: undoEco reverses ODB cell swaps
+  // but leaves the STA incremental state (arrival times, slack caches)
+  // stale.  The old full-STA variant recovered by calling
+  // sta->delaysInvalid() + updateTiming(true) each iteration, but the
+  // incremental path cannot do that without losing its speed advantage.
+  // Instead we use a simple accept-or-stop strategy:
+  //   - On improvement: commit (endEco + beginEco) to lock in gains.
+  //   - On no improvement: tolerate up to N iterations, then stop.
+  // The best state is always the last committed endEco snapshot.
+
   float best_leakage = std::numeric_limits<float>::max();
   size_t no_improve_count_ = 0;
-  size_t eco_iter = 0;
   sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
   sta::Slack best_tns = sta->totalNegativeSlack(sta::MinMax::max());
   sta::Slack tns, wns;
   float avg_delay = incre_sta->averageDelayOnCritPath();
   float avg_leakage = incre_sta->averageLeakage();
   local_sta->initParallel();
-
-  // Determine if this is a large design for early termination policy.
-  const size_t num_insts = block->getInsts().size();
-  const bool is_large_design = (num_insts > 100000);
-  bool had_improvement = false;
 
   // Pre-build LibertyCell -> leakage map for fast leakage computation.
   std::unordered_map<sta::LibertyCell*, float> cell_leakage_map;
@@ -1203,18 +1207,12 @@ TestLrf::testParallelLrResizeByArraySpeedup(sta::dbSta* sta,
     incre_sta->parallelResizeByArraySpeedup(resizer, avg_delay, avg_leakage, PT_tradeoff);
 
     // --- Full parasitic update + incremental timing ---
-    // Use proven full parasitic update (safe, <2% of total runtime).
-    // Core speedup comes from critical-path filtering + incremental STA.
     est_parasitics->updateWireParasiticsNoDeleteNetwork();
     // Hazard 4 fix: invalidate modified instances AND their upstream fanin drivers.
-    // Do NOT call sta->delaysInvalid() — it destroys incremental state.
-    // replaceCell() already invalidated the modified cone; re-invalidate here
-    // so the delay calculator picks up the new parasitic values.
     {
       sta::dbNetwork *network = sta->getDbNetwork();
       for (sta::Instance *inst : incre_sta->modifiedInstances()) {
         sta->delaysInvalidFrom(inst);
-        // Also invalidate fanin drivers whose output load changed
         sta::InstancePinIterator *pin_iter = network->pinIterator(inst);
         while (pin_iter->hasNext()) {
           sta::Pin *pin = pin_iter->next();
@@ -1225,7 +1223,6 @@ TestLrf::testParallelLrResizeByArraySpeedup(sta::dbSta* sta,
         delete pin_iter;
       }
     }
-    // Incremental: only propagates delays/arrivals for the invalidated cone.
     sta->updateTiming(false);
     tns = sta->totalNegativeSlack(sta::MinMax::max());
     wns = sta->worstSlack(sta::MinMax::max());
@@ -1244,61 +1241,25 @@ TestLrf::testParallelLrResizeByArraySpeedup(sta::dbSta* sta,
 
     incre_sta->lmUpdate();
 
+    // --- Accept-or-stop decision (no ECO undo) ---
+    bool improved = false;
     if (wns > best_wns && wns < 0) {
-      best_wns = wns;
-      best_tns = tns;
-      best_leakage = leakage;
-      odb::dbDatabase::endEco(block);
-      odb::dbDatabase::beginEco(block);
-      no_improve_count_ = 0;
-      had_improvement = true;
+      improved = true;
     } else if (wns >= 0.0 && (wns > best_wns || leakage < best_leakage)) {
+      improved = true;
+    }
+
+    if (improved) {
       best_wns = wns;
       best_tns = tns;
       best_leakage = leakage;
-      odb::dbDatabase::endEco(block);
-      odb::dbDatabase::beginEco(block);
       no_improve_count_ = 0;
-      had_improvement = true;
-    } else if (is_large_design && had_improvement && wns < best_wns) {
-      odb::dbDatabase::endEco(block);
-      odb::dbDatabase::undoEco(block);
-      incre_sta->clearModifiedTracking();
-      delete incre_sta;
-      return;
-    } else if (no_improve_count_ < num_no_improve_tolerance) {
-      no_improve_count_++;
-      continue;
-    } else if (eco_iter > 2) {
-      break;
     } else {
-      odb::dbDatabase::endEco(block);
-      odb::dbDatabase::undoEco(block);
-      incre_sta->clearModifiedTracking();
-      // After undoEco, recompute leakage from scratch
-      total_leakage = 0;
-      for (odb::dbInst *db_inst : block->getInsts()) {
-        sta::Instance *sta_inst = sta->getDbNetwork()->dbToSta(db_inst);
-        if (!sta_inst) continue;
-        sta::LibertyCell *lib_cell = sta->getDbNetwork()->libertyCell(sta_inst);
-        if (lib_cell) {
-          auto it = cell_leakage_map.find(lib_cell);
-          if (it != cell_leakage_map.end())
-            total_leakage += it->second;
-        }
+      no_improve_count_++;
+      if (no_improve_count_ > num_no_improve_tolerance) {
+        break;
       }
-      odb::dbDatabase::beginEco(block);
-      eco_iter++;
     }
-  }
-  tns = sta->totalNegativeSlack(sta::MinMax::max());
-  wns = sta->worstSlack(sta::MinMax::max());
-  if (wns > best_wns) {
-    odb::dbDatabase::endEco(block);
-  } else {
-    odb::dbDatabase::endEco(block);
-    odb::dbDatabase::undoEco(block);
-    incre_sta->clearModifiedTracking();
   }
   delete incre_sta;
 }
