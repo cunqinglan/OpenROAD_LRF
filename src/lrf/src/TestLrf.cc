@@ -756,12 +756,18 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
                             size_t num_no_improve_tolerance,
                             bool ratcons,
                             float PT_tradeoff,
-                            std::string lr_helper_method)
+                            std::string lr_helper_method,
+                            bool initialize)
 {
   printf("----- Testing Parallel LR Resize By Array (New Framework) -----\n");
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+
+  if (initialize) {
+    runInitialization(sta, incre_sta, resizer, block);
+  }
+
   lrf::LocalSta *local_sta = incre_sta->localSta();
 
   incre_sta->makeLRHelper(lr_helper_method);
@@ -769,7 +775,6 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   lr_helper->setRatcons(ratcons);
 
   incre_sta->setMaxResizeNum(max_resize_num);
-  incre_sta->lmUpdate();
 
   odb::dbDatabase::beginEco(block);
   float best_leakage = std::numeric_limits<float>::max();
@@ -792,6 +797,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   est_parasitics->setDbCbkOwner(block);
 
   for (size_t i = 0; i < iterations; ++i) {
+    incre_sta->lmUpdate();
     sta->findRequireds();
     auto start = std::chrono::high_resolution_clock::now();
 
@@ -872,14 +878,10 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     }
 
     fflush(stdout);
-    incre_sta->lmUpdate();
-    auto t_sync4 = std::chrono::high_resolution_clock::now();
-    printf("[ITER_OVERHEAD] parasitic_sync=%.3f  global_sta=%.3f  leakage_calc=%.3f  lm_update=%.3f  total=%.3f\n",
+    printf("[ITER_OVERHEAD] parasitic_sync=%.3f  global_sta=%.3f  leakage_calc=%.3f\n",
            std::chrono::duration<double>(t_sync1 - t_sync0).count(),
            std::chrono::duration<double>(t_sync2 - t_sync1).count(),
-           std::chrono::duration<double>(t_sync3 - t_sync2).count(),
-           std::chrono::duration<double>(t_sync4 - t_sync3).count(),
-           std::chrono::duration<double>(t_sync4 - t_sync0).count());
+           std::chrono::duration<double>(t_sync3 - t_sync2).count());
     fflush(stdout);
 
     // Adaptive instance filter (Phase 2 logic): detect regression, revert + reduce
@@ -1056,12 +1058,18 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
                             size_t num_no_improve_tolerance,
                             bool ratcons,
                             float PT_tradeoff,
-                            std::string lr_helper_method)
+                            std::string lr_helper_method,
+                            bool initialize)
 {
   printf("----- Testing Parallel LR Resize+Buffering (revert-halve ECO) -----\n");
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+
+  if (initialize) {
+    runInitialization(sta, incre_sta, resizer, block);
+  }
+
   lrf::LocalSta *local_sta = incre_sta->localSta();
 
   incre_sta->makeLRHelper(lr_helper_method);
@@ -1069,7 +1077,6 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
   lr_helper->setRatcons(ratcons);
 
   incre_sta->setMaxResizeNum(max_resize_num);
-  incre_sta->lmUpdate();
 
   odb::dbDatabase::beginEco(block);
   IterationHelper helper(sta, block, local_sta, resizer);
@@ -1085,6 +1092,7 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
 
   for (size_t i = 0; i < iterations; ++i) {
     // ── Resize phase ──
+    incre_sta->lmUpdate();
     sta->findRequireds();
     printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
     auto start = std::chrono::high_resolution_clock::now();
@@ -1100,7 +1108,6 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
     printf("After resize: WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW (%.1fs)\n",
            cur.wns_ps, cur.tns_ps, cur.leakage * 1e10, runtime);
     fflush(stdout);
-    incre_sta->lmUpdate();
 
     double cur_wns = cur.wns_ps / 1e12;
     double best_wns_s = best.wns_ps / 1e12;
@@ -1179,7 +1186,6 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
              tns_before, buf_cur.tns_ps, tns_delta,
              buf_cur.leakage * 1e10, buf_runtime);
       fflush(stdout);
-      incre_sta->lmUpdate();
 
       // Accept if WNS improved or within 1.1x slack margin
       double buf_wns = buf_cur.wns_ps / 1e12;
@@ -1260,7 +1266,6 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
   lr_helper->setRatcons(ratcons);
 
   incre_sta->setMaxResizeNum(max_resize_num);
-  incre_sta->lmUpdate();
 
   odb::dbDatabase::beginEco(block);
   IterationHelper helper(sta, block, local_sta, resizer);
@@ -1294,6 +1299,7 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
       fflush(stdout);
     }
 
+    incre_sta->lmUpdate();
     sta->findRequireds();
     printf("----- Combined Resize+Buffering Iteration %zu -----\n", i+1);
     auto start = std::chrono::high_resolution_clock::now();
@@ -1310,7 +1316,6 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
     printf("WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW\n",
            cur.wns_ps, cur.tns_ps, cur.leakage * 1e10);
     fflush(stdout);
-    incre_sta->lmUpdate();
 
     double cur_wns = cur.wns_ps / 1e12;
     double best_wns_s = best.wns_ps / 1e12;
@@ -1419,7 +1424,6 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
   lr_helper->setRatcons(ratcons);
 
   incre_sta->setMaxResizeNum(max_resize_num);
-  incre_sta->lmUpdate();
 
   odb::dbDatabase::beginEco(block);
   float best_leakage = std::numeric_limits<float>::max();
@@ -1435,6 +1439,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
   local_sta->initParallel();
 
   for (size_t i = 0; i < iterations; ++i) {
+    incre_sta->lmUpdate();
     sta->findRequireds();
     printf("----- LR ResizeByArrayWithPrecheck Iteration %zu (top_ratio=%.4f, adaptive=%.4f) -----\n",
            i+1, top_ratio, incre_sta->adaptiveTopRatio());
@@ -1463,7 +1468,6 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
     printf("Total Negative Slack: %f\n", tns * 1e12);
     printf("Total Leakage Power: %f\n", leakage * 1e10);
     fflush(stdout);
-    incre_sta->lmUpdate();
 
     // Adaptive instance filter: after iter > 3, always use adaptive topN.
     //   Normal: N = last_change_count * 1.5, ratio = N / total (monotonically decreasing)
@@ -1581,7 +1585,6 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBuffering(sta::dbSta* sta,
   lr_helper->setRatcons(ratcons);
 
   incre_sta->setMaxResizeNum(max_resize_num);
-  incre_sta->lmUpdate();
 
   odb::dbDatabase::beginEco(block);
   float best_leakage = std::numeric_limits<float>::max();
@@ -1597,6 +1600,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBuffering(sta::dbSta* sta,
   local_sta->initParallel();
 
   for (size_t i = 0; i < iterations; ++i) {
+    incre_sta->lmUpdate();
     sta->findRequireds();
     printf("----- LR ResizeByArrayWithPrecheckBuffering Iteration %zu (top_ratio=%.4f) -----\n",
            i+1, top_ratio);
@@ -1625,7 +1629,6 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBuffering(sta::dbSta* sta,
     printf("Total Negative Slack after RSZ: %f\n", tns * 1e12);
     printf("Total Leakage Power after RSZ: %f\n", leakage * 1e10);
     fflush(stdout);
-    incre_sta->lmUpdate();
 
     // Post-convergence regression: immediate rollback + halve
     if (was_converged && wns < 0.0) {
@@ -3278,11 +3281,11 @@ TestLrf::testRepairSlew(sta::dbSta* sta,
 }
 
 void
-TestLrf::initializeMinLeakage(sta::dbSta* sta, rsz::Resizer *resizer,
-                               odb::dbBlock *block)
+TestLrf::runInitialization(sta::dbSta* sta, IncreSta* incre_sta,
+                           rsz::Resizer *resizer, odb::dbBlock *block)
 {
   resizer->makeEquivCells();
-  Initializer initializer(sta, resizer, block);
+  Initializer initializer(sta, incre_sta, resizer, block);
   initializer.run();
 }
 

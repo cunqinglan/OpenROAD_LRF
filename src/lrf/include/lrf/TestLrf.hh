@@ -115,7 +115,8 @@ public:
                             size_t num_no_improve_tolerance,
                             bool ratcons = false,
                             float PT_tradeoff = 100.0,
-                            std::string lr_helper_method = "LRHelper");
+                            std::string lr_helper_method = "LRHelper",
+                            bool initialize = false);
 
   void testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
                             rsz::Resizer *resizer,
@@ -126,7 +127,8 @@ public:
                             size_t num_no_improve_tolerance,
                             bool ratcons = false,
                             float PT_tradeoff = 100.0,
-                            std::string lr_helper_method = "LRHelper");
+                            std::string lr_helper_method = "LRHelper",
+                            bool initialize = false);
 
   // Print all liberty cells information grouped by unique equiv cell groups.
   void printAllCellsInfo(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
@@ -202,9 +204,10 @@ public:
   void testRepairSlew(sta::dbSta* sta,
                       rsz::Resizer *resizer,
                       odb::dbBlock *block);
-  // Initialize netlist: downsize to min-leakage, then fix maxcap/maxslew.
-  void initializeMinLeakage(sta::dbSta* sta, rsz::Resizer *resizer,
-                            odb::dbBlock *block);
+  // Run Sharma 3-step initialization on an existing IncreSta.
+  // Called internally by testParallelLrResize* when initialize=true.
+  void runInitialization(sta::dbSta* sta, IncreSta* incre_sta,
+                         rsz::Resizer *resizer, odb::dbBlock *block);
 
 protected:
   void printSlewComparison(char *inst_name, sta::dbSta* sta, 
