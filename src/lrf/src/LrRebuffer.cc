@@ -384,7 +384,6 @@ LrRebuffer::persistBufferParasitics()
   auto persistNet = [&](const sta::Net *net) {
     if (!net) return;
     estimate_parasitics_->estimateWireParasiticNoDeleteNetwork(net);
-    local_sta_->syncParasiticNetworkFromGlobal(net);
   };
 
   // Persist parasitics for each buffer's output net.

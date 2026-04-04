@@ -784,6 +784,11 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   float top_ratio = 0.3f;  // initial precheck ratio (used after switch)
   bool adaptive_mode = false;
 
+  // Enable incremental parasitic tracking via ODB callbacks.
+  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+  est_parasitics->setIncrementalParasiticsEnabled(true);
+  est_parasitics->setDbCbkOwner(block);
+
   for (size_t i = 0; i < iterations; ++i) {
     sta->findRequireds();
     auto start = std::chrono::high_resolution_clock::now();
@@ -805,7 +810,8 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
            std::chrono::duration<double>(end - start).count());
 
     auto t_sync0 = std::chrono::high_resolution_clock::now();
-    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+    est_parasitics->updateWireParasiticsNoDeleteNetworkIncremental();
+    local_sta->syncParasiticMapFromGlobal();
     auto t_sync1 = std::chrono::high_resolution_clock::now();
     sta->delaysInvalid();
     sta->updateTiming(true);
@@ -901,6 +907,10 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
       break;
     }
   }
+  // Disable incremental parasitic tracking.
+  est_parasitics->removeDbCbkOwner();
+  est_parasitics->setIncrementalParasiticsEnabled(false);
+
   tns = sta->totalNegativeSlack(sta::MinMax::max());
   wns = sta->worstSlack(sta::MinMax::max());
   if (wns > best_wns) {

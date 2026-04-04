@@ -101,6 +101,12 @@ LocalSta::updateGlobalParasiticsAndSync(est::EstimateParasitics *est_parasitics)
 }
 
 void
+LocalSta::syncParasiticMapFromGlobal()
+{
+  local_parasitics_->initParasiticMapFromBase();
+}
+
+void
 LocalSta::collectLocalGraph(Instance *inst, InstanceSet &local_instances)
 {
   if (network_->libertyCell(inst)->hasSequentials()) {
@@ -1519,11 +1525,6 @@ LocalSta::recomputeSinglePtParasitic(PtGraph *pt_graph, VertexId drvr_vid)
   local_parasitics_->recomputeSinglePtParasitic(pt_graph, drvr_vid);
 }
 
-void
-LocalSta::syncParasiticNetworkFromGlobal(const Net *net)
-{
-  local_parasitics_->syncParasiticNetworkFromGlobal(net);
-}
 
 
 Slack

@@ -192,6 +192,8 @@ class EstimateParasitics : public sta::dbStaState
   //////////////////////////////////////////////////
   void updateParasiticsNoDeleteNetwork(const sta::Net* net);
   void updateWireParasiticsNoDeleteNetwork();
+  // Incremental version: only re-estimate nets in parasitics_invalid_.
+  void updateWireParasiticsNoDeleteNetworkIncremental();
   void estimateWireParasiticNoDeleteNetwork(const sta::Net* net);      
   void estimateWireParasiticSteinerNoDeleteNetwork(const sta::Pin* drvr_pin,
                                                    const sta::Net* net);

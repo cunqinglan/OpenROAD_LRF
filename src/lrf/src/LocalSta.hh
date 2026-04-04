@@ -70,6 +70,8 @@ public:
                             const Corner* corner) const;
   void setParasiticsEst(est::EstimateParasitics *estimate_parasitics);
   void updateGlobalParasiticsAndSync(est::EstimateParasitics *est_parasitics);
+  // Sync local parasitic map from global (without re-estimating).
+  void syncParasiticMapFromGlobal();
   void setAnalysisPoints(const std::vector<const DcalcAnalysisPt*> &dcalc_ap_set);
   void setDebugLabel(const std::string &label) { debug_label_ = label; }
 
@@ -370,7 +372,6 @@ protected:
   // reduced pi model need to be recomputed.
   void recomputeLocalParasitics(PtGraph *pt_graph);
   void recomputeSinglePtParasitic(PtGraph *pt_graph, sta::VertexId drvr_vid);
-  void syncParasiticNetworkFromGlobal(const sta::Net *net);
   void loadLocalParasitics(const Pin *drvr_pin,
                            const RiseFall *rf,
                            const DcalcAnalysisPt *dcalc_ap,

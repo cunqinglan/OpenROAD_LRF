@@ -52,7 +52,7 @@ LocalParasitics::initParasiticMapFromBase()
 
   ConcreteParasitics *global = dynamic_cast<ConcreteParasitics*>(parasitics_);
   if (global != nullptr) {
-    local_parasitic_network_map_ = global->parasitic_network_map_;
+    global_parasitic_network_map_ = &global->parasitic_network_map_;
   }
 }
 
@@ -124,22 +124,13 @@ LocalParasitics::recomputeSinglePtParasitic(PtGraph *pt_graph, VertexId drvr_vid
   }
 }
 
-void
-LocalParasitics::syncParasiticNetworkFromGlobal(const Net *net)
-{
-  ConcreteParasitics *global = dynamic_cast<ConcreteParasitics*>(parasitics_);
-  if (!global) return;
-  ConcreteParasiticNetwork **array = global->parasitic_network_map_.findKey(net);
-  if (array)
-    local_parasitic_network_map_[net] = array;
-}
 
 Parasitic *
 LocalParasitics::findLocalParasiticNetwork(const Net *net, const ParasiticAnalysisPt *ap) const
 {
-  if (!local_parasitic_network_map_.empty()) {
+  if (global_parasitic_network_map_ && !global_parasitic_network_map_->empty()) {
     ConcreteParasiticNetwork **parasitic_array =
-      local_parasitic_network_map_.findKey(net);
+      global_parasitic_network_map_->findKey(net);
     if (!parasitic_array) {
       const char *unconnected_net_name = "UNCONNECTED";
       if (!network_->name(net) || !strstr(network_->name(net), unconnected_net_name)) {
@@ -161,7 +152,7 @@ LocalParasitics::findLocalParasiticNetwork(const Net *net, const ParasiticAnalys
     }
     return parasitic;
   }
-  printf("Error: LocalParasitics::findLocalParasiticNetwork: local_parasitic_network_map_ is empty\n");
+  printf("Error: LocalParasitics::findLocalParasiticNetwork: global parasitic network map is null or empty\n");
   fflush(stdout);
   return nullptr;
 }
