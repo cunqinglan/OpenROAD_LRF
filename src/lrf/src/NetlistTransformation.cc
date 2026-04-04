@@ -2,7 +2,7 @@
 #include "PlacementDensityMap.hh"
 #include "LocalSta.hh"
 #include "PtGraph.hh"
-#include "LrRebufferV2.hh"
+#include "LrRebuffer.hh"
 #include "TaskArranger.hh"
 #include "sta/GraphDelayCalc.hh"
 #include "sta/Liberty.hh"
@@ -621,7 +621,7 @@ BufferOperator::BufferOperator(sta::dbSta *db_sta, LocalSta *local_sta,
   : db_sta_(db_sta), local_sta_(local_sta), resizer_(resizer)
 {
   if (ctx) {
-    rebuffer_ = std::make_unique<LrRebufferV2>(resizer, local_sta, ctx);
+    rebuffer_ = std::make_unique<LrRebuffer>(resizer, local_sta, ctx);
     rebuffer_->init();
   }
   // If ctx is nullptr, rebuffer_ stays null until setEvalContext() is called.
@@ -638,7 +638,7 @@ BufferOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   }
       
 
-  // Sync pt_graph into eval context so LrRebufferV2 sees the right graph
+  // Sync pt_graph into eval context so LrRebuffer sees the right graph
   ctx.pt_graph = pt_graph;
 
   // Collect RefOutput driver pins before rebufferPin (may reallocate)
@@ -669,7 +669,7 @@ void
 BufferOperator::setEvalContext(EvalContext *ctx)
 {
   // Recreate rebuffer with new context (per-thread copy)
-  rebuffer_ = std::make_unique<LrRebufferV2>(resizer_, local_sta_, ctx);
+  rebuffer_ = std::make_unique<LrRebuffer>(resizer_, local_sta_, ctx);
   rebuffer_->init();
 }
 
@@ -700,6 +700,31 @@ BufferOperator::apply(const MoveOption &move, PtGraph *pt_graph,
 // BufferSensitivityOperator
 // ═══════════════════════════════════════════════════════════
 
+bool
+BufferSensitivityOperator::skipInstance(sta::Instance *inst) const
+{
+  // Skip instances whose driver pins all have non-negative slack —
+  // buffer insertion only targets negative-slack paths.  This avoids
+  // the full PtGraph construction for the (usually large) non-critical
+  // majority.
+  sta::Network *network = db_sta_->network();
+  sta::Graph *graph = db_sta_->graph();
+  sta::InstancePinIterator *iter = network->pinIterator(inst);
+  bool all_positive = true;
+  while (iter->hasNext()) {
+    sta::Pin *pin = iter->next();
+    if (network->isDriver(pin)) {
+      sta::Vertex *vtx = graph->pinDrvrVertex(pin);
+      if (vtx && db_sta_->vertexSlack(vtx, sta::MinMax::max()) < 0.0f) {
+        all_positive = false;
+        break;
+      }
+    }
+  }
+  delete iter;
+  return all_positive;
+}
+
 MoveOption
 BufferSensitivityOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
                                     EvalContext &ctx)
@@ -719,11 +744,6 @@ BufferSensitivityOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     }
   }
   if (!drvr_pin || !drvr_pv)
-    return result;
-
-  // Skip non-critical instances — buffer insertion targets negative slack paths.
-  sta::Vertex *drvr_vtx = drvr_pv->vertex();
-  if (drvr_vtx && db_sta_->vertexSlack(drvr_vtx, sta::MinMax::max()) >= 0.0f)
     return result;
 
   float score = rebuffer_->computeNetSensitivity(
@@ -780,7 +800,7 @@ CombinedOperator::tryBufferingOnCandidates(
     sta::LibertyCell *ori_cell, float ori_cost)
 {
   MoveOption result;
-  LrRebufferV2 *rebuffer = buffer_op_ ? buffer_op_->rebuffer() : nullptr;
+  LrRebuffer *rebuffer = buffer_op_ ? buffer_op_->rebuffer() : nullptr;
   if (!rebuffer)
     return result;
 
@@ -881,7 +901,7 @@ CombinedOperator::tryBufferingOnTop1AndSmaller(
     sta::LibertyCell *ori_cell, float baseline_cost)
 {
   MoveOption result;
-  LrRebufferV2 *rebuffer = buffer_op_ ? buffer_op_->rebuffer() : nullptr;
+  LrRebuffer *rebuffer = buffer_op_ ? buffer_op_->rebuffer() : nullptr;
   if (!rebuffer || !resize_op_->equiv_cell_array_ || !resize_op_->equiv_cell_pos_map_) {
     if (ctx.runtime_map)
       (*ctx.runtime_map)["buf_reject_no_rebuffer"] += 1.0;
@@ -1168,11 +1188,25 @@ ParallelVisitor::visit(sta::Instance *inst, sta::VertexId vid)
   auto start_time = std::chrono::steady_clock::now();
   best_move_ = MoveOption{};
 
+  // Early skip: operator can reject this instance before PtGraph construction
+  // (e.g. BufferSensitivityOperator skips slack >= 0 instances).
+  // precheck_results_ keeps its pre-initialized -inf value for skipped entries.
+  if (operator_ && operator_->skipInstance(inst)) {
+    runtime_map_["skip_count"] += 1.0;
+    return false;
+  }
+
   // Build PtGraph (visitor-owned, freed at next visit or destructor)
   auto start_pt = std::chrono::high_resolution_clock::now();
   pt_graph_.reset(new PtGraph(db_sta_));
-  local_sta_->makePtGraph(pt_graph_.get(), inst);
-  pt_graph_->pruneInsignificantSiblings();
+  const bool driver_only = operator_
+      && operator_->ptGraphLevel() == LrOperator::PtGraphLevel::DriverOnly;
+  if (driver_only)
+    local_sta_->makePtGraphDriverOnly(pt_graph_.get(), inst);
+  else
+    local_sta_->makePtGraph(pt_graph_.get(), inst);
+  if (!driver_only)
+    pt_graph_->pruneInsignificantSiblings();
   auto end_pt = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
       std::chrono::duration<double>(end_pt - start_pt).count();

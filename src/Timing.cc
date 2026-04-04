@@ -666,6 +666,46 @@ Timing::testParallelKKTProjection(const char *lr_helper_method)
 }
 
 void
+Timing::testLocalStaAccuracy(size_t max_steps)
+{
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testLocalStaAccuracy(sta, resizer, design_->getBlock(), max_steps);
+}
+
+void
+Timing::initializeMinLeakage()
+{
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.initializeMinLeakage(sta, resizer, design_->getBlock());
+}
+
+void
+Timing::testSlewViolationFeasibility()
+{
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testSlewViolationFeasibility(sta, resizer, design_->getBlock());
+}
+
+void
+Timing::testRepairSlew()
+{
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testRepairSlew(sta, resizer, design_->getBlock());
+}
+
+void
 Timing::testReportVertices() {
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();

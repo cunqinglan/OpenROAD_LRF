@@ -185,6 +185,27 @@ public:
                                   size_t thread_num,
                                   std::string lr_helper_method = "LRHelper");
 
+  // Test LocalSTA slew + arrival accuracy: full traversal with selective
+  // resize, compare global graph against updateTiming ground truth.
+  void testLocalStaAccuracy(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t max_steps);
+
+  // Analyze slew violation pins: for each violated driver, check whether
+  // downsizing fanout loads and/or upsizing the driver can fix the violation.
+  void testSlewViolationFeasibility(sta::dbSta* sta,
+                                    rsz::Resizer *resizer,
+                                    odb::dbBlock *block);
+
+  // Repair slew violations by buffer insertion on violated driver nets.
+  void testRepairSlew(sta::dbSta* sta,
+                      rsz::Resizer *resizer,
+                      odb::dbBlock *block);
+  // Initialize netlist: downsize to min-leakage, then fix maxcap/maxslew.
+  void initializeMinLeakage(sta::dbSta* sta, rsz::Resizer *resizer,
+                            odb::dbBlock *block);
+
 protected:
   void printSlewComparison(char *inst_name, sta::dbSta* sta, 
                        LocalSta *local_sta, odb::dbInst *db_inst, 

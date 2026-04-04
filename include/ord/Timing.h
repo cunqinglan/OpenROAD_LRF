@@ -143,6 +143,11 @@ class Timing
   void testPrecedingResizeCheck(float PT_tradeoff = 100.0,
                                 float top_ratio = 0.3);
   void testParallelKKTProjection(const char *lr_helper_method = "RapidLRHelper");
+  void testLocalStaAccuracy(size_t max_steps = 50);
+  void testSlewViolationFeasibility();
+  void testRepairSlew();
+  // Initialize: downsize to min-leakage, fix maxcap, fix maxslew.
+  void initializeMinLeakage();
   /////////////////////////////////////////////////////////////
   // End functions for testing LR sizing
   /////////////////////////////////////////////////////////////

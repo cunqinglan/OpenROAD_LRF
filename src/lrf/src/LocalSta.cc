@@ -259,13 +259,55 @@ LocalSta::collectLocalFaninSiblingVertices(Vertex *load_vertex,
           }
           
           local_vertices.insert(sibling_drvr_vertex);
+          // Collect all fanin vertices of the SibDrvr so that
+          // findLocalArrivals can compute its arrival through
+          // all input arcs, not just the one shared with RefDriver.
+          VertexInEdgeIterator sib_in_iter(sibling_drvr_vertex, graph_);
+          while (sib_in_iter.hasNext()) {
+            Edge *sib_in_edge = sib_in_iter.next();
+            Vertex *sib_fanin = sib_in_edge->from(graph_);
+            if (search_pred_->searchThru(sib_in_edge)
+                && search_pred_->searchFrom(sib_fanin))
+              local_vertices.insert(sib_fanin);
+          }
         }
       }
     }
   }
 }
 
-void 
+void
+LocalSta::collectDriverFanoutOnly(Instance *inst, VertexSet &local_vertices)
+{
+  InstancePinIterator *pin_iter = network_->pinIterator(inst);
+  while (pin_iter->hasNext()) {
+    Pin *pin = pin_iter->next();
+    if (network_->isDriver(pin)) {
+      Vertex *drvr = graph_->pinDrvrVertex(pin);
+      if (drvr && search_pred_->searchTo(drvr)) {
+        local_vertices.insert(drvr);
+        // Direct wire fanout loads only — no downstream driver collection
+        VertexOutEdgeIterator edge_iter(drvr, graph_);
+        while (edge_iter.hasNext()) {
+          Edge *edge = edge_iter.next();
+          if (!edge->isWire() || !search_pred_->searchThru(edge))
+            continue;
+          Vertex *load = edge->to(graph_);
+          if (network_->isLoad(load->pin()))
+            local_vertices.insert(load);
+        }
+      }
+    }
+    if (network_->isLoad(pin)) {
+      Vertex *load = graph_->pinLoadVertex(pin);
+      if (load)
+        local_vertices.insert(load);
+    }
+  }
+  delete pin_iter;
+}
+
+void
 LocalSta::collectLocalFanouts(Pin *drvr_pin, InstanceSet &local_instances)
 {
   if (graph_ == nullptr) {
@@ -503,6 +545,22 @@ LocalSta::makePtGraph(PtGraph *pt_graph, Instance *inst,
   pt_graph->setDcalcAnalysisPt(dcalc_ap);
 }
 
+void
+LocalSta::makePtGraphDriverOnly(PtGraph *pt_graph, Instance *inst,
+                                DcalcAnalysisPt *dcalc_ap)
+{
+  VertexSet local_vertices(graph_);
+  collectDriverFanoutOnly(inst, local_vertices);
+  pt_graph->makeGraph(local_vertices, inst);
+  if (dcalc_ap == nullptr) {
+    Corner *corner = sta_->corners()->findCorner("default");
+    dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
+    if (dcalc_ap == nullptr)
+      throw std::runtime_error("LocalSta::makePtGraphDriverOnly: No dcalc analysis point found");
+  }
+  pt_graph->setDcalcAnalysisPt(dcalc_ap);
+}
+
 PtGraph *
 LocalSta::makePtGraph(Instance *inst, bool update_timing_first)
 {
@@ -641,7 +699,7 @@ LocalSta::seedNoDrvrCellSlew(PtVertex &pt_drvr_vertex,
   ArcDcalcResult dcalc_result =
     arc_delay_calc->inputPortDelay(drvr_pin, delayAsFloat(slew), rf, parasitic,
                                    load_pin_index_map, dcalc_ap);
-  annotateLoadDelays(pt_drvr_vertex, rf, dcalc_result, load_pin_index_map, 
+  annotateLoadDelays(pt_drvr_vertex, rf, dcalc_result, load_pin_index_map,
                      drive_delay, false, dcalc_ap, pt_graph);
   arc_delay_calc->finishDrvrPin();
 }
@@ -1645,11 +1703,14 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
 
   const Pin *drvr_pin = drvr_pt_vertex.pin();
 
-  // No pin or no net: load_cap = 0, no parasitic
-  if (!drvr_pin || !network_->net(drvr_pin))
+  if (!drvr_pin)
     return;
 
-  // PtGraph-local PiElmore parasitic (highest priority)
+  // PtGraph-local PiElmore parasitic (highest priority).
+  // Check this BEFORE the net check: PtPiElmore uses objectIdx indexing
+  // and doesn't need a net.  Top-level port pins have net(pin)==nullptr
+  // in the network hierarchy, but their PtPiElmore was computed via
+  // findParasiticNet(pin) in recomputePtParasitics.
   PtPiElmore *pt_pi = pt_graph->findPtParasitic(
       drvr_pt_vertex.objectIdx(), rf, dcalc_ap->index());
   if (pt_pi && pt_pi->capacitance() > 0.0f) {
@@ -1670,26 +1731,20 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
   }
 
   // Virtual driver or driver with virtual buffer downstream
-  if (!drvr_pin || drvr_pt_vertex.hasVirtualBuffer()) {
+  if (drvr_pt_vertex.hasVirtualBuffer()) {
     load_cap = computeVirtualLoadCap(drvr_pt_vertex, rf, dcalc_ap, pt_graph);
     return;
   }
 
-  // Fallback for uncomputed parasitic of real drivers.
-  if (network_->net(drvr_pin) == nullptr) {
-    load_cap = 0.0;
-  } else {
-    bool has_net_load;
-    float fanout;
-    float pin_cap, wire_cap;
-    netCaps(drvr_pin, rf, dcalc_ap, multi_drvr_net,
+  // Fallback: use netCaps (requires net)
+  if (network_->net(drvr_pin) == nullptr)
+    return;
+  bool has_net_load;
+  float fanout;
+  float pin_cap, wire_cap;
+  netCaps(drvr_pin, rf, dcalc_ap, multi_drvr_net,
           pin_cap, wire_cap, fanout, has_net_load);
-    load_cap = pin_cap + wire_cap;
-    // Recompute failed
-    // printf("Error: localParasiticLoad: recompute failed for pin %s, using fallback\n",
-    //       drvr_pin ? network_->name(drvr_pin) : "(virtual)");
-    // fflush(stdout);
-  }
+  load_cap = pin_cap + wire_cap;
 }
 
 
@@ -2029,8 +2084,11 @@ LocalSta::getPortMaxSlewLimit(sta::LibertyPort *port)
   bool exists;
   port->slewLimit(MinMax::max(), max_slew, exists);
   if (!exists) {
-    sta::LibertyLibrary *lib = port->libertyCell()
-        ? port->libertyCell()->libertyLibrary() : nullptr;
+    // Use defaultLibertyLibrary() for fallback, matching the MLCAD
+    // contest evaluation script (Timing::getMaxSlewLimit).
+    // Using the cell's own library would give a more permissive limit
+    // for SRAM cells (320ps vs 227ps), causing violations in scoring.
+    sta::LibertyLibrary *lib = network_->defaultLibertyLibrary();
     if (lib)
       lib->defaultMaxSlew(max_slew, exists);
     if (!exists)
@@ -2128,6 +2186,13 @@ LocalSta::legalCheckAfterSwap(sta::Instance *inst,
       if (getVertexMaxSlew(pt_graph, ptv, dcalc_ap) > getPortMaxSlewLimit(port))
         return false;
       if (!checkFanoutLoadSlew(pt_graph, ptv.objectIdx(), dcalc_ap))
+        return false;
+    }
+    else if (ptv.type() == PtVertexType::SiblingDrvr) {
+      // Sibling driver output slew: resize of the ref instance can
+      // change RefDriver's output slew → SibLoad slew → SibDrvr
+      // output slew may exceed its port limit.
+      if (getVertexMaxSlew(pt_graph, ptv, dcalc_ap) > getPortMaxSlewLimit(port))
         return false;
     }
   }
