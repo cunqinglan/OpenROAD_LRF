@@ -37,8 +37,6 @@ public:
   void recomputePtParasitics(PtGraph *pt_graph);
   // Rebuild PtPiElmore for a single driver vertex from the original parasitic network.
   void recomputeSinglePtParasitic(PtGraph *pt_graph, sta::VertexId drvr_vid);
-  // Copy a new net's parasitic network pointer from global to local map.
-  void syncParasiticNetworkFromGlobal(const sta::Net *net);
 
 protected:
   float pinCapacitance(const ParasiticNode *node,
@@ -50,7 +48,7 @@ protected:
                         const Corner *corner,
                         const MinMax *min_max) const;
 
-  ConcreteParasiticNetworkMap local_parasitic_network_map_;
+  const ConcreteParasiticNetworkMap *global_parasitic_network_map_ = nullptr;
   bool parallelism_exists_ = true;
   bool initialized_ = false;
   ParasiticCopyHelper *copy_helper_;

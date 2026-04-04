@@ -1335,7 +1335,33 @@ EstimateParasitics::updateWireParasiticsNoDeleteNetwork()
   }
 }
 
-void 
+void
+EstimateParasitics::updateWireParasiticsNoDeleteNetworkIncremental()
+{
+  if (parasitics_invalid_.empty())
+    return;
+
+  initBlock();
+  if (wire_signal_cap_.empty())
+    return;
+
+  sta_->setParasiticAnalysisPts(true);
+  sta::LibertyLibrary* default_lib = network_->defaultLibertyLibrary();
+  network_->Network::clear();
+  network_->setDefaultLibertyLibrary(default_lib);
+  sortClkAndSignalLayers();
+
+  size_t count = parasitics_invalid_.size();
+  for (const sta::Net* net : parasitics_invalid_) {
+    estimateWireParasiticNoDeleteNetwork(net);
+  }
+  parasitics_invalid_.clear();
+  printf("[INCR_PARASITIC] updated %zu dirty nets (of %u total)\n",
+         count, block_->getNets().size());
+  fflush(stdout);
+}
+
+void
 EstimateParasitics::estimateWireParasiticNoDeleteNetwork(const sta::Net* net)
 {
   sta::PinSet *drivers = network_->drivers(net);
