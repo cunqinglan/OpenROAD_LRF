@@ -9,11 +9,8 @@
 #include "LrHelper.hh"
 #include "lrf/IncreSta.hh"
 #include "lrf/TestLrf.hh"
-<<<<<<< HEAD
 #include "PlacementDensityMap.hh"
-=======
 #include "Initializer.hh"
->>>>>>> develop_newOR
 #include "odb/db.h"
 #include "sta/Liberty.hh"
 #include "sta/Corner.hh"
