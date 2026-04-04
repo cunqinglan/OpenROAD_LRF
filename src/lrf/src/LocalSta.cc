@@ -271,6 +271,37 @@ LocalSta::collectLocalFaninSiblingVertices(Vertex *load_vertex,
 }
 
 void
+LocalSta::collectDriverFanoutOnly(Instance *inst, VertexSet &local_vertices)
+{
+  InstancePinIterator *pin_iter = network_->pinIterator(inst);
+  while (pin_iter->hasNext()) {
+    Pin *pin = pin_iter->next();
+    if (network_->isDriver(pin)) {
+      Vertex *drvr = graph_->pinDrvrVertex(pin);
+      if (drvr && search_pred_->searchTo(drvr)) {
+        local_vertices.insert(drvr);
+        // Direct wire fanout loads only — no downstream driver collection
+        VertexOutEdgeIterator edge_iter(drvr, graph_);
+        while (edge_iter.hasNext()) {
+          Edge *edge = edge_iter.next();
+          if (!edge->isWire() || !search_pred_->searchThru(edge))
+            continue;
+          Vertex *load = edge->to(graph_);
+          if (network_->isLoad(load->pin()))
+            local_vertices.insert(load);
+        }
+      }
+    }
+    if (network_->isLoad(pin)) {
+      Vertex *load = graph_->pinLoadVertex(pin);
+      if (load)
+        local_vertices.insert(load);
+    }
+  }
+  delete pin_iter;
+}
+
+void
 LocalSta::collectLocalFanouts(Pin *drvr_pin, InstanceSet &local_instances)
 {
   if (graph_ == nullptr) {
@@ -504,6 +535,22 @@ LocalSta::makePtGraph(PtGraph *pt_graph, Instance *inst,
     if (dcalc_ap == nullptr) {
       throw std::runtime_error("LocalSta::makePtGraph: No dcalc analysis point found");
     }
+  }
+  pt_graph->setDcalcAnalysisPt(dcalc_ap);
+}
+
+void
+LocalSta::makePtGraphDriverOnly(PtGraph *pt_graph, Instance *inst,
+                                DcalcAnalysisPt *dcalc_ap)
+{
+  VertexSet local_vertices(graph_);
+  collectDriverFanoutOnly(inst, local_vertices);
+  pt_graph->makeGraph(local_vertices, inst);
+  if (dcalc_ap == nullptr) {
+    Corner *corner = sta_->corners()->findCorner("default");
+    dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
+    if (dcalc_ap == nullptr)
+      throw std::runtime_error("LocalSta::makePtGraphDriverOnly: No dcalc analysis point found");
   }
   pt_graph->setDcalcAnalysisPt(dcalc_ap);
 }
@@ -1654,10 +1701,15 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
   load_cap = 0.0f;
 
   const Pin *drvr_pin = drvr_pt_vertex.pin();
+
   if (!drvr_pin)
     return;
 
-  // PtGraph-local PiElmore parasitic (highest priority, no net needed)
+  // PtGraph-local PiElmore parasitic (highest priority).
+  // Check this BEFORE the net check: PtPiElmore uses objectIdx indexing
+  // and doesn't need a net.  Top-level port pins have net(pin)==nullptr
+  // in the network hierarchy, but their PtPiElmore was computed via
+  // findParasiticNet(pin) in recomputePtParasitics.
   PtPiElmore *pt_pi = pt_graph->findPtParasitic(
       drvr_pt_vertex.objectIdx(), rf, dcalc_ap->index());
   if (pt_pi && pt_pi->capacitance() > 0.0f) {

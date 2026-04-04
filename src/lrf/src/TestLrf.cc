@@ -9,6 +9,7 @@
 #include "LrHelper.hh"
 #include "lrf/IncreSta.hh"
 #include "lrf/TestLrf.hh"
+#include "Initializer.hh"
 #include "odb/db.h"
 #include "sta/Liberty.hh"
 #include "sta/Corner.hh"
@@ -16,7 +17,7 @@
 #include "LocalSearch.hh"
 #include "PtGraph.hh"
 #include "NetlistTransformation.hh"
-#include "LrRebufferV2.hh"
+#include "LrRebuffer.hh"
 #include "sta/DispatchQueue.hh"
 #include "TaskArranger.hh"
 #include "sta/TimingRole.hh"
@@ -3264,6 +3265,15 @@ TestLrf::testRepairSlew(sta::dbSta* sta,
   printf("  Violations after:  %d\n", remaining);
   printf("========================================\n");
   fflush(stdout);
+}
+
+void
+TestLrf::initializeMinLeakage(sta::dbSta* sta, rsz::Resizer *resizer,
+                               odb::dbBlock *block)
+{
+  resizer->makeEquivCells();
+  Initializer initializer(sta, resizer, block);
+  initializer.run();
 }
 
 }  // namespace lrf

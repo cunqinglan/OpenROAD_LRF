@@ -202,6 +202,9 @@ public:
   void testRepairSlew(sta::dbSta* sta,
                       rsz::Resizer *resizer,
                       odb::dbBlock *block);
+  // Initialize netlist: downsize to min-leakage, then fix maxcap/maxslew.
+  void initializeMinLeakage(sta::dbSta* sta, rsz::Resizer *resizer,
+                            odb::dbBlock *block);
 
 protected:
   void printSlewComparison(char *inst_name, sta::dbSta* sta, 

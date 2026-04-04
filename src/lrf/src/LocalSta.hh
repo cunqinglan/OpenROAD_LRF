@@ -54,8 +54,14 @@ public:
 
   void collectLocalGraph(Instance *inst, InstanceSet &local_instances);
   void collectLocalVertices(Instance *inst, VertexSet &local_vertices);
-  void makePtGraph(PtGraph *pt_graph, Instance *inst, 
+  // Lightweight: ref-instance pins + direct wire fanout loads only
+  // (no fanin sibling collection, no downstream driver traversal).
+  void collectDriverFanoutOnly(Instance *inst, VertexSet &local_vertices);
+  void makePtGraph(PtGraph *pt_graph, Instance *inst,
                           DcalcAnalysisPt *dcalc_ap = nullptr);
+  // Lightweight PtGraph: skips fanin siblings; no pruneInsignificantSiblings.
+  void makePtGraphDriverOnly(PtGraph *pt_graph, Instance *inst,
+                             DcalcAnalysisPt *dcalc_ap = nullptr);
   PtGraph *makePtGraph(Instance *inst, bool update_timing_first = false);
 
   sta::dbSta *getSta() { return sta_; }
@@ -421,7 +427,7 @@ protected:
 private:
   friend class IncreSta;
   friend class TestLrf;
-  friend class LrRebufferV2;
+  friend class LrRebuffer;
 };
 
 

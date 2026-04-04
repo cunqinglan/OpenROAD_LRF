@@ -146,6 +146,8 @@ class Timing
   void testLocalStaAccuracy(size_t max_steps = 50);
   void testSlewViolationFeasibility();
   void testRepairSlew();
+  // Initialize: downsize to min-leakage, fix maxcap, fix maxslew.
+  void initializeMinLeakage();
   /////////////////////////////////////////////////////////////
   // End functions for testing LR sizing
   /////////////////////////////////////////////////////////////

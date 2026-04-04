@@ -287,7 +287,6 @@ private:
   friend class PtVertexInEdgeIterator;
   friend class PtVertexOutEdgeIterator;
   friend class LrRebuffer;
-  friend class LrRebufferV2;
 };
 
 class PtVertex {
@@ -372,7 +371,6 @@ private:
   friend class PtVertexOutEdgeIterator;
   friend class LocalSta;
   friend class LrRebuffer;
-  friend class LrRebufferV2;
 };
 
 class PtVertexInEdgeIterator {

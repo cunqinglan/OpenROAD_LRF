@@ -30,7 +30,6 @@ class LocalSta;
 class PtGraph;
 class PtVertex;
 class LrRebuffer;
-class LrRebufferV2;
 class LocalCellInfo;
 class TaskArranger;
 
@@ -79,6 +78,17 @@ void updateTimingFromPtGraph(PtGraph *pt_graph);
 class LrOperator {
 public:
   virtual ~LrOperator() = default;
+
+  // PtGraph construction level requested by this operator.
+  //   Full       — complete local graph (fanout + fanin siblings)
+  //   DriverOnly — ref-instance pins + direct fanout loads only
+  enum class PtGraphLevel { Full, DriverOnly };
+  virtual PtGraphLevel ptGraphLevel() const { return PtGraphLevel::Full; }
+
+  // Pre-PtGraph skip: return true to skip this instance entirely
+  // (no PtGraph construction, no evaluation).
+  virtual bool skipInstance(sta::Instance *) const { return false; }
+
   virtual MoveOption evaluate(PtGraph *pt_graph, sta::Instance *inst,
                               EvalContext &ctx) = 0;
   virtual void apply(const MoveOption &move, PtGraph *pt_graph,
@@ -159,7 +169,7 @@ public:
              std::map<std::string, double> &runtime_map) override;
   std::unique_ptr<LrOperator> copy() const override;
 
-  LrRebufferV2 *rebuffer() { return rebuffer_.get(); }
+  LrRebuffer *rebuffer() { return rebuffer_.get(); }
   rsz::Resizer *resizer() { return resizer_; }
   // Update the EvalContext pointer (called after copy() when new visitor's ctx is ready)
   void setEvalContext(EvalContext *ctx) override;
@@ -168,7 +178,7 @@ protected:
   sta::dbSta *db_sta_;
   LocalSta *local_sta_;
   rsz::Resizer *resizer_;
-  std::unique_ptr<LrRebufferV2> rebuffer_;
+  std::unique_ptr<LrRebuffer> rebuffer_;
 };
 
 // ─── BufferSensitivityOperator ───────────────────────────
@@ -177,6 +187,8 @@ protected:
 class BufferSensitivityOperator : public BufferOperator {
 public:
   using BufferOperator::BufferOperator;
+  PtGraphLevel ptGraphLevel() const override { return PtGraphLevel::DriverOnly; }
+  bool skipInstance(sta::Instance *inst) const override;
   MoveOption evaluate(PtGraph *pt_graph, sta::Instance *inst,
                       EvalContext &ctx) override;
   void apply(const MoveOption &, PtGraph *,
@@ -199,7 +211,7 @@ public:
   void setInstInfoMap(std::unordered_map<sta::Instance*, LocalCellInfo*> *map) override;
   void setSlackMargin(float margin) override;
   void setEvalContext(EvalContext *ctx) override;
-  LrRebufferV2 *rebuffer() { return buffer_op_ ? buffer_op_->rebuffer() : nullptr; }
+  LrRebuffer *rebuffer() { return buffer_op_ ? buffer_op_->rebuffer() : nullptr; }
 
 private:
   // Two-phase buffering: try buffering on each candidate cell, return
@@ -305,7 +317,8 @@ protected:
     {"rebuffer_setup", 0.0},
     {"rebuffer_coarse", 0.0},
     {"rebuffer_precise", 0.0},
-    {"rebuffer_pin_count", 0.0}
+    {"rebuffer_pin_count", 0.0},
+    {"skip_count", 0.0}
   };
 };
 

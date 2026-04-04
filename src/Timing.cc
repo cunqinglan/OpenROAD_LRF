@@ -676,6 +676,16 @@ Timing::testLocalStaAccuracy(size_t max_steps)
 }
 
 void
+Timing::initializeMinLeakage()
+{
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.initializeMinLeakage(sta, resizer, design_->getBlock());
+}
+
+void
 Timing::testSlewViolationFeasibility()
 {
   design_->updateParasiticsNoDeleteNetwork();
