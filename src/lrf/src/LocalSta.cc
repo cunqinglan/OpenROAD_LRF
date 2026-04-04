@@ -1691,11 +1691,14 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
 
   const Pin *drvr_pin = drvr_pt_vertex.pin();
 
-  // No pin or no net: load_cap = 0, no parasitic
-  if (!drvr_pin || !network_->net(drvr_pin))
+  if (!drvr_pin)
     return;
 
-  // PtGraph-local PiElmore parasitic (highest priority)
+  // PtGraph-local PiElmore parasitic (highest priority).
+  // Check this BEFORE the net check: PtPiElmore uses objectIdx indexing
+  // and doesn't need a net.  Top-level port pins have net(pin)==nullptr
+  // in the network hierarchy, but their PtPiElmore was computed via
+  // findParasiticNet(pin) in recomputePtParasitics.
   PtPiElmore *pt_pi = pt_graph->findPtParasitic(
       drvr_pt_vertex.objectIdx(), rf, dcalc_ap->index());
   if (pt_pi && pt_pi->capacitance() > 0.0f) {
@@ -1716,15 +1719,19 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
   }
 
   // Virtual driver or driver with virtual buffer downstream
-  if (!drvr_pin || drvr_pt_vertex.hasVirtualBuffer()) {
+  if (drvr_pt_vertex.hasVirtualBuffer()) {
     load_cap = computeVirtualLoadCap(drvr_pt_vertex, rf, dcalc_ap, pt_graph);
     return;
   }
 
-  // Fallback for uncomputed parasitic of real drivers.
-  if (network_->net(drvr_pin) == nullptr) {
+  // No net: load_cap = 0 (unconnected pin, port pin without PtPiElmore)
+  if (!network_->net(drvr_pin)) {
     load_cap = 0.0;
-  } else {
+    return;
+  }
+
+  // Fallback for uncomputed parasitic of real drivers.
+  {
     bool has_net_load;
     float fanout;
     float pin_cap, wire_cap;

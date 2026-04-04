@@ -22,12 +22,28 @@ public:
   Initializer(sta::dbSta* sta, rsz::Resizer* resizer, odb::dbBlock* block);
   ~Initializer();
 
-  // Fix maxcap and maxslew violations by multi-pass upsizing.
-  // Uses replaceCell + delaysInvalid for accurate incremental updates.
-  // Uses fixed 50ps input slew for output slew estimation.
+  // Sharma et al. three-step initialization:
+  //   Step 1: Downsize all gates to min-leakage cell
+  //   Step 2: Fix load+slew violations (reverse topo PO→PI)
+  //   Step 3: Fix remaining slew violations (forward topo PI→PO)
   void run();
 
 private:
+  // Step 1: Assign every combinational gate to its min-leakage equiv cell.
+  void downsizeToMinLeakage();
+
+  // Step 2: Fix cap violations by upsizing (PO→PI).
+  // Also converts slew limit to cap requirement: cell must satisfy
+  // both maxcap AND slew-derived cap limit.
+  void fixLoadViolations();
+
+  // Step 3: Fix slew violations by upsizing (PI→PO).
+  void fixSlewViolations();
+
+  // Estimate max output slew for a candidate port driving load_cap.
+  static float estimateMaxSlew(sta::LibertyPort* port, float load_cap,
+                               const sta::DcalcAnalysisPt* dcalc_ap);
+
   rsz::Resizer* resizer_;
   odb::dbBlock* block_;
   LocalSta* local_sta_;

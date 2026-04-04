@@ -667,8 +667,6 @@ Timing::testParallelKKTProjection(const char *lr_helper_method)
 
 void
 Timing::initializeMinLeakage() {
-  printf("Starting initializeMinLeakage\n");
-  fflush(stdout);
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
   sta::dbSta* sta = getSta();

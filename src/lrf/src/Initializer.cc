@@ -1,9 +1,11 @@
 #include "Initializer.hh"
 
 #include "LocalSta.hh"
+#include "lrf/IncreSta.hh"
 #include "db_sta/dbNetwork.hh"
 #include "db_sta/dbSta.hh"
 #include "rsz/Resizer.hh"
+#include "est/EstimateParasitics.h"
 #include "sta/EquivCells.hh"
 #include "sta/Liberty.hh"
 #include "sta/Network.hh"
@@ -20,7 +22,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
-#include <unordered_map>
 #include <vector>
 
 namespace lrf {
@@ -47,10 +48,9 @@ Initializer::~Initializer()
   delete local_sta_;
 }
 
-// ── Helper: estimate max output slew for a candidate port driving load_cap ──
-static float
-estimateMaxSlew(sta::LibertyPort* port, float load_cap,
-                const sta::DcalcAnalysisPt* dcalc_ap)
+float
+Initializer::estimateMaxSlew(sta::LibertyPort* port, float load_cap,
+                             const sta::DcalcAnalysisPt* dcalc_ap)
 {
   if (!port) return sta::INF;
   sta::LibertyCell* cell = port->libertyCell();
@@ -77,10 +77,222 @@ void
 Initializer::run()
 {
   auto t0 = std::chrono::steady_clock::now();
-
-  printf("[Initializer] Fixing ERC violations (multi-pass upsize)\n");
+  printf("[Initializer] Sharma et al. 3-step initialization\n");
   fflush(stdout);
 
+  resizer_->makeEquivCells();
+
+  est::EstimateParasitics* ep = resizer_->getEstimateParasitics();
+
+  // Step 1: Downsize
+  downsizeToMinLeakage();
+  ep->updateParasitics();
+
+  auto t1 = std::chrono::steady_clock::now();
+
+  // Step 2: Fix load violations (reverse topo)
+  fixLoadViolations();
+  ep->updateParasitics();
+
+  auto t2 = std::chrono::steady_clock::now();
+
+  // Step 3: Fix slew violations (forward topo)
+  fixSlewViolations();
+
+  auto t3 = std::chrono::steady_clock::now();
+  printf("[Initializer] Step 1: %.2fs, Step 2: %.2fs, Step 3: %.2fs, Total: %.2fs\n",
+         std::chrono::duration<double>(t1 - t0).count(),
+         std::chrono::duration<double>(t2 - t1).count(),
+         std::chrono::duration<double>(t3 - t2).count(),
+         std::chrono::duration<double>(t3 - t0).count());
+  fflush(stdout);
+}
+
+// ── Step 1: Downsize to min-leakage ─────────────────────────────
+void
+Initializer::downsizeToMinLeakage()
+{
+  sta::dbNetwork* db_network = sta_->getDbNetwork();
+  int swap_count = 0;
+  int inst_count = 0;
+
+  for (odb::dbInst* db_inst : block_->getInsts()) {
+    if (!db_inst->getMaster()->isCoreAutoPlaceable()) continue;
+    sta::Instance* sta_inst = db_network->dbToSta(db_inst);
+    LibertyCell* cell = db_network->libertyCell(sta_inst);
+    if (!cell || cell->hasSequentials()) continue;
+
+    inst_count++;
+
+    LibertyCellSeq* equiv_cells = sta_->equivCells(cell);
+    if (!equiv_cells || equiv_cells->empty()) continue;
+
+    // Find min-leakage cell.
+    LibertyCell* min_cell = cell;
+    float min_leak = local_sta_->cellAvgLeakage(cell);
+    for (LibertyCell* ec : *equiv_cells) {
+      float leak = local_sta_->cellAvgLeakage(ec);
+      if (leak < min_leak) {
+        min_leak = leak;
+        min_cell = ec;
+      }
+    }
+
+    if (min_cell != cell) {
+      odb::dbMaster* new_master = db_network->staToDb(min_cell);
+      db_inst->swapMaster(new_master);
+      swap_count++;
+    }
+  }
+
+  sta_->updateTiming(true);
+  printf("[Initializer] Step 1: Downsized %d / %d gates to min-leakage\n",
+         swap_count, inst_count);
+  fflush(stdout);
+}
+
+// ── Step 2: Fix load violations (reverse topo PO→PI) ────────────
+// For each gate, check if actual load cap exceeds:
+//   effective_limit = min(maxcap, slew_derived_cap)
+// where slew_derived_cap is the max cap this cell can drive
+// while keeping output slew ≤ slew_limit.
+// If violated, upsize to smallest cell that satisfies both.
+void
+Initializer::fixLoadViolations()
+{
+  sta::dbNetwork* db_network = sta_->getDbNetwork();
+  const Corner* corner = sta_->cmdCorner();
+  const MinMax* max = MinMax::max();
+  const sta::DcalcAnalysisPt* dcalc_ap = corner->findDcalcAnalysisPt(max);
+  sta::LibertyLibrary* default_lib = db_network->defaultLibertyLibrary();
+
+  float default_max_slew = sta::INF;
+  if (default_lib) {
+    bool exists;
+    default_lib->defaultMaxSlew(default_max_slew, exists);
+    if (!exists) default_max_slew = sta::INF;
+  }
+
+  // Ensure timing up to date after step 1 downsize.
+  sta_->ensureGraph();
+  sta_->searchPreamble();
+  sta_->ensureClkArrivals();
+  sta_->findDelays();
+
+  IncreSta incre_sta(sta_);
+  sta::InstanceSeq& sorted = incre_sta.getSortedInstances();
+
+  int upsize_count = 0;
+  int viol_count = 0;
+
+  // Reverse topo (PO→PI): downstream input caps settled first.
+  for (int i = static_cast<int>(sorted.size()) - 1; i >= 0; i--) {
+    sta::Instance* inst = const_cast<sta::Instance*>(sorted[i]);
+    LibertyCell* cell = network_->libertyCell(inst);
+    if (!cell || cell->hasSequentials()) continue;
+
+    // Find output pin
+    Pin* out_pin = nullptr;
+    sta::InstancePinIterator* pit = network_->pinIterator(inst);
+    while (pit->hasNext()) {
+      Pin* p = pit->next();
+      if (network_->direction(p)->isOutput()) { out_pin = p; break; }
+    }
+    delete pit;
+    if (!out_pin) continue;
+
+    sta::LibertyPort* drvr_port = network_->libertyPort(out_pin);
+    if (!drvr_port) continue;
+
+    float load_cap = sta_->graphDelayCalc()->loadCap(out_pin, dcalc_ap);
+
+    // Get maxcap limit
+    float cap_limit = sta::INF;
+    {
+      float cl; bool ex;
+      drvr_port->capacitanceLimit(max, cl, ex);
+      if (!ex && default_lib) default_lib->defaultMaxCapacitance(cl, ex);
+      if (ex) cap_limit = cl;
+    }
+
+    // Get slew limit and convert to cap requirement:
+    // max cap this cell can drive while keeping slew ≤ limit.
+    // We check: estimateMaxSlew(cell, load_cap) vs slew_limit.
+    // If slew is violated, treat as a cap violation too.
+    float slew_limit = sta::INF;
+    {
+      float sl; bool ex;
+      drvr_port->slewLimit(max, sl, ex);
+      if (!ex && default_lib) default_lib->defaultMaxSlew(sl, ex);
+      if (ex) slew_limit = sl;
+    }
+
+    // Check if current cell violates either cap or slew-as-cap
+    bool cap_viol = (load_cap > cap_limit);
+    bool slew_viol = false;
+    if (slew_limit < sta::INF) {
+      float est_slew = estimateMaxSlew(drvr_port, load_cap, dcalc_ap);
+      if (est_slew > slew_limit)
+        slew_viol = true;
+    }
+
+    if (!cap_viol && !slew_viol) continue;
+    viol_count++;
+
+    // Find smallest upsize that satisfies both maxcap AND slew
+    LibertyCellSeq* equivs = sta_->equivCells(cell);
+    if (!equivs || equivs->empty()) continue;
+
+    std::vector<LibertyCell*> by_area(equivs->begin(), equivs->end());
+    std::sort(by_area.begin(), by_area.end(),
+              [](LibertyCell* a, LibertyCell* b) { return a->area() < b->area(); });
+
+    const char* port_name = drvr_port->name();
+    LibertyCell* best = nullptr;
+
+    for (LibertyCell* ec : by_area) {
+      if (ec->area() <= cell->area() && ec != cell) continue;
+      if (ec == cell) continue;
+      sta::LibertyPort* ep = ec->findLibertyPort(port_name);
+      if (!ep) continue;
+
+      // Check maxcap
+      float cl; bool ex;
+      ep->capacitanceLimit(max, cl, ex);
+      if (!ex && default_lib) default_lib->defaultMaxCapacitance(cl, ex);
+      if (ex && load_cap > cl) continue;
+
+      // Check slew-as-cap: can this cell drive load_cap within slew_limit?
+      if (slew_limit < sta::INF) {
+        float est = estimateMaxSlew(ep, load_cap, dcalc_ap);
+        if (est > slew_limit) continue;
+      }
+
+      best = ec;
+      break;
+    }
+
+    if (!best) best = by_area.back();
+    if (best == cell) continue;
+
+    sta_->replaceCell(inst, best);
+    upsize_count++;
+  }
+
+  sta_->delaysInvalid();
+  sta_->findDelays();
+
+  printf("[Initializer] Step 2: Fixed %d load violations, upsized %d gates (PO→PI)\n",
+         viol_count, upsize_count);
+  fflush(stdout);
+}
+
+// ── Step 3: Fix slew violations (forward topo PI→PO) ────────────
+// Multi-pass: after step 2, check actual output slew (now with accurate
+// input slews from settled upstream). Upsize if needed.
+void
+Initializer::fixSlewViolations()
+{
   sta::dbNetwork* db_network = sta_->getDbNetwork();
   const Corner* corner = sta_->cmdCorner();
   const MinMax* max = MinMax::max();
@@ -88,40 +300,26 @@ Initializer::run()
   sta::Graph* graph = sta_->graph();
   sta::LibertyLibrary* default_lib = db_network->defaultLibertyLibrary();
 
-  // Get default max slew from liberty
   float default_max_slew = sta::INF;
   if (default_lib) {
-    bool exists = false;
+    bool exists;
     default_lib->defaultMaxSlew(default_max_slew, exists);
     if (!exists) default_max_slew = sta::INF;
   }
-  printf("[Initializer]   Default max slew limit: %.3f ps\n",
-         default_max_slew * 1e12);
 
-  // Ensure timing is up to date
-  sta_->ensureGraph();
-  sta_->searchPreamble();
-  sta_->ensureClkArrivals();
-  sta_->findDelays();
-  resizer_->makeEquivCells();
-
-  // ── Step 1: Collect all violated driver pins (liberty limits) ──
-  // Check both driver output pins AND load input pins.
-  // For load pin violations, trace back to the driver of that net.
+  // Collect violated driver pins (using actual graph slew after step 2).
   struct ViolatedPin {
     const sta::Pin* drvr_pin;
-    float worst_slew;
     float limit;
   };
-  // Use a set to avoid duplicate driver entries.
-  std::unordered_map<const sta::Pin*, ViolatedPin> violation_map;
+  std::vector<ViolatedPin> violations;
 
   sta::VertexIterator viter(graph);
   while (viter.hasNext()) {
     sta::Vertex* vertex = viter.next();
+    if (!vertex->isDriver(db_network)) continue;
     const sta::Pin* pin = vertex->pin();
-    if (db_network->isTopLevelPort(pin))
-      continue;
+    if (db_network->isTopLevelPort(pin)) continue;
     sta::LibertyPort* port = db_network->libertyPort(pin);
     if (!port) continue;
 
@@ -135,104 +333,20 @@ Initializer::run()
       float s = graph->slew(vertex, rf, dcalc_ap->index());
       worst = std::max(worst, s);
     }
-    if (worst <= limit) continue;
-
-    // Find the driver pin of this net.
-    const sta::Pin* drvr_pin = pin;
-    if (!vertex->isDriver(db_network)) {
-      // This is a load pin — trace back to the driver.
-      sta::Net* net = network_->net(pin);
-      if (!net) continue;
-      drvr_pin = nullptr;
-      sta::NetConnectedPinIterator* nit = network_->connectedPinIterator(net);
-      while (nit->hasNext()) {
-        const sta::Pin* npin = nit->next();
-        if (network_->isDriver(npin) && !db_network->isTopLevelPort(npin)) {
-          drvr_pin = npin;
-          break;
-        }
-      }
-      delete nit;
-      if (!drvr_pin) continue;
-    }
-
-    // Use the tightest limit among all pins on this net.
-    auto it = violation_map.find(drvr_pin);
-    if (it == violation_map.end()) {
-      violation_map[drvr_pin] = {drvr_pin, worst, limit};
-    } else {
-      // Keep worst slew and tightest limit.
-      if (worst > it->second.worst_slew)
-        it->second.worst_slew = worst;
-      if (limit < it->second.limit)
-        it->second.limit = limit;
-    }
+    if (worst > limit)
+      violations.push_back({pin, limit});
   }
 
-  std::vector<ViolatedPin> violations;
-  violations.reserve(violation_map.size());
-  for (auto& [pin, vp] : violation_map)
-    violations.push_back(vp);
+  printf("[Initializer] Step 3: Found %zu remaining slew violations (PI→PO)\n",
+         violations.size());
 
-  // Also fix cap violations
-  int cap_fix_count = 0;
-  for (odb::dbInst* db_inst : block_->getInsts()) {
-    if (!db_inst->getMaster()->isCoreAutoPlaceable()) continue;
-    sta::Instance* sta_inst = db_network->dbToSta(db_inst);
-    LibertyCell* cell = db_network->libertyCell(sta_inst);
-    if (!cell || cell->hasSequentials()) continue;
-
-    sta::InstancePinIterator* it = network_->pinIterator(sta_inst);
-    while (it->hasNext()) {
-      Pin* pin = it->next();
-      if (!network_->direction(pin)->isOutput()) continue;
-      sta::LibertyPort* lib_port = network_->libertyPort(pin);
-      if (!lib_port) continue;
-      float cap_limit;
-      bool cap_exists;
-      lib_port->capacitanceLimit(max, cap_limit, cap_exists);
-      if (!cap_exists && default_lib)
-        default_lib->defaultMaxCapacitance(cap_limit, cap_exists);
-      if (!cap_exists) continue;
-      float load_cap = sta_->graphDelayCalc()->loadCap(pin, dcalc_ap);
-      if (load_cap > cap_limit) {
-        LibertyCellSeq* equivs = sta_->equivCells(cell);
-        if (equivs && !equivs->empty()) {
-          LibertyCell* largest = equivs->back();
-          if (largest != cell) {
-            sta_->replaceCell(sta_inst, largest);
-            cap_fix_count++;
-          }
-        }
-      }
-    }
-    delete it;
-  }
-
-  printf("[Initializer]   Found %zu slew violations, %d cap violations\n",
-         violations.size(), cap_fix_count);
-
-  if (violations.empty() && cap_fix_count == 0) {
-    printf("[Initializer]   No ERC violations to repair.\n");
+  if (violations.empty()) {
+    printf("[Initializer] Step 3: No slew violations to fix\n");
     fflush(stdout);
     return;
   }
 
-  // Sort by severity (worst first)
-  std::sort(violations.begin(), violations.end(),
-            [](const ViolatedPin& a, const ViolatedPin& b) {
-              return (a.worst_slew - a.limit) > (b.worst_slew - b.limit);
-            });
-
-  for (size_t i = 0; i < std::min(violations.size(), size_t(10)); i++) {
-    auto& v = violations[i];
-    printf("[Initializer]   [%zu] %s: slew=%.1fps limit=%.1fps excess=%.1fps\n",
-           i, db_network->pathName(v.drvr_pin),
-           v.worst_slew * 1e12, v.limit * 1e12,
-           (v.worst_slew - v.limit) * 1e12);
-  }
-
-  // ── Step 2: Multi-pass upsize ──
+  // Multi-pass upsize (same proven approach from testRepairSlew)
   int total_upsized = 0;
 
   for (int pass = 0; pass < 5; pass++) {
@@ -262,27 +376,25 @@ Initializer::run()
       LibertyCellSeq* equivs = sta_->equivCells(cur_cell);
       if (!equivs) continue;
 
-      std::vector<LibertyCell*> sorted_equivs(equivs->begin(), equivs->end());
-      std::sort(sorted_equivs.begin(), sorted_equivs.end(),
-                [](LibertyCell* a, LibertyCell* b) {
-                  return a->area() < b->area();
-                });
+      std::vector<LibertyCell*> by_area(equivs->begin(), equivs->end());
+      std::sort(by_area.begin(), by_area.end(),
+                [](LibertyCell* a, LibertyCell* b) { return a->area() < b->area(); });
 
       LibertyCell* best = nullptr;
-      for (LibertyCell* ec : sorted_equivs) {
+      for (LibertyCell* ec : by_area) {
         if (ec == cur_cell) continue;
         if (ec->area() < cur_cell->area()) continue;
         sta::LibertyPort* ep = ec->findLibertyPort(drvr_port->name());
         if (!ep) continue;
-        float est_slew = estimateMaxSlew(ep, load_cap, dcalc_ap);
-        if (est_slew <= v.limit) {
+        float est = estimateMaxSlew(ep, load_cap, dcalc_ap);
+        if (est <= v.limit) {
           best = ec;
           break;
         }
       }
 
       if (!best) {
-        best = sorted_equivs.back();
+        best = by_area.back();
         if (best == cur_cell) continue;
       }
 
@@ -291,20 +403,19 @@ Initializer::run()
       total_upsized++;
     }
 
-    printf("[Initializer]   Pass %d: upsized %d cells\n",
-           pass, upsized_this_pass);
+    printf("[Initializer]   Pass %d: upsized %d cells\n", pass, upsized_this_pass);
     fflush(stdout);
     if (upsized_this_pass == 0) break;
-
     sta_->delaysInvalid();
   }
 
-  // ── Step 3: Final verification (all pins, not just drivers) ──
+  // Final verification
   sta_->findDelays();
-  int remaining_drvr = 0, remaining_load = 0;
+  int remaining = 0;
   sta::VertexIterator viter2(graph);
   while (viter2.hasNext()) {
     sta::Vertex* vertex = viter2.next();
+    if (!vertex->isDriver(db_network)) continue;
     const sta::Pin* pin = vertex->pin();
     if (db_network->isTopLevelPort(pin)) continue;
     sta::LibertyPort* port = db_network->libertyPort(pin);
@@ -318,17 +429,11 @@ Initializer::run()
       float s = graph->slew(vertex, rf, dcalc_ap->index());
       worst = std::max(worst, s);
     }
-    if (worst > limit) {
-      bool is_drvr = vertex->isDriver(db_network);
-      if (is_drvr) remaining_drvr++;
-      else remaining_load++;
-    }
+    if (worst > limit) remaining++;
   }
 
-  auto t1 = std::chrono::steady_clock::now();
-  double elapsed = std::chrono::duration<double>(t1 - t0).count();
-  printf("[Initializer]   Total: upsized %d cells, remaining: %d drvr + %d load violations (%.2f s)\n",
-         total_upsized, remaining_drvr, remaining_load, elapsed);
+  printf("[Initializer] Step 3: upsized %d cells, %d remaining violations\n",
+         total_upsized, remaining);
   fflush(stdout);
 }
 
