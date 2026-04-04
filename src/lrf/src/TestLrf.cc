@@ -9,6 +9,7 @@
 #include "LrHelper.hh"
 #include "lrf/IncreSta.hh"
 #include "lrf/TestLrf.hh"
+#include "PlacementDensityMap.hh"
 #include "odb/db.h"
 #include "sta/Liberty.hh"
 #include "sta/Corner.hh"
@@ -632,6 +633,33 @@ TestLrf::testMEEAssignments(sta::dbSta* sta,
 }
 
 ////////////////////////////////////////////////////////////////
+// Density map helper
+////////////////////////////////////////////////////////////////
+
+static void
+setupDensityMap(PlacementDensityMap &density_map,
+                sta::dbSta *sta, odb::dbBlock *block,
+                IncreSta *incre_sta,
+                float density_weight)
+{
+  density_map.build(block);
+  double total_area = 0.0;
+  int count = 0;
+  for (odb::dbInst* inst : block->getInsts()) {
+    if (!inst->isPlaced()) continue;
+    sta::Instance* si = sta->getDbNetwork()->dbToSta(inst);
+    if (!si) continue;
+    sta::LibertyCell* lc = sta->network()->libertyCell(si);
+    if (lc) { total_area += lc->area(); count++; }
+  }
+  float avg_area = (count > 0) ? static_cast<float>(total_area / count) : 1.0f;
+  incre_sta->setDensityMap(&density_map, density_weight, avg_area);
+  printf("DensityMap: %dx%d bins, avg_area=%.4f, weight=%.2f\n",
+         density_map.binCntX(), density_map.binCntY(), avg_area, density_weight);
+  fflush(stdout);
+}
+
+////////////////////////////////////////////////////////////////
 // IterationHelper
 ////////////////////////////////////////////////////////////////
 
@@ -780,6 +808,10 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   float avg_delay = incre_sta->averageDelayOnCritPath();
   float avg_leakage = incre_sta->averageLeakage();
   local_sta->initParallel();
+
+  // Build placement density map for density-aware swap cost.
+  PlacementDensityMap density_map;
+  setupDensityMap(density_map, sta, block, incre_sta, 5.0f);
 
   float top_ratio = 0.3f;  // initial precheck ratio (used after switch)
   bool adaptive_mode = false;
@@ -962,6 +994,10 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
   float avg_delay = incre_sta->averageDelayOnCritPath();
   float avg_leakage = incre_sta->averageLeakage();
   local_sta->initParallel();
+
+  // Build placement density map for density-aware swap cost.
+  PlacementDensityMap density_map;
+  setupDensityMap(density_map, sta, block, incre_sta, 5.0f);
 
   size_t eco_iter = 0;
   bool in_eco = false;

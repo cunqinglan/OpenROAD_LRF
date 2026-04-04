@@ -27,6 +27,7 @@ class LocalSta;
 class LRHelper;
 class ParallelLibData;
 class TaskArranger;
+class PlacementDensityMap;
 
 class IncreSta : public dbStaState
 {
@@ -117,6 +118,13 @@ public:
   // APIs for LM update
   void makeLRHelper(std::string method = "LRHelper");
 
+  // Placement density map for density-aware swap cost.
+  void setDensityMap(const PlacementDensityMap *map, float weight, float avg_area) {
+    density_map_ = map;
+    density_weight_ = weight;
+    average_area_ = avg_area;
+  }
+
   // APIs for Adaptive optimization
   bool isPowerOptimizationMode() const;
 
@@ -140,6 +148,9 @@ protected:
   PosMap equiv_cell_pos_map_;
   bool equiv_cell_array_built_ = false;
   PruningControl pruning_control_;
+  const PlacementDensityMap *density_map_ = nullptr;
+  float density_weight_ = 0.0f;
+  float average_area_ = 1.0f;
 
 };
 

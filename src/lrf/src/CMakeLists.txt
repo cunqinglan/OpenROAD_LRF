@@ -25,6 +25,7 @@ add_library(lrf_lib
     LocalSearch.cc
     LocalPath.cc
     NetlistTransformation.cc
+    PlacementDensityMap.cc
     LrRebufferV2.cc
     GraphBase.cc
     TaskArranger.cc

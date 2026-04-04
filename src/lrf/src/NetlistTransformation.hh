@@ -13,6 +13,10 @@
 #include <limits>
 #include <mutex>
 
+namespace odb {
+  class dbInst;
+}
+
 namespace sta {
   class ArcDelayCalc;
   class dbSta;
@@ -33,6 +37,7 @@ class LrRebuffer;
 class LrRebufferV2;
 class LocalCellInfo;
 class TaskArranger;
+class PlacementDensityMap;
 
 // ═══════════════════════════════════════════════════════════
 // Layer 1: EvalContext — per-thread evaluation context
@@ -47,7 +52,13 @@ struct EvalContext {
   bool allow_buffer = true;
   std::map<std::string, double> *runtime_map = nullptr;
 
-  float swapCost(float delay_lm_sum, float power) const;
+  // Placement density awareness for swap cost.
+  const PlacementDensityMap *density_map = nullptr;
+  float density_weight = 0.0f;    // α coefficient
+  float average_area = 1.0f;      // normalizer (liberty area units)
+
+  float swapCost(float delay_lm_sum, float power,
+                 float density_cost = 0.0f) const;
 };
 
 // ═══════════════════════════════════════════════════════════
