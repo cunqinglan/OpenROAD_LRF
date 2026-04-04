@@ -1022,7 +1022,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
                    pname.c_str(),
                    iterm->getInst()->getMaster()->getName().c_str(),
                    delayAsFloat(sta->graph()->slew(v, sta::RiseFall::rise(),
-                     corner->findDcalcAnalysisPt(sta::MinMax::max())->index())) * 1e12,
+                     sta->corners()->findCorner("default")->findDcalcAnalysisPt(sta::MinMax::max())->index())) * 1e12,
                    lim * 1e12);
           }
           break;

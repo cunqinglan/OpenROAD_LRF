@@ -575,8 +575,6 @@ LocalSta::seedDrvrSlew(PtVertex &pt_drvr_vertex, PtGraph *pt_graph,
   if (network_->isTopLevelPort(drvr_pin)) {
     Port *port = network_->port(drvr_pin);
     drive = sdc_->findInputDrive(port);
-    printf("[DBG-seedDrvrSlew] port=%s drive=%p\n", network_->name(drvr_pin), drive);
-    fflush(stdout);
   }
   for (const RiseFall *rf : RiseFall::range()) {
     for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
@@ -645,24 +643,9 @@ LocalSta::seedNoDrvrCellSlew(PtVertex &pt_drvr_vertex,
 
   pt_graph->setSlew(pt_drvr_vertex, rf, ap_index, slew);
   LoadPinIndexMap load_pin_index_map = makeLoadPinIndexMap(pt_drvr_vertex, pt_graph);
-  if (network_->isTopLevelPort(drvr_pin)) {
-    printf("[DBG-NoDrvrCell] port=%s rf=%s parasitic=%p load_cap=%.6e drive_res=%.6e drive_delay=%.3f slew=%.3f\n",
-           network_->name(drvr_pin), rf->name(), parasitic, load_cap,
-           exists ? drive_res : 0.0f, drive_delay*1e12, delayAsFloat(slew)*1e12);
-    fflush(stdout);
-  }
   ArcDcalcResult dcalc_result =
     arc_delay_calc->inputPortDelay(drvr_pin, delayAsFloat(slew), rf, parasitic,
                                    load_pin_index_map, dcalc_ap);
-  if (network_->isTopLevelPort(drvr_pin)) {
-    for (auto &[load_pin, idx] : load_pin_index_map) {
-      printf("[DBG-NoDrvrCell]   load=%s wireDelay=%.3f loadSlew=%.3f\n",
-             network_->name(load_pin),
-             dcalc_result.wireDelay(idx)*1e12,
-             dcalc_result.loadSlew(idx)*1e12);
-    }
-    fflush(stdout);
-  }
   annotateLoadDelays(pt_drvr_vertex, rf, dcalc_result, load_pin_index_map,
                      drive_delay, false, dcalc_ap, pt_graph);
   arc_delay_calc->finishDrvrPin();
@@ -696,24 +679,11 @@ LocalSta::seedNoDrvrSlew(PtVertex &pt_drvr_vertex,
   const Parasitic *parasitic = nullptr;
   localParasiticLoad(pt_drvr_vertex, rf, dcalc_ap, nullptr,
                      load_cap, parasitic, pt_graph);
-  if (network_->isTopLevelPort(drvr_pin)) {
-    printf("[DBG-seedNoDrvr] port=%s rf=%s parasitic=%p load_cap=%.6f slew=%.3f\n",
-           network_->name(drvr_pin), rf->name(), parasitic, load_cap, delayAsFloat(slew)*1e12);
-    fflush(stdout);
-  }
   LoadPinIndexMap load_pin_index_map = makeLoadPinIndexMap(pt_drvr_vertex, pt_graph);
   ArcDcalcResult dcalc_result =
     arc_delay_calc->inputPortDelay(drvr_pin, delayAsFloat(slew), rf,
                                    const_cast<Parasitic*>(parasitic),
                                    load_pin_index_map, dcalc_ap);
-  if (network_->isTopLevelPort(drvr_pin)) {
-    for (auto &[load_pin, idx] : load_pin_index_map) {
-      printf("[DBG-seedNoDrvr]   load=%s wireDelay=%.3f\n",
-             network_->name(load_pin),
-             dcalc_result.wireDelay(idx)*1e12);
-    }
-    fflush(stdout);
-  }
   annotateLoadDelays(pt_drvr_vertex, rf, dcalc_result, load_pin_index_map, delay_zero, false, dcalc_ap, pt_graph);
   arc_delay_calc->finishDrvrPin();
 }
@@ -1684,25 +1654,12 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
   load_cap = 0.0f;
 
   const Pin *drvr_pin = drvr_pt_vertex.pin();
-
-  // No pin or no net: load_cap = 0, no parasitic
-  if (!drvr_pin || !network_->net(drvr_pin)) {
-    if (drvr_pin && network_->isTopLevelPort(drvr_pin))
-      printf("[DBG-localParLoad] EARLY RETURN: port=%s pin=%p net=%p\n",
-             network_->name(drvr_pin), drvr_pin, network_->net(drvr_pin));
+  if (!drvr_pin)
     return;
-  }
 
-  // PtGraph-local PiElmore parasitic (highest priority)
-  bool is_port_dbg = network_->isTopLevelPort(drvr_pin);
+  // PtGraph-local PiElmore parasitic (highest priority, no net needed)
   PtPiElmore *pt_pi = pt_graph->findPtParasitic(
       drvr_pt_vertex.objectIdx(), rf, dcalc_ap->index());
-  if (is_port_dbg) {
-    printf("[DBG-localParLoad] port=%s rf=%s objIdx=%d ap=%d pt_pi=%p cap=%e\n",
-           network_->name(drvr_pin), rf->name(), drvr_pt_vertex.objectIdx(),
-           dcalc_ap->index(), pt_pi, pt_pi ? pt_pi->capacitance() : -1.0);
-    fflush(stdout);
-  }
   if (pt_pi && pt_pi->capacitance() > 0.0f) {
     parasitic = pt_pi;
     load_cap = pt_pi->capacitance();
@@ -1714,11 +1671,6 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
                                                  drvr_pt_vertex.objectIdx());
   pt_pi = pt_graph->findPtParasitic(
       drvr_pt_vertex.objectIdx(), rf, dcalc_ap->index());
-  if (is_port_dbg) {
-    printf("[DBG-localParLoad] after recompute: pt_pi=%p cap=%e\n",
-           pt_pi, pt_pi ? pt_pi->capacitance() : -1.0);
-    fflush(stdout);
-  }
   if (pt_pi && pt_pi->capacitance() > 0.0f) {
     parasitic = pt_pi;
     load_cap = pt_pi->capacitance();
@@ -1726,26 +1678,20 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
   }
 
   // Virtual driver or driver with virtual buffer downstream
-  if (!drvr_pin || drvr_pt_vertex.hasVirtualBuffer()) {
+  if (drvr_pt_vertex.hasVirtualBuffer()) {
     load_cap = computeVirtualLoadCap(drvr_pt_vertex, rf, dcalc_ap, pt_graph);
     return;
   }
 
-  // Fallback for uncomputed parasitic of real drivers.
-  if (network_->net(drvr_pin) == nullptr) {
-    load_cap = 0.0;
-  } else {
-    bool has_net_load;
-    float fanout;
-    float pin_cap, wire_cap;
-    netCaps(drvr_pin, rf, dcalc_ap, multi_drvr_net,
+  // Fallback: use netCaps (requires net)
+  if (network_->net(drvr_pin) == nullptr)
+    return;
+  bool has_net_load;
+  float fanout;
+  float pin_cap, wire_cap;
+  netCaps(drvr_pin, rf, dcalc_ap, multi_drvr_net,
           pin_cap, wire_cap, fanout, has_net_load);
-    load_cap = pin_cap + wire_cap;
-    // Recompute failed
-    // printf("Error: localParasiticLoad: recompute failed for pin %s, using fallback\n",
-    //       drvr_pin ? network_->name(drvr_pin) : "(virtual)");
-    // fflush(stdout);
-  }
+  load_cap = pin_cap + wire_cap;
 }
 
 
