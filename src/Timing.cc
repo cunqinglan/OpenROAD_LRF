@@ -560,7 +560,7 @@ Timing::testMEEAssignments() {
 void
 Timing::testParallelResizeByArray(size_t max_resize_num, size_t iterations,
   size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method) {
+  const char *lr_helper_method, bool initialize) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
   printf("Starting testParallelResizeByArray with %zu threads\n", thread_num);
   fflush(stdout);
@@ -570,13 +570,13 @@ Timing::testParallelResizeByArray(size_t max_resize_num, size_t iterations,
   lrf::TestLrf test_lrf;
   test_lrf.testParallelLrResizeByArray(sta, resizer, design_->getBlock(),
     thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method);
+    PT_tradeoff, lr_helper_method, initialize);
 }
 
 void
 Timing::testParallelResizeByArrayWithBuffering(size_t max_resize_num, size_t iterations,
   size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method) {
+  const char *lr_helper_method, bool initialize) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
   printf("Starting testParallelResizeByArrayWithBuffering with %zu threads\n", thread_num);
   fflush(stdout);
@@ -586,7 +586,7 @@ Timing::testParallelResizeByArrayWithBuffering(size_t max_resize_num, size_t ite
   lrf::TestLrf test_lrf;
   test_lrf.testParallelLrResizeByArrayWithBuffering(sta, resizer, design_->getBlock(),
     thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method);
+    PT_tradeoff, lr_helper_method, initialize);
 }
 
 void
@@ -675,15 +675,6 @@ Timing::testLocalStaAccuracy(size_t max_steps)
   test_lrf.testLocalStaAccuracy(sta, resizer, design_->getBlock(), max_steps);
 }
 
-void
-Timing::initializeMinLeakage()
-{
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  test_lrf.initializeMinLeakage(sta, resizer, design_->getBlock());
-}
 
 void
 Timing::testSlewViolationFeasibility()

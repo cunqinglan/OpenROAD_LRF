@@ -14,10 +14,13 @@ class dbBlock;
 
 namespace lrf {
 
+class IncreSta;
+
 class Initializer : public sta::dbStaState
 {
 public:
-  Initializer(sta::dbSta* sta, rsz::Resizer* resizer, odb::dbBlock* block);
+  Initializer(sta::dbSta* sta, IncreSta* incre_sta, rsz::Resizer* resizer,
+              odb::dbBlock* block);
   ~Initializer();
 
   // Sharma et al. three-step initialization:
@@ -42,6 +45,7 @@ private:
   static float estimateMaxSlew(sta::LibertyPort* port, float load_cap,
                                const sta::DcalcAnalysisPt* dcalc_ap);
 
+  IncreSta* incre_sta_;
   rsz::Resizer* resizer_;
   odb::dbBlock* block_;
 };

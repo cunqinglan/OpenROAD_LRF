@@ -113,13 +113,15 @@ class Timing
                                  size_t num_no_improve_tolerance,
                                  bool ratcons = false,
                                  float PT_tradeoff = 100.0,
-                                 const char *lr_helper_method = "LRHelper");
+                                 const char *lr_helper_method = "LRHelper",
+                                 bool initialize = false);
   void testParallelResizeByArrayWithBuffering(size_t max_resize_num,
                                               size_t iterations,
                                               size_t num_no_improve_tolerance,
                                               bool ratcons = false,
                                               float PT_tradeoff = 100.0,
-                                              const char *lr_helper_method = "LRHelper");
+                                              const char *lr_helper_method = "LRHelper",
+                                              bool initialize = false);
   void testCombinedResizeBuffering(size_t max_resize_num,
                                              size_t iterations,
                                              size_t num_no_improve_tolerance,
@@ -146,8 +148,6 @@ class Timing
   void testLocalStaAccuracy(size_t max_steps = 50);
   void testSlewViolationFeasibility();
   void testRepairSlew();
-  // Initialize: downsize to min-leakage, fix maxcap, fix maxslew.
-  void initializeMinLeakage();
   /////////////////////////////////////////////////////////////
   // End functions for testing LR sizing
   /////////////////////////////////////////////////////////////

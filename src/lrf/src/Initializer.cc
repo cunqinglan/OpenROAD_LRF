@@ -1,6 +1,7 @@
 #include "Initializer.hh"
 
 #include "lrf/IncreSta.hh"
+#include "LocalSta.hh"
 #include "db_sta/dbNetwork.hh"
 #include "db_sta/dbSta.hh"
 #include "rsz/Resizer.hh"
@@ -32,9 +33,10 @@ using sta::Corner;
 using sta::RiseFall;
 using sta::MinMax;
 
-Initializer::Initializer(sta::dbSta* sta, rsz::Resizer* resizer,
-                         odb::dbBlock* block)
-  : resizer_(resizer),
+Initializer::Initializer(sta::dbSta* sta, IncreSta* incre_sta,
+                         rsz::Resizer* resizer, odb::dbBlock* block)
+  : incre_sta_(incre_sta),
+    resizer_(resizer),
     block_(block)
 {
   dbStaState::init(sta);
@@ -75,20 +77,28 @@ Initializer::run()
   fflush(stdout);
 
   resizer_->makeEquivCells();
-
   est::EstimateParasitics* ep = resizer_->getEstimateParasitics();
+  LocalSta* local_sta = incre_sta_->localSta();
 
-  // Step 1: Downsize
+  // Step 1: Downsize all combinational cells to min-leakage
   downsizeToMinLeakage();
-  ep->updateParasitics();
 
   auto t1 = std::chrono::steady_clock::now();
 
+  // Update parasitics and timing after bulk downsize.
+  local_sta->updateGlobalParasiticsAndSync(ep);
+  sta_->delaysInvalid();
+  sta_->updateTiming(true);
+
   // Step 2: Fix load violations (reverse topo)
   fixLoadViolations();
-  ep->updateParasitics();
 
   auto t2 = std::chrono::steady_clock::now();
+
+  // Update parasitics and timing after Step 2 upsizes.
+  local_sta->updateGlobalParasiticsAndSync(ep);
+  sta_->delaysInvalid();
+  sta_->updateTiming(true);
 
   // Step 3: Fix slew violations (forward topo)
   fixSlewViolations();
@@ -168,14 +178,9 @@ Initializer::fixLoadViolations()
     if (!exists) default_max_slew = sta::INF;
   }
 
-  // Ensure timing up to date after step 1 downsize.
-  sta_->ensureGraph();
-  sta_->searchPreamble();
-  sta_->ensureClkArrivals();
-  sta_->findDelays();
-
-  IncreSta incre_sta(sta_);
-  sta::InstanceSeq& sorted = incre_sta.getSortedInstances();
+  // Use shared IncreSta's sorted instances (no second IncreSta created).
+  incre_sta_->resetSortedInstances();
+  sta::InstanceSeq& sorted = incre_sta_->getSortedInstances();
 
   int upsize_count = 0;
   int viol_count = 0;
@@ -212,8 +217,6 @@ Initializer::fixLoadViolations()
 
     // Get slew limit and convert to cap requirement:
     // max cap this cell can drive while keeping slew ≤ limit.
-    // We check: estimateMaxSlew(cell, load_cap) vs slew_limit.
-    // If slew is violated, treat as a cap violation too.
     float slew_limit = sta::INF;
     {
       float sl; bool ex;
@@ -273,9 +276,6 @@ Initializer::fixLoadViolations()
     sta_->replaceCell(inst, best);
     upsize_count++;
   }
-
-  sta_->delaysInvalid();
-  sta_->findDelays();
 
   printf("[Initializer] Step 2: Fixed %d load violations, upsized %d gates (PO→PI)\n",
          viol_count, upsize_count);
@@ -341,7 +341,7 @@ Initializer::fixSlewViolations()
     return;
   }
 
-  // Multi-pass upsize (same proven approach from testRepairSlew)
+  // Multi-pass upsize
   int total_upsized = 0;
 
   for (int pass = 0; pass < 5; pass++) {
