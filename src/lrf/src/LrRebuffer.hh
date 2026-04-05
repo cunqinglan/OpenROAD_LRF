@@ -95,9 +95,6 @@ protected:
   void writeLmsToGraph();
   void writeTimingToGraph();
   void initNewStaVertexPaths(const PtVertex &pt_vertex, sta::Vertex *sta_vertex);
-  void buildVirtualParasitics(VertexId drvr_vertex_id,
-                              const rsz::BufferedNetPtr& option,
-                              const VirtualBufferInfo &vinfo);
   void buildSyntheticParasitics(VertexId drvr_vertex_id,
                                 const rsz::BufferedNetPtr& option,
                                 const VirtualBufferInfo &vinfo);
