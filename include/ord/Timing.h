@@ -127,7 +127,8 @@ class Timing
                                              size_t num_no_improve_tolerance,
                                              bool ratcons = false,
                                              float PT_tradeoff = 100.0,
-                                             const char *lr_helper_method = "RapidLRHelper");
+                                             const char *lr_helper_method = "RapidLRHelper",
+                                             bool initialize = false);
   void testParallelResizeByArrayWithPrecheck(size_t max_resize_num,
                                              size_t iterations,
                                              size_t num_no_improve_tolerance,

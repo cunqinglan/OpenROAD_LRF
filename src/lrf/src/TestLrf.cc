@@ -1253,12 +1253,18 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
                             size_t num_no_improve_tolerance,
                             bool ratcons,
                             float PT_tradeoff,
-                            std::string lr_helper_method)
+                            std::string lr_helper_method,
+                            bool initialize)
 {
   printf("----- Testing Combined Resize + Buffering (ECO) -----\n");
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+
+  if (initialize) {
+    runInitialization(sta, incre_sta, resizer, block);
+  }
+
   lrf::LocalSta *local_sta = incre_sta->localSta();
 
   incre_sta->makeLRHelper(lr_helper_method);

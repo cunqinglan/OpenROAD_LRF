@@ -143,7 +143,8 @@ public:
                             size_t num_no_improve_tolerance,
                             bool ratcons = false,
                             float PT_tradeoff = 100.0,
-                            std::string lr_helper_method = "RapidLRHelper");
+                            std::string lr_helper_method = "RapidLRHelper",
+                            bool initialize = false);
 
   // Resize by array with precheck (ParallelVisitor + ResizePrecheckOperator)
   void testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,

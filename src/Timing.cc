@@ -592,7 +592,7 @@ Timing::testParallelResizeByArrayWithBuffering(size_t max_resize_num, size_t ite
 void
 Timing::testCombinedResizeBuffering(size_t max_resize_num, size_t iterations,
   size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method) {
+  const char *lr_helper_method, bool initialize) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
   printf("Starting testCombinedResizeBuffering with %zu threads\n", thread_num);
   fflush(stdout);
@@ -602,7 +602,7 @@ Timing::testCombinedResizeBuffering(size_t max_resize_num, size_t iterations,
   lrf::TestLrf test_lrf;
   test_lrf.testParallelLrCombinedResizeBuffering(sta, resizer, design_->getBlock(),
     thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method);
+    PT_tradeoff, lr_helper_method, initialize);
 }
 
 void
