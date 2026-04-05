@@ -25,16 +25,20 @@ struct RemapConfig {
   int max_solutions = 150;
 
   // UCT (Upper Confidence Tree) search parameters.
+  // UCT is disabled by default (uct_rounds=0): grid search across 4 designs
+  // showed beam-only (ur=0) matches or beats UCT on 3/4 designs.
+  // UCT helps ~2.5% on ac97_top; users can enable with -uct_rounds 3.
   int uct_batch_size = 20;
-  int uct_rounds     = 3;
+  int uct_rounds     = 0;
   double uct_c       = 1.414;
 
   // Use beam search instead of exhaustive backtracking for mapping enumeration.
   bool use_beam_search = false;
 
   // Beam search diversity weight. 0 = pure score (default), >0 encourages
-  // structurally diverse solutions during beam pruning. Suggested range 0.1-1.0.
-  float beam_diversity = 0.3;
+  // structurally diverse solutions during beam pruning.
+  // Grid search showed diversity has no consistent benefit after repair_timing.
+  float beam_diversity = 0.0;
 
   // Candidate-vertex search cap in getWorstVertices / getWorstVerticesForEndpoint.
   size_t max_candidates = 100;

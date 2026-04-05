@@ -222,15 +222,15 @@ proc position_driven_remap { args } {
   }
 
   # RemapConfig defaults (must match RemapConfig struct defaults in RemapConfig.hh)
-  set max_vertices_per_endpoint 5
-  set max_cut_instances         10
-  set max_cut_pis               20
-  set max_solutions             80
+  set max_vertices_per_endpoint 1
+  set max_cut_instances         5
+  set max_cut_pis               10
+  set max_solutions             150
   set uct_batch_size            20
-  set uct_rounds                5
+  set uct_rounds                0
   set uct_c                     1.414
   set max_candidates            100
-  set top_k                     5
+  set top_k                     0
   set use_beam_search [info exists flags(-use_beam_search)]
   set beam_diversity 0.0
 
