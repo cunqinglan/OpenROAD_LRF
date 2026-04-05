@@ -11,6 +11,10 @@
 #include "sta/Sdc.hh"
 #include "sta/SdcClass.hh"
 
+namespace lrf {
+struct LrConfig;
+}  // namespace lrf
+
 namespace odb {
 class dbMaster;
 class dbMTerm;
@@ -102,6 +106,22 @@ class Timing
   /////////////////////////////////////////////////////////////
   // Functions for testing LR sizing
   ///////////////////////////////////////////////////////////
+  // Unified LR entry point — dispatches by cfg.mode.
+  void runLr(const lrf::LrConfig &cfg);
+
+  // Python-friendly: construct LrConfig from individual args.
+  // mode: 0=RESIZE, 1=RESIZE_BUFFER, 2=PRECHECK, 3=PRECHECK_BUFFER, 4=COMBINED
+  void runLr(int mode,
+             size_t iterations = 12,
+             size_t max_resize_num = 20000000,
+             size_t num_no_improve_tolerance = 6,
+             float PT_tradeoff = 100.0f,
+             float density_weight = 0.0f,
+             bool ratcons = false,
+             const char *lr_helper_method = "RapidLRHelper",
+             float top_ratio = 0.3f,
+             bool initialize = false);
+
   void testLocalDelayCompute(char *inst_name);
   void testLocalArrivalCompute(char *inst_name);
   void testLocalSlewCompute(char *inst_name);
@@ -114,14 +134,16 @@ class Timing
                                  bool ratcons = false,
                                  float PT_tradeoff = 100.0,
                                  const char *lr_helper_method = "LRHelper",
-                                 bool initialize = false);
+                                 bool initialize = false,
+                                 float density_weight = 0.0f);
   void testParallelResizeByArrayWithBuffering(size_t max_resize_num,
                                               size_t iterations,
                                               size_t num_no_improve_tolerance,
                                               bool ratcons = false,
                                               float PT_tradeoff = 100.0,
                                               const char *lr_helper_method = "LRHelper",
-                                              bool initialize = false);
+                                              bool initialize = false,
+                                              float density_weight = 0.0f);
   void testCombinedResizeBuffering(size_t max_resize_num,
                                              size_t iterations,
                                              size_t num_no_improve_tolerance,

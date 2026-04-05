@@ -3,6 +3,7 @@
 #include "sta/GraphClass.hh"
 #include "sta/NetworkClass.hh"
 #include "lrf/LrfClass.hh"
+#include "lrf/LrConfig.hh"
 
 #include <stdexcept>
 #include <string>
@@ -116,7 +117,8 @@ public:
                             bool ratcons = false,
                             float PT_tradeoff = 100.0,
                             std::string lr_helper_method = "LRHelper",
-                            bool initialize = false);
+                            bool initialize = false,
+                            float density_weight = 0.0f);
 
   void testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
                             rsz::Resizer *resizer,
@@ -128,7 +130,8 @@ public:
                             bool ratcons = false,
                             float PT_tradeoff = 100.0,
                             std::string lr_helper_method = "LRHelper",
-                            bool initialize = false);
+                            bool initialize = false,
+                            float density_weight = 0.0f);
 
   // Print all liberty cells information grouped by unique equiv cell groups.
   void printAllCellsInfo(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
@@ -205,6 +208,13 @@ public:
   void testRepairSlew(sta::dbSta* sta,
                       rsz::Resizer *resizer,
                       odb::dbBlock *block);
+  // ── Unified entry point ──
+  // Single function that dispatches by LrConfig::mode.
+  // Replaces testParallelLrResizeByArray, WithBuffering, WithPrecheck, etc.
+  void runLr(sta::dbSta* sta, rsz::Resizer *resizer,
+             odb::dbBlock *block, size_t thread_num,
+             const LrConfig &cfg);
+
   // Run Sharma 3-step initialization on an existing IncreSta.
   // Called internally by testParallelLrResize* when initialize=true.
   void runInitialization(sta::dbSta* sta, IncreSta* incre_sta,
