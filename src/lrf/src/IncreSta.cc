@@ -678,6 +678,13 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
 
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &inst_info_map_);
 
+  // Pass density map to EvalContext if set.
+  if (density_map_) {
+    visitor->evalContext().density_map = density_map_;
+    visitor->evalContext().density_weight = density_weight_;
+    visitor->evalContext().average_area = average_area_;
+  }
+
   local_sta_->runResize(resizer, visitor);
 
   auto end_resize = std::chrono::high_resolution_clock::now();
@@ -905,6 +912,11 @@ IncreSta::parallelResizeByArrayWithPrecheck(
   resize_op->setPruningControl(&pruning_control_);
   visitor->setOperator(std::move(resize_op));
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &inst_info_map_);
+  if (density_map_) {
+    visitor->evalContext().density_map = density_map_;
+    visitor->evalContext().density_weight = density_weight_;
+    visitor->evalContext().average_area = average_area_;
+  }
 
   local_sta_->runResize(resizer, visitor);
   auto t_resize_end = std::chrono::high_resolution_clock::now();
@@ -944,6 +956,11 @@ IncreSta::parallelResizeByArrayWithPrecheck(
     cp_resize_op->setPruningControl(&pruning_control_);
     cp_visitor->setOperator(std::move(cp_resize_op));
     cp_visitor->init(avg_delay, avg_power, wns_after, PT_tradeoff, &inst_info_map_);
+    if (density_map_) {
+      cp_visitor->evalContext().density_map = density_map_;
+      cp_visitor->evalContext().density_weight = density_weight_;
+      cp_visitor->evalContext().average_area = average_area_;
+    }
     std::chrono::high_resolution_clock::time_point start_cps =
         std::chrono::high_resolution_clock::now();
     LrSizer lr_sizer(sta_, lr_helper_, cp_visitor);

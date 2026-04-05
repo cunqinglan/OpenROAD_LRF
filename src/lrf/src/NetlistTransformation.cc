@@ -1,4 +1,5 @@
 #include "NetlistTransformation.hh"
+#include "PlacementDensityMap.hh"
 #include "LocalSta.hh"
 #include "PtGraph.hh"
 #include "LrRebuffer.hh"
@@ -23,10 +24,12 @@ namespace lrf {
 // ═══════════════════════════════════════════════════════════
 
 float
-EvalContext::swapCost(float delay_lm_sum, float power) const
+EvalContext::swapCost(float delay_lm_sum, float power,
+                      float density_cost) const
 {
   return PT_tradeoff * delay_lm_sum / average_delay
-       + power / average_leakage;
+       + power / average_leakage
+       + density_weight * density_cost / average_area;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -198,6 +201,13 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
 
   auto start_eval = std::chrono::high_resolution_clock::now();
 
+  // Precompute density at this cell's location (shared across candidates).
+  float local_density = 0.0f;
+  float ori_area = ori_cell->area();
+  if (ctx.density_map && ctx.density_weight > 0.0f) {
+    local_density = ctx.density_map->getDensity(db_inst);
+  }
+
   // Pass 1: evaluate all candidates, store (cost, slack) pairs
   std::vector<float> vec_cost_slack(candidates.size() * 2,
                                     std::numeric_limits<float>::max());
@@ -232,7 +242,9 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     if (!legal_after && cand != ori_cell)
       continue;
 
-    float cost = ctx.swapCost(delay_lm_sum, leakage);
+    // Density penalty: Dd = (cand_area - ori_area) * Φ(x,y)
+    float density_cost = (cand->area() - ori_area) * local_density;
+    float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost);
     float slack = local_sta_->localSlackAroundRef(pt_graph);
     vec_cost_slack[i * 2] = cost;
     vec_cost_slack[i * 2 + 1] = slack;
@@ -332,6 +344,13 @@ ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
 
   auto start_eval = std::chrono::high_resolution_clock::now();
 
+  // Precompute density at this cell's location (shared across candidates).
+  float local_density = 0.0f;
+  float ori_area = ori_cell->area();
+  if (ctx.density_map && ctx.density_weight > 0.0f) {
+    local_density = ctx.density_map->getDensity(db_inst);
+  }
+
   // Pass 1: evaluate all candidates, store (cost, slack) pairs
   std::vector<float> vec_cost_slack(candidates.size() * 2,
                                     std::numeric_limits<float>::max());
@@ -366,7 +385,8 @@ ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
     if (!legal_after && cand != ori_cell)
       continue;
 
-    float cost = ctx.swapCost(delay_lm_sum, leakage);
+    float density_cost = (cand->area() - ori_area) * local_density;
+    float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost);
     float slack = local_sta_->localSlackAroundRef(pt_graph);
     vec_cost_slack[i * 2] = cost;
     vec_cost_slack[i * 2 + 1] = slack;
@@ -488,6 +508,15 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
 
   auto start_eval = std::chrono::high_resolution_clock::now();
 
+  // Precompute density at this cell's location.
+  float local_density = 0.0f;
+  float ori_area = ori_cell->area();
+  if (ctx.density_map && ctx.density_weight > 0.0f) {
+    odb::dbInst *db_inst = db_sta_->getDbNetwork()->staToDb(inst);
+    if (db_inst)
+      local_density = ctx.density_map->getDensity(db_inst);
+  }
+
   // Build O(1) leakage lookup
   std::unordered_map<sta::LibertyCell*, float> leakage_cache;
   if (inst_info_map_) {
@@ -531,7 +560,8 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
         && cand != ori_cell)
       continue;
 
-    float cost = ctx.swapCost(delay_lm_sum, leakage);
+    float density_cost = (cand->area() - ori_area) * local_density;
+    float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost);
     float slack = local_sta_->localSlackAroundRef(pt_graph);
     cand_results[i] = {cost, slack};
 
@@ -1259,6 +1289,9 @@ ParallelVisitor::copy() const
   v->eval_ctx_.average_delay = eval_ctx_.average_delay;
   v->eval_ctx_.average_leakage = eval_ctx_.average_leakage;
   v->eval_ctx_.PT_tradeoff = eval_ctx_.PT_tradeoff;
+  v->eval_ctx_.density_map = eval_ctx_.density_map;
+  v->eval_ctx_.density_weight = eval_ctx_.density_weight;
+  v->eval_ctx_.average_area = eval_ctx_.average_area;
   v->task_arranger_ = task_arranger_;
   v->precheck_results_ = precheck_results_;
 
