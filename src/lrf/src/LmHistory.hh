@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+#include <string>
 #include <vector>
 
 #include "lrf/LrfClass.hh"
@@ -45,6 +47,20 @@ public:
 
   // Remove the last recorded frame.
   void popBack();
+
+  // Save the last recorded frame to a binary file.
+  // design_name and vertex_count are stored as metadata for validation on load.
+  // Returns true on success.
+  bool saveToFile(const std::string &path,
+                  const std::string &design_name,
+                  uint32_t vertex_count) const;
+
+  // Load a frame from a binary file and append it to history.
+  // Validates that design_name and vertex_count match the file header.
+  // Returns the frame id on success, -1 on failure.
+  int loadFromFile(const std::string &path,
+                   const std::string &design_name,
+                   uint32_t vertex_count);
 
   // Update the graph pointer (e.g. after graph rebuild).
   void setGraph(sta::Graph *graph) { graph_ = graph; }

@@ -270,6 +270,26 @@ IncreSta::lmUpdate()
 }
 
 bool
+IncreSta::saveLmToFile(const std::string &path, const std::string &design_name)
+{
+  if (!lr_helper_) {
+    printf("IncreSta::saveLmToFile: LRHelper not initialized\n");
+    return false;
+  }
+  return lr_helper_->saveLmToFile(path, design_name);
+}
+
+int
+IncreSta::loadLmFromFile(const std::string &path, const std::string &design_name)
+{
+  if (!lr_helper_) {
+    printf("IncreSta::loadLmFromFile: LRHelper not initialized\n");
+    return -1;
+  }
+  return lr_helper_->loadLmFromFile(path, design_name);
+}
+
+bool
 IncreSta::checkCapViolated(Pin *pin, const Corner *corner, const MinMax *min_max)
 {
   const Corner *corner1;

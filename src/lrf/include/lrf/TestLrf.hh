@@ -118,7 +118,8 @@ public:
                             float PT_tradeoff = 100.0,
                             std::string lr_helper_method = "LRHelper",
                             bool initialize = false,
-                            float density_weight = 0.0f);
+                            float density_weight = 0.0f,
+                            std::string checkpoint_dir = "");
 
   void testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
                             rsz::Resizer *resizer,

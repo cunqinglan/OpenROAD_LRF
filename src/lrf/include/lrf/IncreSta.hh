@@ -115,6 +115,11 @@ public:
   LibertyCellArray* equivCellArray() { return &equiv_cell_array_; }
   PosMap* equivCellPosMap() { return &equiv_cell_pos_map_; }
 
+  // LM snapshot file I/O — save/load LM vector for deterministic experiments.
+  // design_name is validated on load to prevent mismatched checkpoint restore.
+  bool saveLmToFile(const std::string &path, const std::string &design_name);
+  int loadLmFromFile(const std::string &path, const std::string &design_name);
+
   // APIs for LM update
   void makeLRHelper(std::string method = "LRHelper");
 

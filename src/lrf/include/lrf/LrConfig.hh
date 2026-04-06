@@ -40,6 +40,11 @@ struct LrConfig {
 
   // ── Initialization ──
   bool initialize = false;           // Run Sharma 3-step init before LR
+
+  // ── Checkpoint ──
+  // If non-empty, save DEF + LM + verilog at first regression point.
+  // Files: <checkpoint_dir>/checkpoint.def, .lm, .v
+  std::string checkpoint_dir;
 };
 
 }  // namespace lrf
