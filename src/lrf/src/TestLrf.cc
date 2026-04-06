@@ -1442,6 +1442,108 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
 }
 
 void
+TestLrf::testBufferOnly(sta::dbSta* sta,
+                        rsz::Resizer *resizer,
+                        odb::dbBlock *block,
+                        size_t thread_num,
+                        size_t iterations,
+                        float PT_tradeoff,
+                        std::string lr_helper_method)
+{
+  printf("----- Testing Buffer-Only Mode -----\n");
+
+  sta->findRequireds();
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  incre_sta->setBufferOnlyMode(true);
+
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+
+  incre_sta->makeLRHelper(lr_helper_method);
+  lrf::LRHelper *lr_helper = incre_sta->lrHelper();
+  lr_helper->setRatcons(true);
+
+  incre_sta->setMaxResizeNum(20000000);
+
+  // ── LM warm-up: run several rounds of lmUpdate without any
+  //    resize/buffer so that Lagrange multipliers converge to
+  //    values consistent with the current netlist. ──
+  const size_t lm_warmup_rounds = 5;
+  printf("LM warm-up: %zu rounds\n", lm_warmup_rounds);
+  for (size_t w = 0; w < lm_warmup_rounds; ++w) {
+    incre_sta->lmUpdate();
+    sta->findRequireds();
+  }
+  printf("LM warm-up done\n");
+
+  odb::dbDatabase::beginEco(block);
+  IterationHelper helper(sta, block, local_sta, resizer);
+  IterationHelper::Metrics best = helper.snapshot();
+  printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
+
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+  local_sta->initParallel();
+
+  size_t eco_iter = 0;
+
+  for (size_t i = 0; i < iterations; ++i) {
+    incre_sta->lmUpdate();
+    sta->findRequireds();
+    printf("----- Buffer-Only Iteration %zu -----\n", i+1);
+    auto start = std::chrono::high_resolution_clock::now();
+    incre_sta->parallelResizeAndBuffering(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    auto end = std::chrono::high_resolution_clock::now();
+    double runtime = std::chrono::duration<double>(end - start).count();
+    printf("Iteration %zu took %.1f seconds\n", i+1, runtime);
+
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+
+    IterationHelper::Metrics cur = helper.snapshot(runtime);
+    printf("WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW\n",
+           cur.wns_ps, cur.tns_ps, cur.leakage * 1e10);
+    fflush(stdout);
+
+    double cur_wns = cur.wns_ps / 1e12;
+    double best_wns_s = best.wns_ps / 1e12;
+
+    if ((cur_wns > best_wns_s && cur_wns < 0)
+        || (cur_wns >= 0.0 && (cur_wns > best_wns_s || cur.leakage < best.leakage))) {
+      best = cur;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      eco_iter = 0;
+      helper.recordRow(i+1, "buffer_only", cur, best, "accept");
+      printf("Decision: accept\n");
+    } else {
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
+      odb::dbDatabase::beginEco(block);
+      eco_iter++;
+      helper.recordRow(i+1, "buffer_only", cur, best, "revert");
+      printf("Decision: revert (eco_iter=%zu)\n", eco_iter);
+
+      if (eco_iter > 3) {
+        printf("Too many consecutive rejections (%zu), terminating.\n", eco_iter);
+        break;
+      }
+    }
+    fflush(stdout);
+  }
+
+  IterationHelper::Metrics final_m = helper.snapshot();
+  odb::dbDatabase::endEco(block);
+  printf("Final buffer-only WNS: %.3f, TNS: %.3f\n",
+         final_m.wns_ps, final_m.tns_ps);
+  helper.printSummary(best);
+  delete incre_sta;
+}
+
+void
 TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
                             rsz::Resizer *resizer,
                             odb::dbBlock *block,

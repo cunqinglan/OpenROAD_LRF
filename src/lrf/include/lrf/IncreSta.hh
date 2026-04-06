@@ -67,6 +67,7 @@ public:
   void parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float avg_power,
                       float PT_tradeoff);
   void setMaxResizeNum(size_t max_resize_num);
+  void setBufferOnlyMode(bool mode) { buffer_only_mode_ = mode; }
 
   void parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
                          int top_n = 100);
@@ -151,6 +152,7 @@ protected:
   const PlacementDensityMap *density_map_ = nullptr;
   float density_weight_ = 0.0f;
   float average_area_ = 1.0f;
+  bool buffer_only_mode_ = false;
 
 };
 

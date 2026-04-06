@@ -1053,11 +1053,26 @@ CombinedOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
 
   // Compute original cost
   float ori_cost;
+  float ori_delay_lm_sum, ori_leakage;
   {
-    float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
+    ori_delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
         pt_graph, ctx.arc_delay_calc, ori_cell).delay_lm_sum;
-    float leakage = resize_op_->lookupLeakage(inst, ori_cell);
-    ori_cost = ctx.swapCost(delay_lm_sum, leakage);
+    ori_leakage = resize_op_->lookupLeakage(inst, ori_cell);
+    ori_cost = ctx.swapCost(ori_delay_lm_sum, ori_leakage);
+  }
+
+  static int dbg_combined_count = 0;
+  if (++dbg_combined_count <= 30) {
+    float delay_part = ctx.PT_tradeoff * ori_delay_lm_sum / ctx.average_delay;
+    float leak_part = ori_leakage / ctx.average_leakage;
+    printf("[DBG-COMBINED] %s ori_cell=%s delay_lm=%.3e leak=%.3e "
+           "delay_part=%.3e leak_part=%.3e ratio=%.2f ori_cost=%.3e "
+           "PT=%.1f avg_delay=%.3e avg_leak=%.3e\n",
+           db_sta_->network()->pathName(inst), ori_cell->name(),
+           ori_delay_lm_sum, ori_leakage,
+           delay_part, leak_part,
+           leak_part > 0 ? delay_part / leak_part : 0.0f,
+           ori_cost, ctx.PT_tradeoff, ctx.average_delay, ctx.average_leakage);
   }
 
   // Best resize-only candidate

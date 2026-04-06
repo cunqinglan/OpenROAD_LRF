@@ -369,6 +369,7 @@ protected:
   // Compute slack at sink pins using STA required (unchanged by buffer)
   // and PtVertex arrival (updated by findLocalArrivals through virtual buffer).
   Slack localSlackOnSinks(PtGraph *pt_graph);
+  Slack localWorstSlackOnSinks(PtGraph *pt_graph);
   
   ////////////////////////////////////////////////////////
   // Deal with parasitics

@@ -606,6 +606,20 @@ Timing::testCombinedResizeBuffering(size_t max_resize_num, size_t iterations,
 }
 
 void
+Timing::testBufferOnly(size_t iterations, float PT_tradeoff,
+  const char *lr_helper_method) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testBufferOnly with %zu threads\n", thread_num);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testBufferOnly(sta, resizer, design_->getBlock(),
+    thread_num, iterations, PT_tradeoff, lr_helper_method);
+}
+
+void
 Timing::testParallelResizeByArrayWithPrecheck(size_t max_resize_num,
   size_t iterations, size_t num_no_improve_tolerance, bool ratcons,
   float PT_tradeoff, const char *lr_helper_method, float top_ratio) {

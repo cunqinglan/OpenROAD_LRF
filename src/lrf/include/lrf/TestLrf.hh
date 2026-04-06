@@ -146,6 +146,14 @@ public:
                             std::string lr_helper_method = "RapidLRHelper",
                             bool initialize = false);
 
+  void testBufferOnly(sta::dbSta* sta,
+                      rsz::Resizer *resizer,
+                      odb::dbBlock *block,
+                      size_t thread_num,
+                      size_t iterations = 6,
+                      float PT_tradeoff = 10.0,
+                      std::string lr_helper_method = "RapidLRHelper");
+
   // Resize by array with precheck (ParallelVisitor + ResizePrecheckOperator)
   void testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
                             rsz::Resizer *resizer,

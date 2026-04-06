@@ -829,7 +829,7 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
   float origial_slack = 0.0f;
   if (last_iteration) {
     local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
-    origial_slack = local_sta_->localSlackOnSinks(pt_graph);
+    origial_slack = local_sta_->localWorstSlackOnSinks(pt_graph);
     static int dbg_bft_count = 0;
     if (++dbg_bft_count <= 10)
       printf("[DBG-BFT] pin=%s top_opts=%zu origial_slack=%.3e last_iter=%d\n",
@@ -838,13 +838,21 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
   // Two-pass: first find no-buffer baseline delay_lm_sum, then compare
   float nobuf_delay_lm_sum = INF;
   float nobuf_cost = INF;
+  float nobuf_leakage = 0.0f;
+  int nobuf_opts_count = 0;
+  int buf_opts_count = 0;
   if (last_iteration) {
+    for (const BnetPtr& p : top_opts) {
+      if (p->bufferCount() == 0) nobuf_opts_count++;
+      else buf_opts_count++;
+    }
     for (const BnetPtr& p : top_opts) {
       if (p->bufferCount() == 0) {
         LMValue cost = evaluateOption(drvr_vertex_id, p, origial_slack);
         if (last_delay_lm_sum_ < nobuf_delay_lm_sum) {
           nobuf_delay_lm_sum = last_delay_lm_sum_;
           nobuf_cost = cost;
+          nobuf_leakage = p->leakage();
         }
         if (cost < best_cost) {
           best_cost = cost;
@@ -854,17 +862,38 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
         i++;
       }
     }
+
+    static int dbg_twopass_count = 0;
+    bool do_print = (++dbg_twopass_count <= 30);
+    if (do_print) {
+      float nobuf_delay_part = eval_ctx_->PT_tradeoff * nobuf_delay_lm_sum / eval_ctx_->average_delay;
+      float nobuf_leak_part = nobuf_leakage / eval_ctx_->average_leakage;
+      printf("[DBG-TWOPASS] pin=%s top_opts=%zu nobuf=%d buf=%d "
+             "nobuf_delay_lm=%.3e nobuf_leak=%.3e nobuf_delay_part=%.3e nobuf_leak_part=%.3e "
+             "nobuf_ratio=%.2f nobuf_cost=%.3e orig_slack=%.3e\n",
+             network_->name(pin_), top_opts.size(), nobuf_opts_count, buf_opts_count,
+             nobuf_delay_lm_sum, nobuf_leakage,
+             nobuf_delay_part, nobuf_leak_part,
+             nobuf_leak_part > 0 ? nobuf_delay_part / nobuf_leak_part : 0.0f,
+             nobuf_cost, origial_slack);
+    }
+
     i = 1;
     for (const BnetPtr& p : top_opts) {
       if (p->bufferCount() > 0) {
         LMValue cost = evaluateOption(drvr_vertex_id, p, origial_slack);
-        if (last_delay_lm_sum_ < nobuf_delay_lm_sum) {
-          printf("[DBG-BUF-WIN] pin=%s buffers=%d buf_delay_lm=%.3e nobuf_delay_lm=%.3e "
-                 "delta=%.3e%% leakage=%.3e buf_cost=%.3e nobuf_cost=%.3e\n",
+        if (do_print) {
+          float buf_delay_part = eval_ctx_->PT_tradeoff * last_delay_lm_sum_ / eval_ctx_->average_delay;
+          float buf_leak_part = p->leakage() / eval_ctx_->average_leakage;
+          printf("[DBG-TWOPASS-BUF] pin=%s buffers=%d buf_delay_lm=%.3e buf_leak=%.3e "
+                 "buf_delay_part=%.3e buf_leak_part=%.3e ratio=%.2f "
+                 "buf_cost=%.3e nobuf_cost=%.3e %s\n",
                  network_->name(pin_), p->bufferCount(),
-                 last_delay_lm_sum_, nobuf_delay_lm_sum,
-                 (last_delay_lm_sum_ - nobuf_delay_lm_sum) / nobuf_delay_lm_sum * 100.0,
-                 p->leakage(), cost, nobuf_cost);
+                 last_delay_lm_sum_, p->leakage(),
+                 buf_delay_part, buf_leak_part,
+                 buf_leak_part > 0 ? buf_delay_part / buf_leak_part : 0.0f,
+                 cost, nobuf_cost,
+                 cost < nobuf_cost ? "<<< BUF WINS" : "");
         }
         if (cost < best_cost) {
           best_cost = cost;
@@ -973,7 +1002,7 @@ LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
   auto result = local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
   float delay_lm_sum = result.delay_lm_sum;
   last_delay_lm_sum_ = delay_lm_sum;
-  float slack_after = local_sta_->localSlackOnSinks(pt_graph);
+  float slack_after = local_sta_->localWorstSlackOnSinks(pt_graph);
 
   float thresh = original_slack;
   if (slack_after >= thresh) {
@@ -981,13 +1010,30 @@ LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
   }
 
   static int dbg_eval_count = 0;
-  if (++dbg_eval_count <= 50) {
-    printf("[DBG-PRECISE] pin=%s buffers=%d delay_lm_sum=%.3e leakage=%.3e "
-           "cost=%.3e slack_after=%.3e orig_slack=%.3e pass=%d vinfo_failed=%d\n",
-           network_->name(pin_), option->bufferCount(),
-           delay_lm_sum, option->leakage(), total_cost,
+  static int dbg_nobuf_count = 0;
+  bool do_print_eval = (++dbg_eval_count <= 50);
+  // Always print no-buffer options to diagnose parasitic accuracy
+  if (option->bufferCount() == 0 && ++dbg_nobuf_count <= 100) {
+    printf("[DBG-NOBUF-EVAL] pin=%s delay_lm=%.3e cost=%.3e "
+           "slack_after=%.3e orig_slack=%.3e delta_slack=%.3e pass=%d\n",
+           network_->name(pin_),
+           delay_lm_sum, total_cost,
            slack_after, original_slack,
-           slack_after >= thresh, vinfo.failed);
+           slack_after - original_slack,
+           slack_after >= thresh);
+  }
+  if (do_print_eval) {
+    float delay_part = eval_ctx_->PT_tradeoff * delay_lm_sum / eval_ctx_->average_delay;
+    float leak_part = option->leakage() / eval_ctx_->average_leakage;
+    printf("[DBG-PRECISE] pin=%s buffers=%d delay_lm=%.3e leak=%.3e "
+           "delay_part=%.3e leak_part=%.3e ratio=%.2f "
+           "cost=%.3e slack_after=%.3e orig_slack=%.3e pass=%d\n",
+           network_->name(pin_), option->bufferCount(),
+           delay_lm_sum, option->leakage(),
+           delay_part, leak_part,
+           leak_part > 0 ? delay_part / leak_part : 0.0f,
+           total_cost, slack_after, original_slack,
+           slack_after >= thresh);
   }
 
   removeVirtualBuffer(vinfo);
@@ -1203,7 +1249,18 @@ LrRebuffer::computeBufferAddedCost(float buffer_delay_seconds,
   // Part 2: Combine delay_LM_sum and leakage as total cost
   // Simple sum: cost = delay_LM_sum + leakage
   float total_cost = buffer_delta_delay_lm + buffer_leakage;
-  
+
+  static int dbg_addcost_count = 0;
+  if (++dbg_addcost_count <= 20) {
+    float norm_delay = eval_ctx_->PT_tradeoff * buffer_delta_delay_lm / eval_ctx_->average_delay;
+    float norm_leak = buffer_leakage / eval_ctx_->average_leakage;
+    printf("[DBG-ADDCOST] buf_delay_s=%.3e delta_delay_lm=%.3e leak=%.3e "
+           "raw_total=%.3e | norm_delay=%.3e norm_leak=%.3e norm_ratio=%.2f\n",
+           buffer_delay_seconds, buffer_delta_delay_lm, buffer_leakage,
+           total_cost, norm_delay, norm_leak,
+           norm_leak > 0 ? norm_delay / norm_leak : 0.0f);
+  }
+
   return total_cost;
 }
 

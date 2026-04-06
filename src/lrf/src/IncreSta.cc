@@ -1192,11 +1192,21 @@ IncreSta::parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
   printf("Buffer candidates (sensitivity): %zu (of %zu total)\n",
          buf_candidates.size(), task_arranger->vertexCount());
 
-  // All instances get resize; buffer candidates also get buffer bit
-  for (size_t i = 0; i < task_arranger->vertexCount(); i++)
-    task_arranger->vertex(i)->move_mask_ = InstVertex::kMoveResize;
-  for (size_t vid : buf_candidates)
-    task_arranger->vertex(vid)->move_mask_ |= InstVertex::kMoveBuffer;
+  // Set move masks: resize + buffer, or buffer-only
+  if (buffer_only_mode_) {
+    // Buffer-only: only buffer candidates get kMoveBuffer, no resize
+    for (size_t i = 0; i < task_arranger->vertexCount(); i++)
+      task_arranger->vertex(i)->move_mask_ = 0;
+    for (size_t vid : buf_candidates)
+      task_arranger->vertex(vid)->move_mask_ = InstVertex::kMoveBuffer;
+    printf("Buffer-only mode: %zu instances with kMoveBuffer\n", buf_candidates.size());
+  } else {
+    // Combined: all instances get resize; buffer candidates also get buffer bit
+    for (size_t i = 0; i < task_arranger->vertexCount(); i++)
+      task_arranger->vertex(i)->move_mask_ = InstVertex::kMoveResize;
+    for (size_t vid : buf_candidates)
+      task_arranger->vertex(vid)->move_mask_ |= InstVertex::kMoveBuffer;
+  }
 
   // Initialize global STA/Resizer state for buffering (serial preamble)
   LrRebuffer::initGlobalPreamble(sta_, resizer);

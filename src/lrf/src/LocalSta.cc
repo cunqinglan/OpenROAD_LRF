@@ -1688,6 +1688,53 @@ LocalSta::localSlackOnSinks(PtGraph *pt_graph)
   return local_slack;
 }
 
+Slack
+LocalSta::localWorstSlackOnSinks(PtGraph *pt_graph)
+{
+  // Same sink collection as localSlackOnSinks, but return worst (min) slack.
+  std::vector<PtVertex*> sink_vertices;
+  for (auto& pv : pt_graph->ptVertices()) {
+    if (pv.type() != PtVertexType::RefOutput || !pv.vertex())
+      continue;
+    sta::VertexOutEdgeIterator out_iter(pv.vertex(), graph_);
+    while (out_iter.hasNext()) {
+      sta::Edge *edge = out_iter.next();
+      if (!edge->isWire())
+        continue;
+      sta::Vertex *load_vertex = edge->to(graph_);
+      PtVertex *load_pv = pt_graph->ptVertex(load_vertex);
+      if (load_pv && load_pv->hasBase())
+        sink_vertices.push_back(load_pv);
+    }
+  }
+
+  Slack worst_slack = 0.0;
+  for (PtVertex *pt_vp : sink_vertices) {
+    PtVertex &pt_vertex = *pt_vp;
+    sta::Path *pt_paths = pt_vertex.paths();
+    if (!pt_paths) continue;
+    sta::Vertex *sta_vertex = pt_vertex.vertex();
+    sta::Path *sta_paths = sta_vertex->paths();
+    if (!sta_paths) continue;
+
+    sta::TagGroup *pt_tg = search_->tagGroup(pt_vertex.tagGroupIndex());
+    sta::TagGroup *sta_tg = search_->tagGroup(sta_vertex);
+    if (!pt_tg || !sta_tg || pt_tg->index() != sta_tg->index())
+      continue;
+
+    size_t path_count = pt_tg->pathCount();
+    for (size_t i = 0; i < path_count; i++) {
+      if (pt_paths[i].dcalcAnalysisPt(this) != pt_graph->dcalcAnalysisPt())
+        continue;
+      sta::Slack slack = sta_paths[i].required() - pt_paths[i].arrival();
+      if (sta::delayInf(slack)) continue;
+      if (slack < worst_slack)
+        worst_slack = slack;
+    }
+  }
+  return worst_slack;
+}
+
 void
 LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
                           const RiseFall *rf,
