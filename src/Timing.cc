@@ -497,10 +497,27 @@ Timing::checkErcViolations(odb::dbInst* inst, sta::Corner* corner) {
   return violated;
 }
 
-void 
+void
 Timing::lmUpdate() {
   sta::dbSta* sta = getSta();
   sta->getIncreSta()->lmUpdate();
+}
+
+bool
+Timing::saveLmSnapshot(const char *path) {
+  sta::dbSta* sta = getSta();
+  odb::dbBlock* block = design_->getBlock();
+  std::string design_name = block->getName();
+  return sta->getIncreSta()->saveLmToFile(path, design_name);
+}
+
+bool
+Timing::loadLmSnapshot(const char *path) {
+  sta::dbSta* sta = getSta();
+  odb::dbBlock* block = design_->getBlock();
+  std::string design_name = block->getName();
+  int frame_id = sta->getIncreSta()->loadLmFromFile(path, design_name);
+  return frame_id >= 0;
 }
 
 float 
@@ -576,7 +593,7 @@ Timing::runLr(int mode, size_t iterations, size_t max_resize_num,
               size_t num_no_improve_tolerance, float PT_tradeoff,
               float density_weight, bool ratcons,
               const char *lr_helper_method, float top_ratio,
-              bool initialize) {
+              bool initialize, const char *checkpoint_dir) {
   lrf::LrConfig cfg;
   cfg.mode = static_cast<lrf::LrMode>(mode);
   cfg.iterations = iterations;
@@ -588,6 +605,7 @@ Timing::runLr(int mode, size_t iterations, size_t max_resize_num,
   cfg.lr_helper_method = lr_helper_method;
   cfg.top_ratio = top_ratio;
   cfg.initialize = initialize;
+  cfg.checkpoint_dir = checkpoint_dir ? checkpoint_dir : "";
   runLr(cfg);
 }
 

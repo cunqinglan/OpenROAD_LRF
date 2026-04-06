@@ -628,6 +628,33 @@ LRHelper::clearLmHistory() {
   lm_history_.clear();
 }
 
+bool
+LRHelper::saveLmToFile(const std::string &path,
+                        const std::string &design_name) {
+  // Ensure there is at least one frame to save.
+  // If no frame exists yet, record the current state first.
+  if (lm_history_.frameCount() == 0) {
+    lm_history_.setGraph(graph_);
+    lm_history_.recordLM();
+  }
+  uint32_t vertex_count = static_cast<uint32_t>(graph_->vertexCount());
+  return lm_history_.saveToFile(path, design_name, vertex_count);
+}
+
+int
+LRHelper::loadLmFromFile(const std::string &path,
+                          const std::string &design_name) {
+  lm_history_.setGraph(graph_);
+  uint32_t vertex_count = static_cast<uint32_t>(graph_->vertexCount());
+  int frame_id = lm_history_.loadFromFile(path, design_name, vertex_count);
+  if (frame_id >= 0) {
+    int restored = lm_history_.restoreLM(frame_id);
+    printf("LRHelper::loadLmFromFile: restored %d edges from %s\n",
+           restored, path.c_str());
+  }
+  return frame_id;
+}
+
 //////////////////////////////////////////////////////////////////////
 // Parallel KKT Projection and LM Update
 //

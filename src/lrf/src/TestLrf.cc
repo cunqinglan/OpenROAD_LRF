@@ -41,9 +41,47 @@
 namespace lrf
 {
 
+// ── Checkpoint save helper ──────────────────────────────────────
+// Called at first regression point to save DEF + LM + verilog.
+static void
+saveCheckpoint(const std::string &checkpoint_dir,
+               sta::dbSta *sta, odb::dbBlock *block,
+               IncreSta *incre_sta)
+{
+  if (checkpoint_dir.empty())
+    return;
+
+  // Ensure directory exists
+  std::string mkdir_cmd = "mkdir -p " + checkpoint_dir;
+  system(mkdir_cmd.c_str());
+
+  std::string design_name = block->getName();
+  std::string lm_path  = checkpoint_dir + "/checkpoint.lm";
+  std::string def_path = checkpoint_dir + "/checkpoint.def";
+  std::string v_path   = checkpoint_dir + "/checkpoint.v";
+
+  // Save LM snapshot
+  bool lm_ok = incre_sta->saveLmToFile(lm_path, design_name);
+  printf("[CHECKPOINT] LM snapshot: %s (%s)\n",
+         lm_path.c_str(), lm_ok ? "ok" : "FAILED");
+
+  // Save DEF and verilog via Tcl
+  Tcl_Interp *interp = sta->tclInterp();
+  std::string def_cmd = "write_def " + def_path;
+  std::string v_cmd   = "write_verilog " + v_path;
+  Tcl_Eval(interp, def_cmd.c_str());
+  printf("[CHECKPOINT] DEF: %s\n", def_path.c_str());
+  Tcl_Eval(interp, v_cmd.c_str());
+  printf("[CHECKPOINT] Verilog: %s\n", v_path.c_str());
+
+  printf("[CHECKPOINT] Saved to %s (design=%s)\n",
+         checkpoint_dir.c_str(), design_name.c_str());
+  fflush(stdout);
+}
+
 void
-TestLrf::printLocalDelaysAndCap(char *inst_name, sta::dbSta* sta, 
-                       LocalSta *local_sta, odb::dbInst *db_inst, 
+TestLrf::printLocalDelaysAndCap(char *inst_name, sta::dbSta* sta,
+                       LocalSta *local_sta, odb::dbInst *db_inst,
                        sta::Instance *sta_inst, sta::dbNetwork *db_network)
 {
   // In this domain, we test the functionality of Local delay computation
@@ -786,7 +824,8 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
                             float PT_tradeoff,
                             std::string lr_helper_method,
                             bool initialize,
-                            float density_weight)
+                            float density_weight,
+                            std::string checkpoint_dir)
 {
   printf("----- Testing Parallel LR Resize By Array (New Framework) -----\n");
 
@@ -977,6 +1016,8 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
       local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
       sta->delaysInvalid();
       sta->updateTiming(true);
+      // Save checkpoint after revert — design is at best state
+      saveCheckpoint(checkpoint_dir, sta, block, incre_sta);
       odb::dbDatabase::beginEco(block);
       adaptive_mode = true;
       incre_sta->setAdaptiveTopRatio(top_ratio * 0.25f);
@@ -1101,7 +1142,8 @@ TestLrf::runLr(sta::dbSta* sta, rsz::Resizer *resizer,
           cfg.max_resize_num, cfg.iterations,
           cfg.num_no_improve_tolerance, cfg.ratcons,
           cfg.PT_tradeoff, cfg.lr_helper_method,
-          cfg.initialize, cfg.density_weight);
+          cfg.initialize, cfg.density_weight,
+          cfg.checkpoint_dir);
       break;
     case LrMode::RESIZE_BUFFER:
       testParallelLrResizeByArrayWithBuffering(

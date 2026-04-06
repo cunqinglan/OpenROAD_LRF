@@ -99,6 +99,11 @@ class Timing
   float getWorstSlack(MinMax minmax = Max);
   float getTns(MinMax minmax = Max);
   float getTns(sta::Corner* corner, MinMax minmax = Max);
+  // Save/load LM vector to/from binary file for deterministic experiments.
+  // The file includes design name and vertex count for validation.
+  bool saveLmSnapshot(const char *path);
+  bool loadLmSnapshot(const char *path);
+
   /////////////////////////////////////////////////////////////
   // End functions for LR sizing
   /////////////////////////////////////////////////////////////
@@ -120,7 +125,8 @@ class Timing
              bool ratcons = false,
              const char *lr_helper_method = "RapidLRHelper",
              float top_ratio = 0.3f,
-             bool initialize = false);
+             bool initialize = false,
+             const char *checkpoint_dir = "");
 
   void testLocalDelayCompute(char *inst_name);
   void testLocalArrivalCompute(char *inst_name);
