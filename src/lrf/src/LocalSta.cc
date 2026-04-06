@@ -172,18 +172,23 @@ LocalSta::collectLocalFanoutVertices(sta::Vertex *drvr_vertex,
   VertexOutEdgeIterator edge_iter(drvr_vertex, graph_);
   while (edge_iter.hasNext()) {
     Edge *out_edge = edge_iter.next();
-    if (!out_edge->isWire() || !search_pred_->searchThru(out_edge))
+    if (!out_edge->isWire())
       continue;
     Vertex *load_vertex = out_edge->to(graph_);
     if (!network_->isLoad(load_vertex->pin()))
       continue;
+    // Always include fanout load so parasitic network traversal
+    // can find its PtVertex (avoids stale-pin crash in reducePiDfs).
     local_vertices.insert(load_vertex);
+    // Only expand to load's driver if search predicate allows.
+    if (!search_pred_->searchThru(out_edge))
+      continue;
 
     VertexOutEdgeIterator in_inst_edge_iter(load_vertex, graph_);
     while (in_inst_edge_iter.hasNext()) {
       Edge *in_inst_edge = in_inst_edge_iter.next();
       Vertex *out_driver_vertex = in_inst_edge->to(graph_);
-      if (!search_pred_->searchThru(in_inst_edge) || 
+      if (!search_pred_->searchThru(in_inst_edge) ||
                       !search_pred_->searchFrom(load_vertex)) {
         continue;
       }
@@ -196,7 +201,7 @@ LocalSta::collectLocalFanoutVertices(sta::Vertex *drvr_vertex,
         continue;
       }
       // We avoid collecting latches in the local graph.
-      if (search_pred_->searchThru(in_inst_edge) && 
+      if (search_pred_->searchThru(in_inst_edge) &&
                       search_pred_->searchTo(out_driver_vertex))
         local_vertices.insert(out_driver_vertex);
     }
@@ -242,9 +247,13 @@ LocalSta::collectLocalFaninSiblingVertices(Vertex *load_vertex,
     if (load_pin == load_vertex->pin())
       continue;
     Vertex *sibling_load_vertex = graph_->pinLoadVertex(load_pin);
-    if (sibling_load_vertex
-        && search_pred_->searchFrom(sibling_load_vertex)) {
-      local_vertices.insert(sibling_load_vertex);
+    if (!sibling_load_vertex)
+      continue;
+    // Always include sibling load so parasitic network traversal
+    // can find its PtVertex (avoids stale-pin crash in reducePiDfs).
+    local_vertices.insert(sibling_load_vertex);
+    // Only expand to sibling's driver/fanin if search predicate allows.
+    if (search_pred_->searchFrom(sibling_load_vertex)) {
       // Collect sibling driver vertices, skip check edges and latch edges
       VertexOutEdgeIterator in_inst_edge_iter(sibling_load_vertex, graph_);
       while (in_inst_edge_iter.hasNext()) {

@@ -186,27 +186,36 @@ LocalReduceToPi::localPinCapacitance(ParasiticNode *node)
   float pin_cap = 0.0;
 
   if (pin) {
+    // Top-level ports have no liberty cell; handle them via SDC directly.
+    if (network_->isTopLevelPort(pin)) {
+      Port *port = network_->port(pin);
+      if (port)
+        pin_cap = sdc_->portExtCap(port, rf_, corner_, min_max_);
+      return pin_cap;
+    }
     // Safety: check vertexId before calling pinLoadVertex.
     // Pins without a valid vertex (unconnected, hierarchical, or stale after undoEco)
     // would cause pinLoadVertex → ObjectTable::pointer(null) to segfault.
     sta::VertexId vid = network_->vertexId(pin);
-    if (vid == sta::object_id_null && !network_->isTopLevelPort(pin)) {
+    if (vid == sta::object_id_null) {
       return pin_cap;
     }
-    sta::Vertex *sta_vtx = (vid != sta::object_id_null)
-        ? graph_->vertex(vid) : nullptr;
+    sta::Vertex *sta_vtx = graph_->vertex(vid);
+    
     const PtVertex *pt_vp = (sta_vtx && pt_graph_)
         ? pt_graph_->ptVertex(sta_vtx) : nullptr;
-    if (pt_vp && (pt_vp->type() == PtVertexType::RefInput
-                  || pt_vp->type() == PtVertexType::RefOutput)) {
+    if (pt_vp) {
+      // Instance pins in PtGraph: use cached liberty port,
+      // avoiding network_->port() which can crash on stale pins.
       if (!includes_pin_caps_) {
         pin_cap = pt_graph_->getRefPinCapacitance(*pt_vp, rf_, corner_, min_max_);
-        sta::LibertyPort *ref_port = pt_vp->libertyPort();
-        if (ref_port)
-          pin_caps_one_value_ &= ref_port->capacitanceIsOneValue();
+        sta::LibertyPort *lp = pt_vp->libertyPort();
+        if (lp)
+          pin_caps_one_value_ &= lp->capacitanceIsOneValue();
       }
     }
     else {
+      // Pin not in PtGraph (should be rare after collectLocal fix).
       Port *port = network_->port(pin);
       if (!port)
         return pin_cap;
@@ -217,8 +226,6 @@ LocalReduceToPi::localPinCapacitance(ParasiticNode *node)
           pin_caps_one_value_ &= lib_port->capacitanceIsOneValue();
         }
       }
-      else if (network_->isTopLevelPort(pin))
-        pin_cap = sdc_->portExtCap(port, rf_, corner_, min_max_);
     }
   }
   return pin_cap;

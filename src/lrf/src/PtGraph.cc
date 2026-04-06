@@ -1403,46 +1403,31 @@ PtGraph::getRefPinCapacitance(const PtVertex &pt_vertex,
                               const sta::MinMax *min_max) const
 {
   float port_cap = 0.0f;
-  if (pt_vertex.type() != PtVertexType::RefInput && 
-      pt_vertex.type() != PtVertexType::RefOutput) {
-    printf("PtGraph::getRefPinCapacitance: pt_vertex is not RefInput type\n");
-    fflush(stdout);
-    return 0.0f;
-  }
-  
+
   if (ref_lib_cell_ == nullptr) {
     printf("PtGraph::getRefPinCapacitance: ref_lib_cell_ is nullptr\n");
     fflush(stdout);
     return 0.0f;
   }
-  
-  const sta::Pin *pin = pt_vertex.vertex()->pin();
-  if (pin == nullptr) {
+  const sta::Pin *pin = pt_vertex.vertex() ? pt_vertex.vertex()->pin() : nullptr;
+  if (!pin) {
     printf("PtGraph::getRefPinCapacitance: pin is nullptr\n");
     fflush(stdout);
     return 0.0f;
   }
-  
-  const char* pin_name = sta_->network()->portName(pin);
-  if (pin_name == nullptr) {
-    printf("PtGraph::getRefPinCapacitance: pin_name is nullptr for pin\n");
+  sta::LibertyPort *lib_port = pt_vertex.libertyPort();
+  if (!lib_port) {
+    printf("PtGraph::getRefPinCapacitance: no lib port for pin %s\n",
+            sta_->network()->portName(pin));
     fflush(stdout);
     return 0.0f;
   }
-  
-  sta::LibertyPort *lib_port = ref_lib_cell_->findLibertyPort(pin_name);
-  if (lib_port == nullptr) {
-    printf("PtGraph::getRefPinCapacitance: no lib port for pin %s in cell %s\n", 
-           pin_name, ref_lib_cell_->name());
-    fflush(stdout);
-    return 0.0f;
+  if (pt_vertex.type() == PtVertexType::RefInput
+      || pt_vertex.type() == PtVertexType::RefOutput) {
+    port_cap = sta_->sdc()->portCapacitance(ref_inst_, lib_port, rf, corner, min_max);
+  } else {
+    port_cap = lib_port->capacitance(rf, min_max);
   }
-  
-  port_cap = sta_->sdc()->portCapacitance(ref_inst_,
-                                          lib_port,
-                                          rf,
-                                          corner,
-                                          min_max);
   return port_cap;
 }
 

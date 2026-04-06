@@ -785,7 +785,8 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
                             bool ratcons,
                             float PT_tradeoff,
                             std::string lr_helper_method,
-                            bool initialize)
+                            bool initialize,
+                            float density_weight)
 {
   printf("----- Testing Parallel LR Resize By Array (New Framework) -----\n");
 
@@ -818,7 +819,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
 
   // Build placement density map for density-aware swap cost.
   PlacementDensityMap density_map;
-  setupDensityMap(density_map, sta, block, incre_sta, 5.0f);
+  setupDensityMap(density_map, sta, block, incre_sta, density_weight);
 
   float top_ratio = 0.3f;  // initial precheck ratio (used after switch)
   bool adaptive_mode = false;
@@ -1080,6 +1081,62 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   delete incre_sta;
 }
 
+// ═══════════════════════════════════════════════════════════
+// runLr — unified entry point, dispatches by LrConfig::mode
+// ═══════════════════════════════════════════════════════════
+void
+TestLrf::runLr(sta::dbSta* sta, rsz::Resizer *resizer,
+               odb::dbBlock *block, size_t thread_num,
+               const LrConfig &cfg)
+{
+  printf("----- runLr: mode=%d, PT=%.1f, density_w=%.2f, iter=%zu -----\n",
+         static_cast<int>(cfg.mode), cfg.PT_tradeoff,
+         cfg.density_weight, cfg.iterations);
+  fflush(stdout);
+
+  switch (cfg.mode) {
+    case LrMode::RESIZE:
+      testParallelLrResizeByArray(
+          sta, resizer, block, thread_num,
+          cfg.max_resize_num, cfg.iterations,
+          cfg.num_no_improve_tolerance, cfg.ratcons,
+          cfg.PT_tradeoff, cfg.lr_helper_method,
+          cfg.initialize, cfg.density_weight);
+      break;
+    case LrMode::RESIZE_BUFFER:
+      testParallelLrResizeByArrayWithBuffering(
+          sta, resizer, block, thread_num,
+          cfg.max_resize_num, cfg.iterations,
+          cfg.num_no_improve_tolerance, cfg.ratcons,
+          cfg.PT_tradeoff, cfg.lr_helper_method,
+          cfg.initialize, cfg.density_weight);
+      break;
+    case LrMode::PRECHECK:
+      testParallelLrResizeByArrayWithPrecheck(
+          sta, resizer, block, thread_num,
+          cfg.max_resize_num, cfg.iterations,
+          cfg.num_no_improve_tolerance, cfg.ratcons,
+          cfg.PT_tradeoff, cfg.lr_helper_method,
+          cfg.top_ratio);
+      break;
+    case LrMode::PRECHECK_BUFFER:
+      testParallelLrResizeByArrayWithPrecheckBuffering(
+          sta, resizer, block, thread_num,
+          cfg.max_resize_num, cfg.iterations,
+          cfg.num_no_improve_tolerance, cfg.ratcons,
+          cfg.PT_tradeoff, cfg.lr_helper_method,
+          cfg.top_ratio);
+      break;
+    case LrMode::COMBINED:
+      testParallelLrCombinedResizeBuffering(
+          sta, resizer, block, thread_num,
+          cfg.max_resize_num, cfg.iterations,
+          cfg.num_no_improve_tolerance, cfg.ratcons,
+          cfg.PT_tradeoff, cfg.lr_helper_method);
+      break;
+  }
+}
+
 void
 TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
                             rsz::Resizer *resizer,
@@ -1091,7 +1148,8 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
                             bool ratcons,
                             float PT_tradeoff,
                             std::string lr_helper_method,
-                            bool initialize)
+                            bool initialize,
+                            float density_weight)
 {
   printf("----- Testing Parallel LR Resize+Buffering (revert-halve ECO) -----\n");
 
@@ -1121,7 +1179,7 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
 
   // Build placement density map for density-aware swap cost.
   PlacementDensityMap density_map;
-  setupDensityMap(density_map, sta, block, incre_sta, 5.0f);
+  setupDensityMap(density_map, sta, block, incre_sta, density_weight);
 
   size_t eco_iter = 0;
   bool in_eco = false;
