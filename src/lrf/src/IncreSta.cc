@@ -1014,9 +1014,6 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float av
 
   // --- Pruning: update iteration counter and detect K ---
   pruning_control_.iteration++;
-  printf("Pruning: iteration %d, enabled=%d, K=%d\n",
-         pruning_control_.iteration, pruning_control_.enabled, pruning_control_.K);
-  fflush(stdout);
 
   if (isPowerOptimizationMode()) {
     ParallelLrVisitor *critical_path_visitor = new ParallelLrVisitor(sta_, local_sta_, resizer);
