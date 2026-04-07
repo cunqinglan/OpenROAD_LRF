@@ -201,6 +201,7 @@ class OpenRoad
                bool skip_connections = false);
 
   void writeLef(const char* filename);
+  void writeJsonNetlist(const char* filename);
 
   void writeAbstractLef(const char* filename,
                         int bloat_factor,

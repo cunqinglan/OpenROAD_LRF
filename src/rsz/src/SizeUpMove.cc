@@ -54,6 +54,11 @@ bool SizeUpMove::doMove(const Path* drvr_path,
   LibertyPort* in_port = network_->libertyPort(in_pin);
 
   if (!resizer_->dontTouch(drvr) && resizer_->isLogicStdCell(drvr)) {
+    // If a cut-instance filter is active, skip instances not in the cut.
+    const sta::InstanceSet* filter = resizer_->getSizeUpInstanceFilter();
+    if (filter && filter->count(drvr) == 0) {
+      return false;
+    }
     float prev_drive;
     if (drvr_index >= 2) {
       const int prev_drvr_index = drvr_index - 2;

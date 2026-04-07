@@ -170,3 +170,108 @@ proc resynth_annealing { args } {
 
   rmp::resynth_annealing_cmd $corner
 }
+
+sta::define_cmd_args "position_driven_remap" {
+  [-corner corner]
+  [-percentage percentage]
+  [-max_percentage max_percentage]
+  [-slack_threshold slack_threshold]
+  [-detailed_placement]
+  [-verbose]
+  [-max_vertices_per_endpoint n]
+  [-max_cut_instances n]
+  [-max_cut_pis n]
+  [-max_solutions n]
+  [-uct_batch_size n]
+  [-uct_rounds n]
+  [-uct_c c]
+  [-max_candidates n]
+  [-top_k n]
+  [-use_beam_search]
+  [-beam_diversity d]
+  [-child_timeout s]
+}
+
+proc position_driven_remap { args } {
+  sta::parse_key_args "position_driven_remap" args \
+    keys {-corner -percentage -max_percentage -slack_threshold
+          -max_vertices_per_endpoint -max_cut_instances -max_cut_pis
+          -max_solutions -uct_batch_size -uct_rounds -uct_c -max_candidates
+          -top_k -beam_diversity -child_timeout} \
+    flags {-detailed_placement -verbose -use_beam_search}
+  set corner [sta::parse_corner keys]
+
+  # Defaults: -1.0 signals "not set" for percentage/max_percentage;
+  # has_threshold=0 signals that -slack_threshold was not provided.
+  set percentage     -1.0
+  set max_percentage -1.0
+  set slack_threshold 0.0
+  set has_threshold   0
+  set run_dpl [info exists flags(-detailed_placement)]
+  set verbose [info exists flags(-verbose)]
+
+  if { [info exists keys(-percentage)] } {
+    set percentage $keys(-percentage)
+  }
+  if { [info exists keys(-max_percentage)] } {
+    set max_percentage $keys(-max_percentage)
+  }
+  if { [info exists keys(-slack_threshold)] } {
+    set slack_threshold $keys(-slack_threshold)
+    set has_threshold 1
+  }
+
+  # RemapConfig defaults (must match RemapConfig struct defaults in RemapConfig.hh)
+  set max_vertices_per_endpoint 1
+  set max_cut_instances         5
+  set max_cut_pis               10
+  set max_solutions             150
+  set uct_batch_size            20
+  set uct_rounds                0
+  set uct_c                     1.414
+  set max_candidates            100
+  set top_k                     0
+  set use_beam_search [info exists flags(-use_beam_search)]
+  set beam_diversity 0.0
+
+  if { [info exists keys(-max_vertices_per_endpoint)] } {
+    set max_vertices_per_endpoint $keys(-max_vertices_per_endpoint)
+  }
+  if { [info exists keys(-max_cut_instances)] } {
+    set max_cut_instances $keys(-max_cut_instances)
+  }
+  if { [info exists keys(-max_cut_pis)] } {
+    set max_cut_pis $keys(-max_cut_pis)
+  }
+  if { [info exists keys(-max_solutions)] } {
+    set max_solutions $keys(-max_solutions)
+  }
+  if { [info exists keys(-uct_batch_size)] } {
+    set uct_batch_size $keys(-uct_batch_size)
+  }
+  if { [info exists keys(-uct_rounds)] } {
+    set uct_rounds $keys(-uct_rounds)
+  }
+  if { [info exists keys(-uct_c)] } {
+    set uct_c $keys(-uct_c)
+  }
+  if { [info exists keys(-max_candidates)] } {
+    set max_candidates $keys(-max_candidates)
+  }
+  if { [info exists keys(-top_k)] } {
+    set top_k $keys(-top_k)
+  }
+  if { [info exists keys(-beam_diversity)] } {
+    set beam_diversity $keys(-beam_diversity)
+  }
+  set child_timeout 30
+  if { [info exists keys(-child_timeout)] } {
+    set child_timeout $keys(-child_timeout)
+  }
+
+  rmp::position_driven_remap_cmd $corner $percentage $max_percentage \
+      $slack_threshold $has_threshold $run_dpl $verbose \
+      $max_vertices_per_endpoint $max_cut_instances $max_cut_pis \
+      $max_solutions $uct_batch_size $uct_rounds $uct_c $max_candidates \
+      $use_beam_search $top_k $beam_diversity $child_timeout
+}

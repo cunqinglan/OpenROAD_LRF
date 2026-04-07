@@ -58,6 +58,7 @@
 #include "odb/db.h"
 #include "odb/defin.h"
 #include "odb/defout.h"
+//#include "odb/jsonout.h"
 #include "odb/lefin.h"
 #include "odb/lefout.h"
 #include "ord/InitOpenRoad.hh"
@@ -223,8 +224,6 @@ void OpenRoad::init(Tcl_Interp* tcl_interp,
                               estimate_parasitics_);
   finale_ = new fin::Finale(db_, logger_);
   ram_gen_ = new ram::RamGen(getDbNetwork(), db_, logger_);
-  restructure_ = new rmp::Restructure(
-      logger_, sta_, db_, resizer_, estimate_parasitics_);
   clock_gating_ = new cgt::ClockGating(logger_, sta_);
   tritonCts_ = new cts::TritonCTS(logger_,
                                   db_,
@@ -249,6 +248,8 @@ void OpenRoad::init(Tcl_Interp* tcl_interp,
   icewall_ = new pad::ICeWall(db_, logger_);
   dft_ = new dft::Dft(db_, sta_, logger_);
   example_ = new exa::Example(db_, logger_);
+  restructure_ = new rmp::Restructure(
+      logger_, sta_, db_, resizer_, estimate_parasitics_, replace_, opendp_);
 
   // Init components.
   Ord_Init(tcl_interp);
@@ -409,7 +410,28 @@ void OpenRoad::writeDef(const char* filename, const std::string& version)
     }
   }
 }
-
+/*
+void OpenRoad::writeJsonNetlist(const char* filename)
+{
+  odb::dbChip* chip = db_->getChip();
+  if (chip) {
+    odb::dbBlock* block = chip->getBlock();
+    if (block) {
+      sta::dbSta* sta = getSta();
+      // JSON netlist writers may need to know about hierarchy
+      bool hierarchy_set = sta->getDbNetwork()->hasHierarchy();
+      if (hierarchy_set) {
+        sta->getDbNetwork()->disableHierarchy();
+      }
+      odb::JsonOut json_writer(logger_);
+      json_writer.writeBlock(block, filename);
+      if (hierarchy_set) {
+        sta->getDbNetwork()->setHierarchy();
+      }
+    }
+  }
+}
+*/
 void OpenRoad::writeAbstractLef(const char* filename,
                                 const int bloat_factor,
                                 const bool bloat_occupied_layers)

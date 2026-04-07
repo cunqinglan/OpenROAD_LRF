@@ -193,6 +193,9 @@ class Resizer : public sta::dbStaState, public sta::dbNetworkObserver
           est::EstimateParasitics* estimate_parasitics);
   ~Resizer() override;
 
+  stt::SteinerTreeBuilder* getSttBuilder() const { return stt_builder_; }
+  grt::GlobalRouter* getGlobalRouter() const { return global_router_; }
+
   // Core area (meters).
   double coreArea() const;
   // 0.0 - 1.0 (100%) of core size.
@@ -335,6 +338,17 @@ class Resizer : public sta::dbStaState, public sta::dbNetworkObserver
                    int num_threads = 1);
   // For testing.
   void repairSetup(const sta::Pin* end_pin);
+  // Size-up-only repair, used by rmp module.
+  void repairSetup(const sta::Pin* end_pin, bool size_up_only);
+  // Temporary instance allowlist for size-up moves (nullptr = no restriction).
+  void setSizeUpInstanceFilter(const sta::InstanceSet* filter)
+  {
+    size_up_instance_filter_ = filter;
+  }
+  const sta::InstanceSet* getSizeUpInstanceFilter() const
+  {
+    return size_up_instance_filter_;
+  }
   // For testing.
   void reportSwappablePins();
   // Rebuffer one net (for testing).
@@ -911,6 +925,9 @@ class Resizer : public sta::dbStaState, public sta::dbNetworkObserver
   bool sizing_keep_site_ = false;
   bool sizing_keep_vt_ = false;
   bool disable_buffer_pruning_ = false;
+
+  // Temporary allowlist for size-up moves; set externally before repairSetup.
+  const sta::InstanceSet* size_up_instance_filter_ = nullptr;
 
   // Sizing
   const double default_sizing_cap_ratio_ = 4.0;

@@ -18,6 +18,10 @@ add_library(rmp_lib
     delay_optimization_strategy.cpp
     utils.cpp
     zero_slack_strategy.cpp
+    SeqRemapper.cc
+    Strategy.cc
+    OptOperator.cc
+    position_driven.cc
 )
 
 # For ABC headers
@@ -59,6 +63,8 @@ target_link_libraries(rmp_lib
     utl_lib
     cut
     ${ABC_LIBRARY}
+  PRIVATE
+    gpl_lib
 )
 
 target_link_libraries(rmp
