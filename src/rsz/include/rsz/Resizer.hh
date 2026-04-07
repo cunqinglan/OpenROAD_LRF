@@ -51,6 +51,7 @@
 
 namespace lrf {
 class LrRebuffer;
+class Initializer;
 }
 
 namespace rsz {
@@ -956,6 +957,7 @@ class Resizer : public sta::dbStaState, public sta::dbNetworkObserver
   friend class Rebuffer;
   friend class OdbCallBack;
   friend class lrf::LrRebuffer;
+  friend class lrf::Initializer;
 };
 
 }  // namespace rsz

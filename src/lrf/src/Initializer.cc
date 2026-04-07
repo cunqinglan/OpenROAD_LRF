@@ -46,10 +46,12 @@ Initializer::~Initializer() = default;
 
 float
 Initializer::estimateMaxSlew(sta::LibertyPort* port, float load_cap,
-                             const sta::DcalcAnalysisPt* dcalc_ap)
+                             const sta::DcalcAnalysisPt* dcalc_ap,
+                             sta::Instance* inst)
 {
   if (!port) return sta::INF;
   sta::LibertyCell* cell = port->libertyCell();
+  sta::Graph* graph = sta_->graph();
   float max_slew = 0;
   for (sta::TimingArcSet* arc_set : cell->timingArcSets()) {
     if (arc_set->role()->isTimingCheck()) continue;
@@ -58,7 +60,20 @@ Initializer::estimateMaxSlew(sta::LibertyPort* port, float load_cap,
       sta::GateTimingModel* model =
           dynamic_cast<sta::GateTimingModel*>(arc->model());
       if (!model) continue;
-      sta::Slew in_slew = 50e-12;  // fixed 50ps
+      // Use actual input slew from graph when instance is available
+      // (same approach as RepairDesign::checkDriverArcSlew).
+      sta::Slew in_slew = 50e-12;  // fallback
+      if (inst && graph) {
+        sta::Pin* in_pin = network_->findPin(inst, arc->from()->name());
+        if (in_pin) {
+          sta::Vertex* in_v = graph->pinLoadVertex(in_pin);
+          if (in_v) {
+            const sta::RiseFall* in_rf = arc->fromEdge()->asRiseFall();
+            float s = graph->slew(in_v, in_rf, dcalc_ap->index());
+            if (s > 0) in_slew = s;
+          }
+        }
+      }
       sta::ArcDelay arc_delay;
       sta::Slew arc_slew;
       model->gateDelay(dcalc_ap->operatingConditions(),
@@ -104,11 +119,23 @@ Initializer::run()
   fixSlewViolations();
 
   auto t3 = std::chrono::steady_clock::now();
-  printf("[Initializer] Step 1: %.2fs, Step 2: %.2fs, Step 3: %.2fs, Total: %.2fs\n",
+
+  // Update parasitics and timing after Step 3.
+  local_sta->updateGlobalParasiticsAndSync(ep);
+  sta_->delaysInvalid();
+  sta_->updateTiming(true);
+
+  // Step 4: Fix remaining cap violations by buffer insertion
+  fixCapByBuffering();
+
+  auto t4 = std::chrono::steady_clock::now();
+  printf("[Initializer] Step 1: %.2fs, Step 2: %.2fs, Step 3: %.2fs, "
+         "Step 4: %.2fs, Total: %.2fs\n",
          std::chrono::duration<double>(t1 - t0).count(),
          std::chrono::duration<double>(t2 - t1).count(),
          std::chrono::duration<double>(t3 - t2).count(),
-         std::chrono::duration<double>(t3 - t0).count());
+         std::chrono::duration<double>(t4 - t3).count(),
+         std::chrono::duration<double>(t4 - t0).count());
 
   // ── Post-init violation summary (same method as get_score) ──
   sta_->ensureGraph();
@@ -240,6 +267,8 @@ Initializer::fixLoadViolations()
   const MinMax* max = MinMax::max();
   const sta::DcalcAnalysisPt* dcalc_ap = corner->findDcalcAnalysisPt(max);
   sta::LibertyLibrary* default_lib = db_network->defaultLibertyLibrary();
+  est::EstimateParasitics* ep = resizer_->getEstimateParasitics();
+  est::IncrementalParasiticsGuard guard(ep);
 
   float default_max_slew = sta::INF;
   if (default_lib) {
@@ -299,7 +328,7 @@ Initializer::fixLoadViolations()
     bool cap_viol = (load_cap > cap_limit);
     bool slew_viol = false;
     if (slew_limit < sta::INF) {
-      float est_slew = estimateMaxSlew(drvr_port, load_cap, dcalc_ap);
+      float est_slew = estimateMaxSlew(drvr_port, load_cap, dcalc_ap, inst);
       if (est_slew > slew_limit)
         slew_viol = true;
     }
@@ -332,7 +361,7 @@ Initializer::fixLoadViolations()
 
       // Check slew-as-cap: can this cell drive load_cap within slew_limit?
       if (slew_limit < sta::INF) {
-        float est = estimateMaxSlew(ep, load_cap, dcalc_ap);
+        float est = estimateMaxSlew(ep, load_cap, dcalc_ap, inst);
         if (est > slew_limit) continue;
       }
 
@@ -344,6 +373,13 @@ Initializer::fixLoadViolations()
     if (best == cell) continue;
 
     sta_->replaceCell(inst, best);
+    // Incremental parasitic + delay update so subsequent gates see
+    // accurate load caps (same pattern as RepairDesign).
+    ep->updateParasitics();
+    sta::Vertex* drvr_v, *bi_v;
+    sta_->graph()->pinVertices(out_pin, drvr_v, bi_v);
+    if (drvr_v)
+      sta_->findDelays(drvr_v);
     upsize_count++;
   }
 
@@ -364,6 +400,8 @@ Initializer::fixSlewViolations()
   const sta::DcalcAnalysisPt* dcalc_ap = corner->findDcalcAnalysisPt(max);
   sta::Graph* graph = sta_->graph();
   sta::LibertyLibrary* default_lib = db_network->defaultLibertyLibrary();
+  est::EstimateParasitics* ep = resizer_->getEstimateParasitics();
+  est::IncrementalParasiticsGuard guard(ep);
 
   float default_max_slew = sta::INF;
   if (default_lib) {
@@ -451,7 +489,7 @@ Initializer::fixSlewViolations()
         if (ec->area() < cur_cell->area()) continue;
         sta::LibertyPort* ep = ec->findLibertyPort(drvr_port->name());
         if (!ep) continue;
-        float est = estimateMaxSlew(ep, load_cap, dcalc_ap);
+        float est = estimateMaxSlew(ep, load_cap, dcalc_ap, inst);
         if (est <= v.limit) {
           best = ec;
           break;
@@ -464,6 +502,11 @@ Initializer::fixSlewViolations()
       }
 
       sta_->replaceCell(inst, best);
+      // Incremental update so downstream gates see accurate slew.
+      ep->updateParasitics();
+      sta::Vertex* drvr_v = graph->pinDrvrVertex(v.drvr_pin);
+      if (drvr_v)
+        sta_->findDelays(drvr_v);
       upsized_this_pass++;
       total_upsized++;
     }
@@ -471,7 +514,6 @@ Initializer::fixSlewViolations()
     printf("[Initializer]   Pass %d: upsized %d cells\n", pass, upsized_this_pass);
     fflush(stdout);
     if (upsized_this_pass == 0) break;
-    sta_->delaysInvalid();
   }
 
   // Final verification
@@ -499,6 +541,207 @@ Initializer::fixSlewViolations()
 
   printf("[Initializer] Step 3: upsized %d cells, %d remaining violations\n",
          total_upsized, remaining);
+  fflush(stdout);
+}
+
+// ── Step 4: Fix remaining cap violations by buffer insertion ────
+// After Step 2/3, some nets may still violate max_capacitance because
+// the driver cell has no larger equivalent (single-size family, e.g.
+// OA21x2 in ASAP7). For these nets, insert buffers to split the fanout.
+void
+Initializer::fixCapByBuffering()
+{
+  sta::dbNetwork* db_network = sta_->getDbNetwork();
+  const Corner* corner = sta_->cmdCorner();
+  const MinMax* max = MinMax::max();
+  const sta::DcalcAnalysisPt* dcalc_ap = corner->findDcalcAnalysisPt(max);
+  sta::LibertyLibrary* default_lib = db_network->defaultLibertyLibrary();
+  est::EstimateParasitics* ep = resizer_->getEstimateParasitics();
+
+  // Collect all output pins with cap violations.
+  struct CapViol {
+    sta::Pin* drvr_pin;
+    sta::Instance* inst;
+    float load_cap;
+    float max_cap;
+  };
+  std::vector<CapViol> violations;
+
+  for (odb::dbInst* db_inst : block_->getInsts()) {
+    if (!db_inst->getMaster()->isCoreAutoPlaceable()) continue;
+    sta::Instance* inst = db_network->dbToSta(db_inst);
+    LibertyCell* cell = network_->libertyCell(inst);
+    if (!cell) continue;
+
+    sta::InstancePinIterator* pit = network_->pinIterator(inst);
+    while (pit->hasNext()) {
+      Pin* p = pit->next();
+      if (!network_->direction(p)->isOutput()) continue;
+      sta::LibertyPort* port = network_->libertyPort(p);
+      if (!port) continue;
+
+      float cap_limit;
+      bool exists;
+      port->capacitanceLimit(max, cap_limit, exists);
+      if (!exists && default_lib)
+        default_lib->defaultMaxCapacitance(cap_limit, exists);
+      if (!exists) continue;
+
+      float load_cap = sta_->graphDelayCalc()->loadCap(p, dcalc_ap);
+      if (load_cap > cap_limit) {
+        violations.push_back({p, inst, load_cap, cap_limit});
+      }
+    }
+    delete pit;
+  }
+
+  if (violations.empty()) {
+    printf("[Initializer] Step 4: No cap violations to fix by buffering\n");
+    fflush(stdout);
+    return;
+  }
+
+  // Sort by violation magnitude (largest first)
+  std::sort(violations.begin(), violations.end(),
+            [](const CapViol& a, const CapViol& b) {
+              return (a.load_cap - a.max_cap) > (b.load_cap - b.max_cap);
+            });
+
+  printf("[Initializer] Step 4: Found %zu cap violations for buffering\n",
+         violations.size());
+
+  int total_buffers = 0;
+
+  for (auto& viol : violations) {
+    sta::Pin* drvr_pin = viol.drvr_pin;
+    float max_cap = viol.max_cap;
+
+    // Collect all load pins on this net (input pins driven by drvr_pin).
+    sta::Net* net = network_->net(drvr_pin);
+    if (!net) continue;
+
+    struct LoadInfo {
+      const sta::Pin* pin;
+      float cap;
+    };
+    std::vector<LoadInfo> loads;
+
+    sta::NetPinIterator* npi = network_->pinIterator(net);
+    while (npi->hasNext()) {
+      const sta::Pin* p = npi->next();
+      if (p == drvr_pin) continue;
+      if (!network_->direction(p)->isInput()) continue;
+      sta::LibertyPort* lp = network_->libertyPort(p);
+      float c = lp ? lp->capacitance() : 0.0f;
+      loads.push_back({p, c});
+    }
+    delete npi;
+
+    if (loads.size() <= 1) continue;
+
+    // Sort loads by cap descending — split off largest loads first.
+    std::sort(loads.begin(), loads.end(),
+              [](const LoadInfo& a, const LoadInfo& b) {
+                return a.cap > b.cap;
+              });
+
+    // Recompute actual load cap from STA (may differ slightly from sum of
+    // pin caps due to wire cap).
+    float remaining_cap = viol.load_cap;
+    int inserted = 0;
+
+    while (remaining_cap > max_cap && loads.size() > 1) {
+      sta::PinSeq buf_loads;
+      float buf_group_cap = 0.0f;
+      float target_split = remaining_cap - max_cap;
+
+      // Greedily move loads into the buffer group until we've moved enough
+      // capacitance to bring the driver under limit.
+      auto it = loads.begin();
+      while (it != loads.end() && buf_group_cap < target_split) {
+        buf_loads.push_back(const_cast<sta::Pin*>(it->pin));
+        buf_group_cap += it->cap;
+        it = loads.erase(it);
+      }
+
+      if (buf_loads.empty()) break;
+
+      // Pick the smallest buffer cell whose max_capacitance >= group load.
+      // We search all liberty libraries for buffer cells.
+      sta::LibertyCell* buf_cell = nullptr;
+      float best_area = sta::INF;
+      sta::LibertyLibraryIterator* lib_iter = network_->libertyLibraryIterator();
+      while (lib_iter->hasNext()) {
+        sta::LibertyLibrary* lib = lib_iter->next();
+        sta::LibertyCellIterator cell_iter(lib);
+        while (cell_iter.hasNext()) {
+          sta::LibertyCell* cell = cell_iter.next();
+          if (!cell->isBuffer()) continue;
+          sta::LibertyPort *in, *out;
+          cell->bufferPorts(in, out);
+          if (!out) continue;
+          float cl; bool ce;
+          out->capacitanceLimit(max, cl, ce);
+          if (!ce && default_lib)
+            default_lib->defaultMaxCapacitance(cl, ce);
+          if (!ce || cl < buf_group_cap) continue;
+          if (cell->area() < best_area) {
+            best_area = cell->area();
+            buf_cell = cell;
+          }
+        }
+      }
+      delete lib_iter;
+      if (!buf_cell) {
+        printf("[Initializer] Step 4: no buffer cell found for cap=%.2f fF\n",
+               buf_group_cap * 1e15);
+        break;
+      }
+
+      // Place the buffer at the centroid of its loads.
+      int sum_x = 0, sum_y = 0;
+      for (const sta::Pin* lp : buf_loads) {
+        odb::Point loc = db_network->location(lp);
+        sum_x += loc.x();
+        sum_y += loc.y();
+      }
+      odb::Point buf_loc(sum_x / static_cast<int>(buf_loads.size()),
+                         sum_y / static_cast<int>(buf_loads.size()));
+
+      sta::Instance* buf_inst = resizer_->insertBufferBeforeLoads(
+          net, &buf_loads, buf_cell, &buf_loc, "cap_repair");
+      if (!buf_inst) {
+        printf("[Initializer] Step 4: insertBufferBeforeLoads failed\n");
+        break;
+      }
+      inserted++;
+
+      // Update remaining cap: remove split loads, add buffer input cap.
+      sta::LibertyPort *buf_in, *buf_out;
+      buf_cell->bufferPorts(buf_in, buf_out);
+      float buf_in_cap = buf_in ? buf_in->capacitance() : 0.0f;
+      remaining_cap = remaining_cap - buf_group_cap + buf_in_cap;
+    }
+
+    if (inserted > 0) {
+      printf("[Initializer] Step 4: pin %s — inserted %d buffer(s), "
+             "remaining_cap=%.2f fF (limit=%.2f fF)\n",
+             network_->pathName(drvr_pin), inserted,
+             remaining_cap * 1e15, max_cap * 1e15);
+      total_buffers += inserted;
+    }
+  }
+
+  if (total_buffers > 0) {
+    // Update parasitics after buffer insertion.
+    LocalSta* local_sta = incre_sta_->localSta();
+    local_sta->updateGlobalParasiticsAndSync(ep);
+    sta_->delaysInvalid();
+    sta_->updateTiming(true);
+  }
+
+  printf("[Initializer] Step 4: Inserted %d buffer(s) for %zu cap violations\n",
+         total_buffers, violations.size());
   fflush(stdout);
 }
 

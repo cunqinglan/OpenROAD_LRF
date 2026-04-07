@@ -41,9 +41,17 @@ private:
   // Step 3: Fix slew violations by upsizing (PI→PO).
   void fixSlewViolations();
 
+  // Step 4: Fix remaining cap violations by buffer insertion.
+  // Targets nets where the driver cell has no larger equivalent
+  // (single-size family) and load_cap > max_capacitance.
+  void fixCapByBuffering();
+
   // Estimate max output slew for a candidate port driving load_cap.
-  static float estimateMaxSlew(sta::LibertyPort* port, float load_cap,
-                               const sta::DcalcAnalysisPt* dcalc_ap);
+  // When inst is provided, uses actual input slew from graph;
+  // otherwise falls back to a fixed 50ps estimate.
+  float estimateMaxSlew(sta::LibertyPort* port, float load_cap,
+                        const sta::DcalcAnalysisPt* dcalc_ap,
+                        sta::Instance* inst = nullptr);
 
   IncreSta* incre_sta_;
   rsz::Resizer* resizer_;
