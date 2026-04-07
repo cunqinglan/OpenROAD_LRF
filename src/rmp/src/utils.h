@@ -6,6 +6,7 @@
 #include <random>
 #include <vector>
 
+#include "aig/aig/aig.h"
 #include "base/abc/abc.h"
 #include "db_sta/dbSta.hh"
 #include "resynthesis_strategy.h"
@@ -28,6 +29,13 @@ std::vector<sta::Vertex*> GetEndpoints(sta::dbSta* sta,
                                        rsz::Resizer* resizer,
                                        sta::Slack slack_threshold);
 
+void checkNtkType(abc::Abc_Ntk_t* ntk, utl::Logger* logger);
+
+void printNtkInfo(abc::Abc_Ntk_t* ntk, utl::Logger* logger);
+void printNtkInfo(utl::UniquePtrWithDeleter<abc::Abc_Ntk_t>& ntk,
+                  utl::Logger* logger);
+void printNtkInfo(abc::Gia_Man_t* gia, utl::Logger* logger);
+void printNtkInfo(abc::Aig_Man_t* aig, utl::Logger* logger);
 int CountInputPins(const sta::LibertyCell* cell);
 
 bool HasLargeInputCells(const cut::LogicCut& cut,

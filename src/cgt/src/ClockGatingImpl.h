@@ -21,6 +21,7 @@ namespace abc {
 using Abc_Ntk_t = struct Abc_Ntk_t_;
 using Abc_Obj_t = struct Abc_Obj_t_;
 using Vec_Ptr_t = struct Vec_Ptr_t_;
+using Design_Info_t = struct Design_Info_t_;
 }  // namespace abc
 
 namespace odb {

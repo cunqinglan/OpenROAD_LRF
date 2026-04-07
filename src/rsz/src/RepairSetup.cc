@@ -652,6 +652,34 @@ void RepairSetup::repairSetup(const sta::Pin* end_pin)
   }
 }
 
+void RepairSetup::repairSetup(const sta::Pin* end_pin, bool size_up_only)
+{
+  init();
+  max_repairs_per_pass_ = 1;
+
+  sta::Vertex* vertex = graph_->pinLoadVertex(end_pin);
+  const sta::Slack slack = sta_->vertexSlack(vertex, max_);
+  sta::Path* path = sta_->vertexWorstSlackPath(vertex, max_);
+
+  move_sequence_.clear();
+  if (size_up_only) {
+    move_sequence_ = {resizer_->size_up_move_.get()};
+  } else {
+    move_sequence_ = {resizer_->unbuffer_move_.get(),
+                     resizer_->vt_swap_speed_move_.get(),
+                     //resizer_->size_down_move_.get(),
+                     resizer_->size_up_move_.get(),
+                     resizer_->swap_pins_move_.get(),
+                     resizer_->buffer_move_.get(),
+                     resizer_->split_load_move_.get()};
+  }
+
+  {
+    est::IncrementalParasiticsGuard guard(estimate_parasitics_);
+    repairPath(path, slack, 0.0);
+  }
+}
+
 int RepairSetup::fanout(sta::Vertex* vertex)
 {
   int fanout = 0;

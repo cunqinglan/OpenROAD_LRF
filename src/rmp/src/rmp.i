@@ -118,4 +118,47 @@ int blif_read(cut::Blif* blif_, const char* file_name){
   return blif_->readBlif(file_name, getOpenRoad()->getDb()->getChip()->getBlock());
 }
 
+void position_driven_remap_cmd(Corner* corner,
+                               float percentage,
+                               float max_percentage,
+                               float slack_threshold,
+                               int has_threshold,
+                               int run_dpl,
+                               int verbose,
+                               int max_vertices_per_endpoint,
+                               int max_cut_instances,
+                               int max_cut_pis,
+                               int max_solutions,
+                               int uct_batch_size,
+                               int uct_rounds,
+                               double uct_c,
+                               int max_candidates,
+                               int use_beam_search,
+                               int top_k,
+                               float beam_diversity,
+                               int child_timeout) {
+  rmp::RemapConfig config;
+  config.max_vertices_per_endpoint = static_cast<size_t>(max_vertices_per_endpoint);
+  config.max_cut_instances         = static_cast<size_t>(max_cut_instances);
+  config.max_cut_pis               = static_cast<size_t>(max_cut_pis);
+  config.max_solutions             = max_solutions;
+  config.uct_batch_size            = uct_batch_size;
+  config.uct_rounds                = uct_rounds;
+  config.uct_c                     = uct_c;
+  config.max_candidates            = static_cast<size_t>(max_candidates);
+  config.use_beam_search           = (use_beam_search != 0);
+  config.top_k                     = top_k;
+  config.beam_diversity            = beam_diversity;
+  config.child_timeout             = child_timeout;
+
+  getRestructure()->positionDrivenRemap(
+      corner,
+      percentage,
+      max_percentage,
+      has_threshold ? slack_threshold : std::numeric_limits<float>::max(),
+      run_dpl != 0,
+      verbose != 0,
+      config);
+}
+
 %}

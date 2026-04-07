@@ -93,6 +93,9 @@ class Opendp
   void detailedPlacement(int max_displacement_x,
                          int max_displacement_y,
                          const std::string& report_file_name = std::string(""));
+  // Incremental: only places unplaced cells, existing placed cells are obstacles.
+  void incrementalDetailedPlacement(int max_displacement_x,
+                                    int max_displacement_y);
   void reportLegalizationStats() const;
 
   void setPaddingGlobal(int left, int right);
@@ -228,6 +231,7 @@ class Opendp
   int anneal(Group* group);
   int refine();
   void setFixedGridCells();
+  void setPlacedGridCells();
   void setGridCell(Node& cell, Pixel* pixel);
   void groupAssignCellRegions();
   void groupInitPixels();

@@ -57,6 +57,59 @@ std::vector<sta::Vertex*> GetEndpoints(sta::dbSta* sta,
   return result;
 }
 
+void checkNtkType(abc::Abc_Ntk_t* ntk, utl::Logger* logger)
+{
+  abc::Abc_NtkType_t type = ntk->ntkType;
+  abc::Abc_NtkFunc_t func = ntk->ntkFunc;
+
+  printf("Network type: %d, func: %d\n", 
+               static_cast<int>(type), 
+               static_cast<int>(func));
+               fflush(stdout);
+}
+
+void printNtkInfo(abc::Abc_Ntk_t* ntk, utl::Logger* logger)
+{
+  logger->info(utl::RMP,
+               300,
+               "Network info: Type={}, Func={}, nObjs={}, nPis={}, nPos={}, Level={}",
+               static_cast<int>(ntk->ntkType),
+               static_cast<int>(ntk->ntkFunc),
+               abc::Abc_NtkObjNum(ntk),
+               abc::Abc_NtkPiNum(ntk),
+               abc::Abc_NtkPoNum(ntk),
+               abc::Abc_NtkLevel(ntk));
+}
+
+void printNtkInfo(utl::UniquePtrWithDeleter<abc::Abc_Ntk_t>& ntk,
+                  utl::Logger* logger)
+{
+  printNtkInfo(ntk.get(), logger);
+}
+
+void printNtkInfo(abc::Gia_Man_t* gia, utl::Logger* logger)
+{
+  logger->info(utl::RMP,
+               301,
+               "GIA info: nObjs={}, nPis={}, nPos={}, nRegs={}, Level={}",
+               abc::Gia_ManObjNum(gia),
+               abc::Gia_ManPiNum(gia),
+               abc::Gia_ManPoNum(gia),
+               abc::Gia_ManRegNum(gia),
+               abc::Gia_ManLevelNum(gia));
+}
+
+void printNtkInfo(abc::Aig_Man_t* aig, utl::Logger* logger)
+{
+  logger->info(utl::RMP,
+               302,
+               "AIG info: nObjs={}, nPis={}, nPos={}, nRegs={}, Level={}",
+               abc::Aig_ManObjNum(aig),
+               abc::Aig_ManCiNum(aig),
+               abc::Aig_ManCoNum(aig),
+               abc::Aig_ManRegNum(aig),
+               abc::Aig_ManLevelNum(aig));
+}
 int CountInputPins(const sta::LibertyCell* cell)
 {
   if (!cell) {

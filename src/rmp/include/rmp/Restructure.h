@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <fstream>
+#include <limits>
 #include <functional>
 #include <optional>
 #include <random>
@@ -13,6 +14,7 @@
 #include <vector>
 
 #include "db_sta/dbSta.hh"
+#include "rmp/RemapConfig.hh"
 #include "rsz/Resizer.hh"
 #include "sta/Corner.hh"
 #include "sta/Delay.hh"
@@ -40,6 +42,14 @@ namespace sta {
 class dbSta;
 }  // namespace sta
 
+namespace gpl {
+class Replace;
+}
+
+namespace dpl {
+class Opendp;
+}
+
 namespace rmp {
 
 enum class Mode
@@ -60,7 +70,9 @@ class Restructure
               sta::dbSta* open_sta,
               odb::dbDatabase* db,
               rsz::Resizer* resizer,
-              est::EstimateParasitics* estimate_parasitics);
+              est::EstimateParasitics* estimate_parasitics,
+              gpl::Replace* replace = nullptr,
+              dpl::Opendp* opendp = nullptr);
   ~Restructure();
 
   void reset();
@@ -88,6 +100,19 @@ class Restructure
   void setSplitLargeInputs(int k);
   void setTieLoPort(sta::LibertyPort* loport);
   void setTieHiPort(sta::LibertyPort* hiport);
+  
+  // Position-driven remapping strategy.
+  // Endpoint selection (pass -1.0 / FLT_MAX to leave unset):
+  //   percentage      >= 0 : fix top N% of all endpoints (min 1), overrides others
+  //   max_percentage  >= 0 : cap count at N% of all endpoints (used with slack_threshold)
+  //   slack_threshold      : select endpoints with slack < threshold (used with max_percentage)
+  void positionDrivenRemap(sta::Corner* corner,
+                           float percentage = -1.0f,
+                           float max_percentage = -1.0f,
+                           float slack_threshold = std::numeric_limits<float>::max(),
+                           bool run_detailed_placement = false,
+                           bool verbose = false,
+                           RemapConfig config = {});
 
  private:
   void deleteComponents();
@@ -120,6 +145,8 @@ class Restructure
   odb::dbDatabase* db_;
   rsz::Resizer* resizer_;
   est::EstimateParasitics* estimate_parasitics_;
+  gpl::Replace* replace_ = nullptr;
+  dpl::Opendp* opendp_ = nullptr;
   odb::dbBlock* block_ = nullptr;
 
   // Annealing

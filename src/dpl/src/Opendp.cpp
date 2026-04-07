@@ -150,6 +150,47 @@ void Opendp::detailedPlacement(const int max_displacement_x,
   }
 }
 
+void Opendp::incrementalDetailedPlacement(const int max_displacement_x,
+                                          const int max_displacement_y)
+{
+  importDb();
+  adjustNodesOrient();
+  // Do NOT unplace all cells — only new (unplaced) cells will be placed.
+
+  if (max_displacement_x == 0 || max_displacement_y == 0) {
+    max_displacement_x_ = 500;
+    max_displacement_y_ = 100;
+  } else {
+    max_displacement_x_ = max_displacement_x;
+    max_displacement_y_ = max_displacement_y;
+  }
+
+  placement_failures_.clear();
+  initGrid();
+  setFixedGridCells();
+  setPlacedGridCells();  // Paint existing placed cells as obstacles.
+  groupInitPixels2();
+  groupInitPixels();
+
+  if (!arch_->getRegions().empty()) {
+    placeGroups();
+  }
+  place();  // Only places unplaced cells.
+
+  findDisplacementStats();
+  updateDbInstLocations();
+
+  if (!placement_failures_.empty()) {
+    logger_->info(DPL, 38,
+                  "Incremental detailed placement failed on {} instances:",
+                  placement_failures_.size());
+    for (auto cell : placement_failures_) {
+      logger_->info(DPL, 40, " {}", cell->name());
+    }
+    logger_->error(DPL, 41, "Incremental detailed placement failed.");
+  }
+}
+
 void Opendp::updateDbInstLocations()
 {
   for (auto& cell : network_->getNodes()) {
@@ -281,6 +322,22 @@ void Opendp::setFixedGridCells()
 {
   for (auto& cell : network_->getNodes()) {
     if (cell->getType() == Node::CELL && cell->isFixed()) {
+      grid_->visitCellPixels(*cell, true, [&](Pixel* pixel, bool padded) {
+        if (padded) {
+          pixel->padding_reserved_by = cell.get();
+        } else {
+          setGridCell(*cell, pixel);
+        }
+      });
+    }
+  }
+}
+
+void Opendp::setPlacedGridCells()
+{
+  for (auto& cell : network_->getNodes()) {
+    if (cell->getType() == Node::CELL && !cell->isFixed()
+        && cell->isPlaced()) {
       grid_->visitCellPixels(*cell, true, [&](Pixel* pixel, bool padded) {
         if (padded) {
           pixel->padding_reserved_by = cell.get();

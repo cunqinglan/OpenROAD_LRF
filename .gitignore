@@ -23,6 +23,8 @@ __pycache__
 venv/
 .abc_history
 
+*.log
+
 include/ord/Version.hh
 
 build
@@ -76,3 +78,7 @@ VERSION.md
 test/lrf
 # LRF test directory (untracked, shared across branches)
 test/lrf/
+
+testremap/designs/asap7_all.lib
+testremap/log*
+paper

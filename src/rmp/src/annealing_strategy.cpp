@@ -716,6 +716,6 @@ void AnnealingStrategy::RunGia(
   }
 
   cut.InsertMappedAbcNetwork(
-      current_network.get(), mapping_library, network, name_generator, logger);
+      current_network.get(), abc_library, network, sta, name_generator, logger);
 }
 }  // namespace rmp
