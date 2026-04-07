@@ -170,6 +170,11 @@ class Timing
                                              float PT_tradeoff = 100.0,
                                              const char *lr_helper_method = "RapidLRHelper",
                                              float top_ratio = 0.3);
+  void testEcoResizeNoHalve(size_t iterations = 12,
+                            float PT_tradeoff = 10.0,
+                            const char *lr_helper_method = "RapidLRHelper",
+                            float halve_factor = 0.5f,
+                            bool use_precheck = true);
   void testPrecedingResizeCheck(float PT_tradeoff = 100.0,
                                 float top_ratio = 0.3);
   void testParallelKKTProjection(const char *lr_helper_method = "RapidLRHelper");

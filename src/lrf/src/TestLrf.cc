@@ -42,7 +42,9 @@ namespace lrf
 {
 
 // ── Checkpoint save helper ──────────────────────────────────────
-// Called at first regression point to save DEF + LM + verilog.
+// Called at first regression point to save ODB + LM.
+// ODB contains tech + netlist + placement (complete, lossless).
+// LM is saved separately (not part of ODB).
 static void
 saveCheckpoint(const std::string &checkpoint_dir,
                sta::dbSta *sta, odb::dbBlock *block,
@@ -57,22 +59,18 @@ saveCheckpoint(const std::string &checkpoint_dir,
 
   std::string design_name = block->getName();
   std::string lm_path  = checkpoint_dir + "/checkpoint.lm";
-  std::string def_path = checkpoint_dir + "/checkpoint.def";
-  std::string v_path   = checkpoint_dir + "/checkpoint.v";
+  std::string odb_path = checkpoint_dir + "/checkpoint.odb";
 
   // Save LM snapshot
   bool lm_ok = incre_sta->saveLmToFile(lm_path, design_name);
   printf("[CHECKPOINT] LM snapshot: %s (%s)\n",
          lm_path.c_str(), lm_ok ? "ok" : "FAILED");
 
-  // Save DEF and verilog via Tcl
+  // Save ODB (complete: tech + netlist + placement)
   Tcl_Interp *interp = sta->tclInterp();
-  std::string def_cmd = "write_def " + def_path;
-  std::string v_cmd   = "write_verilog " + v_path;
-  Tcl_Eval(interp, def_cmd.c_str());
-  printf("[CHECKPOINT] DEF: %s\n", def_path.c_str());
-  Tcl_Eval(interp, v_cmd.c_str());
-  printf("[CHECKPOINT] Verilog: %s\n", v_path.c_str());
+  std::string odb_cmd = "write_db " + odb_path;
+  Tcl_Eval(interp, odb_cmd.c_str());
+  printf("[CHECKPOINT] ODB: %s\n", odb_path.c_str());
 
   printf("[CHECKPOINT] Saved to %s (design=%s)\n",
          checkpoint_dir.c_str(), design_name.c_str());
@@ -1119,6 +1117,177 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     }
   }
 
+  delete incre_sta;
+}
+
+// ═══════════════════════════════════════════════════════════
+// testEcoResizeNoHalve — ECO experiment:
+//   Phase1: full resize, accept until first regression
+//   Phase2 (ECO): precheck with adaptive ratio
+//     - accept → keep ratio, reset consecutive_revert count
+//     - revert → only halve on consecutive reverts (not after accept)
+//     - lmUpdate before revert to let LM learn from the bad state
+// ═══════════════════════════════════════════════════════════
+void
+TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
+                               rsz::Resizer *resizer,
+                               odb::dbBlock *block,
+                               size_t thread_num,
+                               size_t iterations,
+                               float PT_tradeoff,
+                               std::string lr_helper_method,
+                               float halve_factor,
+                               bool use_precheck)
+{
+  printf("----- ECO Resize (halve_factor=%.2f, precheck=%s) -----\n",
+         halve_factor, use_precheck ? "yes" : "no");
+
+  sta->findRequireds();
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+
+  incre_sta->makeLRHelper(lr_helper_method);
+  lrf::LRHelper *lr_helper = incre_sta->lrHelper();
+  lr_helper->setRatcons(true);
+  incre_sta->setMaxResizeNum(20000000);
+
+  odb::dbDatabase::beginEco(block);
+  IterationHelper helper(sta, block, local_sta, resizer);
+  IterationHelper::Metrics best = helper.snapshot();
+  printf("Initial WNS: %.3f ps, TNS: %.3f ps\n", best.wns_ps, best.tns_ps);
+
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+  local_sta->initParallel();
+
+  size_t accept_count = 0;
+  size_t total_revert_count = 0;
+  size_t consecutive_reverts = 0;  // resets on accept
+  bool in_eco = false;
+  float top_ratio = 0.3f;
+
+  for (size_t i = 0; i < iterations; ++i) {
+    incre_sta->lmUpdate();
+    sta->findRequireds();
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    if (!in_eco) {
+      // Phase1: full resize
+      printf("----- Phase1 Iteration %zu -----\n", i+1);
+      incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    } else if (use_precheck) {
+      // Phase2: precheck with adaptive ratio
+      float ratio = incre_sta->adaptiveTopRatio();
+      printf("----- ECO Iteration %zu (precheck, ratio=%.4f) -----\n", i+1, ratio);
+      incre_sta->parallelResizeByArrayWithPrecheck(resizer, avg_delay, avg_leakage,
+                                                    PT_tradeoff, top_ratio);
+    } else {
+      // Phase2: full resize (no precheck)
+      printf("----- ECO Iteration %zu (full resize) -----\n", i+1);
+      incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    double runtime = std::chrono::duration<double>(end - start).count();
+
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+
+    IterationHelper::Metrics cur = helper.snapshot(runtime);
+    printf("WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW (%.1fs)\n",
+           cur.wns_ps, cur.tns_ps, cur.leakage * 1e10, runtime);
+
+    double cur_wns = cur.wns_ps / 1e12;
+    double best_wns_s = best.wns_ps / 1e12;
+
+    // ── Accept ──
+    if ((cur_wns > best_wns_s && cur_wns < 0)
+        || (cur_wns >= 0.0 && (cur_wns > best_wns_s || cur.leakage < best.leakage))) {
+      best = cur;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      accept_count++;
+      consecutive_reverts = 0;  // reset — don't halve on next revert
+      helper.recordRow(i+1, in_eco ? "eco" : "phase1", cur, best, "accept");
+      printf("Decision: accept (consecutive_reverts reset to 0)\n");
+
+    // ── Warmup accept (first 3 iterations) ──
+    } else if (i < 3) {
+      best = cur;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      helper.recordRow(i+1, "phase1", cur, best, "accept(warmup)");
+      printf("Decision: accept(warmup, iter %zu < 3)\n", i+1);
+
+    // ── Revert ──
+    } else {
+      if (!in_eco) {
+        // First regression after warmup: enter ECO mode, set initial ratio
+        in_eco = true;
+        int change_count = incre_sta->lastChangeCount();
+        TaskArranger *ta = local_sta->taskArranger();
+        int total = static_cast<int>(ta->vertexCount());
+        float init_ratio = (total > 0)
+            ? static_cast<float>(change_count) * 1.5f / total : 0.3f;
+        incre_sta->setAdaptiveTopRatio(init_ratio);
+        printf("First regression → ECO mode, init ratio=%.4f\n", init_ratio);
+      } else if (consecutive_reverts > 0) {
+        // Consecutive revert (previous was also revert) → halve
+        float new_ratio = incre_sta->adaptiveTopRatio() * halve_factor;
+        incre_sta->setAdaptiveTopRatio(new_ratio);
+        printf("Consecutive revert → halve ratio to %.4f\n", new_ratio);
+      } else {
+        // First revert after accept → don't halve, keep ratio
+        printf("First revert after accept → keep ratio %.4f\n",
+               incre_sta->adaptiveTopRatio());
+      }
+
+      // lmUpdate on the worse state before reverting
+      incre_sta->lmUpdate();
+
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
+      odb::dbDatabase::beginEco(block);
+
+      consecutive_reverts++;
+      total_revert_count++;
+      char decision[64];
+      snprintf(decision, sizeof(decision), "revert(consec=%zu)", consecutive_reverts);
+      helper.recordRow(i+1, "eco", cur, best, decision);
+      printf("Decision: revert (consecutive=%zu, total=%zu)\n",
+             consecutive_reverts, total_revert_count);
+
+      if (consecutive_reverts > 5) {
+        printf("Too many consecutive reverts (%zu), terminating.\n", consecutive_reverts);
+        break;
+      }
+    }
+    fflush(stdout);
+  }
+
+  // Final check
+  IterationHelper::Metrics final_m = helper.snapshot();
+  double final_wns = final_m.wns_ps / 1e12;
+  double best_wns_s = best.wns_ps / 1e12;
+  if (final_wns > best_wns_s) {
+    odb::dbDatabase::endEco(block);
+  } else {
+    odb::dbDatabase::endEco(block);
+    odb::dbDatabase::undoEco(block);
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+  }
+
+  printf("==============================\n");
+  printf("ECO summary: %zu accepts, %zu total reverts\n",
+         accept_count, total_revert_count);
+  helper.printSummary(best);
   delete incre_sta;
 }
 
