@@ -88,6 +88,11 @@ class BaseMove : public sta::dbStaState
 
   virtual const char* name() = 0;
 
+  // Whether this move type performs destructive graph mutations
+  // (e.g. deleteInstance, mergeNet).  Batch mode must refresh timing
+  // after every successful destructive repair to avoid use-after-free.
+  virtual bool isDestructive() const { return false; }
+
   void init();
 
   // Accept the pending optimizations

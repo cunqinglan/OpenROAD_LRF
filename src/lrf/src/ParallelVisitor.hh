@@ -8,6 +8,7 @@
 #include "lrf/LrfClass.hh"
 
 #include <unordered_map>
+#include <memory>
 
 namespace sta {
   class ArcDelayCalc;
@@ -36,6 +37,10 @@ public:
   virtual bool visit(sta::Instance *inst, sta::VertexId vid);
   bool visit(sta::Instance *inst, TimingRecord &timing_record);
   bool singleGateSizing(sta::Instance *inst);
+  // Lightweight pass: build PtGraph, run delay/arrival/required, write back
+  // slew+paths without cell evaluation. Used for non-selected instances
+  // in precheck mode to keep timing propagation fresh.
+  void visitSlewOnly(sta::Instance *inst);
   void setMoveType(MoveType move_type);
   
   // Apply cell type changes to OpenROAD and OpenSTA, and 
@@ -51,9 +56,9 @@ public:
   bool checkVisitorStatus() const;
   void operator()(sta::Instance *inst) { visit(inst, sta::object_id_null); }
   void printVisitedInstNames() const;
-  PtGraph *ptGraph() const { return pt_graph_; }
+  PtGraph *ptGraph() const { return pt_graph_.get(); }
   LrRebuffer *rebuffer() const { return rebuffer_; }
-  void setPtGraph(PtGraph *pt_graph) { pt_graph_ = pt_graph; }
+  void setPtGraph(PtGraph *pt_graph);
   sta::Instance *refInst() const { return ref_inst_; }
   sta::LibertyCell *bestCell() const { return best_cell_; }
   void init(float averge_delay, float average_power, float wns, 
@@ -76,6 +81,10 @@ public:
   void setPTTradeoff(float PT_tradeoff) { PT_tradeoff_ = PT_tradeoff; }
   void setSlackMargin(float slack_margin) { slack_margin_ = slack_margin; }
   float slackMargin() const { return slack_margin_; }
+  void setPruningControl(PruningControl *pc) { pruning_control_ = pc; }
+  PruningControl *pruningControl() const { return pruning_control_; }
+  int resizeVisitCount() const { return resize_visit_count_; }
+  int resizeChangeCount() const { return resize_change_count_; }
   bool equivVtCells(sta::LibertyCell *cell1, sta::LibertyCell *cell2);
   void setClockPeriod(float clock_period) { clock_period_ = clock_period; }
   void setParallelLibData(ParallelLibData *parallel_lib_data) { parallel_lib_data_ = parallel_lib_data; }
@@ -86,6 +95,19 @@ public:
 
   // Functions for runtime profiling
   void printRuntimeProfile() const;
+
+  // Track instances that were actually cell-swapped during resize.
+  // Pointer to shared vector; writes occur inside g_odb_sta_access_mutex.
+  void setModifiedInstancesTracker(std::vector<sta::Instance*>* tracker) {
+    modified_instances_tracker_ = tracker;
+  }
+
+  // Track cell swap records (instance, old_cell) for incremental leakage.
+  // Pointer to shared vector; writes occur inside g_odb_sta_access_mutex.
+  using CellSwapRecord = std::pair<sta::Instance*, sta::LibertyCell*>;
+  void setCellSwapRecordTracker(std::vector<CellSwapRecord>* tracker) {
+    cell_swap_record_tracker_ = tracker;
+  }
 
   // Lightweight precheck: evaluate small neighborhood, return cost change without applying.
   float trySwapPrecheck(sta::Instance *inst, int col_padding = 1, int row_padding = 1);
@@ -103,6 +125,8 @@ protected:
   bool trySwapV1(sta::Instance *inst);
   // Neighborhood search in equiv cell array for resizing; returns true on success.
   bool trySwapByArray(sta::Instance *inst, int col_padding = 3, int row_padding = 1);
+  // History-based pruned variant: uses stored ordering when available, falls back to full search.
+  bool trySwapByArrayPruned(sta::Instance *inst, int col_padding = 3, int row_padding = 1);
   // Insert buffering for the given instance to improve timing; returns true on success.
   bool tryBuffering(sta::Instance *inst);
   std::vector<std::pair<sta::LibertyCell*, std::pair<size_t, size_t>>> getLegalEquivCells(
@@ -115,11 +139,11 @@ protected:
   sta::Instance *ref_inst_;
   LocalSta *local_sta_;
   rsz::Resizer *resizer_;
-  PtGraph *pt_graph_;
+  std::unique_ptr<PtGraph> pt_graph_;
   sta::ArcDelayCalc *arc_delay_calc_;
   sta::Slack slack_before_swap_;
-  std::vector<std::string> visited_instances_;
   sta::LibertyCell *best_cell_ = nullptr;
+  int resize_visit_count_ = 0;
   float average_delay_ = 1.0;
   float average_leakage_ = 1.0;
   float slack_margin_= 0.0;
@@ -129,9 +153,14 @@ protected:
   ParallelLibData *parallel_lib_data_ = nullptr;
   LibertyCellArray *equiv_cell_array_ = nullptr;
   PosMap *equiv_cell_pos_map_ = nullptr;
+  PruningControl *pruning_control_ = nullptr;
   float clock_period_ = 0.0;
+  float wns_ = 0.0;
   LrRebuffer *rebuffer_ = nullptr;
   MoveType move_type_ = MoveType::Resizing;
+  int resize_change_count_ = 0;
+  std::vector<sta::Instance*>* modified_instances_tracker_ = nullptr;
+  std::vector<CellSwapRecord>* cell_swap_record_tracker_ = nullptr;
 
   std::map<std::string, double> runtime_map_ = {
     {"visit", 0.0},
@@ -187,6 +216,37 @@ public:
 
 private:
   std::vector<ResizeBenefit> *results_;
+};
+
+// Visitor for single-pass resize + buffering: for each instance, decide
+// whether to resize, insert buffers, or do both.  Operations are controlled
+// by InstVertex::move_mask_ (kMoveResize | kMoveBuffer bitmask), checked
+// via doResize()/doBuffer() in visit().
+class TaskArranger;
+
+class CombinedVisitor : public ParallelLrVisitor
+{
+public:
+  CombinedVisitor(sta::dbSta *db_sta, LocalSta *local_sta, rsz::Resizer *resizer,
+                  TaskArranger *task_arranger);
+
+  bool visit(sta::Instance *inst, sta::VertexId vid) override;
+  void applyChangesToDb(rsz::Resizer *resizer) override;
+  ParallelLrVisitor *copy() const override;
+
+  enum class Decision : uint8_t {
+    NoChange,
+    ResizeOnly,
+    ResizeAndBuffer
+  };
+
+private:
+  // Resize evaluation, then try buffering on top 2 resized cells.
+  bool tryCombined(sta::Instance *inst, int col_padding = 3, int row_padding = 1);
+
+  TaskArranger *task_arranger_;
+  Decision decision_ = Decision::NoChange;
+  sta::LibertyCell *combined_resize_cell_ = nullptr;
 };
 
 }  // namespace lrf

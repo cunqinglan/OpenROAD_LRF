@@ -33,6 +33,7 @@ build_mac
 build_new
 sota_lrf
 test/results
+test/lrf/
 .claude
 CLAUDE.md
 
@@ -74,6 +75,9 @@ lrf_api.sh
 log
 precheimprov.md
 VERSION.md
+test/lrf
+# LRF test directory (untracked, shared across branches)
+test/lrf/
 
 testremap/designs/asap7_all.lib
 testremap/log*

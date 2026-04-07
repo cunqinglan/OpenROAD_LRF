@@ -375,7 +375,8 @@ repair_setup(double setup_margin,
              bool skip_buffer_removal,
              bool skip_last_gasp,
              bool skip_vt_swap,
-             bool skip_crit_vt_swap)
+             bool skip_crit_vt_swap,
+             int num_threads)
 {
   ensureLinked();
   Resizer *resizer = getResizer();
@@ -386,7 +387,8 @@ repair_setup(double setup_margin,
                        skip_pin_swap, skip_gate_cloning,
                        skip_size_down,
                        skip_buffering, skip_buffer_removal,
-                       skip_last_gasp, skip_vt_swap, skip_crit_vt_swap);
+                       skip_last_gasp, skip_vt_swap, skip_crit_vt_swap,
+                       num_threads);
 }
 
 void
@@ -448,11 +450,11 @@ hold_buffer_count()
 
 ////////////////////////////////////////////////////////////////
 bool
-recover_power(float recover_power_percent, bool match_cell_footprint, bool verbose)
+recover_power(float recover_power_percent, bool match_cell_footprint, bool verbose, int num_threads)
 {
   ensureLinked();
   Resizer *resizer = getResizer();
-  return resizer->recoverPower(recover_power_percent, match_cell_footprint, verbose);
+  return resizer->recoverPower(recover_power_percent, match_cell_footprint, verbose, num_threads);
 }
 
 ////////////////////////////////////////////////////////////////

@@ -9,6 +9,7 @@
 #include <limits>
 #include <queue>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -97,7 +98,8 @@ bool RepairSetup::repairSetup(const float setup_slack_margin,
                               const bool skip_buffer_removal,
                               const bool skip_last_gasp,
                               const bool skip_vt_swap,
-                              const bool skip_crit_vt_swap)
+                              const bool skip_crit_vt_swap,
+                              const int num_threads)
 {
   bool repaired = false;
   init();
@@ -266,6 +268,34 @@ bool RepairSetup::repairSetup(const float setup_slack_margin,
     min_viol_ = -violating_ends.back().second;
     max_viol_ = -violating_ends.front().second;
   }
+
+  if (num_threads > 1) {
+    logger_->info(RSZ, 204, "Using batch mode with {} threads.", num_threads);
+    bool batched_result = repairSetupBatched(
+        violating_ends, setup_slack_margin, max_passes,
+        max_end_count, initial_tns, num_threads, verbose, max_iterations);
+
+    if (!skip_last_gasp) {
+      OptoParams params(setup_slack_margin, verbose, skip_pin_swap,
+                        skip_gate_cloning, skip_size_down, skip_buffering,
+                        skip_buffer_removal, skip_vt_swap);
+      params.iteration = 0;
+      params.initial_tns = initial_tns;
+      repairSetupLastGasp(params, num_viols, max_iterations);
+    }
+    if (!skip_crit_vt_swap && !skip_vt_swap
+        && resizer_->lib_data_->sorted_vt_categories.size() > 1) {
+      OptoParams params(setup_slack_margin, verbose, skip_pin_swap,
+                        skip_gate_cloning, skip_size_down, skip_buffering,
+                        skip_buffer_removal, skip_vt_swap);
+      if (swapVTCritCells(params, num_viols)) {
+        estimate_parasitics_->updateParasitics();
+        sta_->findRequireds();
+      }
+    }
+    goto report_results;
+  }
+
   for (const auto& end_original_slack : violating_ends) {
     fallback_ = false;
     sta::Vertex* end = end_original_slack.first;
@@ -507,6 +537,7 @@ bool RepairSetup::repairSetup(const float setup_slack_margin,
     }
   }
 
+report_results:
   printProgress(opto_iteration, true, true, false, num_viols);
 
   int buffer_moves_ = resizer_->buffer_move_->numCommittedMoves();
@@ -1260,6 +1291,160 @@ sta::Slack RepairSetup::getInstanceSlack(sta::Instance* inst)
   delete pin_iter;
 
   return worst_slack;
+}
+
+bool RepairSetup::hasDestructiveMoves() const
+{
+  return std::any_of(
+      move_sequence_.begin(), move_sequence_.end(),
+      [](const BaseMove* m) { return m->isDestructive(); });
+}
+
+bool RepairSetup::repairSetupBatched(
+    std::vector<std::pair<sta::Vertex*, sta::Slack>>& violating_ends,
+    const float setup_slack_margin,
+    const int max_passes,
+    const int max_end_count,
+    const float initial_tns,
+    const int num_threads,
+    const bool verbose,
+    const int max_iterations)
+{
+  int num_viols = violating_ends.size();
+  int opto_iteration = 0;
+  float prev_tns = initial_tns;
+  bool any_repaired = false;
+
+  if (!violating_ends.empty()) {
+    min_viol_ = -violating_ends.back().second;
+    max_viol_ = -violating_ends.front().second;
+  }
+
+  const int actual_end_count
+      = std::min(max_end_count, static_cast<int>(violating_ends.size()));
+
+  // Cap batch size to avoid stale-timing rollbacks.
+  // STA thread_count (set via set_thread_count) is unchanged and still
+  // governs internal parallelism in findRequireds / BFS.
+  static constexpr int max_batch_size = 8;
+  const int effective_batch = std::min(num_threads, max_batch_size);
+
+  // When the move sequence contains destructive operations (e.g. UnbufferMove
+  // which calls deleteInstance / mergeNet), we must refresh timing after every
+  // successful repair.  Otherwise the next endpoint's vertexWorstSlackPath()
+  // may dereference vertices / edges that were freed, causing use-after-free.
+  const bool has_destructive = hasDestructiveMoves();
+
+  est::IncrementalParasiticsGuard guard(estimate_parasitics_);
+
+  for (int batch_start = 0; batch_start < actual_end_count;) {
+    const int batch_end
+        = std::min(batch_start + effective_batch, actual_end_count);
+    const int batch_size = batch_end - batch_start;
+
+    // Phase 1: Parallel pre-analysis
+    std::vector<BatchEndpointAnalysis> analyses(batch_size);
+    {
+      std::vector<std::thread> workers;
+      workers.reserve(batch_size);
+      for (int i = 0; i < batch_size; i++) {
+        workers.emplace_back([&, i]() {
+          auto& a = analyses[i];
+          a.endpoint = violating_ends[batch_start + i].first;
+          a.slack = sta_->vertexSlack(a.endpoint, max_);
+          a.needs_repair = (a.slack < setup_slack_margin);
+        });
+      }
+      for (auto& w : workers) {
+        w.join();
+      }
+    }
+
+    // Phase 2: Sequential repair
+    resizer_->journalBegin();
+    bool batch_changed = false;
+    int processed = 0;
+
+    for (int i = 0; i < batch_size; i++) {
+      processed++;
+      const auto& a = analyses[i];
+      if (!a.needs_repair) {
+        --num_viols;
+        continue;
+      }
+
+      opto_iteration++;
+      if (verbose) {
+        printProgress(opto_iteration, false, false, false, num_viols);
+      }
+
+      sta::Path* end_path
+          = sta_->vertexWorstSlackPath(a.endpoint, max_);
+      if (end_path == nullptr) {
+        continue;
+      }
+      if (repairPath(end_path, a.slack, setup_slack_margin)) {
+        batch_changed = true;
+        // When destructive moves are in the sequence, the graph is
+        // structurally modified (vertices/edges deleted).  We must
+        // break immediately to update timing before touching the
+        // next endpoint, whose path data would otherwise be stale.
+        if (has_destructive) {
+          break;
+        }
+      }
+    }
+
+    // Phase 3: Batch timing update & validation
+    if (batch_changed) {
+      estimate_parasitics_->updateParasitics();
+      sta_->findRequireds();
+
+      const float curr_tns = sta_->totalNegativeSlack(max_);
+      sta::Slack worst_slack;
+      sta::Vertex* worst_vertex;
+      sta_->worstSlack(max_, worst_slack, worst_vertex);
+
+      if (curr_tns <= prev_tns) {
+        resizer_->journalEndLite();
+        prev_tns = curr_tns;
+        any_repaired = true;
+
+        num_viols = 0;
+        const sta::VertexSet* endpoints = sta_->endpoints();
+        for (sta::Vertex* ep : *endpoints) {
+          if (sta_->vertexSlack(ep, max_) < setup_slack_margin) {
+            num_viols++;
+          }
+        }
+      } else {
+        resizer_->journalRestore();
+      }
+    } else {
+      resizer_->journalEndLite();
+    }
+
+    // Advance by number of endpoints actually processed, not the
+    // full batch.  When we broke early for a destructive move the
+    // remaining endpoints will be re-analysed in the next batch.
+    batch_start += processed;
+
+    if (verbose) {
+      printProgress(opto_iteration, true, false, false, num_viols);
+    }
+
+    if (max_iterations > 0 && opto_iteration >= max_iterations) {
+      break;
+    }
+    if (num_viols == 0) {
+      break;
+    }
+    if (resizer_->overMaxArea()) {
+      break;
+    }
+  }
+
+  return any_repaired;
 }
 
 }  // namespace rsz

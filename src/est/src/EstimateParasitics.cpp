@@ -791,9 +791,11 @@ void EstimateParasitics::estimateWireParasiticSteiner(
           if (ndr) {
             std::vector<odb::dbTechLayerRule*> layer_rules;
             ndr->getLayerRules(layer_rules);
-            float ratio = (float) layer_rules.at(0)->getWidth()
-                          / layer_rules.at(0)->getLayer()->getWidth();
-            res /= ratio;
+            if (!layer_rules.empty()) {
+              float ratio = (float) layer_rules.at(0)->getWidth()
+                            / layer_rules.at(0)->getLayer()->getWidth();
+              res /= ratio;
+            }
           }
 
           // Make pi model for the wire.
@@ -1332,7 +1334,35 @@ EstimateParasitics::updateWireParasiticsNoDeleteNetwork()
   }
 }
 
-void 
+void
+EstimateParasitics::updateWireParasiticsForNets(
+    const std::unordered_set<sta::Net*>& dirty_nets)
+{
+  initBlock();
+  if (!wire_signal_cap_.empty()) {
+    sta_->ensureClkNetwork();
+    sta_->setParasiticAnalysisPts(true);
+    // Hazard 3 fix: clear the driver-pin cache so stale entries from
+    // cell swaps don't cause wrong Steiner trees.  Network::clear()
+    // nulls default_liberty_ + clears the cache; we restore the library
+    // immediately.  The driver-pin map is lazily rebuilt by
+    // Network::drivers() on the next lookup.
+    sta::LibertyLibrary* default_lib = network_->defaultLibertyLibrary();
+    network_->Network::clear();
+    network_->setDefaultLibertyLibrary(default_lib);
+    sortClkAndSignalLayers();
+
+    for (sta::Net *net : dirty_nets) {
+      estimateWireParasiticNoDeleteNetwork(net);
+    }
+
+    for (sta::Net *net : dirty_nets) {
+      checkIfParasiticsNetworkExists(net);
+    }
+  }
+}
+
+void
 EstimateParasitics::estimateWireParasiticNoDeleteNetwork(const sta::Net* net)
 {
   sta::PinSet *drivers = network_->drivers(net);
@@ -1429,9 +1459,11 @@ EstimateParasitics::estimateWireParasiticSteinerNoDeleteNetwork(
           if (ndr) {
             std::vector<odb::dbTechLayerRule*> layer_rules;
             ndr->getLayerRules(layer_rules);
-            float ratio = (float) layer_rules.at(0)->getWidth()
-                          / layer_rules.at(0)->getLayer()->getWidth();
-            res /= ratio;
+            if (!layer_rules.empty()) {
+              float ratio = (float) layer_rules.at(0)->getWidth()
+                            / layer_rules.at(0)->getLayer()->getWidth();
+              res /= ratio;
+            }
           }
 
           // Make pi model for the wire.
@@ -1549,9 +1581,11 @@ EstimateParasitics::estimateWireParasiticSteinerLrf(
           if (ndr) {
             std::vector<odb::dbTechLayerRule*> layer_rules;
             ndr->getLayerRules(layer_rules);
-            float ratio = (float) layer_rules.at(0)->getWidth()
-                          / layer_rules.at(0)->getLayer()->getWidth();
-            res /= ratio;
+            if (!layer_rules.empty()) {
+              float ratio = (float) layer_rules.at(0)->getWidth()
+                            / layer_rules.at(0)->getLayer()->getWidth();
+              res /= ratio;
+            }
           }
 
           // Make pi model for the wire.

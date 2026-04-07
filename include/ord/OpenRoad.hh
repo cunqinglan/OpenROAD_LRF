@@ -197,7 +197,8 @@ class OpenRoad
                odb::dbChip* chip,
                bool continue_on_errors,
                bool floorplan_init,
-               bool incremental);
+               bool incremental,
+               bool skip_connections = false);
 
   void writeLef(const char* filename);
   void writeJsonNetlist(const char* filename);

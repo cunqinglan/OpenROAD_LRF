@@ -3,6 +3,8 @@
 #include "db_sta/dbSta.hh"
 #include "sta/Sta.hh"
 #include "lrf/LrfClass.hh"
+#include "sta/PathExpanded.hh"
+#include <unordered_set>
 // #include "LocalSta.hh"
 
 namespace rsz {
@@ -69,10 +71,47 @@ public:
                       float PT_tradeoff);
   void parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float avg_power,
                       float PT_tradeoff);
+  // New framework (NetlistTransformation) resize entry point
+  void parallelResizeByArrayV2(rsz::Resizer *resizer, float avg_delay, float avg_power,
+                      float PT_tradeoff);
   void setMaxResizeNum(size_t max_resize_num);
+
+  // Collect TaskArranger vertex IDs of instances on critical paths
+  // where endpoint slack <= slack_threshold.
+  void collectCriticalPathInstances(float slack_threshold,
+                                    std::vector<size_t>& selected_vertex_ids);
+
+  // Access modified instances from last resize pass (for incremental parasitic update)
+  const std::vector<sta::Instance*>& modifiedInstances() const { return modified_instances_; }
+
+  // Record of a cell swap: (instance, old_cell). New cell = current cell after swap.
+  using CellSwapRecord = std::pair<sta::Instance*, sta::LibertyCell*>;
+  const std::vector<CellSwapRecord>& cellSwapRecords() const { return cell_swap_records_; }
+
+  // Reset tracking state (call when ECO reverts)
+  void clearModifiedTracking();
+
+  // Speedup variant: critical-path filtering + dirty tracking + incremental STA.
+  // Fixes: tracker on criticalPathSizing visitor (hazard 1),
+  //        dirty bypass every 3 iterations (hazard 2).
+  void parallelResizeByArraySpeedup(rsz::Resizer *resizer, float avg_delay,
+                                    float avg_power, float PT_tradeoff);
 
   void parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
                          int top_n = 100);
+  void parallelBufferingV2(rsz::Resizer *resizer, float PT_tradeoff,
+                           int top_n = 100);
+
+  // Single-pass resize + buffering: for buffer candidates, evaluate
+  // resize then try buffering on the best resized cell.
+  void parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
+                                  float avg_power, float PT_tradeoff,
+                                  int buffer_top_n = 100);
+
+  // V2: Single-pass resize + buffering using CombinedOperator + ParallelVisitor.
+  void parallelResizeAndBufferingV2(rsz::Resizer *resizer, float avg_delay,
+                                    float avg_power, float PT_tradeoff,
+                                    int buffer_top_n = 100);
 
   // Screen buffering candidates: collect gates with negative late slack,
   // sort by output_cap / input_cap ratio descending, return top_n vertex ids.
@@ -81,6 +120,10 @@ public:
   // Sensitivity-based buffering candidate screening (parallel).
   // Uses the unified sensitivity formula on each net's buffer tree.
   std::vector<size_t> bufferingVerticesCandidateBySensitivity(
+      rsz::Resizer *resizer, float avg_delay, float avg_leakage, int top_n);
+
+  // V2: sensitivity screening via ParallelVisitor + BufferSensitivityOperator.
+  std::vector<size_t> bufferingVerticesCandidateBySensitivityV2(
       rsz::Resizer *resizer, float avg_delay, float avg_leakage, int top_n);
 
   // Preceding resize check: evaluate resize benefit for all instances
@@ -94,6 +137,16 @@ public:
   void parallelResizeByArrayWithPrecheck(rsz::Resizer *resizer, float avg_delay,
                                          float avg_power, float PT_tradeoff,
                                          float top_ratio = 0.3);
+
+  // V2 (new framework) precheck: uses ParallelVisitor + ResizePrecheckOperator.
+  std::vector<size_t> precedingResizeCheckV2(
+      rsz::Resizer *resizer, float avg_delay, float avg_power,
+      float PT_tradeoff, float top_ratio = 0.3);
+
+  // V2 resize with precheck: precedingResizeCheckV2 + parallelResizeByArrayV2.
+  void parallelResizeByArrayWithPrecheckV2(rsz::Resizer *resizer, float avg_delay,
+                                           float avg_power, float PT_tradeoff,
+                                           float top_ratio = 0.3);
 
   // APIs for power optimization
   void ensureActivities();  // Access power of one of the instances will trigger global activity calculation
@@ -131,6 +184,16 @@ protected:
   LibertyCellArray equiv_cell_array_;
   PosMap equiv_cell_pos_map_;
   bool equiv_cell_array_built_ = false;
+  PruningControl pruning_control_;
+
+  // Dirty tracking: instances modified in last resize pass
+  std::vector<sta::Instance*> modified_instances_;
+  // Cell swap records: (instance, old_cell) for incremental leakage tracking
+  std::vector<CellSwapRecord> cell_swap_records_;
+  // Neighbor set: instances adjacent to modified ones (union of fanin/fanout)
+  std::unordered_set<sta::Instance*> dirty_neighborhood_;
+  // Iteration counter for dirty filtering (0 = first iteration, skip dirty check)
+  size_t resize_iteration_ = 0;
 };
 
 } // namespace lrf

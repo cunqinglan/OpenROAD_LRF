@@ -34,6 +34,8 @@
 #include "sta/Vector.hh"
 #include "utl/Logger.h"
 
+#include <thread>
+
 namespace rsz {
 
 using std::pair;
@@ -60,7 +62,7 @@ void RecoverPower::init()
   initial_design_area_ = resizer_->computeDesignArea();
 }
 
-bool RecoverPower::recoverPower(const float recover_power_percent, bool verbose)
+bool RecoverPower::recoverPower(const float recover_power_percent, bool verbose, int num_threads)
 {
   bool recovered = false;
   init();
@@ -107,6 +109,22 @@ bool RecoverPower::recoverPower(const float recover_power_percent, bool verbose)
   }
 
   printProgress(0, false, false);
+
+  if (num_threads > 1) {
+    logger_->info(RSZ, 205, "Using batch mode with {} threads for power recovery.", num_threads);
+    bool batched = recoverPowerBatched(
+        ends_with_slack, max_end_count, worst_slack_before, num_threads, verbose);
+
+    printProgress(max_end_count, true, true);
+    bad_vertices_.clear();
+    if (resize_count_ > 0) {
+      logger_->info(RSZ, 206, "Resized {} instances.", resize_count_);
+    }
+    if (resizer_->overMaxArea()) {
+      logger_->error(RSZ, 207, "max utilization reached.");
+    }
+    return batched;
+  }
 
   int end_index = 0;
   int failed_move_threshold = 0;
@@ -501,6 +519,127 @@ void RecoverPower::printProgress(int iteration, bool force, bool end) const
   if (end) {
     logger_->report("---------------------------------------------------");
   }
+}
+
+bool RecoverPower::recoverPowerBatched(
+    sta::VertexSeq& ends_with_slack,
+    const int max_end_count,
+    sta::Slack worst_slack_before,
+    const int num_threads,
+    const bool verbose)
+{
+  bool recovered = false;
+  int end_index = 0;
+  int failed_move_threshold = 0;
+
+  est::IncrementalParasiticsGuard guard(estimate_parasitics_);
+
+  const int actual_end_count
+      = std::min(max_end_count, static_cast<int>(ends_with_slack.size()));
+
+  // Cap batch size to avoid stale-timing rollbacks.
+  // STA thread_count (set via set_thread_count) is unchanged and still
+  // governs internal parallelism in findRequireds / BFS.
+  static constexpr int max_batch_size = 8;
+  const int effective_batch = std::min(num_threads, max_batch_size);
+
+  for (int batch_start = 0; batch_start < actual_end_count;) {
+    const int batch_end
+        = std::min(batch_start + effective_batch, actual_end_count);
+    const int batch_size = batch_end - batch_start;
+
+    // Phase 1: Parallel pre-analysis
+    std::vector<BatchPowerAnalysis> analyses(batch_size);
+    {
+      std::vector<std::thread> workers;
+      workers.reserve(batch_size);
+      for (int i = 0; i < batch_size; i++) {
+        workers.emplace_back([&, i]() {
+          auto& a = analyses[i];
+          a.endpoint = ends_with_slack[batch_start + i];
+          a.slack = sta_->vertexSlack(a.endpoint, max_);
+          a.candidate = (a.slack > setup_slack_margin_
+                         && a.slack < setup_slack_max_margin_);
+        });
+      }
+      for (auto& w : workers) {
+        w.join();
+      }
+    }
+
+    // Phase 2: Sequential downsize
+    resizer_->journalBegin();
+    bool batch_changed = false;
+
+    for (int i = 0; i < batch_size; i++) {
+      const auto& a = analyses[i];
+      end_index++;
+
+      if (verbose) {
+        printProgress(end_index, false, false);
+      }
+
+      if (!a.candidate) {
+        continue;
+      }
+
+      sta::Path* end_path
+          = sta_->vertexWorstSlackPath(a.endpoint, max_);
+      if (end_path == nullptr) {
+        continue;
+      }
+
+      sta::Vertex* changed = recoverPower(end_path, a.slack);
+      if (changed) {
+        batch_changed = true;
+      }
+    }
+
+    // Phase 3: Batch timing update & validation
+    if (batch_changed) {
+      estimate_parasitics_->updateParasitics(true);
+      sta_->findRequireds();
+
+      sta::Slack worst_slack_after;
+      sta::Vertex* worst_vertex;
+      sta_->worstSlack(max_, worst_slack_after, worst_vertex);
+
+      const float worst_slack_percent = fabs(
+          (worst_slack_before - worst_slack_after) / worst_slack_before * 100);
+      const bool better
+          = (worst_slack_percent < 0.0001
+             || (worst_slack_before > 0
+                 && worst_slack_after / worst_slack_before > 0.5));
+
+      if (better) {
+        failed_move_threshold = 0;
+        resizer_->journalEndLite();
+        recovered = true;
+      } else {
+        ++failed_move_threshold;
+        if (failed_move_threshold > failed_move_threshold_limit_) {
+          logger_->info(RSZ, 208,
+                        "{} successive tries yielded negative slack. Ending "
+                        "power recovery",
+                        failed_move_threshold_limit_);
+          resizer_->journalEndLite();
+          break;
+        }
+        resizer_->journalRestore();
+      }
+
+      if (resizer_->overMaxArea()) {
+        resizer_->journalEndLite();
+        break;
+      }
+    } else {
+      resizer_->journalEndLite();
+    }
+
+    batch_start = batch_end;
+  }
+
+  return recovered;
 }
 
 }  // namespace rsz

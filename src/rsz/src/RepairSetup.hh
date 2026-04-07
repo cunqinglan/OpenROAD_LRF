@@ -2,6 +2,7 @@
 // Copyright (c) 2022-2025, The OpenROAD Authors
 
 #pragma once
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -90,7 +91,8 @@ class RepairSetup : public sta::dbStaState
                    bool skip_buffer_removal,
                    bool skip_last_gasp,
                    bool skip_vt_swap,
-                   bool skip_crit_vt_swap);
+                   bool skip_crit_vt_swap,
+                   int num_threads = 1);
   // For testing.
   void repairSetup(const sta::Pin* end_pin);
   // Size-up-only variant, used by rmp module.
@@ -123,6 +125,23 @@ class RepairSetup : public sta::dbStaState
                            int& num_viols,
                            int max_iterations);
   bool swapVTCritCells(const OptoParams& params, int& num_viols);
+
+  struct BatchEndpointAnalysis {
+    sta::Vertex* endpoint = nullptr;
+    sta::Slack slack = 0;
+    bool needs_repair = false;
+  };
+
+  bool repairSetupBatched(
+      std::vector<std::pair<sta::Vertex*, sta::Slack>>& violating_ends,
+      float setup_slack_margin,
+      int max_passes,
+      int max_end_count,
+      float initial_tns,
+      int num_threads,
+      bool verbose,
+      int max_iterations);
+  bool hasDestructiveMoves() const;
   void traverseFaninCone(sta::Vertex* endpoint,
                          std::unordered_map<sta::Instance*, float>& crit_insts,
                          std::unordered_set<sta::Vertex*>& visited,

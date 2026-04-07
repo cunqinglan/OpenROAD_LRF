@@ -590,15 +590,15 @@ Timing::testParallelLrResizing(size_t max_resize_num, size_t iterations,
   size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
   const char *lr_helper_method) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  printf("Starting testParallelLrResizing with %zu threads\n", thread_num);
-  printf("First compute all parasitic networks...\n");
-  fflush(stdout);
+  // printf("Starting testParallelLrResizing with %zu threads\n", thread_num);
+  // printf("First compute all parasitic networks...\n");
+  // fflush(stdout);
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
   sta::dbSta* sta = getSta();
   lrf::TestLrf test_lrf;
-  printf("Starting testParallelLrResizing\n");
-  fflush(stdout);
+  // printf("Starting testParallelLrResizing\n");
+  // fflush(stdout);
   test_lrf.testParallelLrResizing(sta, resizer, design_->getBlock(), 
 thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons, 
   PT_tradeoff, lr_helper_method);
@@ -628,13 +628,59 @@ Timing::testParallelResizeByArray(size_t max_resize_num, size_t iterations,
   size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
   const char *lr_helper_method) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  printf("Starting testParallelResizeByArray with %zu threads\n", thread_num);
-  fflush(stdout);
+  // printf("Starting testParallelResizeByArray with %zu threads\n", thread_num);
+  // fflush(stdout);
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
   sta::dbSta* sta = getSta();
   lrf::TestLrf test_lrf;
   test_lrf.testParallelLrResizeByArray(sta, resizer, design_->getBlock(),
+    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
+    PT_tradeoff, lr_helper_method);
+}
+
+void
+Timing::testParallelResizeByArraySpeedup(size_t max_resize_num, size_t iterations,
+  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
+  const char *lr_helper_method) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testParallelLrResizeByArraySpeedup(sta, resizer, design_->getBlock(),
+    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
+    PT_tradeoff, lr_helper_method);
+}
+
+void
+Timing::testParallelResizeByArrayV2(size_t max_resize_num, size_t iterations,
+  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
+  const char *lr_helper_method) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testParallelResizeByArrayV2 with %zu threads\n", thread_num);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testParallelLrResizeByArrayV2(sta, resizer, design_->getBlock(),
+    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
+    PT_tradeoff, lr_helper_method);
+}
+
+void
+Timing::testParallelResizeByArrayWithBufferingV2(size_t max_resize_num, size_t iterations,
+  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
+  const char *lr_helper_method) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testParallelResizeByArrayWithBufferingV2 with %zu threads\n", thread_num);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testParallelLrResizeByArrayWithBufferingV2(sta, resizer, design_->getBlock(),
     thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
     PT_tradeoff, lr_helper_method);
 }
@@ -656,6 +702,22 @@ Timing::testParallelResizeByArrayWithBuffering(size_t max_resize_num, size_t ite
 }
 
 void
+Timing::testCombinedResizeBuffering(size_t max_resize_num, size_t iterations,
+  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
+  const char *lr_helper_method) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testCombinedResizeBuffering with %zu threads\n", thread_num);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testParallelLrCombinedResizeBuffering(sta, resizer, design_->getBlock(),
+    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
+    PT_tradeoff, lr_helper_method);
+}
+
+void
 Timing::testParallelResizeByArrayWithPrecheck(size_t max_resize_num,
   size_t iterations, size_t num_no_improve_tolerance, bool ratcons,
   float PT_tradeoff, const char *lr_helper_method, float top_ratio) {
@@ -667,6 +729,38 @@ Timing::testParallelResizeByArrayWithPrecheck(size_t max_resize_num,
   sta::dbSta* sta = getSta();
   lrf::TestLrf test_lrf;
   test_lrf.testParallelLrResizeByArrayWithPrecheck(sta, resizer, design_->getBlock(),
+    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
+    PT_tradeoff, lr_helper_method, top_ratio);
+}
+
+void
+Timing::testParallelResizeByArrayWithPrecheckV2(size_t max_resize_num,
+  size_t iterations, size_t num_no_improve_tolerance, bool ratcons,
+  float PT_tradeoff, const char *lr_helper_method, float top_ratio) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testParallelResizeByArrayWithPrecheckV2 with %zu threads\n", thread_num);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testParallelLrResizeByArrayWithPrecheckV2(sta, resizer, design_->getBlock(),
+    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
+    PT_tradeoff, lr_helper_method, top_ratio);
+}
+
+void
+Timing::testParallelResizeByArrayWithPrecheckBufferingV2(size_t max_resize_num,
+  size_t iterations, size_t num_no_improve_tolerance, bool ratcons,
+  float PT_tradeoff, const char *lr_helper_method, float top_ratio) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testParallelResizeByArrayWithPrecheckBufferingV2 with %zu threads\n", thread_num);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testParallelLrResizeByArrayWithPrecheckBufferingV2(sta, resizer, design_->getBlock(),
     thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
     PT_tradeoff, lr_helper_method, top_ratio);
 }

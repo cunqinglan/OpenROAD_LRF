@@ -2,6 +2,8 @@
 
 
 
+#include "LrRebufferV2.hh"
+#include "NetlistTransformation.hh"
 #include "LrRebuffer.hh"
 #include "PtGraph.hh"
 #include <chrono>
@@ -9,7 +11,7 @@
 #include "rsz/Resizer.hh"
 #include "LocalSta.hh"
 #include "LocalReduceParasitic.hh"
-#include "ParallelVisitor.hh"
+// ParallelVisitor.hh removed — V2 uses EvalContext, not ParallelLrVisitor
 #include "sta/FuncExpr.hh"
 #include "sta/Fuzzy.hh"
 #include "sta/TimingRole.hh"
@@ -43,7 +45,7 @@ using BnetPtr = BufferedNetPtr;
 using BnetMetrics = BufferedNet::Metrics;
 
 int 
-LrRebuffer::bufferNum(const BnetPtr& tree)
+LrRebufferV2::bufferNum(const BnetPtr& tree)
 {
   int num_buffers = 0;
   visitTree(
@@ -59,16 +61,17 @@ LrRebuffer::bufferNum(const BnetPtr& tree)
   return num_buffers;
 }
 
-LrRebuffer::LrRebuffer(rsz::Resizer *resizer, ParallelLrVisitor* visitor) :
+LrRebufferV2::LrRebufferV2(rsz::Resizer *resizer, LocalSta *local_sta,
+                           EvalContext* eval_ctx) :
     Rebuffer(resizer),
-    local_sta_(visitor->localSta()),
-    visitor_(visitor)
+    local_sta_(local_sta),
+    eval_ctx_(eval_ctx)
 {
-  arc_delay_calc_ = visitor->arcDelayCalc();
+  arc_delay_calc_ = eval_ctx_->arc_delay_calc;
 }
 
 void
-LrRebuffer::initGlobalPreamble(sta::dbSta *sta, rsz::Resizer *resizer)
+LrRebufferV2::initGlobalPreamble(sta::dbSta *sta, rsz::Resizer *resizer)
 {
   sta->checkCapacitanceLimitPreamble();
   sta->checkSlewLimitPreamble();
@@ -77,10 +80,10 @@ LrRebuffer::initGlobalPreamble(sta::dbSta *sta, rsz::Resizer *resizer)
 }
 
 void
-LrRebuffer::init()
+LrRebufferV2::init()
 {
   // Per-instance init; global preamble must have been called once in serial
-  // via LrRebuffer::initGlobalPreamble() before this runs.
+  // via LrRebufferV2::initGlobalPreamble() before this runs.
   logger_ = resizer_->logger_;
   dbStaState::init(resizer_->sta_);
   db_network_ = resizer_->db_network_;
@@ -107,20 +110,20 @@ LrRebuffer::init()
     buffer_sizes_index_[size.cell] = &size;
   }
 
-  arc_delay_calc_ = visitor_->arcDelayCalc();
+  arc_delay_calc_ = eval_ctx_->arc_delay_calc;
 
   sta::Corner *corner = corners_->findCorner("default");
   if (corner) {
     initOnCorner(corner);
   } else {
-    // printf("LrRebuffer::init: Warning: 'default' corner not found\n");
+    // printf("LrRebufferV2::init: Warning: 'default' corner not found\n");
   }
 }
 
 void
-LrRebuffer::annotateLoadLMs(PtVertex &drvr_pt_vertex, const BnetPtr& tree)
+LrRebufferV2::annotateLoadLMs(PtVertex &drvr_pt_vertex, const BnetPtr& tree)
 {
-  PtGraph *pt_graph = visitor_->ptGraph();
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
   sta::Vertex *root_vertex = drvr_pt_vertex.vertex();
   // Map from load pin to its LM vector
   std::map<const sta::Pin*, std::vector<float>> load_pin_lm_map;
@@ -129,7 +132,6 @@ LrRebuffer::annotateLoadLMs(PtVertex &drvr_pt_vertex, const BnetPtr& tree)
   PtVertexOutEdgeIterator out_edge_iter(drvr_pt_vertex, pt_graph);
   while (out_edge_iter.hasNext()) {
     PtEdge &pt_edge = out_edge_iter.next();
-    if (!pt_edge.hasBase()) continue;
     sta::Edge *edge = pt_edge.edge();
     if (!edge->isWire()) continue;
     
@@ -139,12 +141,12 @@ LrRebuffer::annotateLoadLMs(PtVertex &drvr_pt_vertex, const BnetPtr& tree)
     
     int lmVecSize = sta::TimingArcSet::wireArcCount() * graph_->apCount();
     if (edge->timingArcSet()->arcCount() > 2) {
-      // printf("LrRebuffer::annotateLoadLMs: Warning: more than 2 timing arcs on edge from driver to load, only first 2 will be considered for LM annotation\n");
+      // printf("LrRebufferV2::annotateLoadLMs: Warning: more than 2 timing arcs on edge from driver to load, only first 2 will be considered for LM annotation\n");
     }
     
     LMValue *load_lms = edge->arcLms();
     if (load_lms == nullptr) {
-      // printf("LrRebuffer::annotateLoadLMs: Warning: edge to pin %s has no LM values\n",
+      // printf("LrRebufferV2::annotateLoadLMs: Warning: edge to pin %s has no LM values\n",
              // network_->pathName(load_pin));
       continue;
     }
@@ -171,7 +173,7 @@ LrRebuffer::annotateLoadLMs(PtVertex &drvr_pt_vertex, const BnetPtr& tree)
             if (it != load_pin_lm_map.end()) {
               node->setLms(it->second);  // Copy LM vector to the node
             } else {
-              // printf("LrRebuffer::annotateLoadLMs: Warning: no LM found for load pin %s\n",
+              // printf("LrRebufferV2::annotateLoadLMs: Warning: no LM found for load pin %s\n",
                      // network_->pathName(load_pin));
               // Set zero LM vector as fallback
               int lmVecSize = sta::TimingArcSet::wireArcCount() * graph_->apCount();
@@ -201,7 +203,7 @@ LrRebuffer::annotateLoadLMs(PtVertex &drvr_pt_vertex, const BnetPtr& tree)
 //   - R_drv: LibertyPort::driveResistance()  (TODO: differential R_eff)
 // ---------------------------------------------------------------------------
 float
-LrRebuffer::computeNetSensitivity(const sta::Pin *drvr_pin,
+LrRebufferV2::computeNetSensitivity(const sta::Pin *drvr_pin,
                                    PtVertex &drvr_pt_vertex,
                                    float /*avg_delay*/, float /*avg_leakage*/)
 {
@@ -220,7 +222,7 @@ LrRebuffer::computeNetSensitivity(const sta::Pin *drvr_pin,
     return -std::numeric_limits<float>::infinity();
   const float r_drv = drvr_port->driveResistance();
 
-  PtGraph *pt_graph = visitor_->ptGraph();
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
   const sta::DcalcAPIndex ap_index = pt_graph->dcalcAnalysisPt()->index();
   const sta::DcalcAPIndex ap_count = graph_->apCount();
 
@@ -288,7 +290,7 @@ LrRebuffer::computeNetSensitivity(const sta::Pin *drvr_pin,
 
   // ---- Top-down: accumulate R_up, evaluate S(v,e) ----
   float max_sensitivity = -std::numeric_limits<float>::infinity();
-  const float power_penalty = visitor_->swapCost(0.0f, buf_leakage);
+  const float power_penalty = eval_ctx_->swapCost(0.0f, buf_leakage);
 
   std::function<void(const BnetPtr&, float)> topDown =
       [&](const BnetPtr &node, float r_up) {
@@ -313,7 +315,7 @@ LrRebuffer::computeNetSensitivity(const sta::Pin *drvr_pin,
 
               float decoupling = lambda_edge * r_up_k * (c_down_k - c_buf_in);
               float penalty_t = lambda_edge * (d_buf_int + r_buf * c_down_k);
-              float s = visitor_->swapCost(decoupling - penalty_t, 0.0f)
+              float s = eval_ctx_->swapCost(decoupling - penalty_t, 0.0f)
                         - power_penalty;
               max_sensitivity = std::max(max_sensitivity, s);
             }
@@ -335,7 +337,7 @@ LrRebuffer::computeNetSensitivity(const sta::Pin *drvr_pin,
               float c_down = node->ref()->cap();
               float decoupling = lambda_node * r_up * (c_down - c_buf_in);
               float penalty_t = lambda_left * (d_buf_int + r_buf * c_down);
-              float s = visitor_->swapCost(decoupling - penalty_t, 0.0f)
+              float s = eval_ctx_->swapCost(decoupling - penalty_t, 0.0f)
                         - power_penalty;
               max_sensitivity = std::max(max_sensitivity, s);
             }
@@ -343,7 +345,7 @@ LrRebuffer::computeNetSensitivity(const sta::Pin *drvr_pin,
               float c_down = node->ref2()->cap();
               float decoupling = lambda_node * r_up * (c_down - c_buf_in);
               float penalty_t = lambda_right * (d_buf_int + r_buf * c_down);
-              float s = visitor_->swapCost(decoupling - penalty_t, 0.0f)
+              float s = eval_ctx_->swapCost(decoupling - penalty_t, 0.0f)
                         - power_penalty;
               max_sensitivity = std::max(max_sensitivity, s);
             }
@@ -362,12 +364,11 @@ LrRebuffer::computeNetSensitivity(const sta::Pin *drvr_pin,
 }
 
 int
-LrRebuffer::applyBufferingToDb()
+LrRebufferV2::applyBufferingToDb()
 {
   odb::dbNet* const db_net = db_network_->flatNet(drvr_pin_);
   int count = exportBufferTree(best_bnet_, db_network_->dbToSta(db_net), 1, nullptr, "rebuffer");
   if (count > 0) {
-    persistBufferParasitics();
     writeLmsToGraph();
     writeTimingToGraph();
   }
@@ -380,55 +381,7 @@ LrRebuffer::applyBufferingToDb()
 }
 
 void
-LrRebuffer::persistBufferParasitics()
-{
-  if (!best_bnet_ || !drvr_pin_)
-    return;
-
-  // Helper: estimate network and sync to local parasitic network map.
-  // PiElmore reduction is done lazily when parasitics are queried.
-  auto persistNet = [&](const sta::Net *net) {
-    if (!net) return;
-    estimate_parasitics_->estimateWireParasiticNoDeleteNetwork(net);
-    local_sta_->syncParasiticNetworkFromGlobal(net);
-  };
-
-  // Persist parasitics for each buffer's output net.
-  using BnetType = rsz::BufferedNetType;
-  std::function<void(const BufferedNetPtr&)> walkTree;
-  walkTree = [&](const BufferedNetPtr& node) {
-    if (!node) return;
-    switch (node->type()) {
-      case BnetType::buffer: {
-        sta::Instance *buf_inst = node->bufInst();
-        if (buf_inst) {
-          sta::LibertyPort *in_port, *out_port;
-          node->bufferCell()->bufferPorts(in_port, out_port);
-          const sta::Pin *out_pin = network_->findPin(buf_inst, out_port);
-          if (out_pin)
-            persistNet(network_->net(out_pin));
-        }
-        walkTree(node->ref());
-        break;
-      }
-      case BnetType::junction:
-        walkTree(node->ref());
-        walkTree(node->ref2());
-        break;
-      case BnetType::wire: case BnetType::via:
-        walkTree(node->ref());
-        break;
-      default: break;
-    }
-  };
-  walkTree(best_bnet_);
-
-  // Also rebuild original driver's net (topology changed by buffer insertion).
-  persistNet(network_->net(drvr_pin_));
-}
-
-void
-LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
+LrRebufferV2::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
 {
   best_bnet_ = nullptr;
   best_cost_ = std::numeric_limits<float>::max();
@@ -437,12 +390,12 @@ LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
   }
   best_vinfo_ = VirtualBufferInfo{};
   if (network_->isTopLevelPort(drvr_pin)) {
-    // printf("LrRebuffer::rebufferPin: Warning: rebuffering does not support top port as the driver pin: %s\n",
+    // printf("LrRebufferV2::rebufferPin: Warning: rebuffering does not support top port as the driver pin: %s\n",
            // network_->name(drvr_pin));
     return;
   }
 
-  PtGraph *pt_graph = visitor_->ptGraph();
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
   sta::LibertyCell *cur_lib_cell = pt_graph->refGate();
   drvr_port_ = cur_lib_cell->findLibertyPort(network_->portName(drvr_pin));
   drvr_pin_ = drvr_pin;
@@ -459,15 +412,14 @@ LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
     BufferedNetPtr bnet = resizer_->makeBufferedNet(drvr_pin, corner_);
 
     if (!bnet) {
-      // printf("LrRebuffer::rebufferPin: Warning: unable to create buffered net for pin %s\n",
+      // printf("LrRebufferV2::rebufferPin: Warning: unable to create buffered net for pin %s\n",
              // network_->name(drvr_pin));
       return;
     }
 
     // Compute RAT and AAT of the local graph
     local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
-    // localAnnotateLoadSlacks removed: slack annotation on BnetPtr nodes
-    // is only used for debug prints, not cost computation.
+    localAnnotateLoadSlacks(bnet, drvr_pt_vertex);
     annotateLoadLMs(drvr_pt_vertex, bnet);
     auto t_setup_end = std::chrono::steady_clock::now();
 
@@ -479,28 +431,28 @@ LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
     for (int i = 0; i < 3; i++) {
       if (i == 2) {
         auto t_coarse_end = std::chrono::steady_clock::now();
-        visitor_->runtime_map_["rebuffer_coarse"]
+        (*eval_ctx_->runtime_map)["rebuffer_coarse"]
             += std::chrono::duration<double>(t_coarse_end - t_coarse_start).count();
       }
       auto t_iter_start = std::chrono::steady_clock::now();
       bnet = bufferForTiming(drvr_vid, bnet, allow_topology_rewrite, /*last_iteration=*/i == 2);
       if (i == 2) {
         auto t_iter_end = std::chrono::steady_clock::now();
-        visitor_->runtime_map_["rebuffer_precise"]
+        (*eval_ctx_->runtime_map)["rebuffer_precise"]
             += std::chrono::duration<double>(t_iter_end - t_iter_start).count();
       }
       if (!bnet) {
-        // printf("LrRebuffer::rebufferPin: Warning: bufferForTiming failed for pin %s at iteration %d\n",
+        // printf("LrRebufferV2::rebufferPin: Warning: bufferForTiming failed for pin %s at iteration %d\n",
                // network_->name(drvr_pin), i);
         break;
       }
     }
 
-    visitor_->runtime_map_["rebuffer_setup"]
+    (*eval_ctx_->runtime_map)["rebuffer_setup"]
         += std::chrono::duration<double>(t_setup_end - t_setup_start).count();
-    visitor_->runtime_map_["rebuffer_total"]
+    (*eval_ctx_->runtime_map)["rebuffer_total"]
         += std::chrono::duration<double>(std::chrono::steady_clock::now() - t_total_start).count();
-    visitor_->runtime_map_["rebuffer_pin_count"] += 1.0;
+    (*eval_ctx_->runtime_map)["rebuffer_pin_count"] += 1.0;
 
     if (!bnet) {
       return;
@@ -510,13 +462,9 @@ LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
   }
 }
 
-////////////////////////////////////////////////////////////////
-// Two-phase buffering for CombinedVisitor cache reuse
-////////////////////////////////////////////////////////////////
-
 rsz::BufferedNetPtr
-LrRebuffer::prepareBufferOptions(const sta::Pin *drvr_pin,
-                                 PtVertex &drvr_pt_vertex)
+LrRebufferV2::prepareBufferOptions(const sta::Pin *drvr_pin,
+                                   PtVertex &drvr_pt_vertex)
 {
   // Reset state
   best_bnet_ = nullptr;
@@ -529,7 +477,7 @@ LrRebuffer::prepareBufferOptions(const sta::Pin *drvr_pin,
   if (network_->isTopLevelPort(drvr_pin))
     return nullptr;
 
-  PtGraph *pt_graph = visitor_->ptGraph();
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
   sta::LibertyCell *cur_lib_cell = pt_graph->refGate();
   drvr_port_ = cur_lib_cell->findLibertyPort(network_->portName(drvr_pin));
   drvr_pin_ = drvr_pin;
@@ -544,8 +492,9 @@ LrRebuffer::prepareBufferOptions(const sta::Pin *drvr_pin,
   if (!bnet)
     return nullptr;
 
-  // Step 2: Annotate LMs on tree nodes (cell-independent)
+  // Step 2: Annotate LMs and load slacks on tree nodes (cell-independent)
   local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
+  localAnnotateLoadSlacks(bnet, drvr_pt_vertex);
   annotateLoadLMs(drvr_pt_vertex, bnet);
 
   // Step 3: 2 rounds of coarse bufferForTiming (cell-independent heuristic)
@@ -562,12 +511,12 @@ LrRebuffer::prepareBufferOptions(const sta::Pin *drvr_pin,
 }
 
 void
-LrRebuffer::evaluateBufferOnCandidate(sta::VertexId drvr_vid,
-                                      const rsz::BufferedNetPtr &prepared_bnet)
+LrRebufferV2::evaluateBufferOnCandidate(sta::VertexId drvr_vid,
+                                         const rsz::BufferedNetPtr &prepared_bnet)
 {
   // Run 1 round of precise bufferForTiming on the current PtGraph state.
-  // PtGraph should already reflect the resize candidate via virtualReplaceCell
-  // + increAndGetLocalTimingCost before calling this.
+  // PtGraph should already reflect the resize candidate via
+  // increAndGetLocalTimingCost before calling this.
   const bool allow_topology_rewrite = true;
   BufferedNetPtr result = bufferForTiming(drvr_vid, prepared_bnet,
                                          allow_topology_rewrite,
@@ -578,6 +527,85 @@ LrRebuffer::evaluateBufferOnCandidate(sta::VertexId drvr_vid,
   }
 }
 
+void
+LrRebufferV2::cleanupVirtualBuffer()
+{
+  if (!best_vinfo_.vertex_ids.empty()) {
+    removeVirtualBuffer(best_vinfo_);
+  }
+  best_vinfo_ = VirtualBufferInfo{};
+  best_bnet_ = nullptr;
+  best_cost_ = std::numeric_limits<float>::max();
+}
+
+void
+LrRebufferV2::localAnnotateLoadSlacks(const BnetPtr& tree, PtVertex &drvr_pt_vertex)
+{
+  for (auto rf_index : sta::RiseFall::rangeIndex()) {
+    arrival_paths_[rf_index] = nullptr;
+  }
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
+
+  visitTree(
+      [&](auto& recurse, int level, const BnetPtr& node) -> int {
+        switch (node->type()) {
+          case BnetType::via:
+          case BnetType::wire:
+          case BnetType::buffer:
+            return recurse(node->ref());
+          case BnetType::junction:
+            return recurse(node->ref()) + recurse(node->ref2());
+          case BnetType::load: {
+            const sta::Pin* load_pin = node->loadPin();
+            sta::Vertex* vertex = graph_->pinLoadVertex(load_pin);
+            PtVertex *pt_vertex = pt_graph->ptVertex(vertex);
+            sta::Path* req_path
+                = local_sta_->ptVertexWorstSlackPath(*pt_vertex, sta::MinMax::max());
+            sta::Path* arrival_path = req_path;
+
+            while (req_path && arrival_path->vertex(sta_) != drvr_pt_vertex.vertex()) {
+              arrival_path = arrival_path->prevPath();
+              if (!arrival_path) {
+                // printf("LrRebufferV2::annotateLoadSlacks: no arrival path from root to load %s\n",
+                       // network_->pathName(load_pin));
+                break;
+              }
+            }
+
+            if (!arrival_path) {
+              node->setSlackTransition(nullptr);
+              node->setSlack(FixedDelay::INF);
+            } else {
+              const sta::RiseFall* rf = req_path->transition(sta_);
+              node->setSlackTransition(rf->asRiseFallBoth());
+              sta::Delay slack_value = req_path->required() - arrival_path->arrival();
+              if (sta::delayInf(slack_value)
+                  || slack_value > 100.0 || slack_value < -100.0) {
+                node->setSlack(FixedDelay::INF);
+              } else {
+                node->setSlack(FixedDelay(slack_value, resizer_));
+              }
+
+              if (arrival_paths_[rf->index()] == nullptr) {
+                arrival_paths_[rf->index()] = arrival_path;
+              } else {
+                // If there are multiple loads, we use the critial
+                // path among them to do driver delay calculation.
+                if (arrival_path->slack(this) < arrival_paths_[rf->index()]->slack(this)) {
+                  arrival_paths_[rf->index()] = arrival_path;
+                }
+              }
+            }
+            return 1;
+          }
+          default:
+            // printf("LrRebufferV2::annotateLoadSlacks: Warning: unhandled BufferedNet type %d\n",
+                   // static_cast<int>(node->type()));
+            return 0;
+        }
+      },
+      tree);
+}
 
 static std::optional<int> findWireLayer(BnetPtr node)
 {
@@ -638,7 +666,7 @@ static BufferedNetPtr createBnetJunction(rsz::Resizer* resizer,
 
 // Find buffering choices with best delay LM sum and leakage
 BnetPtr
-LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
+LrRebufferV2::bufferForTiming(VertexId drvr_vertex_id,
                             const BnetPtr &tree,
                             bool allow_topology_rewrite,
                             bool last_iteration)
@@ -691,7 +719,7 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
                 // of the algorithm (wire_length_step_ should have been chosen
                 // to always allow a minimal size buffer to drive itself without
                 // ERC)
-                // printf("LrRebuffer::bufferForTiming: Warning: Buffer pin %s: wire step options empty\n",
+                // printf("LrRebufferV2::bufferForTiming: Warning: Buffer pin %s: wire step options empty\n",
                        // network_->name(pin_));
               }
               return opts1;
@@ -726,7 +754,7 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
               insertBufferOptions(opts, level, std::min(remaining_wl, step));
 
               if (opts.empty()) {
-                // printf("LrRebuffer::bufferForTiming: Warning: Buffer pin %s: wire step options empty at round %d\n",
+                // printf("LrRebufferV2::bufferForTiming: Warning: Buffer pin %s: wire step options empty at round %d\n",
                        // network_->name(pin_), round);
               }
               round++;
@@ -830,14 +858,14 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
           }
           
           default:
-            // printf("LrRebuffer::bufferForTiming: Error: unhandled BufferedNet type\n");
+            // printf("LrRebufferV2::bufferForTiming: Error: unhandled BufferedNet type\n");
             return {};
         }
       },
       tree);
 
   if (top_opts.empty()) {
-    // printf("LrRebuffer::bufferForTiming: Warning: no buffering options generated for pin %s\n",
+    // printf("LrRebufferV2::bufferForTiming: Warning: no buffering options generated for pin %s\n",
            // network_->name(pin_));
   }
 
@@ -847,7 +875,7 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
   int best_index = 0;
   int i = 1;
 
-  PtGraph *pt_graph = visitor_->ptGraph();
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
   float origial_slack = 0.0f;
   if (last_iteration) {
     local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
@@ -912,22 +940,22 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
 }
 
 LMValue
-LrRebuffer::evaluateOptionCoarse(VertexId pt_vertex_id, const BnetPtr& option)
+LrRebufferV2::evaluateOptionCoarse(VertexId pt_vertex_id, const BnetPtr& option)
 {
   float max_slew = 0.0f;
   float cell_delay_lm_sum = cellDelayLmSum(pt_vertex_id, option, max_slew);
   if (hasViolation(option, max_slew)) {
     return INF;
   }
-  return visitor_->swapCost(option->bufferCost() + cell_delay_lm_sum,
+  return eval_ctx_->swapCost(option->bufferCost() + cell_delay_lm_sum,
                             option->leakage());
 }
 
 LMValue
-LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
+LrRebufferV2::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
                            float original_slack)
 {
-  PtGraph *pt_graph = visitor_->ptGraph();
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
   float total_cost = INF;
   float max_slew = 0.0f;
   float cell_delay_lm_sum = cellDelayLmSum(pt_vertex_id, option, max_slew);
@@ -950,7 +978,7 @@ LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
 
   float thresh = original_slack;
   if (slack_after > thresh) {
-    total_cost = visitor_->swapCost(delay_lm_sum, option->leakage());
+    total_cost = eval_ctx_->swapCost(delay_lm_sum, option->leakage());
   }
 
   removeVirtualBuffer(vinfo);
@@ -959,7 +987,7 @@ LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
 }
 
 bool
-LrRebuffer::hasViolation(const BnetPtr& option, sta::Slew slew)
+LrRebufferV2::hasViolation(const BnetPtr& option, sta::Slew slew)
 {
   if (!loadSlewSatisfactory(drvr_port_, option)) return true;
   if (slew > drvr_pin_max_slew_ && option->cap() > drvr_load_high_water_mark_) {
@@ -969,7 +997,7 @@ LrRebuffer::hasViolation(const BnetPtr& option, sta::Slew slew)
 }
 
 void 
-LrRebuffer::insertBufferOptions(BnetSeq& opts,
+LrRebufferV2::insertBufferOptions(BnetSeq& opts,
                                 int level,
                                 int next_segment_wl)
 {
@@ -1099,12 +1127,12 @@ LrRebuffer::insertBufferOptions(BnetSeq& opts,
 }
 
 float
-LrRebuffer::cellDelayLmSum(VertexId pt_vertex_id,
+LrRebufferV2::cellDelayLmSum(VertexId pt_vertex_id,
                            const BnetPtr& load_opt,
                            float &max_slew)
 {
   max_slew = -INF;
-  PtGraph *pt_graph = visitor_->ptGraph();
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
   float delay_lm_sum = 0.0f;
   sta::DcalcAnalysisPt *dcalc_pt = pt_graph->dcalcAnalysisPt();
   sta::DcalcAPIndex ap_index = dcalc_pt->index();
@@ -1116,8 +1144,8 @@ LrRebuffer::cellDelayLmSum(VertexId pt_vertex_id,
     auto *lms = edge->arcLms();
     if (lms == nullptr) {
       PtVertex &v = pt_graph->ptVertex(pt_vertex_id);
-      // printf("LrRebuffer::cellDelayLmSum: Warning: edge from vertex %s has no LM values\n",
-      //        v.vertex() ? v.vertex()->to_string(graph_).c_str() : "virtual");
+      // printf("LrRebufferV2::cellDelayLmSum: Warning: edge from vertex %s has no LM values\n",
+             // v.vertex() ? v.vertex()->to_string(graph_).c_str() : "virtual");
       continue;
     }
     PtVertex &pt_from_vertex = pt_graph->ptVertex(pt_edge.ptFromId());
@@ -1147,11 +1175,11 @@ LrRebuffer::cellDelayLmSum(VertexId pt_vertex_id,
 // Compute the delta (added) cost when inserting a buffer
 // Cost = delay_LM_sum + leakage
 float
-LrRebuffer::computeBufferAddedCost(float buffer_delay_seconds,
+LrRebufferV2::computeBufferAddedCost(float buffer_delay_seconds,
                                     float buffer_leakage,
                                     const BnetPtr& load_opt)
 {
-  sta::DcalcAPIndex ap_index = visitor_->ptGraph()->dcalcAnalysisPt()->index();
+  sta::DcalcAPIndex ap_index = eval_ctx_->pt_graph->dcalcAnalysisPt()->index();
   // Part 1: Calculate buffer delay × LM contribution
   float buffer_delta_delay_lm = 0.0f;
   const auto& load_lms = load_opt->lms();
@@ -1172,7 +1200,7 @@ LrRebuffer::computeBufferAddedCost(float buffer_delay_seconds,
 
 // Add wire segment and update delay LM sum
 BnetPtr
-LrRebuffer::addWire(const BnetPtr& p,
+LrRebufferV2::addWire(const BnetPtr& p,
                     odb::Point wire_end,
                     int wire_layer,
                     int level)
@@ -1226,7 +1254,7 @@ LrRebuffer::addWire(const BnetPtr& p,
 
 // Propagate LMs through a buffer node
 void
-LrRebuffer::propagateLmsThroughBuffer(BnetPtr& buffer_node,
+LrRebufferV2::propagateLmsThroughBuffer(BnetPtr& buffer_node,
                                       const BnetPtr& load_opt)
 {
   // For now, simply copy the load's LM to the buffer output
@@ -1241,12 +1269,12 @@ LrRebuffer::propagateLmsThroughBuffer(BnetPtr& buffer_node,
 
 // Merge two LM vectors (for junction nodes)
 std::vector<float>
-LrRebuffer::mergeLmVectors(const std::vector<float>& lm1, 
+LrRebufferV2::mergeLmVectors(const std::vector<float>& lm1, 
                            const std::vector<float>& lm2)
 {
   size_t size = std::max(lm1.size(), lm2.size());
   if (lm1.size() != lm2.size()) {
-    // printf("LrRebuffer::mergeLmVectors: Warning: LM vector size mismatch (%zu vs %zu), merging with zero-padding\n",
+    // printf("LrRebufferV2::mergeLmVectors: Warning: LM vector size mismatch (%zu vs %zu), merging with zero-padding\n",
            // lm1.size(), lm2.size());
     // fflush(stdout);
   }
@@ -1275,7 +1303,7 @@ LrRebuffer::mergeLmVectors(const std::vector<float>& lm1,
 //            buf_output becomes new drvr_vertex for subtree
 //   wire/via → transparent, follow through to ref()
 void
-LrRebuffer::writeLmsToGraph()
+LrRebufferV2::writeLmsToGraph()
 {
   if (!best_bnet_ || !drvr_pin_)
     return;
@@ -1415,7 +1443,7 @@ LrRebuffer::writeLmsToGraph()
 // the PtVertex paths so that subsequent PtGraph construction on adjacent nets
 // sees valid timing data instead of garbage.
 void
-LrRebuffer::initNewStaVertexPaths(const PtVertex &pt_vertex,
+LrRebufferV2::initNewStaVertexPaths(const PtVertex &pt_vertex,
                                   sta::Vertex *sta_vertex)
 {
   sta::Path *pt_paths = pt_vertex.paths();
@@ -1454,12 +1482,12 @@ LrRebuffer::initNewStaVertexPaths(const PtVertex &pt_vertex,
 }
 
 void
-LrRebuffer::writeTimingToGraph()
+LrRebufferV2::writeTimingToGraph()
 {
   if (!best_bnet_ || !drvr_pin_ || best_vinfo_.failed)
     return;
 
-  PtGraph *pt_graph = visitor_->ptGraph();
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
   sta::Graph *sta_graph = graph_;
 
   // Indices into best_vinfo_ arrays, consumed in tree-walk order.
@@ -1600,7 +1628,7 @@ LrRebuffer::writeTimingToGraph()
 //                 +-- a
 //
 BnetPtr
-LrRebuffer::attemptTopologyRewrite(const BnetPtr& node,
+LrRebufferV2::attemptTopologyRewrite(const BnetPtr& node,
                                    const BnetPtr& left,
                                    const BnetPtr& right,
                                    float best_cap)
@@ -1717,11 +1745,11 @@ LrRebuffer::attemptTopologyRewrite(const BnetPtr& node,
 }
 
 VirtualBufferInfo
-LrRebuffer::buildVirtualBuffer(VertexId drvr_vertex_id,
+LrRebufferV2::buildVirtualBuffer(VertexId drvr_vertex_id,
                                 const BnetPtr &option)
 {
   VirtualBufferInfo info;
-  PtGraph *pt_graph = visitor_->ptGraph();
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
   sta::Vertex *drvr_vertex = pt_graph->ptVertex(drvr_vertex_id).vertex();
 
 
@@ -1909,11 +1937,11 @@ LrRebuffer::buildVirtualBuffer(VertexId drvr_vertex_id,
 }
 
 void
-LrRebuffer::buildVirtualParasitics(VertexId drvr_vertex_id,
+LrRebufferV2::buildVirtualParasitics(VertexId drvr_vertex_id,
                                     const BufferedNetPtr& option,
                                     const VirtualBufferInfo &vinfo)
 {
-  PtGraph *pt_graph = visitor_->ptGraph();
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
   int vi = 0;  // index into vinfo.vertex_ids (pairs: buf_in, buf_out)
 
   using Walker = std::function<void(const BufferedNetPtr&, VertexId, float)>;
@@ -2112,11 +2140,11 @@ buildSyntheticRCNetwork(const BufferedNetPtr& bnet,
 }
 
 void
-LrRebuffer::buildSyntheticParasitics(VertexId drvr_vertex_id,
+LrRebufferV2::buildSyntheticParasitics(VertexId drvr_vertex_id,
                                       const BufferedNetPtr& option,
                                       const VirtualBufferInfo &vinfo)
 {
-  PtGraph *pt_graph = visitor_->ptGraph();
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
   int vi = 0;
 
   // Get the original driver's net as fallback for virtual drivers
@@ -2188,14 +2216,7 @@ LrRebuffer::buildSyntheticParasitics(VertexId drvr_vertex_id,
 
         for (const auto &load : loads) {
           auto it = node_elmore.find(load.node_id);
-          float elmore = 0.0f;
-          if (it != node_elmore.end()) {
-            elmore = it->second;
-          } else {
-            // printf("Warning: buildSyntheticParasitics: Elmore DFS did not reach "
-                   // "load node %u for drvr vertex %u, defaulting to 0\n",
-                   // load.node_id, (unsigned)current_drvr_id);
-          }
+          float elmore = (it != node_elmore.end()) ? it->second : 0.0f;
           pt_pi.addLoad(load.vertex_id, load.pin, elmore);
         }
         delete syn_net;
@@ -2233,20 +2254,9 @@ LrRebuffer::buildSyntheticParasitics(VertexId drvr_vertex_id,
 }
 
 void
-LrRebuffer::cleanupVirtualBuffer()
+LrRebufferV2::removeVirtualBuffer(VirtualBufferInfo &info)
 {
-  if (!best_vinfo_.vertex_ids.empty()) {
-    removeVirtualBuffer(best_vinfo_);
-  }
-  best_vinfo_ = VirtualBufferInfo{};
-  best_bnet_ = nullptr;
-  best_cost_ = std::numeric_limits<float>::max();
-}
-
-void
-LrRebuffer::removeVirtualBuffer(VirtualBufferInfo &info)
-{
-  PtGraph *pt_graph = visitor_->ptGraph();
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
 
   // 0. Clean up virtual parasitics
   for (VertexId vid : info.vertex_ids) {
@@ -2304,9 +2314,9 @@ LrRebuffer::removeVirtualBuffer(VirtualBufferInfo &info)
 }
 
 float
-LrRebuffer::computeVirtualSlack(const VirtualBufferInfo &info)
+LrRebufferV2::computeVirtualSlack(const VirtualBufferInfo &info)
 {
-  PtGraph *pt_graph = visitor_->ptGraph();
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
   return local_sta_->localSlackAroundRef(pt_graph);
 }
 

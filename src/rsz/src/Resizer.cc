@@ -4582,7 +4582,8 @@ bool Resizer::repairSetup(double setup_margin,
                           bool skip_buffer_removal,
                           bool skip_last_gasp,
                           bool skip_vt_swap,
-                          bool skip_crit_vt_swap)
+                          bool skip_crit_vt_swap,
+                          int num_threads)
 {
   utl::SetAndRestore set_match_footprint(match_cell_footprint_,
                                          match_cell_footprint);
@@ -4607,7 +4608,8 @@ bool Resizer::repairSetup(double setup_margin,
                                     skip_buffer_removal,
                                     skip_last_gasp,
                                     skip_vt_swap,
-                                    skip_crit_vt_swap);
+                                    skip_crit_vt_swap,
+                                    num_threads);
 }
 
 void Resizer::reportSwappablePins()
@@ -4702,7 +4704,8 @@ int Resizer::holdBufferCount() const
 ////////////////////////////////////////////////////////////////
 bool Resizer::recoverPower(float recover_power_percent,
                            bool match_cell_footprint,
-                           bool verbose)
+                           bool verbose,
+                           int num_threads)
 {
   utl::SetAndRestore set_match_footprint(match_cell_footprint_,
                                          match_cell_footprint);
@@ -4713,7 +4716,7 @@ bool Resizer::recoverPower(float recover_power_percent,
              == est::ParasiticsSrc::detailed_routing) {
     opendp_->initMacrosAndGrid();
   }
-  return recover_power_->recoverPower(recover_power_percent, verbose);
+  return recover_power_->recoverPower(recover_power_percent, verbose, num_threads);
 }
 ////////////////////////////////////////////////////////////////
 void Resizer::swapArithModules(int path_count,
@@ -4826,6 +4829,50 @@ void Resizer::journalEnd()
              swap_pins_move_->numCommittedMoves(),
              vt_swap_speed_move_->numCommittedMoves(),
              unbuffer_move_->numCommittedMoves());
+}
+
+void Resizer::journalEndLite()
+{
+  debugPrint(logger_, RSZ, "journal", 1, "journal end lite (no timing update)");
+  odb::dbDatabase::commitEco(block_);
+
+  int move_count_ = 0;
+  move_count_ += size_up_move_->numPendingMoves();
+  move_count_ += size_up_match_move_->numPendingMoves();
+  move_count_ += size_down_move_->numPendingMoves();
+  move_count_ += buffer_move_->numPendingMoves();
+  move_count_ += clone_move_->numPendingMoves();
+  move_count_ += swap_pins_move_->numPendingMoves();
+  move_count_ += vt_swap_speed_move_->numPendingMoves();
+  move_count_ += unbuffer_move_->numPendingMoves();
+
+  debugPrint(logger_,
+             RSZ,
+             "opt_moves",
+             2,
+             "COMMIT-LITE {} moves: up {} up_match {} down {} buffer {} clone {} "
+             "swap {} vt_swap {} unbuf {}",
+             move_count_,
+             size_up_move_->numPendingMoves(),
+             size_up_match_move_->numPendingMoves(),
+             size_down_move_->numPendingMoves(),
+             buffer_move_->numPendingMoves(),
+             clone_move_->numPendingMoves(),
+             swap_pins_move_->numPendingMoves(),
+             vt_swap_speed_move_->numPendingMoves(),
+             unbuffer_move_->numPendingMoves());
+
+  accepted_move_count_ += move_count_;
+
+  size_up_move_->commitMoves();
+  size_up_match_move_->commitMoves();
+  size_down_move_->commitMoves();
+  buffer_move_->commitMoves();
+  clone_move_->commitMoves();
+  swap_pins_move_->commitMoves();
+  vt_swap_speed_move_->commitMoves();
+  unbuffer_move_->commitMoves();
+  split_load_move_->commitMoves();
 }
 
 void Resizer::journalMakeBuffer(sta::Instance* buffer)

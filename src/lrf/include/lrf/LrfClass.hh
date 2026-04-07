@@ -74,6 +74,8 @@ enum class PtVertexType : uint8_t {
   RefOutput,    // fanout vertices of the reference instance
   VirtualInput, // virtual device input pin (no base sta::Vertex)
   VirtualOutput,// virtual device output pin (no base sta::Vertex)
+  SiblingLoad,  // sibling load pin on shared fanin net (slew set by wire edge from RefDriver)
+  SiblingDrvr,  // sibling driver pin (output of sibling cell, multi-arc merge point)
   None
 };
 
@@ -82,6 +84,7 @@ enum class PtEdgeType : uint8_t {
   RefInstEdge,     // edges that belong to the reference instance
   VirtualGateEdge, // virtual device gate edge (no base sta::Edge)
   VirtualWireEdge, // wire edge to/from virtual device (no base sta::Edge)
+  SiblingEdge,     // gate edge between sibling vertices on fanin side
   None
 };
 
@@ -95,7 +98,7 @@ enum class PinType : uint8_t {
 };
 
 struct DelayLmSumResult {
-  float delay_lm_sum = 1000000000.0;
+  float delay_lm_sum = sta::INF;
   std::vector<float> vec_lms;
   std::vector<float> vec_delays;
 };
@@ -141,6 +144,7 @@ public:
   ~LocalCellInfo();
   sta::LibertyCellSeq *equiv_cells = nullptr;
   float *cell_leakages = nullptr;
+  bool owns_leakages = true;  // false when sharing per-cell-type cached array
 };
 
 class ParallelLocalCellInfo {
@@ -153,6 +157,25 @@ struct ResizeBenefit {
   sta::Instance* inst;
   float cost_change;    // original_cost - best_cost (positive = beneficial)
   size_t vertex_idx;    // index into TaskArranger::vertices_ for direct access
+};
+
+// Per-instance state for history-based adaptive libcell pruning.
+// Stores the cost-ordered candidate list from a previous "reorder" iteration
+// so that subsequent iterations only evaluate the top fraction.
+struct CellPruningState {
+  std::vector<sta::LibertyCell*> ordered_cells;  // slack-filtered candidates sorted by cost (ascending)
+  int M = 3;                    // reorder interval (adapts per-instance)
+  int iters_since_reorder = 0;  // iterations since last ordering
+};
+
+// Global pruning control, lives in IncreSta, persists across all LR iterations.
+struct PruningControl {
+  std::unordered_map<sta::Instance*, CellPruningState> state;
+  int iteration = 0;            // global resize iteration counter
+  int K = -1;                   // iteration where change_rate first < threshold
+  bool enabled = false;         // true after iteration K
+  float P = 0.20f;              // fraction of candidates to keep (min 2)
+  float change_threshold = 0.10f;  // change rate that triggers ordering
 };
 
 } // namespace lrf

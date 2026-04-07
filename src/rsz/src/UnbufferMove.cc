@@ -348,6 +348,7 @@ bool UnbufferMove::removeBuffer(Instance* buffer)
   // Remove the unused buffer
   if (out_db_net == nullptr) {
     dbInst* dbinst_buffer = db_network_->staToDb(buffer);
+    resizer_->designAreaIncr(-area(dbinst_buffer->getMaster()));
     dbInst::destroy(dbinst_buffer);
     return true;
   }
@@ -429,7 +430,8 @@ bool UnbufferMove::removeBuffer(Instance* buffer)
   // Merge flat net
   db_survivor->mergeNet(db_removed);
 
-  // Remove buffer
+  // Remove buffer — decrement design area before deletion.
+  resizer_->designAreaIncr(-area(db_network_->staToDb(buffer)->getMaster()));
   sta_->deleteInstance(buffer);
 
   // Rename if needed
