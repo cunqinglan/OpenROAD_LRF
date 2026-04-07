@@ -722,6 +722,10 @@ BufferSensitivityOperator::skipInstance(sta::Instance *inst) const
     }
   }
   delete iter;
+  if (local_sta_->debug()) {
+    printf("[DBG-SKIP] inst=%s all_positive=%d\n",
+           db_sta_->network()->pathName(inst), all_positive);
+  }
   return all_positive;
 }
 
@@ -823,8 +827,9 @@ CombinedOperator::tryBufferingOnCandidates(
   rsz::BufferedNetPtr cached_bnet = rebuffer->prepareBufferOptions(
       drvr_pin, pt_graph->ptVertex(drvr_vid));
   if (!cached_bnet) {
-    printf("[DBG-BUF] %s: prepareBufferOptions returned null\n",
-           db_sta_->network()->pathName(inst));
+    if (ctx.debug)
+      printf("[DBG-BUF] %s: prepareBufferOptions returned null\n",
+             db_sta_->network()->pathName(inst));
     return result;
   }
 
@@ -854,17 +859,19 @@ CombinedOperator::tryBufferingOnCandidates(
 
     if (rebuffer->bestBnet()) {
       float cost = rebuffer->bestCost();
-      printf("[DBG-BUF] %s: cell=%s is_orig=%d buf_cost=%.3e ori_cost=%.3e\n",
-             db_sta_->network()->pathName(inst), bc.cell->name(),
-             bc.is_original, cost, ori_cost);
+      if (ctx.debug)
+        printf("[DBG-BUF] %s: cell=%s is_orig=%d buf_cost=%.3e ori_cost=%.3e\n",
+               db_sta_->network()->pathName(inst), bc.cell->name(),
+               bc.is_original, cost, ori_cost);
       if (cost < best_buf_cost) {
         best_buf_cost = cost;
         best_buf_cell = bc.cell;
         best_buf_is_original = bc.is_original;
       }
     } else {
-      printf("[DBG-BUF] %s: cell=%s evaluateBufferOnCandidate -> null bestBnet\n",
-             db_sta_->network()->pathName(inst), bc.cell->name());
+      if (ctx.debug)
+        printf("[DBG-BUF] %s: cell=%s evaluateBufferOnCandidate -> null bestBnet\n",
+               db_sta_->network()->pathName(inst), bc.cell->name());
     }
     rebuffer->cleanupVirtualBuffer();
   }
@@ -1061,8 +1068,7 @@ CombinedOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     ori_cost = ctx.swapCost(ori_delay_lm_sum, ori_leakage);
   }
 
-  static int dbg_combined_count = 0;
-  if (++dbg_combined_count <= 30) {
+  if (ctx.debug) {
     float delay_part = ctx.PT_tradeoff * ori_delay_lm_sum / ctx.average_delay;
     float leak_part = ori_leakage / ctx.average_leakage;
     printf("[DBG-COMBINED] %s ori_cell=%s delay_lm=%.3e leak=%.3e "

@@ -56,6 +56,9 @@ struct EvalContext {
   float density_weight = 0.0f;    // α coefficient
   float average_area = 1.0f;      // normalizer (liberty area units)
 
+  float bakoglu_k = 2.5f;     // Bakoglu gate coefficient for buffer screening
+  bool debug = false;          // Print detailed rebuffer/eval diagnostics
+
   float swapCost(float delay_lm_sum, float power,
                  float density_cost = 0.0f) const;
 };

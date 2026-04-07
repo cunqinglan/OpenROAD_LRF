@@ -515,18 +515,16 @@ PtGraph::popSentinelTail()
     for (EdgeId eid = v.out_edges_; eid != pt_edge_id_null;
          eid = pt_edges_[eid].vertex_out_next_) {
       if (static_cast<size_t>(eid) >= e_size) {
-        printf("[DBG-POP] STALE out_edge: vertex %zu out_edge_id %u >= edge_size %zu\n",
+        printf("Warning: STALE out_edge: vertex %zu out_edge_id %u >= edge_size %zu\n",
                vi, eid, e_size);
-        fflush(stdout);
         break;
       }
     }
     for (EdgeId eid = v.in_edges_; eid != pt_edge_id_null;
          eid = pt_edges_[eid].vertex_in_link_) {
       if (static_cast<size_t>(eid) >= e_size) {
-        printf("[DBG-POP] STALE in_edge: vertex %zu in_edge_id %u >= edge_size %zu\n",
+        printf("Warning: STALE in_edge: vertex %zu in_edge_id %u >= edge_size %zu\n",
                vi, eid, e_size);
-        fflush(stdout);
         break;
       }
     }

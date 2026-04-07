@@ -76,3 +76,4 @@ VERSION.md
 test/lrf
 # LRF test directory (untracked, shared across branches)
 test/lrf/
+test/lrf_bak/

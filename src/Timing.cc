@@ -659,16 +659,17 @@ Timing::testCombinedResizeBuffering(size_t max_resize_num, size_t iterations,
 
 void
 Timing::testBufferOnly(size_t iterations, float PT_tradeoff,
-  const char *lr_helper_method) {
+  const char *lr_helper_method, float bakoglu_k) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  printf("Starting testBufferOnly with %zu threads\n", thread_num);
+  printf("Starting testBufferOnly with %zu threads, bakoglu_k=%.2f\n",
+         thread_num, bakoglu_k);
   fflush(stdout);
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
   sta::dbSta* sta = getSta();
   lrf::TestLrf test_lrf;
   test_lrf.testBufferOnly(sta, resizer, design_->getBlock(),
-    thread_num, iterations, PT_tradeoff, lr_helper_method);
+    thread_num, iterations, PT_tradeoff, lr_helper_method, bakoglu_k);
 }
 
 void
@@ -760,6 +761,39 @@ Timing::testRepairSlew()
   sta::dbSta* sta = getSta();
   lrf::TestLrf test_lrf;
   test_lrf.testRepairSlew(sta, resizer, design_->getBlock());
+}
+
+void
+Timing::testBufferingRsz(float PT_tradeoff, int top_n)
+{
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  lrf::TestLrf test_lrf;
+  test_lrf.testBufferingRsz(sta, resizer, design_->getBlock(),
+                             thread_num, PT_tradeoff, top_n);
+}
+
+void
+Timing::probeRszBnet() {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  lrf::TestLrf test_lrf;
+  test_lrf.probeRszBnet(sta, resizer, design_->getBlock(), thread_num);
+}
+
+void
+Timing::probeBufferOneByOne(bool use_rsz) {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  lrf::TestLrf test_lrf;
+  test_lrf.probeBufferOneByOne(sta, resizer, design_->getBlock(),
+                                thread_num, use_rsz);
 }
 
 void

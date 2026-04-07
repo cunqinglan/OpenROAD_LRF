@@ -68,9 +68,17 @@ public:
                       float PT_tradeoff);
   void setMaxResizeNum(size_t max_resize_num);
   void setBufferOnlyMode(bool mode) { buffer_only_mode_ = mode; }
+  void setBakogluK(float k) { bakoglu_k_ = k; }
+  void setDebug(bool d) { debug_ = d; }
 
   void parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
                          int top_n = 100);
+  // Same sensitivity screening, but apply rsz-style rebuffering (repair_timing)
+  // instead of LRF LrRebuffer.
+  void parallelBufferingRsz(rsz::Resizer *resizer, float PT_tradeoff,
+                             int top_n = 100);
+  void probeRszBnet(rsz::Resizer *resizer, float PT_tradeoff = 10.0f,
+                    int top_n = 100);
 
   // Single-pass resize + buffering using CombinedOperator + ParallelVisitor.
   void parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
@@ -158,6 +166,8 @@ protected:
   float density_weight_ = 0.0f;
   float average_area_ = 1.0f;
   bool buffer_only_mode_ = false;
+  float bakoglu_k_ = 2.5f;
+  bool debug_ = false;
 
 };
 

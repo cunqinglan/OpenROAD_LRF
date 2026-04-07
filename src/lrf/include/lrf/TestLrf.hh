@@ -156,7 +156,8 @@ public:
                       size_t thread_num,
                       size_t iterations = 6,
                       float PT_tradeoff = 10.0,
-                      std::string lr_helper_method = "RapidLRHelper");
+                      std::string lr_helper_method = "RapidLRHelper",
+                      float bakoglu_k = 2.5f);
 
   // Resize by array with precheck (ParallelVisitor + ResizePrecheckOperator)
   void testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
@@ -217,6 +218,25 @@ public:
   void testRepairSlew(sta::dbSta* sta,
                       rsz::Resizer *resizer,
                       odb::dbBlock *block);
+
+  // Sensitivity screening + rsz-style rebuffering (repair_timing algorithm).
+  void testBufferingRsz(sta::dbSta* sta,
+                        rsz::Resizer *resizer,
+                        odb::dbBlock *block,
+                        size_t thread_num,
+                        float PT_tradeoff = 100.0f,
+                        int top_n = 100);
+  // Probe: try rebuffering one instance at a time, report WNS/TNS delta, revert.
+  void probeBufferOneByOne(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num = 10,
+                            bool use_rsz = true);
+
+  // Probe: RSZ bnet generation + LRF local timing evaluation (diagnostic only).
+  void probeRszBnet(sta::dbSta* sta, rsz::Resizer *resizer,
+                    odb::dbBlock *block, size_t thread_num = 10);
+
   // ── Unified entry point ──
   // Single function that dispatches by LrConfig::mode.
   // Replaces testParallelLrResizeByArray, WithBuffering, WithPrecheck, etc.

@@ -1254,8 +1254,6 @@ LocalSta::computeVirtualLoadCap(PtVertex &drvr_pt_vertex,
   if (drvr_port) {
     float dcap = drvr_port->capacitance(drvr_rf, min_max);
     load_cap += dcap;
-    // printf("[DEBUG computeVirtualLoadCap] drvr_port=%s self_cap=%.6f pF\n",
-    //        drvr_port->name(), dcap * 1e12);
   } else {
     printf("[WARNING computeVirtualLoadCap] drvr_port=NULL (pin=%p)\n",
            (void*)drvr_pin);
@@ -1286,14 +1284,10 @@ LocalSta::computeVirtualLoadCap(PtVertex &drvr_pt_vertex,
       if (load_port) {
         float pin_cap = load_port->capacitance(drvr_rf, min_max);
         load_cap += pin_cap;
-        // printf("[DEBUG computeVirtualLoadCap] load=%s cap=%.6f\n",
-        //        load_name.c_str(), pin_cap * 1e12);
         load_count++;
       }
     }
   }
-  // printf("[DEBUG computeVirtualLoadCap] total_cap=%.6f (loads=%d)\n",
-  //        load_cap * 1e12, load_count);
   return load_cap;
 }
 

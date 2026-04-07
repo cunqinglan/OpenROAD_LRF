@@ -37,9 +37,13 @@ struct LrConfig {
 
   // ── Buffering ──
   int buffer_top_n = 100;
+  float bakoglu_k = 2.5f;    // Bakoglu gate coefficient (lower = more nets eligible for buffering)
 
   // ── Initialization ──
   bool initialize = false;           // Run Sharma 3-step init before LR
+
+  // ── Debug ──
+  bool debug = false;             // Print detailed rebuffer/eval diagnostics
 
   // ── Checkpoint ──
   // If non-empty, save DEF + LM + verilog at first regression point.

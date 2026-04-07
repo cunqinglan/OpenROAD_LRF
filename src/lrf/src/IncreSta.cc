@@ -704,6 +704,7 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
     visitor->evalContext().density_weight = density_weight_;
     visitor->evalContext().average_area = average_area_;
   }
+  visitor->evalContext().debug = debug_;
 
   local_sta_->runResize(resizer, visitor);
 
@@ -803,6 +804,166 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
   auto end_total = std::chrono::high_resolution_clock::now();
   printf("IncreSta::parallelBuffering total time %.3f s\n",
          std::chrono::duration<double>(end_total - start_total).count());
+}
+
+void
+IncreSta::parallelBufferingRsz(rsz::Resizer *resizer, float PT_tradeoff,
+                                int top_n)
+{
+  printf("IncreSta::parallelBufferingRsz start (rsz-style rebuffering)\n");
+  auto start_total = std::chrono::high_resolution_clock::now();
+
+  float avg_delay = averageDelayOnCritPath();
+  float avg_leakage = averageLeakage();
+
+  local_sta_->initParallel();
+
+  // Reuse the same sensitivity screening as parallelBuffering
+  std::vector<size_t> selected = bufferingVerticesCandidateBySensitivity(
+      resizer, avg_delay, avg_leakage, top_n);
+  if (selected.empty()) {
+    printf("No buffering candidates found. Skipping.\n");
+    return;
+  }
+
+  TaskArranger *task_arranger = local_sta_->taskArranger();
+  sta::Network *network = network_;
+  sta::Graph *graph = sta_->graph();
+  est::EstimateParasitics *est = resizer->getEstimateParasitics();
+
+  // Create a single LrRebuffer just for init / rebufferPinRsz
+  EvalContext dummy_ctx;
+  dummy_ctx.pt_graph = nullptr;
+  dummy_ctx.arc_delay_calc = sta_->arcDelayCalc();
+  std::map<std::string, double> rt;
+  dummy_ctx.runtime_map = &rt;
+  LrRebuffer lr_rebuffer(resizer, local_sta_, &dummy_ctx);
+  LrRebuffer::initGlobalPreamble(sta_, resizer);
+  lr_rebuffer.init();
+
+  int total_inserted = 0;
+  int candidates_tried = 0;
+  auto start_buf = std::chrono::high_resolution_clock::now();
+
+  for (size_t vid : selected) {
+    InstVertex *iv = task_arranger->vertex(vid);
+    sta::Instance *inst = iv->inst();
+
+    // Find driver pins with negative slack
+    sta::InstancePinIterator *iter = network->pinIterator(inst);
+    while (iter->hasNext()) {
+      sta::Pin *pin = iter->next();
+      if (!network->isDriver(pin))
+        continue;
+      sta::Vertex *vtx = graph->pinDrvrVertex(pin);
+      if (!vtx)
+        continue;
+      if (sta_->vertexSlack(vtx, sta::MinMax::max()) >= 0.0f)
+        continue;
+
+      candidates_tried++;
+      int count = lr_rebuffer.rebufferPinRsz(pin);
+      if (count > 0) {
+        total_inserted += count;
+        // Update parasitics for the affected net
+        est->estimateWireParasiticNoDeleteNetwork(network->net(pin));
+        printf("  rebufferPinRsz: %s inserted %d buffers\n",
+               network->pathName(pin), count);
+      }
+    }
+    delete iter;
+  }
+
+  auto end_buf = std::chrono::high_resolution_clock::now();
+
+  sta_->updateTiming(true);
+  sta_->findRequireds();
+  double tns_after = sta_->totalNegativeSlack(sta::MinMax::max());
+  double wns_after = sta_->worstSlack(sta::MinMax::max());
+  printf("After rsz buffering: TNS: %.4f ps, WNS: %.4f ps\n",
+         tns_after * 1e12, wns_after * 1e12);
+  printf("  candidates tried: %d, buffers inserted: %d\n",
+         candidates_tried, total_inserted);
+  printf("  buffering time: %.3f s\n",
+         std::chrono::duration<double>(end_buf - start_buf).count());
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  printf("IncreSta::parallelBufferingRsz total time %.3f s\n",
+         std::chrono::duration<double>(end_total - start_total).count());
+}
+
+void
+IncreSta::probeRszBnet(rsz::Resizer *resizer, float PT_tradeoff, int top_n)
+{
+  printf("IncreSta::probeRszBnet start\n");
+
+  float avg_delay = averageDelayOnCritPath();
+  float avg_leakage = averageLeakage();
+
+  local_sta_->initParallel();
+  if (!swap_cell_presaved_)
+    makeSwappableCellsCache(resizer);
+
+  std::vector<size_t> selected = bufferingVerticesCandidateBySensitivity(
+      resizer, avg_delay, avg_leakage, top_n);
+  if (selected.empty()) {
+    printf("No buffering candidates. Done.\n");
+    return;
+  }
+
+  TaskArranger *task_arranger = local_sta_->taskArranger();
+  sta::Network *network = network_;
+  sta::Graph *graph = sta_->graph();
+
+  EvalContext probe_ctx;
+  probe_ctx.arc_delay_calc = sta_->arcDelayCalc();
+  probe_ctx.average_delay = avg_delay;
+  probe_ctx.average_leakage = avg_leakage;
+  probe_ctx.PT_tradeoff = PT_tradeoff;
+  std::map<std::string, double> rt;
+  probe_ctx.runtime_map = &rt;
+
+  LrRebuffer lr_rebuffer(resizer, local_sta_, &probe_ctx);
+  LrRebuffer::initGlobalPreamble(sta_, resizer);
+  lr_rebuffer.init();
+
+  sta_->findRequireds();
+
+  int probed = 0;
+  for (size_t vid : selected) {
+    InstVertex *iv = task_arranger->vertex(vid);
+    sta::Instance *inst = iv->inst();
+
+    sta::InstancePinIterator *iter = network->pinIterator(inst);
+    while (iter->hasNext()) {
+      sta::Pin *pin = iter->next();
+      if (!network->isDriver(pin)) continue;
+      sta::Vertex *vtx = graph->pinDrvrVertex(pin);
+      if (!vtx || sta_->vertexSlack(vtx, sta::MinMax::max()) >= 0.0f) continue;
+
+      // Build PtGraph for this instance (includes parasitic init)
+      PtGraph *pt_graph = local_sta_->makePtGraph(inst, true);
+      if (!pt_graph) continue;
+      probe_ctx.pt_graph = pt_graph;
+
+      // Find driver PtVertex
+      PtVertex *drvr_pv = nullptr;
+      for (size_t i = 0; i < pt_graph->vertexCount(); i++) {
+        PtVertex &pv = pt_graph->ptVertex(i);
+        if (pv.vertex() && pv.type() == PtVertexType::RefOutput
+            && pv.vertex()->pin() == pin) {
+          drvr_pv = &pv;
+          break;
+        }
+      }
+      if (!drvr_pv) continue;
+
+      lr_rebuffer.probeRszBnetWithLocalEval(pin, *drvr_pv);
+      probed++;
+    }
+    delete iter;
+  }
+  printf("probeRszBnet: probed %d pins\n", probed);
 }
 
 std::vector<size_t>
@@ -937,6 +1098,7 @@ IncreSta::parallelResizeByArrayWithPrecheck(
     visitor->evalContext().density_weight = density_weight_;
     visitor->evalContext().average_area = average_area_;
   }
+  visitor->evalContext().debug = debug_;
 
   local_sta_->runResize(resizer, visitor);
   auto t_resize_end = std::chrono::high_resolution_clock::now();
@@ -981,6 +1143,7 @@ IncreSta::parallelResizeByArrayWithPrecheck(
       cp_visitor->evalContext().density_weight = density_weight_;
       cp_visitor->evalContext().average_area = average_area_;
     }
+    cp_visitor->evalContext().debug = debug_;
     std::chrono::high_resolution_clock::time_point start_cps =
         std::chrono::high_resolution_clock::now();
     LrSizer lr_sizer(sta_, lr_helper_, cp_visitor);
@@ -1143,6 +1306,8 @@ IncreSta::bufferingVerticesCandidateBySensitivity(
           sta_, local_sta_, resizer, &visitor->evalContext());
   visitor->setOperator(std::move(sens_op));
   visitor->init(avg_delay, avg_leakage, wns, 100.0f, nullptr);
+  visitor->evalContext().bakoglu_k = bakoglu_k_;
+  visitor->evalContext().debug = debug_;
   visitor->setPrecheckResults(&results);
 
   // Ensure required times are computed before parallel dispatch
