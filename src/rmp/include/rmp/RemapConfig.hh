@@ -15,11 +15,11 @@ struct RemapConfig {
 
   // Gate-cloning threshold: if the extracted cut has more instances than this,
   // build a gate-clone cut instead of sending the oversized cut to ABC.
-  size_t max_cut_instances = 5;
+  size_t max_cut_instances = 10;
 
   // PI safety limit: skip a cut (even after gate cloning) when it has more
   // primary inputs than this, to avoid ABC enumeration hangs.
-  size_t max_cut_pis = 10;
+  size_t max_cut_pis = 15;
 
   // Number of mapping solutions ABC enumerates in the initial pass.
   int max_solutions = 150;
