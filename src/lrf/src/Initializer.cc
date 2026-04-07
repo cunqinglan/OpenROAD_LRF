@@ -109,6 +109,76 @@ Initializer::run()
          std::chrono::duration<double>(t2 - t1).count(),
          std::chrono::duration<double>(t3 - t2).count(),
          std::chrono::duration<double>(t3 - t0).count());
+
+  // ── Post-init violation summary (same method as get_score) ──
+  sta_->ensureGraph();
+  sta_->findDelays();
+  sta::Graph* graph = sta_->graph();
+  sta::dbNetwork* db_network = sta_->getDbNetwork();
+  const Corner* corner = sta_->cmdCorner();
+  const MinMax* max = MinMax::max();
+  sta::LibertyLibrary* sum_lib = db_network->defaultLibertyLibrary();
+  const sta::DcalcAnalysisPt* sum_ap = corner->findDcalcAnalysisPt(max);
+
+  int drvr_slew_cnt = 0, load_slew_cnt = 0, cap_cnt = 0;
+  float drvr_slew_sum = 0, load_slew_sum = 0, cap_sum = 0;
+
+  for (odb::dbInst* db_inst : block_->getInsts()) {
+    if (!db_inst->getMaster()->isCoreAutoPlaceable()) continue;
+    sta::Instance* si = db_network->dbToSta(db_inst);
+    LibertyCell* c = db_network->libertyCell(si);
+    if (!c || c->hasSequentials()) continue;
+
+    sta::InstancePinIterator* pit = network_->pinIterator(si);
+    while (pit->hasNext()) {
+      Pin* p = pit->next();
+      sta::LibertyPort* lp = network_->libertyPort(p);
+      if (!lp) continue;
+
+      // Slew check
+      float sl; bool se;
+      lp->slewLimit(max, sl, se);
+      if (!se && sum_lib) sum_lib->defaultMaxSlew(sl, se);
+      if (se) {
+        sta::Vertex* v, *bi;
+        graph->pinVertices(p, v, bi);
+        if (v) {
+          for (auto rf : RiseFall::range()) {
+            float s = graph->slew(v, rf, sum_ap->index());
+            if (s > sl) {
+              float excess = (s - sl) * 1e9;
+              if (network_->direction(p)->isOutput()) {
+                drvr_slew_cnt++; drvr_slew_sum += excess;
+              } else {
+                load_slew_cnt++; load_slew_sum += excess;
+              }
+              break;
+            }
+          }
+        }
+      }
+
+      // Cap check (output only)
+      if (network_->direction(p)->isOutput()) {
+        float cl; bool ce;
+        lp->capacitanceLimit(max, cl, ce);
+        if (!ce && sum_lib) sum_lib->defaultMaxCapacitance(cl, ce);
+        if (ce) {
+          float lc = sta_->graphDelayCalc()->loadCap(p, sum_ap);
+          if (lc > cl) {
+            cap_cnt++;
+            cap_sum += (lc - cl) * 1e15;
+          }
+        }
+      }
+    }
+    delete pit;
+  }
+
+  printf("[Initializer] Post-init violations:\n");
+  printf("[Initializer]   Driver slew: %d pins, %.4f ns\n", drvr_slew_cnt, drvr_slew_sum);
+  printf("[Initializer]   Load slew:   %d pins, %.4f ns\n", load_slew_cnt, load_slew_sum);
+  printf("[Initializer]   Cap:         %d pins, %.4f fF\n", cap_cnt, cap_sum);
   fflush(stdout);
 }
 

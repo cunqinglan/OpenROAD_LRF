@@ -1558,12 +1558,18 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
                             size_t num_no_improve_tolerance,
                             bool ratcons,
                             float PT_tradeoff,
-                            std::string lr_helper_method)
+                            std::string lr_helper_method,
+                            bool initialize)
 {
   printf("----- Testing Combined Resize + Buffering (ECO) -----\n");
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+
+  if (initialize) {
+    runInitialization(sta, incre_sta, resizer, block);
+  }
+
   lrf::LocalSta *local_sta = incre_sta->localSta();
 
   incre_sta->makeLRHelper(lr_helper_method);
@@ -1700,6 +1706,110 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
            best.wns_ps, best.tns_ps);
   }
 
+  helper.printSummary(best);
+  delete incre_sta;
+}
+
+void
+TestLrf::testBufferOnly(sta::dbSta* sta,
+                        rsz::Resizer *resizer,
+                        odb::dbBlock *block,
+                        size_t thread_num,
+                        size_t iterations,
+                        float PT_tradeoff,
+                        std::string lr_helper_method,
+                        float bakoglu_k)
+{
+  printf("----- Testing Buffer-Only Mode (bakoglu_k=%.2f) -----\n", bakoglu_k);
+
+  sta->findRequireds();
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  incre_sta->setBufferOnlyMode(true);
+  incre_sta->setBakogluK(bakoglu_k);
+
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+
+  incre_sta->makeLRHelper(lr_helper_method);
+  lrf::LRHelper *lr_helper = incre_sta->lrHelper();
+  lr_helper->setRatcons(true);
+
+  incre_sta->setMaxResizeNum(20000000);
+
+  // ── LM warm-up: run several rounds of lmUpdate without any
+  //    resize/buffer so that Lagrange multipliers converge to
+  //    values consistent with the current netlist. ──
+  const size_t lm_warmup_rounds = 5;
+  printf("LM warm-up: %zu rounds\n", lm_warmup_rounds);
+  for (size_t w = 0; w < lm_warmup_rounds; ++w) {
+    incre_sta->lmUpdate();
+    sta->findRequireds();
+  }
+  printf("LM warm-up done\n");
+
+  odb::dbDatabase::beginEco(block);
+  IterationHelper helper(sta, block, local_sta, resizer);
+  IterationHelper::Metrics best = helper.snapshot();
+  printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
+
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+  local_sta->initParallel();
+
+  size_t eco_iter = 0;
+
+  for (size_t i = 0; i < iterations; ++i) {
+    incre_sta->lmUpdate();
+    sta->findRequireds();
+    printf("----- Buffer-Only Iteration %zu -----\n", i+1);
+    auto start = std::chrono::high_resolution_clock::now();
+    incre_sta->parallelResizeAndBuffering(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    auto end = std::chrono::high_resolution_clock::now();
+    double runtime = std::chrono::duration<double>(end - start).count();
+    printf("Iteration %zu took %.1f seconds\n", i+1, runtime);
+
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+
+    IterationHelper::Metrics cur = helper.snapshot(runtime);
+    printf("WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW\n",
+           cur.wns_ps, cur.tns_ps, cur.leakage * 1e10);
+    fflush(stdout);
+
+    double cur_wns = cur.wns_ps / 1e12;
+    double best_wns_s = best.wns_ps / 1e12;
+
+    if ((cur_wns > best_wns_s && cur_wns < 0)
+        || (cur_wns >= 0.0 && (cur_wns > best_wns_s || cur.leakage < best.leakage))) {
+      best = cur;
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::beginEco(block);
+      eco_iter = 0;
+      helper.recordRow(i+1, "buffer_only", cur, best, "accept");
+      printf("Decision: accept\n");
+    } else {
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
+      odb::dbDatabase::beginEco(block);
+      eco_iter++;
+      helper.recordRow(i+1, "buffer_only", cur, best, "revert");
+      printf("Decision: revert (eco_iter=%zu)\n", eco_iter);
+
+      if (eco_iter > 3) {
+        printf("Too many consecutive rejections (%zu), terminating.\n", eco_iter);
+        break;
+      }
+    }
+    fflush(stdout);
+  }
+
+  IterationHelper::Metrics final_m = helper.snapshot();
+  odb::dbDatabase::endEco(block);
+  printf("Final buffer-only WNS: %.3f, TNS: %.3f\n",
+         final_m.wns_ps, final_m.tns_ps);
   helper.printSummary(best);
   delete incre_sta;
 }
@@ -3592,6 +3702,200 @@ TestLrf::runInitialization(sta::dbSta* sta, IncreSta* incre_sta,
   resizer->makeEquivCells();
   Initializer initializer(sta, incre_sta, resizer, block);
   initializer.run();
+}
+
+// ============================================================
+//  testBufferingRsz — Sensitivity screening + rsz rebuffering
+// ============================================================
+void
+TestLrf::testBufferingRsz(sta::dbSta* sta,
+                           rsz::Resizer *resizer,
+                           odb::dbBlock *block,
+                           size_t thread_num,
+                           float PT_tradeoff,
+                           int top_n)
+{
+  printf("\n========================================\n");
+  printf(" Sensitivity Screening + RSZ Rebuffering\n");
+  printf("========================================\n");
+
+  sta->findRequireds();
+  IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  LocalSta *local_sta = incre_sta->localSta();
+  local_sta->setParasiticsEst(resizer->getEstimateParasitics());
+
+  sta->updateTiming(true);
+  sta->findRequireds();
+  double wns_before = sta->worstSlack(sta::MinMax::max()) * 1e12;
+  double tns_before = sta->totalNegativeSlack(sta::MinMax::max()) * 1e12;
+  printf("Before: WNS=%.3f ps, TNS=%.3f ps\n", wns_before, tns_before);
+
+  local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+
+  incre_sta->parallelBufferingRsz(resizer, PT_tradeoff, top_n);
+
+  local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+  sta->delaysInvalid();
+  sta->updateTiming(true);
+  sta->findRequireds();
+
+  double wns_after = sta->worstSlack(sta::MinMax::max()) * 1e12;
+  double tns_after = sta->totalNegativeSlack(sta::MinMax::max()) * 1e12;
+  printf("After:  WNS=%.3f ps, TNS=%.3f ps\n", wns_after, tns_after);
+  printf("Delta:  WNS=%+.3f ps, TNS=%+.3f ps\n",
+         wns_after - wns_before, tns_after - tns_before);
+
+  delete incre_sta;
+}
+
+void
+TestLrf::probeRszBnet(sta::dbSta* sta, rsz::Resizer *resizer,
+                      odb::dbBlock *block, size_t thread_num)
+{
+  printf("----- Probe: RSZ bnet + LRF local eval -----\n");
+  sta->findRequireds();
+  IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  incre_sta->probeRszBnet(resizer, 10.0f, 100);
+  delete incre_sta;
+}
+
+void
+TestLrf::probeBufferOneByOne(sta::dbSta* sta,
+                              rsz::Resizer *resizer,
+                              odb::dbBlock *block,
+                              size_t thread_num,
+                              bool use_rsz)
+{
+  printf("\n========================================\n");
+  printf(" Probe: buffer one instance at a time (%s)\n",
+         use_rsz ? "rsz-style" : "LRF-style");
+  printf("========================================\n");
+
+  sta->findRequireds();
+  IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  LocalSta *local_sta = incre_sta->localSta();
+  local_sta->setParasiticsEst(resizer->getEstimateParasitics());
+  local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+
+  // Baseline timing
+  sta->updateTiming(true);
+  sta->findRequireds();
+  double base_wns = sta->worstSlack(sta::MinMax::max());
+  double base_tns = sta->totalNegativeSlack(sta::MinMax::max());
+  printf("Baseline: WNS=%.3f ps, TNS=%.3f ps\n",
+         base_wns * 1e12, base_tns * 1e12);
+
+  // Collect negative-slack driver pins
+  sta::Network *network = sta->network();
+  sta::Graph *graph = sta->graph();
+  struct ProbeTarget {
+    sta::Pin *drvr_pin;
+    sta::Instance *inst;
+    float slack;
+  };
+  std::vector<ProbeTarget> targets;
+
+  sta::LeafInstanceIterator *inst_iter = network->leafInstanceIterator();
+  while (inst_iter->hasNext()) {
+    sta::Instance *inst = inst_iter->next();
+    sta::InstancePinIterator *pin_iter = network->pinIterator(inst);
+    while (pin_iter->hasNext()) {
+      sta::Pin *pin = pin_iter->next();
+      if (network->isDriver(pin)) {
+        sta::Vertex *vtx = graph->pinDrvrVertex(pin);
+        if (vtx) {
+          float slack = sta->vertexSlack(vtx, sta::MinMax::max());
+          if (slack < 0.0f) {
+            targets.push_back({pin, inst, slack});
+          }
+        }
+      }
+    }
+    delete pin_iter;
+  }
+  delete inst_iter;
+
+  // Sort by worst slack first
+  std::sort(targets.begin(), targets.end(),
+            [](const ProbeTarget &a, const ProbeTarget &b) {
+              return a.slack < b.slack;
+            });
+
+  printf("Found %zu negative-slack driver pins\n", targets.size());
+  fflush(stdout);
+
+  // Init rebuffer for LRF-style
+  LrRebuffer::initGlobalPreamble(sta, resizer);
+
+  int improved = 0;
+  int degraded = 0;
+  int unchanged = 0;
+  size_t max_probe = std::min(targets.size(), (size_t)200);
+
+  printf("\n%-40s %8s %10s %10s %10s %10s  %s\n",
+         "Instance", "Slack", "WNS_before", "WNS_after", "dWNS", "dTNS", "Bufs");
+
+  for (size_t i = 0; i < max_probe; i++) {
+    ProbeTarget &t = targets[i];
+
+    odb::dbDatabase::beginEco(block);
+
+    int buf_count = 0;
+    {
+      int inst_before = block->getInsts().size();
+      resizer->rebufferNet(t.drvr_pin);
+      int inst_after = block->getInsts().size();
+      buf_count = inst_after - inst_before;
+    }
+
+    if (buf_count > 0) {
+      // Update parasitics and timing
+      Tcl_Interp *interp = sta->tclInterp();
+      Tcl_Eval(interp, "estimate_parasitics -placement");
+      sta->delaysInvalid();
+      sta->updateTiming(true);
+      sta->findRequireds();
+
+      double wns_after = sta->worstSlack(sta::MinMax::max());
+      double tns_after = sta->totalNegativeSlack(sta::MinMax::max());
+      double d_wns = (wns_after - base_wns) * 1e12;
+      double d_tns = (tns_after - base_tns) * 1e12;
+
+      printf("%-40s %8.1f %10.1f %10.1f %+10.1f %+10.1f  %d%s\n",
+             network->pathName(t.inst),
+             t.slack * 1e12,
+             base_wns * 1e12, wns_after * 1e12,
+             d_wns, d_tns, buf_count,
+             d_wns > 0.1 ? " <<<IMPROVED" : (d_wns < -0.1 ? " DEGRADED" : ""));
+
+      if (d_wns > 0.1) improved++;
+      else if (d_wns < -0.1) degraded++;
+      else unchanged++;
+    } else {
+      printf("%-40s %8.1f %10s %10s %10s %10s  no-buf\n",
+             network->pathName(t.inst),
+             t.slack * 1e12, "-", "-", "-", "-");
+      unchanged++;
+    }
+
+    // Revert
+    odb::dbDatabase::endEco(block);
+    odb::dbDatabase::undoEco(block);
+
+    // Restore timing state
+    Tcl_Interp *interp = sta->tclInterp();
+    Tcl_Eval(interp, "estimate_parasitics -placement");
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+    sta->findRequireds();
+  }
+
+  printf("\nSummary: probed %zu instances\n", max_probe);
+  printf("  Improved WNS: %d\n", improved);
+  printf("  Degraded WNS: %d\n", degraded);
+  printf("  Unchanged:    %d (includes no-buf)\n", unchanged);
+
+  delete incre_sta;
 }
 
 }  // namespace lrf

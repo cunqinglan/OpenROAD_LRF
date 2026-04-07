@@ -68,6 +68,16 @@ public:
   // Repair slew violations on a single driver net by inserting buffers.
   int repairSlew(const sta::Pin *drvr_pin, rsz::Resizer *resizer);
 
+  // Rebuffer a driver pin using the same algorithm as repair_timing's
+  // BufferMove (rsz::Rebuffer::rebufferPin): iterative bufferForTiming
+  // followed by area recovery, then export buffer tree to DB.
+  // Returns the number of inserted buffers.
+  int rebufferPinRsz(const sta::Pin *drvr_pin);
+
+  // Experiment B: generate bnet with RSZ algorithm, evaluate with LRF local timing.
+  // Does NOT modify the design — only prints diagnostic info.
+  void probeRszBnetWithLocalEval(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex);
+
 protected:
   float computeBufferAddedCost(float buffer_delay_seconds,
                                 float buffer_leakage,
@@ -106,6 +116,7 @@ private:
   rsz::BufferedNetPtr best_bnet_ = nullptr;
   float best_cost_ = std::numeric_limits<float>::max();
   float last_delay_lm_sum_ = 0.0f;
+  float last_slack_after_ = -1e30f;
   VirtualBufferInfo best_vinfo_;
   bool verbose_ = true;
 };

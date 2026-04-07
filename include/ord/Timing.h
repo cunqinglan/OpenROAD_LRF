@@ -155,7 +155,12 @@ class Timing
                                              size_t num_no_improve_tolerance,
                                              bool ratcons = false,
                                              float PT_tradeoff = 100.0,
-                                             const char *lr_helper_method = "RapidLRHelper");
+                                             const char *lr_helper_method = "RapidLRHelper",
+                                             bool initialize = false);
+  void testBufferOnly(size_t iterations = 6,
+                      float PT_tradeoff = 10.0,
+                      const char *lr_helper_method = "RapidLRHelper",
+                      float bakoglu_k = 2.5);
   void testParallelResizeByArrayWithPrecheck(size_t max_resize_num,
                                              size_t iterations,
                                              size_t num_no_improve_tolerance,
@@ -181,6 +186,9 @@ class Timing
   void testLocalStaAccuracy(size_t max_steps = 50);
   void testSlewViolationFeasibility();
   void testRepairSlew();
+  void testBufferingRsz(float PT_tradeoff = 100.0f, int top_n = 100);
+  void probeBufferOneByOne(bool use_rsz = true);
+  void probeRszBnet();
   /////////////////////////////////////////////////////////////
   // End functions for testing LR sizing
   /////////////////////////////////////////////////////////////

@@ -369,6 +369,7 @@ protected:
   // Compute slack at sink pins using STA required (unchanged by buffer)
   // and PtVertex arrival (updated by findLocalArrivals through virtual buffer).
   Slack localSlackOnSinks(PtGraph *pt_graph);
+  Slack localWorstSlackOnSinks(PtGraph *pt_graph);
   
   ////////////////////////////////////////////////////////
   // Deal with parasitics
@@ -424,6 +425,11 @@ protected:
   std::mutex pt_graph_vector_mutex_;
 
   std::string debug_label_ = "LocalSTA";
+  bool debug_ = false;
+public:
+  void setDebug(bool d) { debug_ = d; }
+  bool debug() const { return debug_; }
+protected:
 
 private:
   friend class IncreSta;

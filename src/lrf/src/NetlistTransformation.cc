@@ -722,6 +722,10 @@ BufferSensitivityOperator::skipInstance(sta::Instance *inst) const
     }
   }
   delete iter;
+  if (local_sta_->debug()) {
+    printf("[DBG-SKIP] inst=%s all_positive=%d\n",
+           db_sta_->network()->pathName(inst), all_positive);
+  }
   return all_positive;
 }
 
@@ -823,8 +827,9 @@ CombinedOperator::tryBufferingOnCandidates(
   rsz::BufferedNetPtr cached_bnet = rebuffer->prepareBufferOptions(
       drvr_pin, pt_graph->ptVertex(drvr_vid));
   if (!cached_bnet) {
-    printf("[DBG-BUF] %s: prepareBufferOptions returned null\n",
-           db_sta_->network()->pathName(inst));
+    if (ctx.debug)
+      printf("[DBG-BUF] %s: prepareBufferOptions returned null\n",
+             db_sta_->network()->pathName(inst));
     return result;
   }
 
@@ -854,17 +859,19 @@ CombinedOperator::tryBufferingOnCandidates(
 
     if (rebuffer->bestBnet()) {
       float cost = rebuffer->bestCost();
-      printf("[DBG-BUF] %s: cell=%s is_orig=%d buf_cost=%.3e ori_cost=%.3e\n",
-             db_sta_->network()->pathName(inst), bc.cell->name(),
-             bc.is_original, cost, ori_cost);
+      if (ctx.debug)
+        printf("[DBG-BUF] %s: cell=%s is_orig=%d buf_cost=%.3e ori_cost=%.3e\n",
+               db_sta_->network()->pathName(inst), bc.cell->name(),
+               bc.is_original, cost, ori_cost);
       if (cost < best_buf_cost) {
         best_buf_cost = cost;
         best_buf_cell = bc.cell;
         best_buf_is_original = bc.is_original;
       }
     } else {
-      printf("[DBG-BUF] %s: cell=%s evaluateBufferOnCandidate -> null bestBnet\n",
-             db_sta_->network()->pathName(inst), bc.cell->name());
+      if (ctx.debug)
+        printf("[DBG-BUF] %s: cell=%s evaluateBufferOnCandidate -> null bestBnet\n",
+               db_sta_->network()->pathName(inst), bc.cell->name());
     }
     rebuffer->cleanupVirtualBuffer();
   }
@@ -1053,11 +1060,25 @@ CombinedOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
 
   // Compute original cost
   float ori_cost;
+  float ori_delay_lm_sum, ori_leakage;
   {
-    float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
+    ori_delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
         pt_graph, ctx.arc_delay_calc, ori_cell).delay_lm_sum;
-    float leakage = resize_op_->lookupLeakage(inst, ori_cell);
-    ori_cost = ctx.swapCost(delay_lm_sum, leakage);
+    ori_leakage = resize_op_->lookupLeakage(inst, ori_cell);
+    ori_cost = ctx.swapCost(ori_delay_lm_sum, ori_leakage);
+  }
+
+  if (ctx.debug) {
+    float delay_part = ctx.PT_tradeoff * ori_delay_lm_sum / ctx.average_delay;
+    float leak_part = ori_leakage / ctx.average_leakage;
+    printf("[DBG-COMBINED] %s ori_cell=%s delay_lm=%.3e leak=%.3e "
+           "delay_part=%.3e leak_part=%.3e ratio=%.2f ori_cost=%.3e "
+           "PT=%.1f avg_delay=%.3e avg_leak=%.3e\n",
+           db_sta_->network()->pathName(inst), ori_cell->name(),
+           ori_delay_lm_sum, ori_leakage,
+           delay_part, leak_part,
+           leak_part > 0 ? delay_part / leak_part : 0.0f,
+           ori_cost, ctx.PT_tradeoff, ctx.average_delay, ctx.average_leakage);
   }
 
   // Best resize-only candidate
