@@ -212,12 +212,6 @@ LocalArrivalVisitor::findVirtualVertexArrival(PtVertex &pt_vertex)
 
   localVisitFaninPaths(pt_vertex);
 
-  if (debug_) {
-    printf("[DBG-VVA] virtual_%u type=%d proxy=%s fanin_paths_visited\n",
-           pt_vertex.objectIdx(), (int)pt_vertex.type(),
-           init_vertex->to_string(graph_).c_str());
-  }
-
   localSetVertexArrivals(pt_vertex, tag_bldr_);
 }
 
@@ -227,18 +221,6 @@ LocalPathVisitor::localVisitFaninPaths(PtVertex &to_pt_vertex)
   // Skip vertices with preset input delays.
   bool search_to = to_pt_vertex.hasBase()
       ? pred_->searchTo(to_pt_vertex.vertex()) : true;
-
-  bool dbg_print = debug_;
-
-  if (dbg_print) {
-    int edge_count = 0;
-    PtVertexInEdgeIterator cnt_iter(to_pt_vertex.objectIdx(), pt_graph_);
-    while (cnt_iter.hasNext()) { cnt_iter.next(); edge_count++; }
-    printf("[DBG-FANIN] vertex_%u type=%d hasBase=%d searchTo=%d in_edges=%d pin=%s\n",
-           to_pt_vertex.objectIdx(), (int)to_pt_vertex.type(),
-           to_pt_vertex.hasBase(), search_to, edge_count,
-           to_pt_vertex.pin() ? network_->name(to_pt_vertex.pin()) : "virtual");
-  }
 
   if (search_to) {
     PtVertexInEdgeIterator pt_edge_iter(to_pt_vertex.objectIdx(), pt_graph_);
@@ -254,14 +236,6 @@ LocalPathVisitor::localVisitFaninPaths(PtVertex &to_pt_vertex)
         pass = pred_->searchFrom(from_pt_vertex.vertex());
       } else {
         pass = true;
-      }
-      if (dbg_print) {
-        printf("[DBG-FANIN]   edge_%u from=%u isWire=%d hasBase=%d type=%d pass=%d "
-               "from_tg=%d from_paths=%s\n",
-               pt_edge.objectIdx(), pt_edge.ptFromId(),
-               pt_edge.isWire(), pt_edge.hasBase(), (int)pt_edge.type(), pass,
-               (int)from_pt_vertex.tagGroupIndex(),
-               from_pt_vertex.paths() ? "yes" : "null");
       }
       if (pass) {
         if (!localVisitEdge(from_pt_vertex, pt_edge, to_pt_vertex))
@@ -572,22 +546,6 @@ LocalArrivalVisitor::localVisitFromToPath(
   size_t path_index;
   tag_bldr_->tagMatchPath(to_tag, match, path_index);
 
-  if (debug_ && !pt_edge.hasBase() && to_pt_vertex.hasBase()) {
-    printf("[DBG-FROMTO] sink=%s from_vid=%u to_vid=%u "
-           "from_arr=%.3e arc_delay=%.3e to_arr=%.3e "
-           "match=%s match_arr=%.3e will_update=%d "
-           "from_tag=%p to_tag=%p\n",
-           to_pt_vertex.pin() ? network_->name(to_pt_vertex.pin()) : "?",
-           from_pt_vertex.objectIdx(), to_pt_vertex.objectIdx(),
-           sta::delayAsFloat(from_arrival),
-           sta::delayAsFloat(arc_delay),
-           sta::delayAsFloat(to_arrival),
-           match ? "yes" : "null",
-           match ? sta::delayAsFloat(match->arrival()) : 0.0,
-           (match == nullptr || delayGreater(to_arrival, match->arrival(), min_max, this)),
-           from_tag, to_tag);
-  }
-
   if (match == nullptr || delayGreater(to_arrival, match->arrival(), min_max, this)) {
     // Virtual edges have no base sta::Edge; Path::init would crash at
     // graph->id(prev_edge) if prev_path is non-null with a null edge.
@@ -606,25 +564,6 @@ LocalArrivalVisitor::localSetVertexArrivals(PtVertex &pt_vertex, TagGroupBldr *t
   TagGroup *prev_tag_group = search_->tagGroup(pt_vertex.tagGroupIndex());
   Path *prev_paths = pt_vertex.paths();
   TagGroup *tag_group = search_->findExistingTagGroup(tag_bldr);
-
-  // Debug: check if virtual-edge arrival propagation reaches sink vertices
-  {
-    bool has_virt_in = false;
-    PtVertexInEdgeIterator chk2(pt_vertex.objectIdx(), pt_graph_);
-    while (chk2.hasNext()) { if (!chk2.next().hasBase()) { has_virt_in = true; break; } }
-    if (debug_ && has_virt_in && pt_vertex.hasBase()) {
-      printf("[DBG-SETARR] vertex_%u pin=%s tg_match=%d prev_paths=%s "
-             "prev_tg=%p(%d) new_tg=%p(%d) bldr_pathCount=%zu\n",
-             pt_vertex.objectIdx(),
-             pt_vertex.pin() ? network_->name(pt_vertex.pin()) : "?",
-             (tag_group == prev_tag_group),
-             prev_paths ? "yes" : "null",
-             prev_tag_group, prev_tag_group ? (int)prev_tag_group->index() : -1,
-             tag_group, tag_group ? (int)tag_group->index() : -1,
-             tag_bldr->pathCount());
-      fflush(stdout);
-    }
-  }
 
   if (tag_group == prev_tag_group) {
     if (prev_paths == nullptr) {
