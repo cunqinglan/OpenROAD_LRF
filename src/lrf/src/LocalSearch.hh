@@ -190,7 +190,6 @@ protected:
   bool always_save_prev_paths_;
   TagGroupBldr *tag_bldr_;
   bool has_fanin_one_;
-  bool debug_ = false;
 };
 
 class LocalRequiredCmp
