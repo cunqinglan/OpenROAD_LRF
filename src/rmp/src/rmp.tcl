@@ -223,8 +223,8 @@ proc position_driven_remap { args } {
 
   # RemapConfig defaults (must match RemapConfig struct defaults in RemapConfig.hh)
   set max_vertices_per_endpoint 1
-  set max_cut_instances         5
-  set max_cut_pis               10
+  set max_cut_instances         10
+  set max_cut_pis               15
   set max_solutions             150
   set uct_batch_size            20
   set uct_rounds                0
@@ -264,7 +264,7 @@ proc position_driven_remap { args } {
   if { [info exists keys(-beam_diversity)] } {
     set beam_diversity $keys(-beam_diversity)
   }
-  set child_timeout 30
+  set child_timeout 0
   if { [info exists keys(-child_timeout)] } {
     set child_timeout $keys(-child_timeout)
   }

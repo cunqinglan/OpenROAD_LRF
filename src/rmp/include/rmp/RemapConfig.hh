@@ -33,7 +33,7 @@ struct RemapConfig {
   double uct_c       = 1.414;
 
   // Use beam search instead of exhaustive backtracking for mapping enumeration.
-  bool use_beam_search = false;
+  bool use_beam_search = true;
 
   // Beam search diversity weight. 0 = pure score (default), >0 encourages
   // structurally diverse solutions during beam pruning.
