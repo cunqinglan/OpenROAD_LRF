@@ -1280,8 +1280,10 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
   PlacementDensityMap density_map;
   setupDensityMap(density_map, sta, block, incre_sta, density_weight);
 
-  size_t eco_iter = 0;
-  bool in_eco = false;
+  // ECO controller
+  EcoConfig eco_cfg = EcoConfig::make(EcoStrategy::HALVE_ON_CONSECUTIVE);
+  eco_cfg.max_eco_reverts = num_no_improve_tolerance;
+  EcoController eco(eco_cfg, incre_sta, sta, block, resizer);
 
   for (size_t i = 0; i < iterations; ++i) {
     // ── Resize phase ──
@@ -1302,55 +1304,19 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
            cur.wns_ps, cur.tns_ps, cur.leakage * 1e10, runtime);
     fflush(stdout);
 
-    double cur_wns = cur.wns_ps / 1e12;
-    double best_wns_s = best.wns_ps / 1e12;
+    // ── ECO decision ──
+    EcoDecision decision = eco.decide(i, cur, best);
+    float new_ratio = eco.updateRatio(decision);
+    incre_sta->setAdaptiveTopRatio(new_ratio);
+    eco.execute(decision, best, cur);
 
-    // ── ECO decision: warmup first 3 iters, then revert-halve ──
-    if ((cur_wns > best_wns_s && cur_wns < 0)
-        || (cur_wns >= 0.0 && (cur_wns > best_wns_s || cur.leakage < best.leakage))) {
-      best = cur;
-      odb::dbDatabase::endEco(block);
-      odb::dbDatabase::beginEco(block);
-      eco_iter = 0;
-      in_eco = false;
-      helper.recordRow(i+1, "resize", cur, best, "accept");
-      printf("Decision: accept\n");
-    } else if (i < 3) {
-      best = cur;
-      odb::dbDatabase::endEco(block);
-      odb::dbDatabase::beginEco(block);
-      helper.recordRow(i+1, "resize", cur, best, "accept(warmup)");
-      printf("Decision: accept(warmup)\n");
-    } else {
-      if (!in_eco) {
-        int change_count = incre_sta->lastChangeCount();
-        TaskArranger *ta = local_sta->taskArranger();
-        int total = static_cast<int>(ta->vertexCount());
-        float init_ratio = (total > 0)
-            ? static_cast<float>(change_count) * 1.5f / total : 0.3f;
-        incre_sta->setAdaptiveTopRatio(init_ratio);
-        in_eco = true;
-        printf("First regression, init eco ratio=%.4f\n", init_ratio);
-      } else {
-        float new_ratio = incre_sta->adaptiveTopRatio() * 0.25f;
-        incre_sta->setAdaptiveTopRatio(new_ratio);
-        printf("ECO halve ratio to %.4f\n", new_ratio);
-      }
-      odb::dbDatabase::endEco(block);
-      odb::dbDatabase::undoEco(block);
-      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
-      sta->delaysInvalid();
-      sta->updateTiming(true);
-      odb::dbDatabase::beginEco(block);
-      eco_iter++;
-      helper.recordRow(i+1, "resize", cur, best, "revert+halve");
-      printf("Decision: revert+halve (eco_iter=%zu)\n", eco_iter);
-      if (eco_iter > 6) {
-        printf("Too many ECO iterations, terminating.\n");
-        break;
-      }
-    }
+    helper.recordRow(i+1, eco.inEco() ? "eco" : "resize", cur, best,
+                     eco.decisionStr(decision));
+    printf("Decision: %s\n", eco.decisionStr(decision));
     fflush(stdout);
+
+    if (decision == EcoDecision::TERMINATE)
+      break;
 
     // ── Buffering phase (after iter 3, only when WNS < 0) ──
     sta::Slack wns_after_resize = sta->worstSlack(sta::MinMax::max());
@@ -1382,7 +1348,7 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
 
       // Accept if WNS improved or within 1.1x slack margin
       double buf_wns = buf_cur.wns_ps / 1e12;
-      best_wns_s = best.wns_ps / 1e12;
+      double best_wns_s = best.wns_ps / 1e12;
       double wns_thresh = best_wns_s < 0 ? best_wns_s * 1.1 : 0;  // allow 10% WNS degradation
       if ((buf_wns > best_wns_s && buf_wns < 0)
           || (buf_wns >= 0.0 && (buf_wns > best_wns_s || buf_cur.leakage < best.leakage))) {
@@ -1415,12 +1381,9 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
 
   // Final check
   IterationHelper::Metrics final_m = helper.snapshot();
-  double final_wns = final_m.wns_ps / 1e12;
-  double best_wns_s = best.wns_ps / 1e12;
-  if (final_wns > best_wns_s) {
+  if (final_m.wns_ps > best.wns_ps) {
     odb::dbDatabase::endEco(block);
-    printf("Final design accepted with WNS: %.3f, TNS: %.3f\n",
-           final_m.wns_ps, final_m.tns_ps);
+    printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
   } else {
     odb::dbDatabase::endEco(block);
     odb::dbDatabase::undoEco(block);
@@ -1428,8 +1391,7 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
     sta->delaysInvalid();
     sta->updateTiming(true);
     local_sta->taskArranger()->markDirty();
-    printf("Reverted to best design with WNS: %.3f, TNS: %.3f\n",
-           best.wns_ps, best.tns_ps);
+    printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
   }
 
   helper.printSummary(best);
@@ -1577,12 +1539,9 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
 
   // Final check
   IterationHelper::Metrics final_m = helper.snapshot();
-  double final_wns = final_m.wns_ps / 1e12;
-  double best_wns_s = best.wns_ps / 1e12;
-  if (final_wns > best_wns_s) {
+  if (final_m.wns_ps > best.wns_ps) {
     odb::dbDatabase::endEco(block);
-    printf("Final design accepted with WNS: %.3f, TNS: %.3f\n",
-           final_m.wns_ps, final_m.tns_ps);
+    printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
   } else {
     odb::dbDatabase::endEco(block);
     odb::dbDatabase::undoEco(block);
@@ -1590,8 +1549,7 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
     sta->delaysInvalid();
     sta->updateTiming(true);
     local_sta->taskArranger()->markDirty();
-    printf("Reverted to best design with WNS: %.3f, TNS: %.3f\n",
-           best.wns_ps, best.tns_ps);
+    printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
   }
 
   helper.printSummary(best);
