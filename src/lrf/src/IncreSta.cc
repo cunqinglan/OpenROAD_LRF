@@ -718,6 +718,9 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
   printf("After parallel resize, TNS: %e, WNS: %e\n", tns_after, wns_after);
   printf("parallel resize time: %f s\n", diff_resize.count());
 
+  // Record change count for ECO adaptive ratio computation
+  pruning_control_.last_change_count = local_sta_->taskArranger()->lastChangeCount();
+
   // Pruning: update iteration counter (K detection done in TaskArranger)
   pruning_control_.iteration++;
   printf("Pruning: iteration %d, enabled=%d, K=%d\n",

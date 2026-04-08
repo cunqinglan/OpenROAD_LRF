@@ -642,6 +642,22 @@ Timing::testParallelResizeByArrayWithBuffering(size_t max_resize_num, size_t ite
 }
 
 void
+Timing::testEcoResizeNoHalve(size_t iterations, float PT_tradeoff,
+  const char *lr_helper_method, float halve_factor, bool use_precheck) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testEcoResizeNoHalve with %zu threads, halve_factor=%.2f, precheck=%s\n",
+         thread_num, halve_factor, use_precheck ? "yes" : "no");
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testEcoResizeNoHalve(sta, resizer, design_->getBlock(),
+    thread_num, iterations, PT_tradeoff, lr_helper_method, halve_factor,
+    use_precheck);
+}
+
+void
 Timing::testCombinedResizeBuffering(size_t max_resize_num, size_t iterations,
   size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
   const char *lr_helper_method, bool initialize) {

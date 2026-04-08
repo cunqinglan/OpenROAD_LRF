@@ -218,6 +218,16 @@ public:
   void testRepairSlew(sta::dbSta* sta,
                       rsz::Resizer *resizer,
                       odb::dbBlock *block);
+  // ECO experiment: lmUpdate → resize → if worse → lmUpdate → revert (no halve)
+  void testEcoResizeNoHalve(sta::dbSta* sta,
+                             rsz::Resizer *resizer,
+                             odb::dbBlock *block,
+                             size_t thread_num,
+                             size_t iterations = 12,
+                             float PT_tradeoff = 10.0,
+                             std::string lr_helper_method = "RapidLRHelper",
+                             float halve_factor = 0.5f,
+                             bool use_precheck = true);
 
   // Sensitivity screening + rsz-style rebuffering (repair_timing algorithm).
   void testBufferingRsz(sta::dbSta* sta,
