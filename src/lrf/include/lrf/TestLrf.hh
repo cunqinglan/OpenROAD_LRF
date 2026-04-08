@@ -2,12 +2,19 @@
 
 #include "sta/GraphClass.hh"
 #include "sta/NetworkClass.hh"
+#include "sta/Delay.hh"
 #include "lrf/LrfClass.hh"
 #include "lrf/LrConfig.hh"
 
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+namespace odb
+{
+class dbBlock;
+class dbInst;
+}  // namespace odb
 
 namespace rsz
 {
@@ -30,6 +37,7 @@ class EstimateParasitics;
 
 namespace lrf
 {
+class IncreSta;
 class LocalSta;
 class PtGraph;
 class PtVertex;
@@ -41,8 +49,8 @@ struct ErrorPoint
   PtEdge   *local_edge;
   PtVertex *open_vertex;
   PtEdge   *open_edge;
-  Arrival local_arrival;
-  Arrival open_arrival;
+  sta::Arrival local_arrival;
+  sta::Arrival open_arrival;
   sta::DcalcAnalysisPt* analysis_pt;
 };
 

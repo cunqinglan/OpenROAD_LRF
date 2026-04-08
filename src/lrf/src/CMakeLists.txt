@@ -22,6 +22,7 @@ add_library(lrf_lib
     LocalReduceParasitic.cc
     IncreSta.cc
     TestLrf.cc
+    EcoController.cc
     LocalSearch.cc
     LocalPath.cc
     NetlistTransformation.cc

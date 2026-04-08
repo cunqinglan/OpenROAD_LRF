@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <string>
 
 namespace lrf {
@@ -11,6 +12,59 @@ enum class LrMode {
   PRECHECK,         // Precheck screening + resize
   PRECHECK_BUFFER,  // Precheck screening + resize + buffering
   COMBINED          // Single-pass combined resize+buffer visitor
+};
+
+// ── ECO Strategy ──────────────────────────────────────────
+// Controls how the optimizer handles regression (WNS worse than best).
+enum class EcoStrategy {
+  HALVE_ALWAYS,          // Original: halve ratio on every revert
+  HALVE_ON_CONSECUTIVE,  // Only halve on consecutive reverts; accept resets
+  NO_HALVE               // Never halve, full resize every ECO iter
+};
+
+// ECO configuration — controls revert/accept/halve behavior.
+struct EcoConfig {
+  EcoStrategy strategy = EcoStrategy::HALVE_ON_CONSECUTIVE;
+  float halve_factor = 0.5f;          // ratio *= halve_factor on revert
+  size_t warmup_iters = 3;            // first N iters unconditionally accept
+  size_t max_eco_reverts = 6;         // terminate after N consecutive reverts
+  bool use_precheck = true;           // ECO phase uses precheck (vs full resize)
+  bool lm_update_before_revert = true;// run lmUpdate on worse state before revert
+
+  // Preset configurations from experimental results (ECO_halve_effect.md).
+  static EcoConfig make(EcoStrategy preset) {
+    EcoConfig cfg;
+    cfg.strategy = preset;
+    switch (preset) {
+      case EcoStrategy::HALVE_ON_CONSECUTIVE:
+        // Best overall: halve=0.5, precheck, lmUpdate before revert.
+        // Verified on ac97_top (2 ECO accepts) and fpu (1-2 ECO accepts).
+        cfg.halve_factor = 0.5f;
+        cfg.use_precheck = true;
+        cfg.lm_update_before_revert = true;
+        cfg.warmup_iters = 3;
+        cfg.max_eco_reverts = 6;
+        break;
+      case EcoStrategy::HALVE_ALWAYS:
+        // Original flow behavior (×0.25 on every revert).
+        cfg.halve_factor = 0.25f;
+        cfg.use_precheck = true;
+        cfg.lm_update_before_revert = false;
+        cfg.warmup_iters = 0;
+        cfg.max_eco_reverts = 6;
+        break;
+      case EcoStrategy::NO_HALVE:
+        // Full resize every ECO iter, no ratio change.
+        // Experimentally: 0 ECO accepts after convergence.
+        cfg.halve_factor = 1.0f;
+        cfg.use_precheck = false;
+        cfg.lm_update_before_revert = true;
+        cfg.warmup_iters = 3;
+        cfg.max_eco_reverts = 6;
+        break;
+    }
+    return cfg;
+  }
 };
 
 // All tunable parameters for an LR optimization run.
@@ -45,9 +99,11 @@ struct LrConfig {
   // ── Debug ──
   bool debug = false;             // Print detailed rebuffer/eval diagnostics
 
+  // ── ECO ──
+  EcoConfig eco;
+
   // ── Checkpoint ──
-  // If non-empty, save DEF + LM + verilog at first regression point.
-  // Files: <checkpoint_dir>/checkpoint.def, .lm, .v
+  // If non-empty, save ODB + LM at first regression point.
   std::string checkpoint_dir;
 };
 

@@ -28,6 +28,7 @@
 #include "est/EstimateParasitics.h"
 #include "sta/EquivCells.hh"
 #include "sta/Path.hh"
+#include "EcoController.hh"
 #include "search/TagGroup.hh"
 #include "odb/db.h"
 #include "PortDirection.hh"
@@ -40,6 +41,51 @@
 
 namespace lrf
 {
+
+// ── Slew violation check helper ─────────────────────────────────
+// Returns total slew violation (ns) and count.
+static void
+checkSlewViolations(sta::dbSta *sta, odb::dbBlock *block,
+                    LocalSta *local_sta, const char *label,
+                    double &total_ns, size_t &count)
+{
+  total_ns = 0.0;
+  count = 0;
+  sta::dbNetwork *db_net = sta->getDbNetwork();
+  for (odb::dbITerm *iterm : block->getITerms()) {
+    odb::dbNet *net = iterm->getNet();
+    if (!net) continue;
+    auto sig = net->getSigType();
+    if (sig == odb::dbSigType::POWER || sig == odb::dbSigType::GROUND
+        || sig == odb::dbSigType::CLOCK)
+      continue;
+    odb::dbMTerm *mterm = iterm->getMTerm();
+    if (!mterm) continue;
+    sta::LibertyPort *lib_port = sta->network()->libertyPort(
+        db_net->dbToSta(mterm));
+    if (!lib_port) continue;
+    float limit = local_sta->getPortMaxSlewLimit(lib_port);
+    if (limit <= 0 || limit >= 1.0) continue;
+    sta::Pin *sta_pin = db_net->dbToSta(iterm);
+    if (!sta_pin) continue;
+    sta::Vertex *vtx = sta->graph()->pinLoadVertex(sta_pin);
+    if (!vtx) vtx = sta->graph()->pinDrvrVertex(sta_pin);
+    if (!vtx) continue;
+    float slew = 0.0;
+    for (const sta::RiseFall *rf : sta::RiseFall::range())
+      for (const sta::DcalcAnalysisPt *dap : sta->corners()->dcalcAnalysisPts())
+        slew = std::max(slew, (float)delayAsFloat(
+            sta->graph()->slew(vtx, rf, dap->index())));
+    if (slew > limit) {
+      total_ns += (slew - limit) * 1e9;
+      count++;
+    }
+  }
+  if (count > 0)
+    printf("[VIOL] %s: %zu slew violations, total=%.4f ns\n", label, count, total_ns);
+  else
+    printf("[VIOL] %s: No slew violation\n", label);
+}
 
 // ── Checkpoint save helper ──────────────────────────────────────
 // Called at first regression point to save ODB + LM.
@@ -843,13 +889,9 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   incre_sta->setMaxResizeNum(max_resize_num);
 
   odb::dbDatabase::beginEco(block);
-  float best_leakage = std::numeric_limits<float>::max();
-  size_t no_improve_count_ = 0;
-  size_t eco_iter = 0;
-  sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
-  sta::Slack best_tns = sta->totalNegativeSlack(sta::MinMax::max());
-  sta::Slack tns, wns;
-  printf("Initial WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  IterationHelper helper(sta, block, local_sta, resizer);
+  IterationHelper::Metrics best = helper.snapshot();
+  printf("Initial WNS: %.3f ps, TNS: %.3f ps\n", best.wns_ps, best.tns_ps);
   float avg_delay = incre_sta->averageDelayOnCritPath();
   float avg_leakage = incre_sta->averageLeakage();
   local_sta->initParallel();
@@ -858,8 +900,13 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   PlacementDensityMap density_map;
   setupDensityMap(density_map, sta, block, incre_sta, density_weight);
 
-  float top_ratio = 0.3f;  // initial precheck ratio (used after switch)
-  bool adaptive_mode = false;
+  float top_ratio = 0.3f;
+
+  // ECO controller — uses best experimentally-verified strategy.
+  EcoConfig eco_cfg = EcoConfig::make(EcoStrategy::HALVE_ON_CONSECUTIVE);
+  eco_cfg.max_eco_reverts = num_no_improve_tolerance;
+  eco_cfg.warmup_iters = 0;  // no warmup in normal flow; Phase1 handles convergence
+  EcoController eco(eco_cfg, incre_sta, sta, block, resizer);
 
   // Enable incremental parasitic tracking via ODB callbacks.
   est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
@@ -871,16 +918,14 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     sta->findRequireds();
     auto start = std::chrono::high_resolution_clock::now();
 
-    if (!adaptive_mode) {
-      // Phase 1: full resize (all instances)
-      printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
-      incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
-    } else {
-      // Phase 2: precheck + adaptive (reduced instances)
-      printf("----- LR ResizeByArray -> Precheck Iteration %zu (adaptive=%.4f) -----\n",
+    if (eco.usePrecheck()) {
+      printf("----- ECO Iteration %zu (precheck, ratio=%.4f) -----\n",
              i+1, incre_sta->adaptiveTopRatio());
       incre_sta->parallelResizeByArrayWithPrecheck(resizer, avg_delay, avg_leakage,
                                                       PT_tradeoff, top_ratio);
+    } else {
+      printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
+      incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
     }
 
     auto end = std::chrono::high_resolution_clock::now();
@@ -894,8 +939,8 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     sta->delaysInvalid();
     sta->updateTiming(true);
     auto t_sync2 = std::chrono::high_resolution_clock::now();
-    tns = sta->totalNegativeSlack(sta::MinMax::max());
-    wns = sta->worstSlack(sta::MinMax::max());
+    sta::Slack tns = sta->totalNegativeSlack(sta::MinMax::max());
+    sta::Slack wns = sta->worstSlack(sta::MinMax::max());
 
     float leakage = incre_sta->totalLeakageFast();
     auto t_sync3 = std::chrono::high_resolution_clock::now();
@@ -904,47 +949,11 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     printf("Total Negative Slack: %f\n", tns * 1e12);
     printf("Total Leakage Power: %f\n", leakage * 1e10);
 
-    // Slew violation check (same method as Python eval get_score)
     {
-      double slew_viol_total = 0.0;
-      size_t slew_viol_count = 0;
-      sta::dbNetwork *db_net = sta->getDbNetwork();
-      for (odb::dbITerm *iterm : block->getITerms()) {
-        odb::dbNet *net = iterm->getNet();
-        if (!net) continue;
-        auto sig = net->getSigType();
-        if (sig == odb::dbSigType::POWER || sig == odb::dbSigType::GROUND
-            || sig == odb::dbSigType::CLOCK)
-          continue;
-        odb::dbMTerm *mterm = iterm->getMTerm();
-        if (!mterm) continue;
-        sta::LibertyPort *lib_port = sta->network()->libertyPort(
-            db_net->dbToSta(mterm));
-        if (!lib_port) continue;
-        float limit = local_sta->getPortMaxSlewLimit(lib_port);
-        if (limit <= 0 || limit >= 1.0) continue;
-        sta::Pin *sta_pin = db_net->dbToSta(iterm);
-        if (!sta_pin) continue;
-        sta::Vertex *vtx = sta->graph()->pinLoadVertex(sta_pin);
-        if (!vtx) vtx = sta->graph()->pinDrvrVertex(sta_pin);
-        if (!vtx) continue;
-        float slew = 0.0;
-        for (const sta::RiseFall *rf : sta::RiseFall::range()) {
-          for (const sta::DcalcAnalysisPt *dap : sta->corners()->dcalcAnalysisPts()) {
-            float s = delayAsFloat(sta->graph()->slew(vtx, rf, dap->index()));
-            slew = std::max(slew, s);
-          }
-        }
-        if (slew > limit) {
-          slew_viol_total += (slew - limit) * 1e9;
-          slew_viol_count++;
-        }
-      }
-      if (slew_viol_count > 0)
-        printf("[VIOL] Iter %zu: %zu slew violations, total=%.4f ns\n",
-               i+1, slew_viol_count, slew_viol_total);
-      else
-        printf("[VIOL] Iter %zu: No slew violation\n", i+1);
+      char label[32];
+      snprintf(label, sizeof(label), "Iter %zu", i+1);
+      double viol_ns; size_t viol_cnt;
+      checkSlewViolations(sta, block, local_sta, label, viol_ns, viol_cnt);
     }
 
     fflush(stdout);
@@ -954,88 +963,35 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
            std::chrono::duration<double>(t_sync3 - t_sync2).count());
     fflush(stdout);
 
-    // Adaptive instance filter (Phase 2 logic): detect regression, revert + reduce
-    if (adaptive_mode) {
-      bool regression = (wns >= 0.0) ? false : (wns < best_wns);
-      if (regression) {
-        float cur_ratio = incre_sta->adaptiveTopRatio();
-        float new_ratio = (cur_ratio > 0.0f)
-            ? cur_ratio * 0.25f          // 1/4 discount
-            : top_ratio * 0.25f;
-        incre_sta->setAdaptiveTopRatio(new_ratio);
-        printf("Timing regression (WNS %e, best %e), revert + 1/4 discount ratio to %.4f.\n",
-               wns, best_wns, new_ratio);
-        odb::dbDatabase::endEco(block);
-        odb::dbDatabase::undoEco(block);
-        local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
-        sta->delaysInvalid();
-        sta->updateTiming(true);
-        odb::dbDatabase::beginEco(block);
-        eco_iter++;
-        if (eco_iter > 6) {
-          printf("Too many ECO iterations (%zu), terminating.\n", eco_iter);
-          break;
-        }
-        continue;
-      }
-      // Improving in adaptive mode: update ratio from change_count * 1.5, only goes down
-      int change_count = incre_sta->lastChangeCount();
-      TaskArranger *ta = incre_sta->localSta()->taskArranger();
-      int total = static_cast<int>(ta->vertexCount());
-      if (total > 0) {
-        float candidate = static_cast<float>(change_count) * 1.5f / total;
-        float cur_ratio = incre_sta->adaptiveTopRatio();
-        float cap = (cur_ratio > 0.0f) ? cur_ratio : top_ratio;
-        incre_sta->setAdaptiveTopRatio(std::min(candidate, cap));
-      }
-    }
+    // ── ECO decision via EcoController ──
+    IterationHelper::Metrics cur;
+    cur.wns_ps = wns * 1e12;
+    cur.tns_ps = tns * 1e12;
+    cur.leakage = leakage * 1e-10;  // back to raw watts
+    cur.runtime_s = std::chrono::duration<double>(end - start).count();
 
-    if (wns > best_wns && wns < 0) {
-      best_wns = wns;
-      best_tns = tns;
-      best_leakage = leakage;
-      odb::dbDatabase::endEco(block);
-      odb::dbDatabase::beginEco(block);
-      printf("Improvement in WNS, accepting.\n");
-      no_improve_count_ = 0;
-    } else if (wns >= 0.0 && (wns > best_wns || leakage < best_leakage)) {
-      best_wns = wns;
-      best_tns = tns;
-      best_leakage = leakage;
-      odb::dbDatabase::endEco(block);
-      odb::dbDatabase::beginEco(block);
-      printf("WNS positive, WNS or leakage improved, accepting.\n");
-      no_improve_count_ = 0;
-    } else if (!adaptive_mode) {
-      // Phase 1 regression: immediate revert + switch to adaptive mode (no tolerance)
-      printf("Reverting + switching to adaptive precheck mode.\n");
-      odb::dbDatabase::endEco(block);
-      odb::dbDatabase::undoEco(block);
-      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
-      sta->delaysInvalid();
-      sta->updateTiming(true);
-      // Save checkpoint after revert — design is at best state
-      saveCheckpoint(checkpoint_dir, sta, block, incre_sta);
-      odb::dbDatabase::beginEco(block);
-      adaptive_mode = true;
-      incre_sta->setAdaptiveTopRatio(top_ratio * 0.25f);
-      printf("Adaptive mode activated with ratio=%.4f.\n", incre_sta->adaptiveTopRatio());
-      eco_iter++;
-      continue;
-    } else if (eco_iter > 6) {
-      printf("Too many ECO iterations (%zu), terminating.\n", eco_iter);
+    EcoDecision decision = eco.decide(i, cur, best);
+    float new_ratio = eco.updateRatio(decision);
+    incre_sta->setAdaptiveTopRatio(new_ratio);
+    eco.execute(decision, best, cur);
+
+    helper.recordRow(i+1, eco.inEco() ? "eco" : "phase1", cur, best,
+                     eco.decisionStr(decision));
+    printf("Decision: %s\n", eco.decisionStr(decision));
+    fflush(stdout);
+
+    if (decision == EcoDecision::TERMINATE)
       break;
-    }
   }
   // Disable incremental parasitic tracking.
   est_parasitics->removeDbCbkOwner();
   est_parasitics->setIncrementalParasiticsEnabled(false);
 
-  tns = sta->totalNegativeSlack(sta::MinMax::max());
-  wns = sta->worstSlack(sta::MinMax::max());
-  if (wns > best_wns) {
+  // Final check: revert to best if current is worse
+  IterationHelper::Metrics final_m = helper.snapshot();
+  if (final_m.wns_ps > best.wns_ps) {
     odb::dbDatabase::endEco(block);
-    printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
+    printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
   } else {
     odb::dbDatabase::endEco(block);
     odb::dbDatabase::undoEco(block);
@@ -1043,80 +999,12 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     sta->delaysInvalid();
     sta->updateTiming(true);
     local_sta->taskArranger()->markDirty();
-    printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
-    // Violation check after revert + updateTiming
-    // Compare graph->slew() vs sta->vertexSlew() (which calls findDelays)
-    {
-      double viol_graph = 0, viol_vtxslew = 0;
-      size_t cnt_graph = 0, cnt_vtxslew = 0;
-      sta::dbNetwork *db_net = sta->getDbNetwork();
-      size_t diff_count = 0;
-      for (odb::dbITerm *iterm : block->getITerms()) {
-        odb::dbNet *net = iterm->getNet();
-        if (!net) continue;
-        auto sig = net->getSigType();
-        if (sig == odb::dbSigType::POWER || sig == odb::dbSigType::GROUND
-            || sig == odb::dbSigType::CLOCK)
-          continue;
-        odb::dbMTerm *mterm = iterm->getMTerm();
-        if (!mterm) continue;
-        sta::LibertyPort *lib_port = sta->network()->libertyPort(
-            db_net->dbToSta(mterm));
-        if (!lib_port) continue;
-        float limit = local_sta->getPortMaxSlewLimit(lib_port);
-        if (limit <= 0 || limit >= 1.0) continue;
-        sta::Pin *sta_pin = db_net->dbToSta(iterm);
-        if (!sta_pin) continue;
-        sta::Vertex *vtx = sta->graph()->pinLoadVertex(sta_pin);
-        if (!vtx) vtx = sta->graph()->pinDrvrVertex(sta_pin);
-        if (!vtx) continue;
-        // Method 1: graph->slew() (cached)
-        float slew_g = 0.0;
-        for (const sta::RiseFall *rf : sta::RiseFall::range())
-          for (const sta::DcalcAnalysisPt *dap : sta->corners()->dcalcAnalysisPts())
-            slew_g = std::max(slew_g, (float)delayAsFloat(
-                sta->graph()->slew(vtx, rf, dap->index())));
-        // Method 2: vertexSlew (calls findDelays)
-        float slew_v = 0.0;
-        for (const sta::RiseFall *rf : sta::RiseFall::range())
-          for (sta::Corner *c : *sta->corners())
-            slew_v = std::max(slew_v, (float)delayAsFloat(
-                sta->vertexSlew(vtx, rf, c, sta::MinMax::max())));
-        if (slew_g > limit) { viol_graph += (slew_g - limit) * 1e9; cnt_graph++; }
-        if (slew_v > limit) { viol_vtxslew += (slew_v - limit) * 1e9; cnt_vtxslew++; }
-        if (std::abs(slew_g - slew_v) > 1e-15 && diff_count < 5) {
-          printf("  DIFF: %s  graph=%.4f ps  vertexSlew=%.4f ps  limit=%.4f ps\n",
-                 sta->network()->pathName(sta_pin),
-                 slew_g * 1e12, slew_v * 1e12, limit * 1e12);
-          diff_count++;
-        }
-      }
-      printf("[VIOL] After revert: graph->slew(): %zu viols, %.4f ns\n", cnt_graph, viol_graph);
-      printf("[VIOL] After revert: vertexSlew():  %zu viols, %.4f ns\n", cnt_vtxslew, viol_vtxslew);
-      // Spot check: print fanout217/Y specifically
-      for (odb::dbITerm *iterm : block->getITerms()) {
-        std::string pname = sta->getDbNetwork()->name(sta->getDbNetwork()->dbToSta(iterm));
-        if (pname.find("fanout217") != std::string::npos && pname.find("/Y") != std::string::npos) {
-          sta::Pin *sp = sta->getDbNetwork()->dbToSta(iterm);
-          sta::Vertex *v = sta->graph()->pinDrvrVertex(sp);
-          if (v) {
-            odb::dbMTerm *mt = iterm->getMTerm();
-            sta::LibertyPort *lp = sta->network()->libertyPort(sta->getDbNetwork()->dbToSta(mt));
-            float lim = local_sta->getPortMaxSlewLimit(lp);
-            printf("  [SPOT] %s: cell=%s graph_slew_rise=%.4f ps limit=%.4f ps\n",
-                   pname.c_str(),
-                   iterm->getInst()->getMaster()->getName().c_str(),
-                   delayAsFloat(sta->graph()->slew(v, sta::RiseFall::rise(),
-                     sta->corners()->findCorner("default")->findDcalcAnalysisPt(sta::MinMax::max())->index())) * 1e12,
-                   lim * 1e12);
-          }
-          break;
-        }
-      }
-      fflush(stdout);
-    }
+    printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
   }
 
+  printf("==============================\n");
+  eco.printSummary();
+  helper.printSummary(best);
   delete incre_sta;
 }
 

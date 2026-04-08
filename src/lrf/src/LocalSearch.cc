@@ -228,18 +228,6 @@ LocalPathVisitor::localVisitFaninPaths(PtVertex &to_pt_vertex)
   bool search_to = to_pt_vertex.hasBase()
       ? pred_->searchTo(to_pt_vertex.vertex()) : true;
 
-  bool dbg_print = debug_;
-
-  if (dbg_print) {
-    int edge_count = 0;
-    PtVertexInEdgeIterator cnt_iter(to_pt_vertex.objectIdx(), pt_graph_);
-    while (cnt_iter.hasNext()) { cnt_iter.next(); edge_count++; }
-    printf("[DBG-FANIN] vertex_%u type=%d hasBase=%d searchTo=%d in_edges=%d pin=%s\n",
-           to_pt_vertex.objectIdx(), (int)to_pt_vertex.type(),
-           to_pt_vertex.hasBase(), search_to, edge_count,
-           to_pt_vertex.pin() ? network_->name(to_pt_vertex.pin()) : "virtual");
-  }
-
   if (search_to) {
     PtVertexInEdgeIterator pt_edge_iter(to_pt_vertex.objectIdx(), pt_graph_);
     while (pt_edge_iter.hasNext()) {
@@ -254,14 +242,6 @@ LocalPathVisitor::localVisitFaninPaths(PtVertex &to_pt_vertex)
         pass = pred_->searchFrom(from_pt_vertex.vertex());
       } else {
         pass = true;
-      }
-      if (dbg_print) {
-        printf("[DBG-FANIN]   edge_%u from=%u isWire=%d hasBase=%d type=%d pass=%d "
-               "from_tg=%d from_paths=%s\n",
-               pt_edge.objectIdx(), pt_edge.ptFromId(),
-               pt_edge.isWire(), pt_edge.hasBase(), (int)pt_edge.type(), pass,
-               (int)from_pt_vertex.tagGroupIndex(),
-               from_pt_vertex.paths() ? "yes" : "null");
       }
       if (pass) {
         if (!localVisitEdge(from_pt_vertex, pt_edge, to_pt_vertex))

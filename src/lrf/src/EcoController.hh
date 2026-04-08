@@ -1,0 +1,102 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdio>
+#include <chrono>
+#include "lrf/LrConfig.hh"
+#include "lrf/TestLrf.hh"
+
+namespace odb { 
+class dbBlock; 
+}
+
+namespace sta { 
+class dbSta; 
+}
+
+namespace rsz { 
+class Resizer; 
+}
+
+namespace lrf {
+
+class IncreSta;
+class LocalSta;
+class TaskArranger;
+
+enum class EcoDecision {
+  ACCEPT,
+  ACCEPT_WARMUP,
+  REVERT,
+  TERMINATE
+};
+
+// EcoController: owns ECO state machine and executes accept/revert operations.
+// Holds pointers to IncreSta, dbSta, dbBlock — can perform lmUpdate, ECO
+// checkpoint operations, parasitic sync, and ratio updates internally.
+class EcoController {
+public:
+  EcoController(const EcoConfig &config,
+                IncreSta *incre_sta,
+                sta::dbSta *sta,
+                odb::dbBlock *block,
+                rsz::Resizer *resizer);
+
+  // ── Main entry: run one ECO iteration ──
+  // Performs: lmUpdate → resize → evaluate → decide → execute.
+  // Updates best in-place on accept. Returns the decision.
+  EcoDecision runIteration(size_t iter,
+                           IterationHelper::Metrics &best,
+                           IterationHelper &helper,
+                           float avg_delay, float avg_leakage,
+                           float PT_tradeoff);
+
+  // Execute a decision: accept (endEco+beginEco) or revert (lmUpdate+undoEco+sync).
+  // Updates best on accept. Returns true if this is the first revert (for checkpoint).
+  bool execute(EcoDecision decision, IterationHelper::Metrics &best,
+               const IterationHelper::Metrics &cur);
+
+  // ── State queries ──
+  bool inEco() const { return in_eco_; }
+  size_t consecutiveReverts() const { return consecutive_reverts_; }
+  size_t totalAccepts() const { return total_accepts_; }
+  size_t totalReverts() const { return total_reverts_; }
+  const EcoConfig &config() const { return config_; }
+
+  const char *decisionStr(EcoDecision d) const;
+  const char *strategyStr() const;
+  void printSummary() const;
+
+  // ── Decision logic ──
+  EcoDecision decide(size_t iter,
+                     const IterationHelper::Metrics &cur,
+                     const IterationHelper::Metrics &best);
+
+  // ── Ratio management ──
+  float updateRatio(EcoDecision decision);
+
+  // ── ECO execution ──
+  void executeAccept();
+  void executeRevert();
+
+  // Whether ECO phase should use precheck (vs full resize)
+  bool usePrecheck() const { return in_eco_ && config_.use_precheck; }
+
+private:
+
+  EcoConfig config_;
+  IncreSta *incre_sta_;
+  sta::dbSta *sta_;
+  odb::dbBlock *block_;
+  rsz::Resizer *resizer_;
+  LocalSta *local_sta_;
+
+  bool in_eco_ = false;
+  bool first_eco_entry_ = false;
+  size_t consecutive_reverts_ = 0;
+  size_t total_accepts_ = 0;
+  size_t total_reverts_ = 0;
+  float top_ratio_ = 0.3f;
+};
+
+}  // namespace lrf
