@@ -1,4 +1,5 @@
 #include "lrf/IncreSta.hh"
+#include "GlobalSensitivity.hh"
 #include "LocalSta.hh"
 #include "LrHelper.hh"
 #include "sta/Liberty.hh"
@@ -686,6 +687,10 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
     preSaveLibCellLeakage();
   makeEquivCellArray();
 
+  // Compute global λ-delay sensitivity if enabled.
+  if (sensitivity_enabled_)
+    computeGlobalSensitivity();
+
   auto start_resize = std::chrono::high_resolution_clock::now();
 
   // Create new-framework visitor with ResizeOperator
@@ -705,6 +710,9 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
     visitor->evalContext().average_area = average_area_;
   }
   visitor->evalContext().debug = debug_;
+  // Pass global sensitivity to EvalContext for drain net φ cost.
+  if (sensitivity_enabled_ && global_sens_ && global_sens_->isReady())
+    visitor->evalContext().global_sens = global_sens_.get();
 
   local_sta_->runResize(resizer, visitor);
 
@@ -1182,6 +1190,26 @@ IncreSta::activateInstanceFilter(float max_ratio)
   printf("InstanceFilter ACTIVATED: change_count=%d, target_n=%d, "
          "adaptive_ratio=%.4f (max=%.4f)\n",
          change_count, target_n, pruning_control_.adaptive_top_ratio, max_ratio);
+  fflush(stdout);
+}
+
+void
+IncreSta::computeGlobalSensitivity()
+{
+  auto t0 = std::chrono::high_resolution_clock::now();
+  if (!global_sens_)
+    global_sens_ = std::make_unique<GlobalSensitivity>(sta_);
+
+  const sta::Corner *corner = sta_->corners()->findCorner("default");
+  sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(sta::MinMax::max());
+  sta::ArcDelayCalc *arc_delay_calc = sta_->arcDelayCalc();
+
+  global_sens_->compute(arc_delay_calc, dcalc_ap);
+
+  auto t1 = std::chrono::high_resolution_clock::now();
+  printf("GlobalSensitivity compute: %.3f s, ready=%d\n",
+         std::chrono::duration<double>(t1 - t0).count(),
+         global_sens_->isReady());
   fflush(stdout);
 }
 

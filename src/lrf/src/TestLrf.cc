@@ -887,6 +887,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   lr_helper->setRatcons(ratcons);
 
   incre_sta->setMaxResizeNum(max_resize_num);
+  incre_sta->setSensitivityEnabled(true);
 
   odb::dbDatabase::beginEco(block);
   IterationHelper helper(sta, block, local_sta, resizer);
@@ -1254,6 +1255,7 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  incre_sta->setSensitivityEnabled(true);
 
   if (initialize) {
     runInitialization(sta, incre_sta, resizer, block);

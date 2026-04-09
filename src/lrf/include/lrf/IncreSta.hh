@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include "db_sta/dbSta.hh"
 #include "sta/Sta.hh"
 #include "lrf/LrfClass.hh"
@@ -28,6 +29,7 @@ class LRHelper;
 class ParallelLibData;
 class TaskArranger;
 class PlacementDensityMap;
+class GlobalSensitivity;
 
 class IncreSta : public dbStaState
 {
@@ -113,6 +115,12 @@ public:
   float adaptiveTopRatio() const { return pruning_control_.adaptive_top_ratio; }
   int lastChangeCount() const { return pruning_control_.last_change_count; }
 
+  // Lambda-delay sensitivity: compute global φ for drain net cost enhancement.
+  void setSensitivityEnabled(bool v) { sensitivity_enabled_ = v; }
+  bool sensitivityEnabled() const { return sensitivity_enabled_; }
+  void computeGlobalSensitivity();
+  const GlobalSensitivity *globalSensitivity() const { return global_sens_.get(); }
+
   // APIs for power optimization
   void ensureActivities();  // Access power of one of the instances will trigger global activity calculation
   void makeSwappableCellsCache(rsz::Resizer *resizer);
@@ -168,6 +176,8 @@ protected:
   bool buffer_only_mode_ = false;
   float bakoglu_k_ = 2.5f;
   bool debug_ = false;
+  bool sensitivity_enabled_ = false;
+  std::unique_ptr<GlobalSensitivity> global_sens_;
 
 };
 

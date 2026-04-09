@@ -1,4 +1,5 @@
 #include "NetlistTransformation.hh"
+#include "GlobalSensitivity.hh"
 #include "PlacementDensityMap.hh"
 #include "LocalSta.hh"
 #include "PtGraph.hh"
@@ -208,6 +209,54 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     local_density = ctx.density_map->getDensity(db_inst);
   }
 
+  // ---- Drain net φ preparation ----
+  // Identify sink driver vertices in PtGraph (output pins of sink gates).
+  // These are at the PtGraph boundary; their downstream drain nets are
+  // NOT in PtGraph. φ captures the downstream lambda-delay impact.
+  struct DrainVertexInfo {
+    sta::VertexId pt_id;        // PtGraph vertex id
+    sta::Vertex *sta_vertex;    // global sta::Vertex (for drainPhiSum lookup)
+    float old_slew;             // slew before cell swap (max across rise/fall)
+    float drain_phi;            // Σφ of downstream arcs from global computation
+  };
+  std::vector<DrainVertexInfo> drain_vertices;
+  const bool use_drain_phi = ctx.global_sens && ctx.global_sens->isReady();
+
+  if (use_drain_phi) {
+    const sta::DcalcAnalysisPt *dcalc_ap = pt_graph->dcalcAnalysisPt();
+    sta::DcalcAPIndex ap_index = dcalc_ap ? dcalc_ap->index() : 0;
+    size_t ap_count = pt_graph->ptVertices().size() > 0
+        ? pt_graph->ptEdges().size() > 0 ? 1 : 1 : 1;  // unused, just for slew indexing
+
+    for (size_t vid = 1; vid < pt_graph->vertexCount(); vid++) {
+      const PtVertex &ptv = pt_graph->ptVertex(vid);
+      // Sink driver = type None + isDriver + has base vertex
+      if (ptv.type() != PtVertexType::None)
+        continue;
+      if (!ptv.isDriver() || !ptv.hasBase())
+        continue;
+
+      float drain_phi = ctx.global_sens->drainPhiSum(ptv.vertex());
+      if (std::abs(drain_phi) < 1e-20f)
+        continue;
+
+      // Save current slew (max across rise/fall)
+      // Slew index = ap_index * slew_rf_count + rf_index
+      const sta::Slew *slews = ptv.slews();
+      float max_slew = 0.0f;
+      if (slews) {
+        for (int rf = 0; rf < sta::RiseFall::index_count; rf++) {
+          size_t si = ap_index * sta::RiseFall::index_count + rf;
+          if (si < ptv.slewCount())
+            max_slew = std::max(max_slew, std::abs(sta::delayAsFloat(slews[si])));
+        }
+      }
+
+      drain_vertices.push_back({static_cast<sta::VertexId>(vid),
+                                ptv.vertex(), max_slew, drain_phi});
+    }
+  }
+
   // Pass 1: evaluate all candidates, store (cost, slack) pairs
   std::vector<float> vec_cost_slack(candidates.size() * 2,
                                     std::numeric_limits<float>::max());
@@ -230,6 +279,42 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     float leakage = lookupLeakage(inst, cand);
     float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
         pt_graph, ctx.arc_delay_calc, cand, ctx.runtime_map).delay_lm_sum;
+
+    // Drain net φ contribution (Eq.13): ΔD^λ_n = Δslew_n * Σφ
+    // After increAndGetLocalTimingCost, PtGraph slews are updated by local
+    // timing. Compute Δslew at each sink driver and multiply by drainPhiSum.
+    if (use_drain_phi && delay_lm_sum < sta::INF) {
+      const sta::DcalcAnalysisPt *dcalc_ap = pt_graph->dcalcAnalysisPt();
+      sta::DcalcAPIndex ap_index = dcalc_ap ? dcalc_ap->index() : 0;
+      float drain_contribution = 0.0f;
+      for (const auto &dv : drain_vertices) {
+        const PtVertex &ptv = pt_graph->ptVertex(dv.pt_id);
+        const sta::Slew *slews = ptv.slews();
+        float new_slew = 0.0f;
+        if (slews) {
+          for (int rf = 0; rf < sta::RiseFall::index_count; rf++) {
+            size_t si = ap_index * sta::RiseFall::index_count + rf;
+            if (si < ptv.slewCount())
+              new_slew = std::max(new_slew, std::abs(sta::delayAsFloat(slews[si])));
+          }
+        }
+        float delta_slew = new_slew - dv.old_slew;
+        drain_contribution += delta_slew * dv.drain_phi;
+      }
+      delay_lm_sum += drain_contribution;
+
+      // Debug: print drain phi stats for first candidate of first few instances
+      if (ctx.debug && i == 0 && !drain_vertices.empty()) {
+        printf("[DRAIN_PHI] inst=%s cand=%s delay_lm=%.6e drain_contrib=%.6e "
+               "n_drain=%zu\n",
+               db_sta_->network()->name(inst),
+               cand->name(),
+               delay_lm_sum - drain_contribution,
+               drain_contribution,
+               drain_vertices.size());
+        fflush(stdout);
+      }
+    }
 
     auto t_lc2 = std::chrono::high_resolution_clock::now();
     bool legal_after = local_sta_->legalCheckAfterSwap(

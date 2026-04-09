@@ -59,6 +59,10 @@ struct EvalContext {
   float bakoglu_k = 2.5f;     // Bakoglu gate coefficient for buffer screening
   bool debug = false;          // Print detailed rebuffer/eval diagnostics
 
+  // Global lambda-delay sensitivity (owned by IncreSta, shared across threads).
+  // When non-null and ready, drain net φ contribution is added to cost.
+  const class GlobalSensitivity *global_sens = nullptr;
+
   float swapCost(float delay_lm_sum, float power,
                  float density_cost = 0.0f) const;
 };

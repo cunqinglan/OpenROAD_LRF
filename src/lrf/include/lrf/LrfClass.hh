@@ -103,6 +103,15 @@ struct DelayLmSumResult {
   std::vector<float> vec_delays;
 };
 
+// Per-arc sensitivity for Lambda-Delay Sensitivity (Flach 2014 TCAD, Eq.11).
+// φ captures the cumulative back-propagated effect of an arc's input slew
+// change on the total lambda-delay of all downstream paths.
+struct ArcSensitivity {
+  float dd_dslew = 0.0f;      // δd_{i→j} / δslew_i
+  float dslew_dslew = 0.0f;   // δslew_j / δslew_i
+  float phi = 0.0f;           // cumulative back-propagated λ-delay sensitivity
+};
+
 inline size_t lmIndex(const sta::TimingArc *timing_arc,
                  sta::DcalcAPIndex ap_index,
                  size_t ap_count)
