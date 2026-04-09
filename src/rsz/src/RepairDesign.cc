@@ -941,6 +941,7 @@ bool RepairDesign::repairDriverSlew(const sta::Corner* corner,
                 && role != TimingRole::clockTreePathMin()
                 && role != TimingRole::clockTreePathMax()) {
               for (TimingArc* arc : arc_set->arcs()) {
+                if (arc->to() != port) continue;
                 checkDriverArcSlew(
                     corner, inst, arc, load_cap, limit_w_margin, violation);
               }
