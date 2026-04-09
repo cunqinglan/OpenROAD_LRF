@@ -163,6 +163,9 @@ public:
                                     sta::LibertyCell *equiv_cell,
                                     std::map<std::string, double> *runtime_map = nullptr);
   sta::Slack localSlackAroundRef(PtGraph *pt_graph);
+  sta::Slack localSlackOnSinks(PtGraph *pt_graph);
+  sta::Slack localWorstSlackOnSinks(PtGraph *pt_graph);
+  void recomputeSinglePtParasitic(PtGraph *pt_graph, sta::VertexId drvr_vid);
   bool virtualReplaceCell(PtGraph *pt_graph, sta::LibertyCell *new_cell);
   // Swap ref cell with selective parasitic recompute: skip RefOutput
   // drivers whose output port cap is unchanged after cell swap.
@@ -366,10 +369,7 @@ protected:
   // moved to public section above
   void updateLocalTiming(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
   Slack localSlackAtEndpoints(PtGraph *pt_graph);
-  // Compute slack at sink pins using STA required (unchanged by buffer)
-  // and PtVertex arrival (updated by findLocalArrivals through virtual buffer).
-  Slack localSlackOnSinks(PtGraph *pt_graph);
-  Slack localWorstSlackOnSinks(PtGraph *pt_graph);
+  // localSlackOnSinks / localWorstSlackOnSinks moved to public section
   
   ////////////////////////////////////////////////////////
   // Deal with parasitics
@@ -378,7 +378,7 @@ protected:
   // will change largely. So the parasitic network and its
   // reduced pi model need to be recomputed.
   void recomputeLocalParasitics(PtGraph *pt_graph);
-  void recomputeSinglePtParasitic(PtGraph *pt_graph, sta::VertexId drvr_vid);
+  // recomputeSinglePtParasitic moved to public section
   void loadLocalParasitics(const Pin *drvr_pin,
                            const RiseFall *rf,
                            const DcalcAnalysisPt *dcalc_ap,

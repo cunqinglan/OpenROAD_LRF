@@ -22,12 +22,14 @@ add_library(lrf_lib
     LocalReduceParasitic.cc
     IncreSta.cc
     TestLrf.cc
+    TestRebuffer.cc
     EcoController.cc
     LocalSearch.cc
     LocalPath.cc
     NetlistTransformation.cc
     PlacementDensityMap.cc
     LrRebuffer.cc
+    TestRebuffer.cc
     GraphBase.cc
     TaskArranger.cc
     LocalCellInfo.cc

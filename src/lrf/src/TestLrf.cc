@@ -19,6 +19,7 @@
 #include "PtGraph.hh"
 #include "NetlistTransformation.hh"
 #include "LrRebuffer.hh"
+#include "TestRebuffer.hh"
 #include "sta/DispatchQueue.hh"
 #include "TaskArranger.hh"
 #include "sta/TimingRole.hh"
@@ -4017,8 +4018,8 @@ TestLrf::probeBufferDeep(sta::dbSta* sta,
       continue;
     }
 
-    // ── All 3 methods: local + global via rebufferPinVG ──
-    LrRebuffer::GlobalBaseline bl{base_wns, base_tns, orig_worst_sink, orig_sum_sink};
+    // ── All 3 methods: local + global via TestRebuffer ──
+    TestRebuffer::GlobalBaseline bl{base_wns, base_tns, orig_worst_sink, orig_sum_sink};
 
     EvalContext ctx;
     ctx.arc_delay_calc = sta->arcDelayCalc();
@@ -4028,8 +4029,8 @@ TestLrf::probeBufferDeep(sta::dbSta* sta,
     std::map<std::string, double> rt;
     ctx.runtime_map = &rt;
 
-    LrRebuffer rebuffer(resizer, local_sta, &ctx);
-    LrRebuffer::initGlobalPreamble(sta, resizer);
+    TestRebuffer rebuffer(resizer, local_sta, &ctx);
+    TestRebuffer::initGlobalPreamble(sta, resizer);
     rebuffer.init();
 
     rebuffer.rebufferPinVG(t.drvr_pin, t.inst, block, 0, bl);  // RSZ
@@ -4039,6 +4040,96 @@ TestLrf::probeBufferDeep(sta::dbSta* sta,
     printf("\n");
     fflush(stdout);
   }
+
+  delete incre_sta;
+}
+
+void
+TestLrf::probeAllOptions(sta::dbSta* sta, rsz::Resizer *resizer,
+                          odb::dbBlock *block, size_t thread_num,
+                          const char *pin_name)
+{
+  sta->findRequireds();
+  IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  LocalSta *local_sta = incre_sta->localSta();
+  local_sta->setParasiticsEst(resizer->getEstimateParasitics());
+  local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+  local_sta->initParallel();
+
+  sta->updateTiming(true);
+  sta->findRequireds();
+
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+
+  EvalContext ctx;
+  ctx.arc_delay_calc = sta->arcDelayCalc();
+  ctx.average_delay = avg_delay;
+  ctx.average_leakage = avg_leakage;
+  ctx.PT_tradeoff = 10.0f;
+  std::map<std::string, double> rt;
+  ctx.runtime_map = &rt;
+
+  TestRebuffer probe(resizer, local_sta, &ctx);
+  LrRebuffer::initGlobalPreamble(sta, resizer);
+  probe.init();
+
+  // Resolve instance + driver pin
+  sta::Network *network = sta->network();
+  sta::Graph *graph = sta->graph();
+  sta::Instance *inst = network->findInstance(pin_name);
+  if (!inst) {
+    printf("ERROR: instance '%s' not found\n", pin_name);
+    delete incre_sta;
+    return;
+  }
+
+  sta::Pin *drvr_pin = nullptr;
+  float best_slack = 1e30;
+  sta::InstancePinIterator *pi = network->pinIterator(inst);
+  while (pi->hasNext()) {
+    sta::Pin *pin = pi->next();
+    if (network->isDriver(pin)) {
+      sta::Vertex *vtx = graph->pinDrvrVertex(pin);
+      if (vtx) {
+        float s = sta->vertexSlack(vtx, sta::MinMax::max());
+        if (s < best_slack) { best_slack = s; drvr_pin = pin; }
+      }
+    }
+  }
+  delete pi;
+  if (!drvr_pin) {
+    printf("ERROR: no driver pin for '%s'\n", pin_name);
+    delete incre_sta;
+    return;
+  }
+
+  // Global baseline
+  TestRebuffer::GlobalBaseline baseline;
+  baseline.wns = sta->worstSlack(sta::MinMax::max());
+  baseline.tns = sta->totalNegativeSlack(sta::MinMax::max());
+  baseline.worst_sink = 1e30;
+  baseline.sum_sink = 0;
+  sta::Net *net = network->net(drvr_pin);
+  sta::NetPinIterator *npi = network->pinIterator(net);
+  while (npi->hasNext()) {
+    const sta::Pin *p = npi->next();
+    if (network->isLoad(p)) {
+      sta::Vertex *v = graph->pinLoadVertex(p);
+      if (v) {
+        float s = sta->vertexSlack(v, sta::MinMax::max());
+        if (s < baseline.worst_sink) baseline.worst_sink = s;
+        baseline.sum_sink += s;
+      }
+    }
+  }
+  delete npi;
+
+  printf("Baseline: WNS=%.1f TNS=%.1f worst_sink=%.1f sum_sink=%.1f\n",
+         baseline.wns * 1e12, baseline.tns * 1e12,
+         baseline.worst_sink * 1e12, baseline.sum_sink * 1e12);
+
+  probe.probeAllOptions(drvr_pin, inst, block, baseline);
 
   delete incre_sta;
 }

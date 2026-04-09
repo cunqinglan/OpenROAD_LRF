@@ -1,0 +1,595 @@
+#include <set>
+#include "TestRebuffer.hh"
+#include "LocalSta.hh"
+#include "PtGraph.hh"
+#include "NetlistTransformation.hh"
+#include "rsz/Resizer.hh"
+#include "odb/db.h"
+#include "db_sta/dbNetwork.hh"
+
+namespace lrf {
+
+// ────────────────────────────────────────────────────────────────────────
+// rebufferPinVG: Verified probe for one pin with one method.
+//   method: 0=RSZ (slack-based), 1=LRF-worst, 2=LRF-sum
+//
+// Local phase: fresh PtGraph → generate bnet → virtual buffer → local timing
+//   → print local worst/sum slack delta
+// Global phase: ECO → apply buffer to DB → estimate_parasitics → full STA
+//   → print global worst_sink/sum_sink/WNS/TNS delta → undoEco
+//
+// Uses separate PtGraph for local vs global to avoid state contamination.
+// For LRF methods, use_sum_threshold switches the evaluateOption threshold
+// between localWorstSlackOnSinks (worst) and localSlackOnSinks (sum).
+// ────────────────────────────────────────────────────────────────────────
+void
+TestRebuffer::rebufferPinVG(const sta::Pin *drvr_pin, sta::Instance *inst,
+                             odb::dbBlock *block, int method,
+                             const GlobalBaseline &baseline)
+{
+  const char *names[] = {"RSZ", "LRF-worst", "LRF-sum"};
+  const char *label = names[method];
+
+  if (network_->isTopLevelPort(drvr_pin)) return;
+  sta::Vertex *drvr_vertex = graph_->pinDrvrVertex(drvr_pin);
+  if (!drvr_vertex) return;
+  int fo = Rebuffer::fanout(drvr_vertex);
+  sta::Net *net = network_->net(drvr_pin);
+  drvr_port_ = network_->libertyPort(drvr_pin);
+  if (!net || !drvr_port_ || hasTopLevelOutputPort(net)) return;
+
+  // ── Fresh PtGraph for local evaluation ──
+  PtGraph *pg = local_sta_->makePtGraph(inst, true);
+  if (!pg) { printf("    [%s] PtGraph failed\n", label); return; }
+
+  PtVertex *drvr_pv = nullptr;
+  for (size_t i = 0; i < pg->vertexCount(); i++) {
+    PtVertex &pv = pg->ptVertex(i);
+    if (pv.vertex() && pv.type() == PtVertexType::RefOutput
+        && pv.vertex()->pin() == drvr_pin) {
+      drvr_pv = &pv;
+      break;
+    }
+  }
+  if (!drvr_pv) { printf("    [%s] no driver PtVertex\n", label); return; }
+
+  eval_ctx_->pt_graph = pg;
+  VertexId vid = drvr_pv->objectIdx();
+
+  // Local baseline
+  local_sta_->increAndGetLocalTimingCost(pg, arc_delay_calc_, nullptr);
+  float orig_w = local_sta_->localWorstSlackOnSinks(pg);
+  float orig_s = local_sta_->localSlackOnSinks(pg);
+
+  // ── Generate bnet based on method ──
+  rsz::BufferedNetPtr bnet = nullptr;
+  int local_bufs = 0;
+  float local_w_after = orig_w, local_s_after = orig_s;
+
+  if (method == 0) {
+    // RSZ: slack-based bufferForTiming
+    setPin(const_cast<sta::Pin*>(drvr_pin));
+    drvr_pin_ = drvr_pin;
+    bnet = resizer_->makeBufferedNet(drvr_pin, corner_);
+    if (bnet) {
+      sta_->findRequireds();
+      annotateLoadSlacks(bnet, drvr_vertex);
+      for (int i = 0; i < 3; i++) {
+        bnet = Rebuffer::bufferForTiming(bnet, true);
+        if (!bnet) break;
+      }
+    }
+    if (bnet && bufferNum(bnet) > 0) {
+      local_bufs = bufferNum(bnet);
+      VirtualBufferInfo vinfo = buildVirtualBuffer(vid, bnet);
+      if (!vinfo.failed) {
+        pg->topoSortVertices();
+        buildSyntheticParasitics(vid, bnet, vinfo);
+        local_sta_->increAndGetLocalTimingCost(pg, arc_delay_calc_, nullptr);
+        local_w_after = local_sta_->localWorstSlackOnSinks(pg);
+        local_s_after = local_sta_->localSlackOnSinks(pg);
+        removeVirtualBuffer(vinfo);
+      }
+    }
+  } else {
+    // LRF: rebufferPin with worst or sum threshold
+    bool saved = eval_ctx_->use_sum_threshold;
+    eval_ctx_->use_sum_threshold = (method == 2);
+
+    best_bnet_ = nullptr;
+    best_cost_ = std::numeric_limits<float>::max();
+    best_vinfo_ = VirtualBufferInfo{};
+
+    rebufferPin(drvr_pin, *drvr_pv);
+
+    if (best_bnet_) {
+      local_bufs = bufferNum(best_bnet_);
+      local_w_after = local_sta_->localWorstSlackOnSinks(pg);
+      local_s_after = local_sta_->localSlackOnSinks(pg);
+      cleanupVirtualBuffer();
+    }
+    eval_ctx_->use_sum_threshold = saved;
+  }
+
+  // Print local results
+  if (local_bufs > 0) {
+    printf("    [%s] bufs=%d | local_worst: %+.1f (%.1f->%.1f) | local_sum: %+.1f (%.1f->%.1f)\n",
+           label, local_bufs,
+           (local_w_after - orig_w) * 1e12, orig_w * 1e12, local_w_after * 1e12,
+           (local_s_after - orig_s) * 1e12, orig_s * 1e12, local_s_after * 1e12);
+  } else {
+    printf("    [%s] no buffer | local: worst=%.1f sum=%.1f\n",
+           label, orig_w * 1e12, orig_s * 1e12);
+  }
+
+  // ── Global verification: apply to DB, measure, revert ──
+  if (local_bufs > 0 || method == 0) {
+    odb::dbDatabase::beginEco(block);
+    int global_bufs = 0;
+
+    if (method == 0) {
+      int before = block->getInsts().size();
+      resizer_->rebufferNet(drvr_pin);
+      global_bufs = block->getInsts().size() - before;
+    } else {
+      // Re-run LRF rebufferPin on fresh PtGraph for DB application
+      PtGraph *pg2 = local_sta_->makePtGraph(inst, true);
+      if (pg2) {
+        PtVertex *pv2 = nullptr;
+        for (size_t i = 0; i < pg2->vertexCount(); i++) {
+          PtVertex &pv = pg2->ptVertex(i);
+          if (pv.vertex() && pv.type() == PtVertexType::RefOutput
+              && pv.vertex()->pin() == drvr_pin) {
+            pv2 = &pv; break;
+          }
+        }
+        if (pv2) {
+          eval_ctx_->pt_graph = pg2;
+          bool saved = eval_ctx_->use_sum_threshold;
+          eval_ctx_->use_sum_threshold = (method == 2);
+          best_bnet_ = nullptr;
+          best_cost_ = std::numeric_limits<float>::max();
+          best_vinfo_ = VirtualBufferInfo{};
+          rebufferPin(drvr_pin, *pv2);
+          if (best_bnet_) {
+            int before = block->getInsts().size();
+            applyBufferingToDb();
+            global_bufs = block->getInsts().size() - before;
+          }
+          cleanupVirtualBuffer();
+          eval_ctx_->use_sum_threshold = saved;
+        }
+      }
+    }
+
+    if (global_bufs > 0) {
+      local_sta_->updateGlobalParasiticsAndSync(resizer_->getEstimateParasitics());
+      sta_->delaysInvalid();
+      sta_->updateTiming(true);
+      sta_->findRequireds();
+
+      double wns = sta_->worstSlack(sta::MinMax::max());
+      double tns = sta_->totalNegativeSlack(sta::MinMax::max());
+
+      double g_ws = 1e30, g_ss = 0;
+      sta::NetPinIterator *npi = network_->pinIterator(net);
+      while (npi->hasNext()) {
+        const sta::Pin *p = npi->next();
+        if (network_->isLoad(p)) {
+          sta::Vertex *v = graph_->pinLoadVertex(p);
+          if (v) {
+            float s = sta_->vertexSlack(v, sta::MinMax::max());
+            if (s < g_ws) g_ws = s;
+            g_ss += s;
+          }
+        }
+      }
+      delete npi;
+
+      printf("           global: bufs=%d dWorstSink=%+.1f dSumSink=%+.1f dWNS=%+.1f dTNS=%+.1f\n",
+             global_bufs,
+             (g_ws - baseline.worst_sink) * 1e12,
+             (g_ss - baseline.sum_sink) * 1e12,
+             (wns - baseline.wns) * 1e12,
+             (tns - baseline.tns) * 1e12);
+    }
+
+    odb::dbDatabase::endEco(block);
+    odb::dbDatabase::undoEco(block);
+    local_sta_->updateGlobalParasiticsAndSync(resizer_->getEstimateParasitics());
+    sta_->delaysInvalid();
+    sta_->updateTiming(true);
+    sta_->findRequireds();
+  }
+}
+
+void
+TestRebuffer::probeRszBnetWithLocalEval(const sta::Pin *drvr_pin,
+                                         PtVertex &drvr_pt_vertex)
+{
+  if (network_->isTopLevelPort(drvr_pin))
+    return;
+
+  sta::Vertex *drvr_vertex = graph_->pinDrvrVertex(drvr_pin);
+  int fo = Rebuffer::fanout(drvr_vertex);
+  if (fo <= 1 || fo >= 20)
+    return;
+  if (!resizer_->okToBufferNet(drvr_pin))
+    return;
+
+  sta::Net *net = network_->net(drvr_pin);
+  drvr_port_ = network_->libertyPort(drvr_pin);
+  if (!net || !drvr_port_ || hasTopLevelOutputPort(net))
+    return;
+
+  // ── Step 1: RSZ bnet generation (slack-based) ──
+  setPin(const_cast<sta::Pin*>(drvr_pin));
+  rsz::BufferedNetPtr bnet = resizer_->makeBufferedNet(drvr_pin, corner_);
+  if (!bnet) return;
+
+  sta_->findRequireds();
+  annotateLoadSlacks(bnet, drvr_vertex);
+
+  for (int i = 0; i < 3; i++) {
+    bnet = Rebuffer::bufferForTiming(bnet, true);
+    if (!bnet) return;
+  }
+
+  int buf_count = bufferNum(bnet);
+  if (buf_count == 0) return;
+
+  std::optional<rsz::FixedDelay> rsz_slack_opt = Rebuffer::evaluateOption(bnet, 0);
+  float rsz_slack = rsz_slack_opt ? rsz_slack_opt->toSeconds() : -1e30f;
+
+  // ── Step 2: LRF local timing evaluation on the RSZ bnet ──
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
+  VertexId drvr_vid = drvr_pt_vertex.objectIdx();
+
+  local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
+  float orig_worst_sinks = local_sta_->localWorstSlackOnSinks(pt_graph);
+  float orig_sum_sinks   = local_sta_->localSlackOnSinks(pt_graph);
+  float orig_around_ref  = local_sta_->localSlackAroundRef(pt_graph);
+
+  rsz::BufferedNetPtr bnet_lm = resizer_->makeBufferedNet(drvr_pin, corner_);
+  if (bnet_lm) annotateLoadLMs(drvr_pt_vertex, bnet_lm);
+
+  VirtualBufferInfo vinfo = buildVirtualBuffer(drvr_vid, bnet);
+  if (vinfo.failed) {
+    removeVirtualBuffer(vinfo);
+    printf("[PROBE] pin=%s buffers=%d rsz_slack=%.3e VBUF_FAILED\n",
+           network_->name(drvr_pin), buf_count, rsz_slack);
+    return;
+  }
+
+  pt_graph->topoSortVertices();
+  buildSyntheticParasitics(drvr_vid, bnet, vinfo);
+
+  local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
+  float after_worst_sinks = local_sta_->localWorstSlackOnSinks(pt_graph);
+  float after_sum_sinks   = local_sta_->localSlackOnSinks(pt_graph);
+  float after_around_ref  = local_sta_->localSlackAroundRef(pt_graph);
+
+  printf("[PROBE] pin=%s buffers=%d rsz_slack=%.3e "
+         "worst_orig=%.3e worst_after=%.3e worst_delta=%.3e worst_pass=%d | "
+         "sum_orig=%.3e sum_after=%.3e sum_delta=%.3e sum_pass=%d | "
+         "ref_orig=%.3e ref_after=%.3e ref_delta=%.3e ref_pass=%d\n",
+         network_->name(drvr_pin), buf_count, rsz_slack,
+         orig_worst_sinks, after_worst_sinks,
+         after_worst_sinks - orig_worst_sinks,
+         after_worst_sinks >= orig_worst_sinks,
+         orig_sum_sinks, after_sum_sinks,
+         after_sum_sinks - orig_sum_sinks,
+         after_sum_sinks >= orig_sum_sinks,
+         orig_around_ref, after_around_ref,
+         after_around_ref - orig_around_ref,
+         after_around_ref >= orig_around_ref);
+
+  removeVirtualBuffer(vinfo);
+  local_sta_->recomputeSinglePtParasitic(pt_graph, drvr_vid);
+
+  // ── Step 3: LRF rebufferPin on the same pin for comparison ──
+  local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
+  float lrf_orig_worst = local_sta_->localWorstSlackOnSinks(pt_graph);
+
+  rebufferPin(drvr_pin, pt_graph->ptVertex(drvr_vid));
+
+  int lrf_buf_count = 0;
+  float lrf_worst_after = lrf_orig_worst;
+  if (bestBnet()) {
+    lrf_buf_count = bufferNum(bestBnet());
+    lrf_worst_after = local_sta_->localWorstSlackOnSinks(pt_graph);
+  }
+  float lrf_cost = bestCost();
+
+  printf("[PROBE-LRF] pin=%s lrf_bufs=%d lrf_cost=%.3e "
+         "lrf_worst_orig=%.3e lrf_worst_after=%.3e lrf_worst_delta=%.3e lrf_pass=%d\n",
+         network_->name(drvr_pin), lrf_buf_count, lrf_cost,
+         lrf_orig_worst, lrf_worst_after,
+         lrf_worst_after - lrf_orig_worst,
+         lrf_worst_after >= lrf_orig_worst);
+
+  cleanupVirtualBuffer();
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// probeAllOptions: enumerate ALL bnet candidates for one driver pin,
+// evaluate each with both local (virtual buffer on PtGraph) and global
+// (actual DB insertion + full STA + revert) metrics.
+//
+// For each candidate bnet (RSZ + all LRF options):
+//   Local:  buildVirtualBuffer → buildSyntheticParasitics → increAndGetLocalTimingCost
+//           → localWorstSlackOnSinks / localSlackOnSinks
+//   Global: beginEco → exportBufferTree → estimate_parasitics → updateTiming
+//           → per-sink vertexSlack → worstSlack / totalNegativeSlack → undoEco
+//
+// Purpose: identify discrepancy between local PtGraph slack prediction and
+// actual global STA result after buffer insertion, per option.
+// ────────────────────────────────────────────────────────────────────────
+void
+TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
+                               odb::dbBlock *block,
+                               const GlobalBaseline &baseline)
+{
+  if (network_->isTopLevelPort(drvr_pin)) return;
+  sta::Vertex *drvr_vertex = graph_->pinDrvrVertex(drvr_pin);
+  if (!drvr_vertex) return;
+  sta::Net *net = network_->net(drvr_pin);
+  drvr_port_ = network_->libertyPort(drvr_pin);
+  if (!net || !drvr_port_ || hasTopLevelOutputPort(net)) return;
+
+  printf("\n  ══ probeAllOptions: %s (fanout=%d) ══\n",
+         network_->pathName(inst), Rebuffer::fanout(drvr_vertex));
+
+  // ── Step 1: Generate bnet candidates ──
+  // LRF: makeBufferedNet → annotateLoadLMs → bufferForTiming ×3
+  //   → last_top_opts_ = all Pareto-optimal bnet options from final iteration
+  // RSZ: makeBufferedNet → annotateLoadSlacks → Rebuffer::bufferForTiming ×3
+  //   → single best bnet (slack-based pruning)
+  PtGraph *pg = local_sta_->makePtGraph(inst, true);
+  if (!pg) { printf("    PtGraph failed\n"); return; }
+
+  PtVertex *drvr_pv = nullptr;
+  for (size_t i = 0; i < pg->vertexCount(); i++) {
+    PtVertex &pv = pg->ptVertex(i);
+    if (pv.vertex() && pv.type() == PtVertexType::RefOutput
+        && pv.vertex()->pin() == drvr_pin) {
+      drvr_pv = &pv; break;
+    }
+  }
+  if (!drvr_pv) { printf("    no driver PtVertex\n"); return; }
+
+  eval_ctx_->pt_graph = pg;
+  VertexId vid = drvr_pv->objectIdx();
+
+  // Local baseline
+  local_sta_->increAndGetLocalTimingCost(pg, arc_delay_calc_, nullptr);
+  float orig_w = local_sta_->localWorstSlackOnSinks(pg);
+  float orig_s = local_sta_->localSlackOnSinks(pg);
+  printf("    local_baseline: worst=%.1f ps  sum=%.1f ps\n",
+         orig_w * 1e12, orig_s * 1e12);
+
+  // Collect all load vertices reachable from driver via wire edges (transitive).
+  // This handles fanout buffers that split the net into sub-nets.
+  auto collectLoads = [&](sta::Vertex *drvr) -> std::vector<sta::Vertex*> {
+    std::vector<sta::Vertex*> loads;
+    std::vector<sta::Vertex*> stack = {drvr};
+    std::set<sta::Vertex*> visited;
+    while (!stack.empty()) {
+      sta::Vertex *v = stack.back(); stack.pop_back();
+      if (!visited.insert(v).second) continue;
+      sta::VertexOutEdgeIterator oi(v, graph_);
+      while (oi.hasNext()) {
+        sta::Edge *e = oi.next();
+        if (e->isWire()) {
+          sta::Vertex *to = e->to(graph_);
+          // If this is a buffer/inverter input, follow through to its output
+          const sta::Pin *to_pin = to->pin();
+          sta::LibertyPort *port = network_->libertyPort(to_pin);
+          bool is_buf = port && port->libertyCell() && port->libertyCell()->isBuffer();
+          if (is_buf && network_->isLoad(to_pin)) {
+            // Follow buffer: find its output vertex
+            sta::Instance *buf_inst = network_->instance(to_pin);
+            sta::InstancePinIterator *ipi = network_->pinIterator(buf_inst);
+            while (ipi->hasNext()) {
+              sta::Pin *bp = ipi->next();
+              if (network_->isDriver(bp)) {
+                sta::Vertex *bv = graph_->pinDrvrVertex(bp);
+                if (bv) stack.push_back(bv);
+              }
+            }
+            delete ipi;
+          }
+          loads.push_back(to);
+        }
+      }
+    }
+    return loads;
+  };
+
+  std::vector<sta::Vertex*> all_loads = collectLoads(drvr_vertex);
+
+  // Print per-sink GLOBAL baseline slack (all transitive loads)
+  printf("    per-sink GLOBAL baseline (%zu loads, ps):\n", all_loads.size());
+  for (sta::Vertex *lv : all_loads) {
+    float s = sta_->vertexSlack(lv, sta::MinMax::max());
+    printf("      %-50s %.1f\n", network_->pathName(lv->pin()), s * 1e12);
+  }
+
+  // Generate LRF bnet options
+  setPin(const_cast<sta::Pin*>(drvr_pin));
+  drvr_pin_ = drvr_pin;
+  last_top_opts_.clear();
+
+  rsz::BufferedNetPtr bnet = resizer_->makeBufferedNet(drvr_pin, corner_);
+  if (!bnet) { printf("    makeBufferedNet failed\n"); return; }
+
+  local_sta_->increAndGetLocalTimingCost(pg, arc_delay_calc_, nullptr);
+  annotateLoadLMs(*drvr_pv, bnet);
+
+  // Run 3 iterations; last_top_opts_ saved on final iteration
+  for (int i = 0; i < 3; i++) {
+    bnet = bufferForTiming(vid, bnet, true, /*last_iteration=*/(i == 2));
+    if (!bnet) break;
+  }
+  cleanupVirtualBuffer();
+
+  if (last_top_opts_.empty()) {
+    printf("    no bnet options generated\n");
+    return;
+  }
+
+  // Also generate RSZ bnet for comparison
+  rsz::BufferedNetPtr rsz_bnet = nullptr;
+  {
+    PtGraph *pg_rsz = local_sta_->makePtGraph(inst, true);
+    if (pg_rsz) {
+      eval_ctx_->pt_graph = pg_rsz;
+      setPin(const_cast<sta::Pin*>(drvr_pin));
+      rsz::BufferedNetPtr rb = resizer_->makeBufferedNet(drvr_pin, corner_);
+      if (rb) {
+        sta_->findRequireds();
+        annotateLoadSlacks(rb, drvr_vertex);
+        for (int i = 0; i < 3; i++) {
+          rb = Rebuffer::bufferForTiming(rb, true);
+          if (!rb) break;
+        }
+      }
+      rsz_bnet = rb;
+    }
+  }
+
+  // ── Step 2: Evaluate each bnet option (RSZ + all LRF candidates) ──
+  // For each option we measure:
+  //   Local:  lcl_dWorst = localWorstSlackOnSinks(after) - localWorstSlackOnSinks(before)
+  //           lcl_dSum   = localSlackOnSinks(after) - localSlackOnSinks(before)
+  //           (uses virtual buffer + synthetic Pi parasitics on PtGraph)
+  //   Global: gbl_dWSink = worst_sink_slack(after) - worst_sink_slack(baseline)
+  //           gbl_dSSink = sum_sink_slack(after) - sum_sink_slack(baseline)
+  //           gbl_dWNS   = WNS(after) - WNS(baseline)
+  //           gbl_dTNS   = TNS(after) - TNS(baseline)
+  //           (uses exportBufferTree + estimate_parasitics + full STA update)
+  // Per-sink global slack is printed to identify which sinks improve/degrade.
+  printf("\n    %-4s %4s | %10s %12s | %10s %12s %8s %10s\n",
+         "#", "bufs", "lcl_dWorst", "lcl_dSum", "gbl_dWSink", "gbl_dSSink", "gbl_dWNS", "gbl_dTNS");
+
+  auto evalOneOption = [&](const char *label, const rsz::BufferedNetPtr &opt) {
+    int bufs = bufferNum(opt);
+
+    // ── Local eval (fresh PtGraph + virtual buffer) ──
+    PtGraph *pg_l = local_sta_->makePtGraph(inst, true);
+    float lw = orig_w, ls = orig_s;
+    if (pg_l && bufs > 0) {
+      eval_ctx_->pt_graph = pg_l;
+      PtVertex *pv = nullptr;
+      for (size_t j = 0; j < pg_l->vertexCount(); j++) {
+        PtVertex &p = pg_l->ptVertex(j);
+        if (p.vertex() && p.type() == PtVertexType::RefOutput
+            && p.vertex()->pin() == drvr_pin) { pv = &p; break; }
+      }
+      if (pv) {
+        VertexId v = pv->objectIdx();
+        local_sta_->increAndGetLocalTimingCost(pg_l, arc_delay_calc_, nullptr);
+
+        VirtualBufferInfo vi = buildVirtualBuffer(v, opt);
+        if (!vi.failed) {
+          pg_l->topoSortVertices();
+          buildSyntheticParasitics(v, opt, vi);
+          local_sta_->increAndGetLocalTimingCost(pg_l, arc_delay_calc_, nullptr);
+          lw = local_sta_->localWorstSlackOnSinks(pg_l);
+          ls = local_sta_->localSlackOnSinks(pg_l);
+          removeVirtualBuffer(vi);
+        }
+      }
+    }
+
+    // ── Global eval (apply to DB + revert) ──
+    double g_dws = 0, g_dss = 0, g_dwns = 0, g_dtns = 0;
+    int g_bufs = 0;
+    if (bufs > 0) {
+      PtGraph *pg_g = local_sta_->makePtGraph(inst, true);
+      if (pg_g) {
+        PtVertex *pv2 = nullptr;
+        for (size_t j = 0; j < pg_g->vertexCount(); j++) {
+          PtVertex &p = pg_g->ptVertex(j);
+          if (p.vertex() && p.type() == PtVertexType::RefOutput
+              && p.vertex()->pin() == drvr_pin) { pv2 = &p; break; }
+        }
+        if (pv2) {
+          eval_ctx_->pt_graph = pg_g;
+          VertexId v2 = pv2->objectIdx();
+
+          // Rebuild: rebufferPin won't give us the exact same bnet, so we
+          // directly build virtual buffer + export to DB
+          odb::dbDatabase::beginEco(block);
+
+          VirtualBufferInfo vi2 = buildVirtualBuffer(v2, opt);
+          if (!vi2.failed) {
+            int before = block->getInsts().size();
+            // exportBufferTree applies the bnet to the physical DB
+            odb::dbNet *db_net = db_network_->flatNet(drvr_pin);
+            exportBufferTree(opt, db_network_->dbToSta(db_net), 1, nullptr, "probe");
+            g_bufs = block->getInsts().size() - before;
+            removeVirtualBuffer(vi2);
+          }
+
+          if (g_bufs > 0) {
+            local_sta_->updateGlobalParasiticsAndSync(resizer_->getEstimateParasitics());
+            sta_->delaysInvalid();
+            sta_->updateTiming(true);
+            sta_->findRequireds();
+
+            double wns = sta_->worstSlack(sta::MinMax::max());
+            double tns = sta_->totalNegativeSlack(sta::MinMax::max());
+            double ws = 1e30, ss = 0;
+
+            // Collect per-sink global slack after buffer.
+            // Use transitive wire-edge traversal from driver (same as baseline)
+            // to capture all sinks including those behind inserted buffers.
+            std::vector<sta::Vertex*> loads_after = collectLoads(drvr_vertex);
+            printf("      [%s] per-sink global slack after (%zu loads, ps):\n",
+                   label, loads_after.size());
+            for (sta::Vertex *lv : loads_after) {
+              float s = sta_->vertexSlack(lv, sta::MinMax::max());
+              printf("        %-50s %.1f\n", network_->pathName(lv->pin()), s * 1e12);
+              if (s < ws) ws = s;
+              ss += s;
+            }
+            g_dws = (ws - baseline.worst_sink) * 1e12;
+            g_dss = (ss - baseline.sum_sink) * 1e12;
+            g_dwns = (wns - baseline.wns) * 1e12;
+            g_dtns = (tns - baseline.tns) * 1e12;
+          }
+
+          odb::dbDatabase::endEco(block);
+          odb::dbDatabase::undoEco(block);
+          local_sta_->updateGlobalParasiticsAndSync(resizer_->getEstimateParasitics());
+          sta_->delaysInvalid();
+          sta_->updateTiming(true);
+          sta_->findRequireds();
+        }
+      }
+    }
+
+    printf("    %-4s %4d | %+10.1f %+12.1f | %+10.1f %+12.1f %+8.1f %+10.1f\n",
+           label, bufs,
+           (lw - orig_w) * 1e12, (ls - orig_s) * 1e12,
+           g_dws, g_dss, g_dwns, g_dtns);
+    fflush(stdout);
+  };
+
+  // Evaluate RSZ bnet
+  if (rsz_bnet && bufferNum(rsz_bnet) > 0) {
+    evalOneOption("RSZ", rsz_bnet);
+  } else {
+    printf("    RSZ    0 |        -            - |        -            -        -          -\n");
+  }
+
+  // Evaluate all LRF options
+  for (size_t i = 0; i < last_top_opts_.size(); i++) {
+    char label[16];
+    snprintf(label, sizeof(label), "L%zu", i);
+    evalOneOption(label, last_top_opts_[i]);
+  }
+}
+
+}  // namespace lrf

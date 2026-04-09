@@ -263,6 +263,11 @@ public:
                        odb::dbBlock *block, size_t thread_num,
                        const std::vector<std::string> &pin_names);
 
+  // Enumerate ALL bnet options for one pin, eval local+global for each.
+  void probeAllOptions(sta::dbSta* sta, rsz::Resizer *resizer,
+                       odb::dbBlock *block, size_t thread_num,
+                       const char *pin_name);
+
   // ── Unified entry point ──
   // Single function that dispatches by LrConfig::mode.
   // Replaces testParallelLrResizeByArray, WithBuffering, WithPrecheck, etc.

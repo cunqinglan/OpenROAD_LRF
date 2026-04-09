@@ -836,6 +836,17 @@ Timing::probeBufferDeep(const char *pin_names_csv) {
 }
 
 void
+Timing::probeAllOptions(const char *pin_name) {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  lrf::TestLrf test_lrf;
+  test_lrf.probeAllOptions(sta, resizer, design_->getBlock(),
+                           thread_num, pin_name);
+}
+
+void
 Timing::testReportVertices() {
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();

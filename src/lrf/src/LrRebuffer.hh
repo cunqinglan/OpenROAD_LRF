@@ -74,26 +74,6 @@ public:
   // Returns the number of inserted buffers.
   int rebufferPinRsz(const sta::Pin *drvr_pin);
 
-  // Experiment B: generate bnet with RSZ algorithm, evaluate with LRF local timing.
-  // Does NOT modify the design — only prints diagnostic info.
-  void probeRszBnetWithLocalEval(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex);
-
-  // Deep probe: compare RSZ vs LRF-worst vs LRF-sum on one pin.
-  // Reports local slack (via virtual buffer) for all 3 methods.
-  // Rebuilds PtGraph for each method to avoid state corruption.
-  // Does NOT modify the design.
-  void probeDeepPerPin(const sta::Pin *drvr_pin, sta::Instance *inst);
-
-  // Verified probe: run one rebuffer method, report local + global timing.
-  // method: 0=RSZ, 1=LRF-worst, 2=LRF-sum
-  // Applies buffer to DB for global verification, then reverts.
-  struct GlobalBaseline {
-    double wns, tns, worst_sink, sum_sink;
-  };
-  void rebufferPinVG(const sta::Pin *drvr_pin, sta::Instance *inst,
-                     odb::dbBlock *block, int method,
-                     const GlobalBaseline &baseline);
-
 protected:
   float computeBufferAddedCost(float buffer_delay_seconds,
                                 float buffer_leakage,
@@ -125,7 +105,7 @@ protected:
                                 const rsz::BufferedNetPtr& option,
                                 const VirtualBufferInfo &vinfo);
 
-private:
+protected:
   LocalSta *local_sta_;
   EvalContext *eval_ctx_;
   const sta::Pin *drvr_pin_ = nullptr;
@@ -135,6 +115,9 @@ private:
   float last_slack_after_ = -1e30f;
   VirtualBufferInfo best_vinfo_;
   bool verbose_ = true;
+
+  // Saved from last bufferForTiming call (last iteration's top options)
+  std::vector<rsz::BufferedNetPtr> last_top_opts_;
 };
 
 } // namespace lrf

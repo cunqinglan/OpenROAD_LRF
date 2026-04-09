@@ -18,6 +18,7 @@
 #include "TaskArranger.hh"
 #include "NetlistTransformation.hh"
 #include "LrRebuffer.hh"
+#include "TestRebuffer.hh"
 #include "rsz/Resizer.hh"
 #include "ParallelLibData.hh"
 #include "LrSizer.hh"
@@ -927,8 +928,8 @@ IncreSta::probeRszBnet(rsz::Resizer *resizer, float PT_tradeoff, int top_n)
   std::map<std::string, double> rt;
   probe_ctx.runtime_map = &rt;
 
-  LrRebuffer lr_rebuffer(resizer, local_sta_, &probe_ctx);
-  LrRebuffer::initGlobalPreamble(sta_, resizer);
+  TestRebuffer lr_rebuffer(resizer, local_sta_, &probe_ctx);
+  TestRebuffer::initGlobalPreamble(sta_, resizer);
   lr_rebuffer.init();
 
   sta_->findRequireds();

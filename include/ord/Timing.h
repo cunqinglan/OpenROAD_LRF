@@ -192,6 +192,7 @@ class Timing
   void probeBufferOneByOne(bool use_rsz = true);
   void probeRszBnet();
   void probeBufferDeep(const char *pin_names_csv);
+  void probeAllOptions(const char *pin_name);
   /////////////////////////////////////////////////////////////
   // End functions for testing LR sizing
   /////////////////////////////////////////////////////////////
