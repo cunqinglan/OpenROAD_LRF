@@ -516,7 +516,7 @@ Initializer::fixSlewViolations()
     if (upsized_this_pass == 0) break;
   }
 
-  // Final verification
+  // Final verification with diagnostics for unresolved violations.
   sta_->findDelays();
   int remaining = 0;
   sta::VertexIterator viter2(graph);
@@ -536,7 +536,33 @@ Initializer::fixSlewViolations()
       float s = graph->slew(vertex, rf, dcalc_ap->index());
       worst = std::max(worst, s);
     }
-    if (worst > limit) remaining++;
+    if (worst > limit) {
+      remaining++;
+      // Diagnostic: why can't we fix this?
+      sta::Instance* inst = network_->instance(pin);
+      LibertyCell* cur = network_->libertyCell(inst);
+      float load_cap = sta_->graphDelayCalc()->loadCap(pin, dcalc_ap);
+      // Find largest equiv cell and its estimated slew
+      LibertyCellSeq* equivs = cur ? sta_->equivCells(cur) : nullptr;
+      const char* largest_name = cur ? cur->name() : "?";
+      float largest_slew = worst;
+      if (equivs && !equivs->empty()) {
+        LibertyCell* largest = cur;
+        for (LibertyCell* ec : *equivs) {
+          if (ec->area() > largest->area()) largest = ec;
+        }
+        largest_name = largest->name();
+        sta::LibertyPort* lp = largest->findLibertyPort(port->name());
+        if (lp)
+          largest_slew = estimateMaxSlew(lp, load_cap, dcalc_ap, inst);
+      }
+      printf("[Initializer] Step 3: UNRESOLVED pin %s, cell %s, "
+             "slew=%.3fps limit=%.3fps load_cap=%.2ffF, "
+             "largest_equiv=%s est_slew=%.3fps\n",
+             network_->pathName(pin), cur ? cur->name() : "?",
+             worst * 1e12, limit * 1e12, load_cap * 1e15,
+             largest_name, largest_slew * 1e12);
+    }
   }
 
   printf("[Initializer] Step 3: upsized %d cells, %d remaining violations\n",
@@ -693,8 +719,34 @@ Initializer::fixCapByBuffering()
       }
       delete lib_iter;
       if (!buf_cell) {
-        printf("[Initializer] Step 4: no buffer cell found for cap=%.2f fF\n",
-               buf_group_cap * 1e15);
+        // Find the largest buffer max_cap in library for diagnostic.
+        float max_buf_cap = 0;
+        const char* max_buf_name = "none";
+        sta::LibertyLibraryIterator* dlib = network_->libertyLibraryIterator();
+        while (dlib->hasNext()) {
+          sta::LibertyLibrary* lib = dlib->next();
+          sta::LibertyCellIterator ci(lib);
+          while (ci.hasNext()) {
+            sta::LibertyCell* c = ci.next();
+            if (!c->isBuffer()) continue;
+            sta::LibertyPort *bi, *bo;
+            c->bufferPorts(bi, bo);
+            if (!bo) continue;
+            float cl; bool ce;
+            bo->capacitanceLimit(max, cl, ce);
+            if (ce && cl > max_buf_cap) {
+              max_buf_cap = cl;
+              max_buf_name = c->name();
+            }
+          }
+        }
+        delete dlib;
+        printf("[Initializer] Step 4: UNRESOLVED pin %s, "
+               "need buffer for group_cap=%.2f fF, "
+               "but largest buffer %s has max_cap=%.2f fF (%zu loads in group)\n",
+               network_->pathName(drvr_pin),
+               buf_group_cap * 1e15, max_buf_name, max_buf_cap * 1e15,
+               buf_loads.size());
         break;
       }
 
@@ -729,6 +781,14 @@ Initializer::fixCapByBuffering()
              network_->pathName(drvr_pin), inserted,
              remaining_cap * 1e15, max_cap * 1e15);
       total_buffers += inserted;
+    }
+    if (remaining_cap > max_cap) {
+      printf("[Initializer] Step 4: UNRESOLVED pin %s, "
+             "remaining_cap=%.2f fF > limit=%.2f fF after %d buffer(s), "
+             "%zu loads remaining\n",
+             network_->pathName(drvr_pin),
+             remaining_cap * 1e15, max_cap * 1e15,
+             inserted, loads.size());
     }
   }
 

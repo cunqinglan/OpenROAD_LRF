@@ -68,6 +68,29 @@ public:
   // Repair slew violations on a single driver net by inserting buffers.
   int repairSlew(const sta::Pin *drvr_pin, rsz::Resizer *resizer);
 
+  // Repair cap violations on a single driver net by inserting buffers.
+  // Walks the Steiner tree bottom-up; at each junction where combined
+  // cap exceeds max_cap, inserts a buffer to isolate the larger branch
+  // (same strategy as RepairDesign::repairNetJunc).
+  static int repairCap(const sta::Pin *drvr_pin, float max_cap,
+                       sta::dbSta *sta, rsz::Resizer *resizer);
+
+  // Slew-aware buffer cell selection (mirrors RepairDesign::findBufferUnderSlew).
+  // Picks the smallest buffer whose output slew stays under max_slew when
+  // driving load_cap.  Falls back to the buffer with minimum achievable slew.
+  static sta::LibertyCell *findBufferUnderSlew(
+      rsz::Resizer *resizer, float max_slew, float load_cap);
+
+  // Insert a repeater buffer at the given location, resize it, and update
+  // load_pins / repeater_cap to reflect the buffer's input pin.
+  // Returns true on success (mirrors RepairDesign::makeRepeater).
+  static bool makeRepeater(rsz::Resizer *resizer,
+                           const sta::Corner *corner,
+                           const odb::Point &loc,
+                           sta::LibertyCell *buffer_cell,
+                           sta::PinSeq &load_pins,
+                           float &repeater_cap);
+
 protected:
   float computeBufferAddedCost(float buffer_delay_seconds,
                                 float buffer_leakage,

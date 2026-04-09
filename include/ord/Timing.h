@@ -122,6 +122,13 @@ class Timing
              float top_ratio = 0.3f,
              bool initialize = false);
 
+  // Test: level-parallel initializer (standalone, does not start LR).
+  void testParallelInitializer(bool minimize_leakage = true);
+
+  // Debug: verify precheck predictions one gate at a time.
+  void debugPrecheckAccuracy(float PT_tradeoff = 100.0,
+                             float top_ratio = 0.3);
+
   void testLocalDelayCompute(char *inst_name);
   void testLocalArrivalCompute(char *inst_name);
   void testLocalSlewCompute(char *inst_name);

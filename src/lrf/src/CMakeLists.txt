@@ -36,6 +36,7 @@ add_library(lrf_lib
     LrSizer.cc
     ViolationCheck.cc
     Initializer.cc
+    ParallelInitializer.cc
   Rebranch.cc
 )
 
@@ -66,6 +67,7 @@ target_include_directories(lrf_lib
     ${OPENSTA_HOME}
     # ${OPENSTA_HOME}/include
     ${OPENSTA_HOME}/include/sta
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../rsz/src
     .
 )
 
