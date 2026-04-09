@@ -785,6 +785,7 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
       sta_, local_sta_, resizer, &visitor->evalContext());
   visitor->setOperator(std::move(buffer_op));
   visitor->init(avg_delay, avg_leakage, wns, PT_tradeoff, nullptr);
+  visitor->evalContext().debug = debug_;
 
   // Mark all selected instances for buffer-only
   for (size_t vid : selected)
@@ -1410,6 +1411,7 @@ IncreSta::parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
   visitor->setOperator(std::move(combined_op));
 
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &inst_info_map_);
+  visitor->evalContext().debug = debug_;
 
   local_sta_->runResize(resizer, visitor);
 

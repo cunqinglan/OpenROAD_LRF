@@ -126,7 +126,8 @@ class Timing
              const char *lr_helper_method = "RapidLRHelper",
              float top_ratio = 0.3f,
              bool initialize = false,
-             const char *checkpoint_dir = "");
+             const char *checkpoint_dir = "",
+             bool debug = false);
 
   void testLocalDelayCompute(char *inst_name);
   void testLocalArrivalCompute(char *inst_name);
@@ -160,7 +161,8 @@ class Timing
   void testBufferOnly(size_t iterations = 6,
                       float PT_tradeoff = 10.0,
                       const char *lr_helper_method = "RapidLRHelper",
-                      float bakoglu_k = 2.5);
+                      float bakoglu_k = 2.5,
+                      bool debug = false);
   void testParallelResizeByArrayWithPrecheck(size_t max_resize_num,
                                              size_t iterations,
                                              size_t num_no_improve_tolerance,
@@ -189,6 +191,7 @@ class Timing
   void testBufferingRsz(float PT_tradeoff = 100.0f, int top_n = 100);
   void probeBufferOneByOne(bool use_rsz = true);
   void probeRszBnet();
+  void probeBufferDeep(const char *pin_names_csv);
   /////////////////////////////////////////////////////////////
   // End functions for testing LR sizing
   /////////////////////////////////////////////////////////////

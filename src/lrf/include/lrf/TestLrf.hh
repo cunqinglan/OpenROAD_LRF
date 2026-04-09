@@ -140,7 +140,8 @@ public:
                             float PT_tradeoff = 100.0,
                             std::string lr_helper_method = "LRHelper",
                             bool initialize = false,
-                            float density_weight = 0.0f);
+                            float density_weight = 0.0f,
+                            bool debug = false);
 
   // Print all liberty cells information grouped by unique equiv cell groups.
   void printAllCellsInfo(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
@@ -165,7 +166,8 @@ public:
                       size_t iterations = 6,
                       float PT_tradeoff = 10.0,
                       std::string lr_helper_method = "RapidLRHelper",
-                      float bakoglu_k = 2.5f);
+                      float bakoglu_k = 2.5f,
+                      bool debug = false);
 
   // Resize by array with precheck (ParallelVisitor + ResizePrecheckOperator)
   void testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
@@ -254,6 +256,12 @@ public:
   // Probe: RSZ bnet generation + LRF local timing evaluation (diagnostic only).
   void probeRszBnet(sta::dbSta* sta, rsz::Resizer *resizer,
                     odb::dbBlock *block, size_t thread_num = 10);
+
+  // Deep probe: for specific pins, compare 3 methods (RSZ, LRF-worst, LRF-sum)
+  // with full local + global timing analysis.
+  void probeBufferDeep(sta::dbSta* sta, rsz::Resizer *resizer,
+                       odb::dbBlock *block, size_t thread_num,
+                       const std::vector<std::string> &pin_names);
 
   // ── Unified entry point ──
   // Single function that dispatches by LrConfig::mode.

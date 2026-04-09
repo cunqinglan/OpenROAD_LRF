@@ -1208,7 +1208,7 @@ TestLrf::runLr(sta::dbSta* sta, rsz::Resizer *resizer,
           cfg.max_resize_num, cfg.iterations,
           cfg.num_no_improve_tolerance, cfg.ratcons,
           cfg.PT_tradeoff, cfg.lr_helper_method,
-          cfg.initialize, cfg.density_weight);
+          cfg.initialize, cfg.density_weight, cfg.debug);
       break;
     case LrMode::PRECHECK:
       testParallelLrResizeByArrayWithPrecheck(
@@ -1248,12 +1248,14 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
                             float PT_tradeoff,
                             std::string lr_helper_method,
                             bool initialize,
-                            float density_weight)
+                            float density_weight,
+                            bool debug)
 {
   printf("----- Testing Parallel LR Resize+Buffering (revert-halve ECO) -----\n");
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  incre_sta->setDebug(debug);
 
   if (initialize) {
     runInitialization(sta, incre_sta, resizer, block);
@@ -1564,12 +1566,15 @@ TestLrf::testBufferOnly(sta::dbSta* sta,
                         size_t iterations,
                         float PT_tradeoff,
                         std::string lr_helper_method,
-                        float bakoglu_k)
+                        float bakoglu_k,
+                        bool debug)
 {
-  printf("----- Testing Buffer-Only Mode (bakoglu_k=%.2f) -----\n", bakoglu_k);
+  printf("----- Testing Buffer-Only Mode (bakoglu_k=%.2f, debug=%d) -----\n",
+         bakoglu_k, debug);
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  incre_sta->setDebug(debug);
   incre_sta->setBufferOnlyMode(true);
   incre_sta->setBakogluK(bakoglu_k);
 
@@ -3612,10 +3617,9 @@ TestLrf::probeBufferOneByOne(sta::dbSta* sta,
                               size_t thread_num,
                               bool use_rsz)
 {
-  printf("\n========================================\n");
-  printf(" Probe: buffer one instance at a time (%s)\n",
-         use_rsz ? "rsz-style" : "LRF-style");
-  printf("========================================\n");
+  printf("\n========================================================\n");
+  printf(" True Probe: buffer one pin at a time, RSZ vs LRF\n");
+  printf("========================================================\n");
 
   sta->findRequireds();
   IncreSta *incre_sta = new IncreSta(sta, thread_num);
@@ -3631,115 +3635,410 @@ TestLrf::probeBufferOneByOne(sta::dbSta* sta,
   printf("Baseline: WNS=%.3f ps, TNS=%.3f ps\n",
          base_wns * 1e12, base_tns * 1e12);
 
-  // Collect negative-slack driver pins
+  // Use sensitivity screening to find candidates (same as parallelBuffering)
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+  local_sta->initParallel();
+
+  std::vector<size_t> selected = incre_sta->bufferingVerticesCandidateBySensitivity(
+      resizer, avg_delay, avg_leakage, 100);
+  if (selected.empty()) {
+    printf("No buffering candidates. Done.\n");
+    delete incre_sta;
+    return;
+  }
+
+  TaskArranger *task_arranger = local_sta->taskArranger();
   sta::Network *network = sta->network();
   sta::Graph *graph = sta->graph();
-  struct ProbeTarget {
-    sta::Pin *drvr_pin;
-    sta::Instance *inst;
-    float slack;
-  };
-  std::vector<ProbeTarget> targets;
 
-  sta::LeafInstanceIterator *inst_iter = network->leafInstanceIterator();
-  while (inst_iter->hasNext()) {
-    sta::Instance *inst = inst_iter->next();
-    sta::InstancePinIterator *pin_iter = network->pinIterator(inst);
-    while (pin_iter->hasNext()) {
-      sta::Pin *pin = pin_iter->next();
-      if (network->isDriver(pin)) {
-        sta::Vertex *vtx = graph->pinDrvrVertex(pin);
-        if (vtx) {
-          float slack = sta->vertexSlack(vtx, sta::MinMax::max());
-          if (slack < 0.0f) {
-            targets.push_back({pin, inst, slack});
-          }
-        }
-      }
-    }
-    delete pin_iter;
-  }
-  delete inst_iter;
+  // Setup LRF rebuffer context
+  EvalContext lrf_ctx;
+  lrf_ctx.arc_delay_calc = sta->arcDelayCalc();
+  lrf_ctx.average_delay = avg_delay;
+  lrf_ctx.average_leakage = avg_leakage;
+  lrf_ctx.PT_tradeoff = 10.0f;
+  std::map<std::string, double> rt;
+  lrf_ctx.runtime_map = &rt;
 
-  // Sort by worst slack first
-  std::sort(targets.begin(), targets.end(),
-            [](const ProbeTarget &a, const ProbeTarget &b) {
-              return a.slack < b.slack;
-            });
-
-  printf("Found %zu negative-slack driver pins\n", targets.size());
-  fflush(stdout);
-
-  // Init rebuffer for LRF-style
   LrRebuffer::initGlobalPreamble(sta, resizer);
+  LrRebuffer lrf_rebuffer(resizer, local_sta, &lrf_ctx);
+  lrf_rebuffer.init();
 
-  int improved = 0;
-  int degraded = 0;
-  int unchanged = 0;
-  size_t max_probe = std::min(targets.size(), (size_t)200);
-
-  printf("\n%-40s %8s %10s %10s %10s %10s  %s\n",
-         "Instance", "Slack", "WNS_before", "WNS_after", "dWNS", "dTNS", "Bufs");
-
-  for (size_t i = 0; i < max_probe; i++) {
-    ProbeTarget &t = targets[i];
-
-    odb::dbDatabase::beginEco(block);
-
-    int buf_count = 0;
-    {
-      int inst_before = block->getInsts().size();
-      resizer->rebufferNet(t.drvr_pin);
-      int inst_after = block->getInsts().size();
-      buf_count = inst_after - inst_before;
-    }
-
-    if (buf_count > 0) {
-      // Update parasitics and timing
-      Tcl_Interp *interp = sta->tclInterp();
-      Tcl_Eval(interp, "estimate_parasitics -placement");
-      sta->delaysInvalid();
-      sta->updateTiming(true);
-      sta->findRequireds();
-
-      double wns_after = sta->worstSlack(sta::MinMax::max());
-      double tns_after = sta->totalNegativeSlack(sta::MinMax::max());
-      double d_wns = (wns_after - base_wns) * 1e12;
-      double d_tns = (tns_after - base_tns) * 1e12;
-
-      printf("%-40s %8.1f %10.1f %10.1f %+10.1f %+10.1f  %d%s\n",
-             network->pathName(t.inst),
-             t.slack * 1e12,
-             base_wns * 1e12, wns_after * 1e12,
-             d_wns, d_tns, buf_count,
-             d_wns > 0.1 ? " <<<IMPROVED" : (d_wns < -0.1 ? " DEGRADED" : ""));
-
-      if (d_wns > 0.1) improved++;
-      else if (d_wns < -0.1) degraded++;
-      else unchanged++;
-    } else {
-      printf("%-40s %8.1f %10s %10s %10s %10s  no-buf\n",
-             network->pathName(t.inst),
-             t.slack * 1e12, "-", "-", "-", "-");
-      unchanged++;
-    }
-
-    // Revert
-    odb::dbDatabase::endEco(block);
-    odb::dbDatabase::undoEco(block);
-
-    // Restore timing state
+  // Helper: update parasitics + timing
+  auto updateTiming = [&]() {
     Tcl_Interp *interp = sta->tclInterp();
     Tcl_Eval(interp, "estimate_parasitics -placement");
     sta->delaysInvalid();
     sta->updateTiming(true);
     sta->findRequireds();
+  };
+
+  // Helper: worst slack across all sink pins on the net driven by drvr_pin
+  auto worstSinkSlack = [&](sta::Pin *drvr_pin) -> double {
+    sta::Net *net = network->net(drvr_pin);
+    if (!net) return 0.0;
+    double worst = 1e30;
+    sta::NetPinIterator *npi = network->pinIterator(net);
+    while (npi->hasNext()) {
+      const sta::Pin *pin = npi->next();
+      if (network->isLoad(pin)) {
+        sta::Vertex *vtx = graph->pinLoadVertex(pin);
+        if (vtx) {
+          float s = sta->vertexSlack(vtx, sta::MinMax::max());
+          if (s < worst) worst = s;
+        }
+      }
+    }
+    delete npi;
+    return worst == 1e30 ? 0.0 : worst;
+  };
+
+  struct ProbeResult {
+    std::string name;
+    float slack;
+    int rsz_bufs;
+    double rsz_dwns;
+    double rsz_dtns;
+    double rsz_sink_slack;  // worst sink slack after RSZ buffer
+    int lrf_bufs;
+    double lrf_dwns;
+    double lrf_dtns;
+    double lrf_sink_slack;  // worst sink slack after LRF buffer
+    double orig_sink_slack; // worst sink slack before any buffer
+  };
+  std::vector<ProbeResult> results;
+
+  printf("\n%-35s %7s %8s | %4s %8s %9s %9s | %4s %8s %9s %9s | %s\n",
+         "Pin", "Slack", "SinkSlk",
+         "RSZ", "dWNS", "dTNS", "dSink",
+         "LRF", "dWNS", "dTNS", "dSink", "Winner");
+
+  for (size_t vid : selected) {
+    InstVertex *iv = task_arranger->vertex(vid);
+    sta::Instance *inst = iv->inst();
+
+    // Find negative-slack driver pin
+    sta::InstancePinIterator *pin_iter = network->pinIterator(inst);
+    sta::Pin *drvr_pin = nullptr;
+    float worst_slack = 0.0f;
+    while (pin_iter->hasNext()) {
+      sta::Pin *pin = pin_iter->next();
+      if (!network->isDriver(pin)) continue;
+      sta::Vertex *vtx = graph->pinDrvrVertex(pin);
+      if (!vtx) continue;
+      float s = sta->vertexSlack(vtx, sta::MinMax::max());
+      if (s < worst_slack || !drvr_pin) {
+        worst_slack = s;
+        drvr_pin = pin;
+      }
+    }
+    delete pin_iter;
+    if (!drvr_pin || worst_slack >= 0.0f) continue;
+
+    ProbeResult res;
+    res.name = network->pathName(inst);
+    res.slack = worst_slack;
+    res.rsz_bufs = 0;
+    res.rsz_dwns = 0; res.rsz_dtns = 0; res.rsz_sink_slack = 0;
+    res.lrf_bufs = 0;
+    res.lrf_dwns = 0; res.lrf_dtns = 0; res.lrf_sink_slack = 0;
+    res.orig_sink_slack = worstSinkSlack(drvr_pin);
+
+    // ── RSZ path ──
+    odb::dbDatabase::beginEco(block);
+    {
+      int before = block->getInsts().size();
+      resizer->rebufferNet(drvr_pin);
+      res.rsz_bufs = block->getInsts().size() - before;
+    }
+    if (res.rsz_bufs > 0) {
+      updateTiming();
+      double wns = sta->worstSlack(sta::MinMax::max());
+      double tns = sta->totalNegativeSlack(sta::MinMax::max());
+      res.rsz_dwns = (wns - base_wns) * 1e12;
+      res.rsz_dtns = (tns - base_tns) * 1e12;
+      res.rsz_sink_slack = worstSinkSlack(drvr_pin);
+    } else {
+      res.rsz_sink_slack = res.orig_sink_slack;
+    }
+    odb::dbDatabase::endEco(block);
+    odb::dbDatabase::undoEco(block);
+    updateTiming();
+
+    // ── LRF path ──
+    // Build PtGraph for this instance
+    PtGraph *pt_graph = local_sta->makePtGraph(inst, true);
+    if (pt_graph) {
+      lrf_ctx.pt_graph = pt_graph;
+      // Find driver PtVertex
+      PtVertex *drvr_pv = nullptr;
+      for (size_t pi = 0; pi < pt_graph->vertexCount(); pi++) {
+        PtVertex &pv = pt_graph->ptVertex(pi);
+        if (pv.vertex() && pv.type() == PtVertexType::RefOutput
+            && pv.vertex()->pin() == drvr_pin) {
+          drvr_pv = &pv;
+          break;
+        }
+      }
+
+      if (drvr_pv) {
+        odb::dbDatabase::beginEco(block);
+        lrf_rebuffer.rebufferPin(drvr_pin, *drvr_pv);
+        if (lrf_rebuffer.bestBnet()) {
+          int before = block->getInsts().size();
+          lrf_rebuffer.applyBufferingToDb();
+          res.lrf_bufs = block->getInsts().size() - before;
+
+          if (res.lrf_bufs > 0) {
+            updateTiming();
+            double wns = sta->worstSlack(sta::MinMax::max());
+            double tns = sta->totalNegativeSlack(sta::MinMax::max());
+            res.lrf_dwns = (wns - base_wns) * 1e12;
+            res.lrf_dtns = (tns - base_tns) * 1e12;
+            res.lrf_sink_slack = worstSinkSlack(drvr_pin);
+          } else {
+            res.lrf_sink_slack = res.orig_sink_slack;
+          }
+        } else {
+          res.lrf_sink_slack = res.orig_sink_slack;
+        }
+        lrf_rebuffer.cleanupVirtualBuffer();
+        odb::dbDatabase::endEco(block);
+        odb::dbDatabase::undoEco(block);
+        updateTiming();
+      }
+    }
+
+    // Determine winner
+    const char *winner = "tie";
+    if (res.rsz_bufs == 0 && res.lrf_bufs == 0) winner = "no-buf";
+    else if (res.rsz_bufs > 0 && res.lrf_bufs == 0) winner = "RSZ-only";
+    else if (res.rsz_bufs == 0 && res.lrf_bufs > 0) winner = "LRF-only";
+    else if (res.rsz_dwns > res.lrf_dwns + 0.1) winner = "RSZ";
+    else if (res.lrf_dwns > res.rsz_dwns + 0.1) winner = "LRF";
+
+    double rsz_dsink = (res.rsz_sink_slack - res.orig_sink_slack) * 1e12;
+    double lrf_dsink = (res.lrf_sink_slack - res.orig_sink_slack) * 1e12;
+    printf("%-35s %7.1f %8.1f | %4d %+8.1f %+9.1f %+9.1f | %4d %+8.1f %+9.1f %+9.1f | %s\n",
+           res.name.c_str(), res.slack * 1e12, res.orig_sink_slack * 1e12,
+           res.rsz_bufs, res.rsz_dwns, res.rsz_dtns, rsz_dsink,
+           res.lrf_bufs, res.lrf_dwns, res.lrf_dtns, lrf_dsink,
+           winner);
+    fflush(stdout);
+    results.push_back(res);
   }
 
-  printf("\nSummary: probed %zu instances\n", max_probe);
-  printf("  Improved WNS: %d\n", improved);
-  printf("  Degraded WNS: %d\n", degraded);
-  printf("  Unchanged:    %d (includes no-buf)\n", unchanged);
+  // Summary
+  int rsz_wins = 0, lrf_wins = 0, ties = 0, nobuf = 0;
+  int rsz_improved = 0, lrf_improved = 0;
+  int rsz_degraded = 0, lrf_degraded = 0;
+  double rsz_dwns_sum = 0, lrf_dwns_sum = 0;
+  double rsz_dtns_sum = 0, lrf_dtns_sum = 0;
+  for (auto &r : results) {
+    if (r.rsz_bufs == 0 && r.lrf_bufs == 0) { nobuf++; continue; }
+    if (r.rsz_dwns > 0.1) rsz_improved++;
+    if (r.rsz_dwns < -0.1) rsz_degraded++;
+    if (r.lrf_dwns > 0.1) lrf_improved++;
+    if (r.lrf_dwns < -0.1) lrf_degraded++;
+    rsz_dwns_sum += r.rsz_dwns;
+    lrf_dwns_sum += r.lrf_dwns;
+    rsz_dtns_sum += r.rsz_dtns;
+    lrf_dtns_sum += r.lrf_dtns;
+    if (r.rsz_dwns > r.lrf_dwns + 0.1) rsz_wins++;
+    else if (r.lrf_dwns > r.rsz_dwns + 0.1) lrf_wins++;
+    else ties++;
+  }
+
+  printf("\n========================================================\n");
+  printf("  Summary: %zu pins probed\n", results.size());
+  printf("========================================================\n");
+  printf("  %-20s %10s %10s\n", "", "RSZ", "LRF");
+  printf("  %-20s %10d %10d\n", "Improved WNS", rsz_improved, lrf_improved);
+  printf("  %-20s %10d %10d\n", "Degraded WNS", rsz_degraded, lrf_degraded);
+  printf("  %-20s %+10.1f %+10.1f\n", "Sum dWNS (ps)", rsz_dwns_sum, lrf_dwns_sum);
+  printf("  %-20s %+10.1f %+10.1f\n", "Sum dTNS (ps)", rsz_dtns_sum, lrf_dtns_sum);
+  printf("  Wins: RSZ=%d  LRF=%d  Tie=%d  No-buf=%d\n",
+         rsz_wins, lrf_wins, ties, nobuf);
+  printf("========================================================\n");
+
+  delete incre_sta;
+}
+
+void
+TestLrf::probeBufferDeep(sta::dbSta* sta,
+                          rsz::Resizer *resizer,
+                          odb::dbBlock *block,
+                          size_t thread_num,
+                          const std::vector<std::string> &pin_names)
+{
+  printf("\n================================================================\n");
+  printf(" Deep Probe: RSZ vs LRF-worst vs LRF-sum on %zu specific pins\n",
+         pin_names.size());
+  printf("================================================================\n");
+
+  sta->findRequireds();
+  IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  LocalSta *local_sta = incre_sta->localSta();
+  local_sta->setParasiticsEst(resizer->getEstimateParasitics());
+  local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+
+  sta->updateTiming(true);
+  sta->findRequireds();
+  double base_wns = sta->worstSlack(sta::MinMax::max());
+  double base_tns = sta->totalNegativeSlack(sta::MinMax::max());
+  printf("Baseline: WNS=%.3f ps, TNS=%.3f ps\n\n",
+         base_wns * 1e12, base_tns * 1e12);
+
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+  local_sta->initParallel();
+
+  sta::Network *network = sta->network();
+  sta::Graph *graph = sta->graph();
+
+  // Helper: update parasitics + timing
+  auto updateTiming = [&]() {
+    Tcl_Interp *interp = sta->tclInterp();
+    Tcl_Eval(interp, "estimate_parasitics -placement");
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+    sta->findRequireds();
+  };
+
+  // Helper: worst slack across all sink pins on the net driven by drvr_pin
+  auto worstSinkSlack = [&](sta::Pin *drvr_pin) -> double {
+    sta::Net *net = network->net(drvr_pin);
+    if (!net) return 0.0;
+    double worst = 1e30;
+    sta::NetPinIterator *npi = network->pinIterator(net);
+    while (npi->hasNext()) {
+      const sta::Pin *pin = npi->next();
+      if (network->isLoad(pin)) {
+        sta::Vertex *vtx = graph->pinLoadVertex(pin);
+        if (vtx) {
+          float s = sta->vertexSlack(vtx, sta::MinMax::max());
+          if (s < worst) worst = s;
+        }
+      }
+    }
+    delete npi;
+    return worst == 1e30 ? 0.0 : worst;
+  };
+
+  // Helper: sum slack across all sink pins
+  auto sumSinkSlack = [&](sta::Pin *drvr_pin) -> double {
+    sta::Net *net = network->net(drvr_pin);
+    if (!net) return 0.0;
+    double sum = 0.0;
+    sta::NetPinIterator *npi = network->pinIterator(net);
+    while (npi->hasNext()) {
+      const sta::Pin *pin = npi->next();
+      if (network->isLoad(pin)) {
+        sta::Vertex *vtx = graph->pinLoadVertex(pin);
+        if (vtx)
+          sum += sta->vertexSlack(vtx, sta::MinMax::max());
+      }
+    }
+    delete npi;
+    return sum;
+  };
+
+  // Resolve pin names to instances + driver pins
+  struct Target {
+    sta::Instance *inst;
+    sta::Pin *drvr_pin;
+    std::string name;
+  };
+  std::vector<Target> targets;
+  for (auto &pname : pin_names) {
+    sta::Instance *inst = network->findInstance(pname.c_str());
+    if (!inst) {
+      printf("WARNING: instance '%s' not found, skipping\n", pname.c_str());
+      continue;
+    }
+    // Find worst-slack driver pin
+    sta::InstancePinIterator *pi = network->pinIterator(inst);
+    sta::Pin *best_pin = nullptr;
+    float best_slack = 1e30;
+    while (pi->hasNext()) {
+      sta::Pin *pin = pi->next();
+      if (network->isDriver(pin)) {
+        sta::Vertex *vtx = graph->pinDrvrVertex(pin);
+        if (vtx) {
+          float s = sta->vertexSlack(vtx, sta::MinMax::max());
+          if (s < best_slack) { best_slack = s; best_pin = pin; }
+        }
+      }
+    }
+    delete pi;
+    if (best_pin)
+      targets.push_back({inst, best_pin, pname});
+    else
+      printf("WARNING: no driver pin found for '%s'\n", pname.c_str());
+  }
+
+  printf("Resolved %zu / %zu targets\n\n", targets.size(), pin_names.size());
+
+  // Setup LRF rebuffer
+  LrRebuffer::initGlobalPreamble(sta, resizer);
+
+  for (auto &t : targets) {
+    // Measure baseline for this pin
+    double orig_worst_sink = worstSinkSlack(t.drvr_pin);
+    double orig_sum_sink = sumSinkSlack(t.drvr_pin);
+    float drvr_slack = sta->vertexSlack(graph->pinDrvrVertex(t.drvr_pin),
+                                         sta::MinMax::max());
+
+    printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+    printf("PIN: %s  drvr_slack=%.1f ps\n", t.name.c_str(), drvr_slack * 1e12);
+    printf("  Baseline: worst_sink=%.1f ps  sum_sink=%.1f ps  WNS=%.1f ps  TNS=%.1f ps\n",
+           orig_worst_sink * 1e12, orig_sum_sink * 1e12,
+           base_wns * 1e12, base_tns * 1e12);
+
+    // ── Local slack analysis (via virtual buffer, no DB modification) ──
+    PtGraph *pt_graph = local_sta->makePtGraph(t.inst, true);
+    if (!pt_graph) {
+      printf("  PtGraph failed, skipping\n");
+      continue;
+    }
+
+    PtVertex *drvr_pv = nullptr;
+    for (size_t pi = 0; pi < pt_graph->vertexCount(); pi++) {
+      PtVertex &pv = pt_graph->ptVertex(pi);
+      if (pv.vertex() && pv.type() == PtVertexType::RefOutput
+          && pv.vertex()->pin() == t.drvr_pin) {
+        drvr_pv = &pv;
+        break;
+      }
+    }
+    if (!drvr_pv) {
+      printf("  driver PtVertex not found, skipping\n");
+      continue;
+    }
+
+    // ── All 3 methods: local + global via rebufferPinVG ──
+    LrRebuffer::GlobalBaseline bl{base_wns, base_tns, orig_worst_sink, orig_sum_sink};
+
+    EvalContext ctx;
+    ctx.arc_delay_calc = sta->arcDelayCalc();
+    ctx.average_delay = avg_delay;
+    ctx.average_leakage = avg_leakage;
+    ctx.PT_tradeoff = 10.0f;
+    std::map<std::string, double> rt;
+    ctx.runtime_map = &rt;
+
+    LrRebuffer rebuffer(resizer, local_sta, &ctx);
+    LrRebuffer::initGlobalPreamble(sta, resizer);
+    rebuffer.init();
+
+    rebuffer.rebufferPinVG(t.drvr_pin, t.inst, block, 0, bl);  // RSZ
+    rebuffer.rebufferPinVG(t.drvr_pin, t.inst, block, 1, bl);  // LRF-worst
+    rebuffer.rebufferPinVG(t.drvr_pin, t.inst, block, 2, bl);  // LRF-sum
+
+    printf("\n");
+    fflush(stdout);
+  }
 
   delete incre_sta;
 }

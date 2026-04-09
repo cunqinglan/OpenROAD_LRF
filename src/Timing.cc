@@ -593,7 +593,8 @@ Timing::runLr(int mode, size_t iterations, size_t max_resize_num,
               size_t num_no_improve_tolerance, float PT_tradeoff,
               float density_weight, bool ratcons,
               const char *lr_helper_method, float top_ratio,
-              bool initialize, const char *checkpoint_dir) {
+              bool initialize, const char *checkpoint_dir,
+              bool debug) {
   lrf::LrConfig cfg;
   cfg.mode = static_cast<lrf::LrMode>(mode);
   cfg.iterations = iterations;
@@ -606,6 +607,7 @@ Timing::runLr(int mode, size_t iterations, size_t max_resize_num,
   cfg.top_ratio = top_ratio;
   cfg.initialize = initialize;
   cfg.checkpoint_dir = checkpoint_dir ? checkpoint_dir : "";
+  cfg.debug = debug;
   runLr(cfg);
 }
 
@@ -675,17 +677,17 @@ Timing::testCombinedResizeBuffering(size_t max_resize_num, size_t iterations,
 
 void
 Timing::testBufferOnly(size_t iterations, float PT_tradeoff,
-  const char *lr_helper_method, float bakoglu_k) {
+  const char *lr_helper_method, float bakoglu_k, bool debug) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  printf("Starting testBufferOnly with %zu threads, bakoglu_k=%.2f\n",
-         thread_num, bakoglu_k);
+  printf("Starting testBufferOnly with %zu threads, bakoglu_k=%.2f, debug=%d\n",
+         thread_num, bakoglu_k, debug);
   fflush(stdout);
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
   sta::dbSta* sta = getSta();
   lrf::TestLrf test_lrf;
   test_lrf.testBufferOnly(sta, resizer, design_->getBlock(),
-    thread_num, iterations, PT_tradeoff, lr_helper_method, bakoglu_k);
+    thread_num, iterations, PT_tradeoff, lr_helper_method, bakoglu_k, debug);
 }
 
 void
@@ -810,6 +812,27 @@ Timing::probeBufferOneByOne(bool use_rsz) {
   lrf::TestLrf test_lrf;
   test_lrf.probeBufferOneByOne(sta, resizer, design_->getBlock(),
                                 thread_num, use_rsz);
+}
+
+void
+Timing::probeBufferDeep(const char *pin_names_csv) {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  // Parse CSV into vector
+  std::vector<std::string> pin_names;
+  std::string csv(pin_names_csv);
+  size_t pos = 0;
+  while ((pos = csv.find(',')) != std::string::npos) {
+    std::string token = csv.substr(0, pos);
+    if (!token.empty()) pin_names.push_back(token);
+    csv.erase(0, pos + 1);
+  }
+  if (!csv.empty()) pin_names.push_back(csv);
+  lrf::TestLrf test_lrf;
+  test_lrf.probeBufferDeep(sta, resizer, design_->getBlock(),
+                           thread_num, pin_names);
 }
 
 void
