@@ -2796,5 +2796,279 @@ LrRebuffer::probeRszBnetWithLocalEval(const sta::Pin *drvr_pin,
 
   cleanupVirtualBuffer();
 }
+// ═══════════════════════════════════════════════════════════
+// repairCap — standalone cap repair via buffer insertion
+//
+// Walks the Steiner tree bottom-up. At each junction where
+// cap_left + cap_right > max_cap, inserts a buffer to isolate
+// the larger branch. Along wire segments, accumulates wire cap
+// and inserts buffers when the running total exceeds max_cap.
+// ═══════════════════════════════════════════════════════════
+int
+LrRebuffer::repairCap(const sta::Pin *drvr_pin, float max_cap,
+                       sta::dbSta *sta, rsz::Resizer *resizer)
+{
+  sta::Network *network = sta->network();
+  if (network->isTopLevelPort(drvr_pin))
+    return 0;
+
+  const sta::Corner *corner = sta->cmdCorner();
+  est::EstimateParasitics *est = resizer->getEstimateParasitics();
+  sta::dbNetwork *db_network = resizer->getDbNetwork();
+
+  // Build BufferedNet (Steiner tree).
+  BufferedNetPtr bnet = resizer->makeBufferedNet(drvr_pin, corner);
+  if (!bnet)
+    bnet = resizer->makeBufferedNetSteiner(drvr_pin, corner);
+  if (!bnet) {
+    printf("repairCap: no BufferedNet for %s\n", network->pathName(drvr_pin));
+    return 0;
+  }
+
+  int inserted = 0;
+
+  // Bottom-up recursive walk.
+  // Returns: {cap at this node, load pins below this node}.
+  struct NodeInfo {
+    float cap = 0;
+    sta::PinSeq load_pins;
+  };
+
+  std::function<NodeInfo(const BufferedNetPtr&)> walk
+      = [&](const BufferedNetPtr& node) -> NodeInfo {
+    switch (node->type()) {
+      case BnetType::load: {
+        const sta::Pin *load_pin = node->loadPin();
+        sta::LibertyPort *lp = network->libertyPort(load_pin);
+        NodeInfo info;
+        info.cap = lp ? resizer->portCapacitance(lp, corner) : 0.0f;
+        info.load_pins.push_back(load_pin);
+        return info;
+      }
+      case BnetType::wire: {
+        NodeInfo child = walk(node->ref());
+        double wire_res, wire_cap_per_m;
+        const_cast<BufferedNet*>(node.get())->wireRC(
+            corner, resizer, est, wire_res, wire_cap_per_m);
+        double length_m = resizer->dbuToMeters(node->length());
+        double c_wire = length_m * wire_cap_per_m;
+        float load_cap = child.cap + c_wire;
+
+        // Same as RepairDesign::repairNetWire: if load_cap exceeds
+        // max_cap, insert buffer(s) along this wire segment.
+        while (load_cap > max_cap && !child.load_pins.empty()) {
+          // Slew-aware buffer selection.
+          sta::LibertyCell *buf_cell
+              = findBufferUnderSlew(resizer, /*max_slew=*/
+                  std::numeric_limits<float>::max(), load_cap);
+          if (!buf_cell) break;
+
+          // Compute split point along the wire.
+          odb::Point from_loc = node->location();
+          odb::Point to_loc = node->ref()->location();
+          double split_m = (wire_cap_per_m > 0)
+              ? (max_cap - child.cap) / wire_cap_per_m
+              : length_m;
+          split_m = std::max(0.0, std::min(split_m, length_m));
+          double ratio = (length_m > 0) ? split_m / length_m : 0.5;
+          int buf_x = to_loc.getX()
+              + ratio * (from_loc.getX() - to_loc.getX());
+          int buf_y = to_loc.getY()
+              + ratio * (from_loc.getY() - to_loc.getY());
+          odb::Point buf_loc(buf_x, buf_y);
+
+          // Insert + resize + update pins/cap via makeRepeater.
+          float repeater_cap = 0.0f;
+          if (!makeRepeater(resizer, corner, buf_loc,
+                            buf_cell, child.load_pins, repeater_cap))
+            break;
+          inserted++;
+
+          // Recalculate: remaining wire from split point to driver.
+          double remaining_wire_m = length_m - split_m;
+          child.cap = repeater_cap;
+          load_cap = child.cap + remaining_wire_m * wire_cap_per_m;
+          length_m = remaining_wire_m;
+        }
+
+        child.cap = load_cap;
+        return child;
+      }
+      case BnetType::via: {
+        return walk(node->ref());
+      }
+      case BnetType::junction: {
+        NodeInfo left = walk(node->ref());
+        NodeInfo right = walk(node->ref2());
+
+        // Same strategy as RepairDesign::repairNetJunc:
+        // if combined cap exceeds limit, buffer one or both branches.
+        float total_cap = left.cap + right.cap;
+        bool repeater_left = false;
+        bool repeater_right = false;
+
+        if (total_cap > max_cap) {
+          // Buffer the larger branch first.
+          if (left.cap > right.cap)
+            repeater_left = true;
+          else
+            repeater_right = true;
+          // If one branch alone exceeds max_cap, buffer both.
+          // Notice: Should this be protected by downstream buffering?
+          // if (left.cap > max_cap) repeater_left = true;
+          // if (right.cap > max_cap) repeater_right = true;
+        }
+
+        // Insert repeater on violating branch(es).
+        // Use Steiner junction location + slew-aware buffer selection
+        // (mirrors RepairDesign::repairNetJunc → makeRepeater).
+        odb::Point junc_loc = node->location();
+
+        auto insertBranchRepeater = [&](sta::PinSeq &pins, float &cap) {
+          if (pins.empty()) return;
+          // Determine max input slew from loads.
+          float max_slew = std::numeric_limits<float>::max();
+          for (const sta::Pin *p : pins) {
+            sta::LibertyPort *lp = network->libertyPort(p);
+            if (lp) {
+              float s = resizer->maxInputSlew(lp, corner);
+              if (s > 0 && s < max_slew) max_slew = s;
+            }
+          }
+          // Slew-aware buffer selection.
+          sta::LibertyCell *buf_cell
+              = findBufferUnderSlew(resizer, max_slew, cap);
+          if (!buf_cell) return;
+          // Insert + resize + update pins/cap.
+          if (makeRepeater(resizer, corner, junc_loc,
+                           buf_cell, pins, cap))
+            inserted++;
+        };
+
+        if (repeater_left)
+          insertBranchRepeater(left.load_pins, left.cap);
+        if (repeater_right)
+          insertBranchRepeater(right.load_pins, right.cap);
+
+        // Merge.
+        NodeInfo info;
+        info.cap = left.cap + right.cap;
+        for (auto *p : left.load_pins) info.load_pins.push_back(p);
+        for (auto *p : right.load_pins) info.load_pins.push_back(p);
+        return info;
+      }
+      default:
+        return NodeInfo{};
+    }
+  };
+
+  NodeInfo root = walk(bnet);
+
+  if (inserted == 0) {
+    printf("repairCap: pin %s — tree_cap=%.2f fF, max_cap=%.2f fF, "
+           "loads=%zu, no buffer inserted\n",
+           network->pathName(drvr_pin), root.cap * 1e15, max_cap * 1e15,
+           root.load_pins.size());
+  } else {
+    est->updateParasitics();
+  }
+
+  return inserted;
+}
+
+// ═══════════════════════════════════════════════════════════
+// findBufferUnderSlew — slew-aware buffer cell selection
+//
+// Mirrors RepairDesign::findBufferUnderSlew.
+// Iterates through swappable buffer cells sorted by drive resistance
+// (weakest → strongest) and returns the first whose output slew
+// stays under max_slew when driving load_cap.
+// Falls back to the buffer with minimum achievable slew.
+// ═══════════════════════════════════════════════════════════
+sta::LibertyCell *
+LrRebuffer::findBufferUnderSlew(rsz::Resizer *resizer,
+                                float max_slew,
+                                float load_cap)
+{
+  sta::LibertyCell *min_slew_buffer = resizer->buffer_lowest_drive_;
+  float min_slew = std::numeric_limits<float>::max();
+
+  sta::LibertyCellSeq swappable
+      = resizer->getSwappableCells(resizer->buffer_lowest_drive_);
+  if (swappable.empty())
+    return min_slew_buffer;
+
+  // Sort by drive resistance descending (weakest / smallest first).
+  std::sort(swappable.begin(), swappable.end(),
+      [&](const sta::LibertyCell *a, const sta::LibertyCell *b) {
+        return resizer->bufferDriveResistance(a)
+             > resizer->bufferDriveResistance(b);
+      });
+
+  for (sta::LibertyCell *buffer : swappable) {
+    float slew = resizer->bufferSlew(
+        buffer, load_cap, resizer->tgt_slew_dcalc_ap_);
+    if (slew < max_slew)
+      return buffer;
+    if (slew < min_slew) {
+      min_slew = slew;
+      min_slew_buffer = buffer;
+    }
+  }
+  // No buffer meets max_slew — return the one with minimum slew.
+  return min_slew_buffer;
+}
+
+// ═══════════════════════════════════════════════════════════
+// makeRepeater — insert buffer, resize, update cap & pins
+//
+// Mirrors RepairDesign::makeRepeater.
+// 1. Inserts buffer_cell before load_pins at loc.
+// 2. Resizes the buffer to target slew.
+// 3. Updates load_pins to {buffer_input_pin} and repeater_cap
+//    to the corner-aware input capacitance.
+// Returns true on success, false if insertion failed.
+// ═══════════════════════════════════════════════════════════
+bool
+LrRebuffer::makeRepeater(rsz::Resizer *resizer,
+                          const sta::Corner *corner,
+                          const odb::Point &loc,
+                          sta::LibertyCell *buffer_cell,
+                          sta::PinSeq &load_pins,
+                          float &repeater_cap)
+{
+  sta::Network *network = resizer->getDbNetwork();
+
+  // Insert buffer before loads.
+  odb::Point mutable_loc(loc);
+  sta::Instance *buffer = resizer->insertBufferBeforeLoads(
+      nullptr, &load_pins, buffer_cell, &mutable_loc, "cap_repair");
+  if (!buffer)
+    return false;
+
+  sta::LibertyPort *buf_input, *buf_output;
+  buffer_cell->bufferPorts(buf_input, buf_output);
+
+  // Resize repeater to target slew.
+  sta::Pin *buf_out_pin = network->findPin(buffer, buf_output);
+  if (buf_out_pin)
+    resizer->resizeToTargetSlew(buf_out_pin);
+
+  // Re-read cell/ports after resize (cell may have changed).
+  sta::LibertyCell *final_cell = network->libertyCell(buffer);
+  final_cell->bufferPorts(buf_input, buf_output);
+
+  // Update: load_pins becomes {buffer_input_pin}.
+  load_pins.clear();
+  sta::Pin *buf_in_pin = network->findPin(buffer, buf_input);
+  if (buf_in_pin)
+    load_pins.push_back(buf_in_pin);
+
+  // Corner-aware input capacitance.
+  repeater_cap = buf_input
+      ? resizer->portCapacitance(buf_input, corner) : 0.0f;
+
+  return true;
+}
 
 }
