@@ -2351,4 +2351,68 @@ LocalSta::ptVertexWorstSlackPath(PtVertex &pt_vertex, const sta::MinMax *min_max
   return worst_slack_path;
 }
 
+void
+LocalSta::printPerSinkArrivals(PtGraph *pt_graph, const char *label)
+{
+  // Collect sink vertices (wire-edge targets from RefOutput, same as localWorstSlackOnSinks)
+  std::vector<PtVertex*> sink_vertices;
+  for (auto& pv : pt_graph->ptVertices()) {
+    if (pv.type() != PtVertexType::RefOutput || !pv.vertex())
+      continue;
+    sta::VertexOutEdgeIterator out_iter(pv.vertex(), graph_);
+    while (out_iter.hasNext()) {
+      sta::Edge *edge = out_iter.next();
+      if (!edge->isWire()) continue;
+      sta::Vertex *load_vertex = edge->to(graph_);
+      PtVertex *load_pv = pt_graph->ptVertex(load_vertex);
+      if (load_pv && load_pv->hasBase())
+        sink_vertices.push_back(load_pv);
+    }
+  }
+
+  // Target: max / default corner / rise
+  sta::DcalcAnalysisPt *target_ap = pt_graph->dcalcAnalysisPt();
+  const sta::RiseFall *target_rf = sta::RiseFall::rise();
+
+  printf("      [%s] per-sink arrival (max/default/rise, ps):\n", label);
+  printf("        %-40s %10s %10s %10s %10s %10s\n",
+         "sink", "lcl_arr", "gbl_arr", "delta_arr", "gbl_req", "gbl_slack");
+
+  for (PtVertex *pt_vp : sink_vertices) {
+    PtVertex &pt_vertex = *pt_vp;
+    sta::Path *pt_paths = pt_vertex.paths();
+    if (!pt_paths) continue;
+    sta::Vertex *sta_vertex = pt_vertex.vertex();
+    sta::Path *sta_paths = sta_vertex->paths();
+    if (!sta_paths) continue;
+
+    sta::TagGroup *pt_tg = search_->tagGroup(pt_vertex.tagGroupIndex());
+    sta::TagGroup *sta_tg = search_->tagGroup(sta_vertex);
+    if (!pt_tg || !sta_tg || pt_tg->index() != sta_tg->index())
+      continue;
+
+    // Find the path matching target_ap + rise
+    size_t path_count = pt_tg->pathCount();
+    for (size_t i = 0; i < path_count; i++) {
+      if (pt_paths[i].dcalcAnalysisPt(this) != target_ap)
+        continue;
+      sta::Tag *tag = pt_paths[i].tag(this);
+      if (!tag || tag->rfIndex() != target_rf->index())
+        continue;
+
+      float local_arr = pt_paths[i].arrival();
+      float global_arr = sta_paths[i].arrival();
+      float global_req = sta_paths[i].required();
+      float global_slack = global_req - global_arr;
+
+      printf("        %-40s %+10.1f %+10.1f %+10.1f %+10.1f %+10.1f\n",
+             network_->name(sta_vertex->pin()),
+             local_arr * 1e12, global_arr * 1e12,
+             (local_arr - global_arr) * 1e12,
+             global_req * 1e12, global_slack * 1e12);
+      break;  // only one matching path per sink
+    }
+  }
+}
+
 } // namespace lrf

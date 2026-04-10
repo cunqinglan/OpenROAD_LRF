@@ -2213,10 +2213,10 @@ LrRebuffer::buildSyntheticParasitics(VertexId drvr_vertex_id,
         if (eval_ctx_->debug) {
           float orig_cap = rf == sta::RiseFall::rise() ? dbg_orig_cap_rise : dbg_orig_cap_fall;
           float new_cap = c2 + c1;
-          printf("[DBG-SYNPI] drvr_vid=%u rf=%s orig_cap=%.4e new_cap=%.4e delta=%.4e (%.1f%%)\n",
+          printf("[DBG-SYNPI] drvr_vid=%u rf=%s C2=%.4f Rpi=%.1f C1=%.4f total=%.4f (orig=%.4f delta=%.1f%%)\n",
                  (unsigned)current_drvr_id, rf->name(),
-                 orig_cap, new_cap,
-                 new_cap - orig_cap,
+                 c2 * 1e15, rpi, c1 * 1e15, new_cap * 1e15,
+                 orig_cap > 0 ? orig_cap * 1e15 : -1.0,
                  orig_cap > 0 ? (new_cap - orig_cap) / orig_cap * 100.0 : 0.0);
         }
 
@@ -2255,6 +2255,12 @@ LrRebuffer::buildSyntheticParasitics(VertexId drvr_vertex_id,
             printf("Warning: buildSyntheticParasitics: Elmore DFS did not reach "
                    "load node %u for drvr vertex %u, defaulting to 0\n",
                    load.node_id, (unsigned)current_drvr_id);
+          }
+          if (eval_ctx_->debug && rf == sta::RiseFall::rise()) {
+            printf("[DBG-ELMORE] drvr_vid=%u load_vid=%u pin=%s elmore=%.1f ps\n",
+                   (unsigned)current_drvr_id, (unsigned)load.vertex_id,
+                   load.pin ? network_->name(load.pin) : "(virtual)",
+                   elmore * 1e12);
           }
           pt_pi.addLoad(load.vertex_id, load.pin, elmore);
         }

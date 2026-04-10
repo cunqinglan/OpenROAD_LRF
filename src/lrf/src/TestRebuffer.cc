@@ -6,6 +6,10 @@
 #include "rsz/Resizer.hh"
 #include "odb/db.h"
 #include "db_sta/dbNetwork.hh"
+#include "sta/Search.hh"
+#include "search/Tag.hh"
+#include "search/TagGroup.hh"
+#include "sta/PathAnalysisPt.hh"
 
 namespace lrf {
 
@@ -171,20 +175,13 @@ TestRebuffer::rebufferPinVG(const sta::Pin *drvr_pin, sta::Instance *inst,
       double wns = sta_->worstSlack(sta::MinMax::max());
       double tns = sta_->totalNegativeSlack(sta::MinMax::max());
 
+      // Use pre-captured original sink vertices (not current net which is split by buffer)
       double g_ws = 1e30, g_ss = 0;
-      sta::NetPinIterator *npi = network_->pinIterator(net);
-      while (npi->hasNext()) {
-        const sta::Pin *p = npi->next();
-        if (network_->isLoad(p)) {
-          sta::Vertex *v = graph_->pinLoadVertex(p);
-          if (v) {
-            float s = sta_->vertexSlack(v, sta::MinMax::max());
-            if (s < g_ws) g_ws = s;
-            g_ss += s;
-          }
-        }
+      for (sta::Vertex *v : baseline.orig_sink_vertices) {
+        float s = sta_->vertexSlack(v, sta::MinMax::max());
+        if (s < g_ws) g_ws = s;
+        g_ss += s;
       }
-      delete npi;
 
       printf("           global: bufs=%d dWorstSink=%+.1f dSumSink=%+.1f dWNS=%+.1f dTNS=%+.1f\n",
              global_bufs,
@@ -368,11 +365,13 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
   printf("    local_baseline: worst=%.1f ps  sum=%.1f ps\n",
          orig_w * 1e12, orig_s * 1e12);
 
-  // Collect all load vertices reachable from driver via wire edges (transitive).
-  // This handles fanout buffers that split the net into sub-nets.
-  auto collectLoads = [&](sta::Vertex *drvr) -> std::vector<sta::Vertex*> {
-    std::vector<sta::Vertex*> loads;
-    std::vector<sta::Vertex*> stack = {drvr};
+  // Pre-capture original sink vertices BEFORE any buffer insertion.
+  // Walk wire edges from driver, skip through existing buffers to find
+  // final non-buffer load pins. These are the "true sinks" whose slack
+  // we compare before/after buffer insertion.
+  std::vector<sta::Vertex*> orig_sinks;
+  {
+    std::vector<sta::Vertex*> stack = {drvr_vertex};
     std::set<sta::Vertex*> visited;
     while (!stack.empty()) {
       sta::Vertex *v = stack.back(); stack.pop_back();
@@ -380,40 +379,45 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
       sta::VertexOutEdgeIterator oi(v, graph_);
       while (oi.hasNext()) {
         sta::Edge *e = oi.next();
-        if (e->isWire()) {
-          sta::Vertex *to = e->to(graph_);
-          // If this is a buffer/inverter input, follow through to its output
-          const sta::Pin *to_pin = to->pin();
-          sta::LibertyPort *port = network_->libertyPort(to_pin);
-          bool is_buf = port && port->libertyCell() && port->libertyCell()->isBuffer();
-          if (is_buf && network_->isLoad(to_pin)) {
-            // Follow buffer: find its output vertex
-            sta::Instance *buf_inst = network_->instance(to_pin);
-            sta::InstancePinIterator *ipi = network_->pinIterator(buf_inst);
-            while (ipi->hasNext()) {
-              sta::Pin *bp = ipi->next();
-              if (network_->isDriver(bp)) {
-                sta::Vertex *bv = graph_->pinDrvrVertex(bp);
-                if (bv) stack.push_back(bv);
-              }
+        if (!e->isWire()) continue;
+        sta::Vertex *to = e->to(graph_);
+        const sta::Pin *to_pin = to->pin();
+        sta::LibertyPort *port = network_->libertyPort(to_pin);
+        bool is_buf = port && port->libertyCell()
+                      && port->libertyCell()->isBuffer();
+        if (is_buf && network_->isLoad(to_pin)) {
+          // This is an existing buffer input — skip through to its output
+          sta::Instance *buf_inst = network_->instance(to_pin);
+          sta::InstancePinIterator *ipi = network_->pinIterator(buf_inst);
+          while (ipi->hasNext()) {
+            sta::Pin *bp = ipi->next();
+            if (network_->isDriver(bp)) {
+              sta::Vertex *bv = graph_->pinDrvrVertex(bp);
+              if (bv) stack.push_back(bv);
             }
-            delete ipi;
           }
-          loads.push_back(to);
+          delete ipi;
+        } else {
+          // Non-buffer load = true sink
+          orig_sinks.push_back(to);
         }
       }
     }
-    return loads;
-  };
+  }
 
-  std::vector<sta::Vertex*> all_loads = collectLoads(drvr_vertex);
-
-  // Print per-sink GLOBAL baseline slack (all transitive loads)
-  printf("    per-sink GLOBAL baseline (%zu loads, ps):\n", all_loads.size());
-  for (sta::Vertex *lv : all_loads) {
+  // Print per-sink GLOBAL baseline slack (original sinks only)
+  double bl_worst = 1e30, bl_sum = 0;
+  printf("    per-sink GLOBAL baseline (%zu original sinks, ps):\n", orig_sinks.size());
+  for (sta::Vertex *lv : orig_sinks) {
     float s = sta_->vertexSlack(lv, sta::MinMax::max());
     printf("      %-50s %.1f\n", network_->pathName(lv->pin()), s * 1e12);
+    if (s < bl_worst) bl_worst = s;
+    bl_sum += s;
   }
+  // Update baseline to use original sinks (not the 1-layer net iterator)
+  GlobalBaseline sink_bl = baseline;
+  sink_bl.worst_sink = bl_worst;
+  sink_bl.sum_sink = bl_sum;
 
   // Generate LRF bnet options
   setPin(const_cast<sta::Pin*>(drvr_pin));
@@ -478,7 +482,7 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
     // ── Local eval (fresh PtGraph + virtual buffer) ──
     PtGraph *pg_l = local_sta_->makePtGraph(inst, true);
     float lw = orig_w, ls = orig_s;
-    if (pg_l && bufs > 0) {
+    if (pg_l) {  // process buf==0 too for baseline verification
       eval_ctx_->pt_graph = pg_l;
       PtVertex *pv = nullptr;
       for (size_t j = 0; j < pg_l->vertexCount(); j++) {
@@ -490,13 +494,60 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
         VertexId v = pv->objectIdx();
         local_sta_->increAndGetLocalTimingCost(pg_l, arc_delay_calc_, nullptr);
 
+        // Arrival BEFORE buffer (local vs global baseline)
+        char lbl_before[64];
+        snprintf(lbl_before, sizeof(lbl_before), "%s-BEFORE", label);
+        local_sta_->printPerSinkArrivals(pg_l, lbl_before);
+
         VirtualBufferInfo vi = buildVirtualBuffer(v, opt);
         if (!vi.failed) {
           pg_l->topoSortVertices();
+          printf("      ── [%s] bufs=%d bnet_root_cap=%.4f fF ──\n",
+                 label, bufs, opt->cap() * 1e15);
+          bool saved_debug = eval_ctx_->debug;
+          eval_ctx_->debug = true;
           buildSyntheticParasitics(v, opt, vi);
+          eval_ctx_->debug = saved_debug;
           local_sta_->increAndGetLocalTimingCost(pg_l, arc_delay_calc_, nullptr);
           lw = local_sta_->localWorstSlackOnSinks(pg_l);
           ls = local_sta_->localSlackOnSinks(pg_l);
+
+          // Collect synthetic Pi for all RefOutput vertices (driver + virtual buffer outputs)
+          // and print per-sink local arrival after buffer
+          struct SynPi { VertexId vid; const sta::Pin *pin; float c2, rpi, c1; };
+          std::vector<SynPi> syn_pis;
+          sta::DcalcAnalysisPt *dap = corners_->findCorner("default")
+              ->findDcalcAnalysisPt(sta::MinMax::max());
+          for (size_t si = 0; si < pg_l->vertexCount(); si++) {
+            PtVertex &spv = pg_l->ptVertex(si);
+            if (spv.type() == PtVertexType::RefOutput
+                || (spv.vertex() && network_->isDriver(spv.vertex()->pin()))) {
+              PtPiElmore *pi = pg_l->findPtParasitic(
+                  spv.objectIdx(), sta::RiseFall::rise(), dap->index());
+              if (pi) {
+                float pc2, prpi, pc1;
+                pi->piModel(pc2, prpi, pc1);
+                syn_pis.push_back({spv.objectIdx(),
+                                   spv.vertex() ? spv.vertex()->pin() : nullptr,
+                                   pc2, prpi, pc1});
+              }
+            }
+          }
+
+          // Print synthetic Pi summary
+          printf("      [%s] synthetic Pi (rise/max, fF):\n", label);
+          for (auto &sp : syn_pis) {
+            printf("        vid=%-4u %-35s C2=%.4f Rpi=%.1f C1=%.4f total=%.4f\n",
+                   (unsigned)sp.vid,
+                   sp.pin ? network_->pathName(sp.pin) : "(virtual)",
+                   sp.c2 * 1e15, sp.rpi, sp.c1 * 1e15,
+                   (sp.c2 + sp.c1) * 1e15);
+          }
+
+          // Print per-sink local arrival after buffer
+          char lbl_after[64];
+          snprintf(lbl_after, sizeof(lbl_after), "%s-AFTER", label);
+          local_sta_->printPerSinkArrivals(pg_l, lbl_after);
           removeVirtualBuffer(vi);
         }
       }
@@ -542,22 +593,70 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
             double tns = sta_->totalNegativeSlack(sta::MinMax::max());
             double ws = 1e30, ss = 0;
 
-            // Collect per-sink global slack after buffer.
-            // Use transitive wire-edge traversal from driver (same as baseline)
-            // to capture all sinks including those behind inserted buffers.
-            std::vector<sta::Vertex*> loads_after = collectLoads(drvr_vertex);
-            printf("      [%s] per-sink global slack after (%zu loads, ps):\n",
-                   label, loads_after.size());
-            for (sta::Vertex *lv : loads_after) {
+            // Read slack on the SAME original sink vertices (pre-captured).
+            // Also print per-sink global arrival+slack after buffer for comparison
+            // with local arrival from printPerSinkArrivals.
+            printf("      [%s-GLOBAL] per-sink after buffer (ps):\n", label);
+            printf("        %-40s %10s %10s\n", "sink", "gbl_arr", "gbl_slack");
+            for (sta::Vertex *lv : orig_sinks) {
               float s = sta_->vertexSlack(lv, sta::MinMax::max());
-              printf("        %-50s %.1f\n", network_->pathName(lv->pin()), s * 1e12);
+              // Get max/rise arrival from vertex paths
+              float arr = sta::INF;
+              sta::Path *paths = lv->paths();
+              if (paths) {
+                sta::TagGroup *tg = search_->tagGroup(lv);
+                if (tg) {
+                  for (size_t pi = 0; pi < tg->pathCount(); pi++) {
+                    sta::Tag *tag = paths[pi].tag(sta_);
+                    if (tag && tag->rfIndex() == sta::RiseFall::riseIndex()
+                        && tag->pathAnalysisPt(sta_)->pathMinMax() == sta::MinMax::max()) {
+                      arr = paths[pi].arrival();
+                      break;
+                    }
+                  }
+                }
+              }
+              printf("        %-40s %+10.1f %+10.1f\n",
+                     network_->name(lv->pin()),
+                     sta::delayInf(arr) ? 0.0 : arr * 1e12,
+                     s * 1e12);
               if (s < ws) ws = s;
               ss += s;
             }
-            g_dws = (ws - baseline.worst_sink) * 1e12;
-            g_dss = (ss - baseline.sum_sink) * 1e12;
-            g_dwns = (wns - baseline.wns) * 1e12;
-            g_dtns = (tns - baseline.tns) * 1e12;
+            g_dws = (ws - sink_bl.worst_sink) * 1e12;
+            g_dss = (ss - sink_bl.sum_sink) * 1e12;
+            g_dwns = (wns - sink_bl.wns) * 1e12;
+            g_dtns = (tns - sink_bl.tns) * 1e12;
+
+            // Compare global Pi with synthetic Pi:
+            // Read Pi model from global STA for the original driver pin
+            // and any newly inserted buffer output pins.
+            printf("      [%s-GLOBAL] Pi model comparison (rise/max, fF):\n", label);
+            auto printGlobalPi = [&](const sta::Pin *pin, const char *desc) {
+              float gc2, grpi, gc1;
+              bool exists;
+              sta_->findPiElmore(const_cast<sta::Pin*>(pin),
+                                 sta::RiseFall::rise(), sta::MinMax::max(),
+                                 gc2, grpi, gc1, exists);
+              if (exists) {
+                printf("        %-35s C2=%.4f Rpi=%.1f C1=%.4f total=%.4f  (%s)\n",
+                       network_->pathName(pin),
+                       gc2 * 1e15, grpi, gc1 * 1e15, (gc2 + gc1) * 1e15, desc);
+              }
+            };
+            printGlobalPi(drvr_pin, "orig driver");
+            // Find buffer output pins from ECO instances
+            for (auto *db_inst : block->getInsts()) {
+              std::string iname = db_inst->getName();
+              if (iname.find("probe") != std::string::npos) {
+                for (auto *iterm : db_inst->getITerms()) {
+                  if (iterm->isOutputSignal() && iterm->getNet()) {
+                    sta::Pin *buf_pin = db_network_->dbToSta(iterm);
+                    if (buf_pin) printGlobalPi(buf_pin, "buffer out");
+                  }
+                }
+              }
+            }
           }
 
           odb::dbDatabase::endEco(block);

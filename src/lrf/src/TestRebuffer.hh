@@ -18,6 +18,7 @@ public:
 
   struct GlobalBaseline {
     double wns, tns, worst_sink, sum_sink;
+    std::vector<sta::Vertex*> orig_sink_vertices;  // pre-captured before buffer
   };
 
   // ── Verified probe: one method, local + global ──

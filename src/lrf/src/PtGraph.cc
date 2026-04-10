@@ -1131,8 +1131,12 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
         continue;
       const LMValue *lms = pt_edge.arcLms();
       if (lms == nullptr) {
-        printf("PtGraph::delayLmSum: pt_edge %u has no lm values\n",
-               pt_edge.objectIdx());
+        printf("PtGraph::delayLmSum: pt_edge %u NO_LM virtual=%d hasBase=%d "
+               "type=%d role=%s delay=%.3eps\n",
+               pt_edge.objectIdx(), pt_edge.isVirtual(),
+               pt_edge.hasBase(), static_cast<int>(pt_edge.type()),
+               pt_edge.role() ? pt_edge.role()->to_string().c_str() : "null",
+               (float)arc_delay * 1e12);
         fflush(stdout);
         continue;
       }

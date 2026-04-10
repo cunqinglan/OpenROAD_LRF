@@ -435,6 +435,11 @@ private:
   friend class IncreSta;
   friend class TestLrf;
   friend class LrRebuffer;
+  friend class TestRebuffer;
+public:
+  // Print per-sink arrival comparison: local (PtGraph) vs global (OpenSTA)
+  // for max/default/rise path. Shows which sinks have arrival mismatch.
+  void printPerSinkArrivals(PtGraph *pt_graph, const char *label);
 };
 
 
