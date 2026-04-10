@@ -13,6 +13,7 @@
 #include <set>
 #include <utility>
 #include <vector>
+#include <thread>
 #include <unordered_set>
 
 #include "AbstractSteinerRenderer.h"
@@ -715,6 +716,28 @@ void EstimateParasitics::makePadParasitic(const sta::Net* net,
     if (spef_writer) {
       spef_writer->writeNet(corner, net, parasitic);
     }
+    arc_delay_calc_->reduceParasitic(
+        parasitic, net, corner, sta::MinMaxAll::all());
+  }
+  parasitics_->deleteParasiticNetworks(net);
+}
+
+// Thread-safe variant: uses parasitics_->makeParasiticNetwork directly
+// instead of sta_->makeParasiticNetwork (which calls delaysInvalidFromFanin).
+void EstimateParasitics::makePadParasiticParallel(const sta::Net* net)
+{
+  const sta::Pin *pin1, *pin2;
+  net2Pins(net, pin1, pin2);
+  for (sta::Corner* corner : *sta_->corners()) {
+    const sta::ParasiticAnalysisPt* parasitics_ap
+        = corner->findParasiticAnalysisPt(max_);
+    sta::Parasitic* parasitic
+        = parasitics_->makeParasiticNetwork(net, false, parasitics_ap);
+    sta::ParasiticNode* n1
+        = parasitics_->ensureParasiticNode(parasitic, pin1, network_);
+    sta::ParasiticNode* n2
+        = parasitics_->ensureParasiticNode(parasitic, pin2, network_);
+    parasitics_->makeResistor(parasitic, 1, .001, n1, n2);
     arc_delay_calc_->reduceParasitic(
         parasitic, net, corner, sta::MinMaxAll::all());
   }
@@ -1475,6 +1498,192 @@ EstimateParasitics::estimateWireParasiticSteinerNoDeleteNetwork(
                      units_->resistanceUnit()->asString(res),
                      units_->capacitanceUnit()->asString(cap / 2.0),
                      parasitics_->name(n2));
+          parasitics_->incrCap(n1, cap / 2.0);
+          parasitics_->makeResistor(parasitic, resistor_id++, res, n1, n2);
+          parasitics_->incrCap(n2, cap / 2.0);
+        }
+        parasiticNodeConnectPins(parasitic,
+                                 n1,
+                                 tree,
+                                 steiner_pt1,
+                                 resistor_id,
+                                 corner,
+                                 connected_pins,
+                                 is_clk);
+        parasiticNodeConnectPins(parasitic,
+                                 n2,
+                                 tree,
+                                 steiner_pt2,
+                                 resistor_id,
+                                 corner,
+                                 connected_pins,
+                                 is_clk);
+      }
+      arc_delay_calc_->reduceParasitic(
+          parasitic, net, corner, sta::MinMaxAll::all());
+    }
+    delete tree;
+  }
+}
+
+///////////////////////////////////////////////
+// Parallel versions for LR ISTA
+///////////////////////////////////////////////
+void
+EstimateParasitics::updateWireParasiticsNoDeleteNetworkParallel()
+{
+  initBlock();
+  if (!wire_signal_cap_.empty()) {
+    sta_->ensureClkNetwork();
+    sta_->setParasiticAnalysisPts(true);
+    sta::LibertyLibrary* default_lib = network_->defaultLibertyLibrary();
+    network_->Network::clear();
+    network_->setDefaultLibertyLibrary(default_lib);
+
+    sortClkAndSignalLayers();
+
+    // Collect nets into a vector for indexed parallel access.
+    odb::dbSet<odb::dbNet> nets = block_->getNets();
+    std::vector<odb::dbNet*> net_vec(nets.begin(), nets.end());
+
+    // Pre-populate driver pin cache sequentially.
+    // network_->drivers() lazily caches into net_drvr_pin_map_ which
+    // is not thread-safe for concurrent first-access.
+    for (auto* db_net : net_vec) {
+      sta::Net *net = db_network_->dbToSta(db_net);
+      network_->drivers(net);
+    }
+
+    // Parallel net estimation using std::thread.
+    int num_threads = std::max(1u, sta_->threadCount());
+    size_t total = net_vec.size();
+
+    auto worker = [&](size_t start, size_t end) {
+      for (size_t i = start; i < end; i++) {
+        sta::Net *net = db_network_->dbToSta(net_vec[i]);
+        estimateWireParasiticNoDeleteNetworkParallel(net);
+      }
+    };
+
+    if (num_threads <= 1 || total < 100) {
+      // Fall back to sequential for small designs or single thread.
+      worker(0, total);
+    } else {
+      std::vector<std::thread> threads;
+      size_t chunk = (total + num_threads - 1) / num_threads;
+      for (int t = 0; t < num_threads; t++) {
+        size_t start = t * chunk;
+        size_t end = std::min(start + chunk, total);
+        if (start < end) {
+          threads.emplace_back(worker, start, end);
+        }
+      }
+      for (auto &th : threads) {
+        th.join();
+      }
+    }
+
+    parasitics_src_ = ParasiticsSrc::placement;
+    parasitics_invalid_.clear();
+
+    for (auto db_net : nets) {
+      sta::Net *net = db_network_->dbToSta(db_net);
+      checkIfParasiticsNetworkExists(net);
+    }
+  }
+}
+
+void
+EstimateParasitics::estimateWireParasiticNoDeleteNetworkParallel(
+    const sta::Net* net)
+{
+  // drivers() result was pre-populated, so this is a cache hit (no write).
+  sta::PinSet *drivers = network_->drivers(net);
+  if (drivers && !drivers->empty()) {
+    sta::PinSet::Iterator drvr_iter(drivers);
+    const sta::Pin *drvr_pin = drvr_iter.next();
+    if (!network_->isPower(net) && !network_->isGround(net)
+        && !sta_->isIdealClock(drvr_pin)
+        && !db_network_->staToDb(net)->isSpecial()) {
+      if (isPadNet(net)) {
+        makePadParasiticParallel(net);
+      } else {
+        estimateWireParasiticSteinerNoDeleteNetworkParallel(drvr_pin, net);
+      }
+    }
+  }
+}
+
+void
+EstimateParasitics::estimateWireParasiticSteinerNoDeleteNetworkParallel(
+    const sta::Pin* drvr_pin,
+    const sta::Net* net)
+{
+  SteinerTree* tree = makeSteinerTree(drvr_pin);
+  if (tree) {
+    for (sta::Corner* corner : *sta_->corners()) {
+      std::set<const sta::Pin*> connected_pins;
+      const sta::ParasiticAnalysisPt* parasitics_ap
+          = corner->findParasiticAnalysisPt(max_);
+      // Use parasitics_->makeParasiticNetwork directly instead of
+      // sta_->makeParasiticNetwork to avoid delaysInvalidFromFanin
+      // which is not thread-safe. Caller calls delaysInvalid() after.
+      sta::Parasitic* parasitic
+          = parasitics_->makeParasiticNetwork(net, false, parasitics_ap);
+      bool is_clk = global_router_->isNonLeafClock(db_network_->staToDb(net));
+      double wire_cap = 0.0;
+      double wire_res = 0.0;
+      int branch_count = tree->branchCount();
+      size_t resistor_id = 1;
+      for (int i = 0; i < branch_count; i++) {
+        odb::Point pt1, pt2;
+        SteinerPt steiner_pt1, steiner_pt2;
+        int wire_length_dbu;
+        tree->branch(i, pt1, steiner_pt1, pt2, steiner_pt2, wire_length_dbu);
+        if (wire_length_dbu) {
+          double dx = dbuToMeters(abs(pt1.x() - pt2.x()))
+                      / dbuToMeters(wire_length_dbu);
+          double dy = dbuToMeters(abs(pt1.y() - pt2.y()))
+                      / dbuToMeters(wire_length_dbu);
+
+          if (is_clk) {
+            wire_cap = dx * wireClkHCapacitance(corner)
+                       + dy * wireClkVCapacitance(corner);
+            wire_res = dx * wireClkHResistance(corner)
+                       + dy * wireClkVResistance(corner);
+          } else {
+            wire_cap = dx * wireSignalHCapacitance(corner)
+                       + dy * wireSignalVCapacitance(corner);
+            wire_res = dx * wireSignalHResistance(corner)
+                       + dy * wireSignalVResistance(corner);
+          }
+        } else {
+          wire_cap = is_clk ? wireClkCapacitance(corner)
+                            : wireSignalCapacitance(corner);
+          wire_res = is_clk ? wireClkResistance(corner)
+                            : wireSignalResistance(corner);
+        }
+        sta::ParasiticNode* n1 = parasitics_->ensureParasiticNode(
+            parasitic, net, steiner_pt1, network_);
+        sta::ParasiticNode* n2 = parasitics_->ensureParasiticNode(
+            parasitic, net, steiner_pt2, network_);
+        if (wire_length_dbu == 0) {
+          parasitics_->makeResistor(parasitic, resistor_id++, 1.0e-3, n1, n2);
+        } else {
+          double length = dbuToMeters(wire_length_dbu);
+          double cap = length * wire_cap;
+          double res = length * wire_res;
+
+          odb::dbTechNonDefaultRule* ndr
+              = db_network_->staToDb(net)->getNonDefaultRule();
+          if (ndr) {
+            std::vector<odb::dbTechLayerRule*> layer_rules;
+            ndr->getLayerRules(layer_rules);
+            float ratio = (float) layer_rules.at(0)->getWidth()
+                          / layer_rules.at(0)->getLayer()->getWidth();
+            res /= ratio;
+          }
+
           parasitics_->incrCap(n1, cap / 2.0);
           parasitics_->makeResistor(parasitic, resistor_id++, res, n1, n2);
           parasitics_->incrCap(n2, cap / 2.0);

@@ -96,8 +96,15 @@ LocalSta::setParasiticsEst(est::EstimateParasitics *estimate_parasitics) {
 void
 LocalSta::updateGlobalParasiticsAndSync(est::EstimateParasitics *est_parasitics)
 {
-  est_parasitics->updateWireParasiticsNoDeleteNetwork();
+  auto t0 = std::chrono::high_resolution_clock::now();
+  est_parasitics->updateWireParasiticsNoDeleteNetworkParallel();
+  auto t1 = std::chrono::high_resolution_clock::now();
   local_parasitics_->initParasiticMapFromBase();
+  auto t2 = std::chrono::high_resolution_clock::now();
+  printf("[PARASITIC_TIMING] updateWireParasitics: %.4f s, initParasiticMap: %.4f s\n",
+         std::chrono::duration<double>(t1 - t0).count(),
+         std::chrono::duration<double>(t2 - t1).count());
+  fflush(stdout);
 }
 
 void
