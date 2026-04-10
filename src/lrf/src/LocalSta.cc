@@ -1758,16 +1758,9 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
   parasitic = nullptr;
   load_cap = 0.0f;
 
-  const Pin *drvr_pin = drvr_pt_vertex.pin();
-
-  if (!drvr_pin)
-    return;
-
   // PtGraph-local PiElmore parasitic (highest priority).
-  // Check this BEFORE the net check: PtPiElmore uses objectIdx indexing
-  // and doesn't need a net.  Top-level port pins have net(pin)==nullptr
-  // in the network hierarchy, but their PtPiElmore was computed via
-  // findParasiticNet(pin) in recomputePtParasitics.
+  // Uses objectIdx indexing — works for both real and virtual vertices.
+  // Includes synthetic Pi set by buildSyntheticParasitics.
   PtPiElmore *pt_pi = pt_graph->findPtParasitic(
       drvr_pt_vertex.objectIdx(), rf, dcalc_ap->index());
   if (pt_pi && pt_pi->capacitance() > 0.0f) {
@@ -1776,15 +1769,19 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
     return;
   }
 
+  const Pin *drvr_pin = drvr_pt_vertex.pin();
+
   // PtPiElmore missing — try to recompute for this driver
-  local_parasitics_->recomputeSinglePtParasitic(pt_graph,
-                                                 drvr_pt_vertex.objectIdx());
-  pt_pi = pt_graph->findPtParasitic(
-      drvr_pt_vertex.objectIdx(), rf, dcalc_ap->index());
-  if (pt_pi && pt_pi->capacitance() > 0.0f) {
-    parasitic = pt_pi;
-    load_cap = pt_pi->capacitance();
-    return;
+  if (drvr_pin) {
+    local_parasitics_->recomputeSinglePtParasitic(pt_graph,
+                                                   drvr_pt_vertex.objectIdx());
+    pt_pi = pt_graph->findPtParasitic(
+        drvr_pt_vertex.objectIdx(), rf, dcalc_ap->index());
+    if (pt_pi && pt_pi->capacitance() > 0.0f) {
+      parasitic = pt_pi;
+      load_cap = pt_pi->capacitance();
+      return;
+    }
   }
 
   // Virtual driver or driver with virtual buffer downstream
@@ -1794,7 +1791,7 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
   }
 
   // Fallback: use netCaps (requires net)
-  if (network_->net(drvr_pin) == nullptr)
+  if (!drvr_pin || network_->net(drvr_pin) == nullptr)
     return;
   bool has_net_load;
   float fanout;
