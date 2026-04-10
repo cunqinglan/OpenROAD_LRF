@@ -2606,60 +2606,57 @@ static FixedDelay rszCriticalPathDelay(const BufferedNetPtr &root)
   return worst_load_slack - root->slack();
 }
 
-int
-LrRebuffer::rebufferPinRsz(const sta::Pin *drvr_pin)
+bool
+LrRebuffer::prepareRszBnet(const sta::Pin *drvr_pin, int bft_iter)
 {
+  best_bnet_ = nullptr;
+
   // Mirror rsz::BufferMove::doMove fanout checks.
   static constexpr int rebuffer_max_fanout = 20;
 
   if (network_->isTopLevelPort(drvr_pin))
-    return 0;
+    return false;
 
   sta::Vertex *drvr_vertex = graph_->pinDrvrVertex(drvr_pin);
   int fo = Rebuffer::fanout(drvr_vertex);
   if (fo <= 1)
-    return 0;
+    return false;
   if (fo >= rebuffer_max_fanout)
-    return 0;
+    return false;
   if (!resizer_->okToBufferNet(drvr_pin))
-    return 0;
+    return false;
 
-  // Delegate to base-class Rebuffer::rebufferPin which executes the full
-  // repair_timing flow: makeBufferedNet → annotateLoadSlacks →
-  // 3× bufferForTiming → 5× recoverArea → exportBufferTree.
   sta::Net *net = network_->net(drvr_pin);
-  odb::dbNet *db_net = db_network_->flatNet(drvr_pin);
   drvr_port_ = network_->libertyPort(drvr_pin);
   if (!net || !drvr_port_ || hasTopLevelOutputPort(net))
-    return 0;
+    return false;
 
   setPin(const_cast<sta::Pin*>(drvr_pin));
   BufferedNetPtr bnet = resizer_->makeBufferedNet(drvr_pin, corner_);
   if (!bnet) {
-    printf("rebufferPinRsz: Warning: unable to create buffered net for pin %s\n",
+    printf("prepareRszBnet: Warning: unable to create buffered net for pin %s\n",
            network_->name(drvr_pin));
-    return 0;
+    return false;
   }
 
-  sta_->findRequireds();
   annotateLoadSlacks(bnet, drvr_vertex);
 
   const bool allow_topology_rewrite
       = (estimate_parasitics_->getParasiticsSrc()
          == est::ParasiticsSrc::placement);
 
-  // 3 rounds of bufferForTiming (same as rsz::Rebuffer::rebufferPin).
-  for (int i = 0; i < 3; i++) {
+  // bft_iter rounds of bufferForTiming (3 = same as rsz::Rebuffer::rebufferPin).
+  for (int i = 0; i < bft_iter; i++) {
     bnet = Rebuffer::bufferForTiming(bnet, allow_topology_rewrite);
     if (!bnet) {
-      printf("rebufferPinRsz: Warning: bufferForTiming failed for pin %s "
+      printf("prepareRszBnet: Warning: bufferForTiming failed for pin %s "
              "after %d rounds\n", network_->name(drvr_pin), i + 1);
       break;
     }
   }
 
   if (!bnet)
-    return 0;
+    return false;
 
   // Area recovery (same as rsz::Rebuffer::rebufferPin).
   sta::Delay drvr_gate_delay;
@@ -2675,22 +2672,13 @@ LrRebuffer::rebufferPinRsz(const sta::Pin *drvr_pin)
   }
 
   if (!bnet) {
-    printf("rebufferPinRsz: Warning: area recovery failed for pin %s\n",
+    printf("prepareRszBnet: Warning: area recovery failed for pin %s\n",
            network_->name(drvr_pin));
-    return 0;
+    return false;
   }
 
-  // Export buffer tree to DB.
-  sta::Instance *parent
-      = db_network_->getOwningInstanceParent(const_cast<sta::Pin*>(drvr_pin));
-  int inserted_count = exportBufferTree(
-      bnet, db_network_->dbToSta(db_net), 1, parent, "rebuffer");
-
-  if (inserted_count > 0) {
-    resizer_->level_drvr_vertices_valid_ = false;
-  }
-
-  return inserted_count;
+  best_bnet_ = bnet;
+  return true;
 }
 
 void

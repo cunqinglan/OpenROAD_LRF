@@ -143,6 +143,21 @@ public:
                             float density_weight = 0.0f,
                             bool debug = false);
 
+  // Resize iterations + RSZ-style rebuffering phases
+  void testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons = false,
+                            float PT_tradeoff = 100.0,
+                            std::string lr_helper_method = "LRHelper",
+                            bool initialize = false,
+                            float density_weight = 0.0f,
+                            bool debug = false);
+
   // Print all liberty cells information grouped by unique equiv cell groups.
   void printAllCellsInfo(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
 
@@ -275,10 +290,11 @@ public:
              odb::dbBlock *block, size_t thread_num,
              const LrConfig &cfg);
 
-  // Run Sharma 3-step initialization on an existing IncreSta.
+  // Run parallel 4-step initialization (Sharma) on an existing IncreSta.
   // Called internally by testParallelLrResize* when initialize=true.
   void runInitialization(sta::dbSta* sta, IncreSta* incre_sta,
-                         rsz::Resizer *resizer, odb::dbBlock *block);
+                         rsz::Resizer *resizer, odb::dbBlock *block,
+                         size_t thread_num);
 
   // Test: level-parallel initializer (standalone, does not start LR).
   void testParallelInitializer(sta::dbSta* sta,

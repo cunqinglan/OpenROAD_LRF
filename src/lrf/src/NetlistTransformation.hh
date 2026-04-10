@@ -211,6 +211,30 @@ public:
   std::unique_ptr<LrOperator> copy() const override;
 };
 
+// ─── BufferRszOperator ──────────────────────────────────
+// RSZ-style rebuffering (iterative bufferForTiming + area recovery).
+// evaluate() calls prepareRszBnet (parallel, no DB modification);
+// apply() calls applyBufferingToDb (serialized under mutex).
+class BufferRszOperator : public LrOperator {
+public:
+  BufferRszOperator(sta::dbSta *db_sta, LocalSta *local_sta,
+                    rsz::Resizer *resizer, EvalContext *ctx);
+  PtGraphLevel ptGraphLevel() const override { return PtGraphLevel::DriverOnly; }
+  bool skipInstance(sta::Instance *inst) const override;
+  MoveOption evaluate(PtGraph *pt_graph, sta::Instance *inst,
+                      EvalContext &ctx) override;
+  void apply(const MoveOption &move, PtGraph *pt_graph,
+             std::map<std::string, double> &runtime_map) override;
+  std::unique_ptr<LrOperator> copy() const override;
+  void setEvalContext(EvalContext *ctx) override;
+
+private:
+  sta::dbSta *db_sta_;
+  LocalSta *local_sta_;
+  rsz::Resizer *resizer_;
+  std::unique_ptr<LrRebuffer> rebuffer_;
+};
+
 // ─── CombinedOperator ────────────────────────────────────
 class CombinedOperator : public LrOperator {
 public:

@@ -766,6 +766,115 @@ BufferSensitivityOperator::copy() const
 }
 
 // ═══════════════════════════════════════════════════════════
+// BufferRszOperator
+// ═══════════════════════════════════════════════════════════
+
+BufferRszOperator::BufferRszOperator(sta::dbSta *db_sta, LocalSta *local_sta,
+                                     rsz::Resizer *resizer, EvalContext *ctx)
+  : db_sta_(db_sta), local_sta_(local_sta), resizer_(resizer)
+{
+  if (ctx) {
+    rebuffer_ = std::make_unique<LrRebuffer>(resizer, local_sta, ctx);
+    rebuffer_->init();
+  }
+}
+
+bool
+BufferRszOperator::skipInstance(sta::Instance *inst) const
+{
+  // Skip instances whose driver pins all have non-negative slack.
+  sta::Network *network = db_sta_->network();
+  sta::Graph *graph = db_sta_->graph();
+  sta::InstancePinIterator *iter = network->pinIterator(inst);
+  bool all_positive = true;
+  while (iter->hasNext()) {
+    sta::Pin *pin = iter->next();
+    if (network->isDriver(pin)) {
+      sta::Vertex *vtx = graph->pinDrvrVertex(pin);
+      if (vtx && db_sta_->vertexSlack(vtx, sta::MinMax::max()) < 0.0f) {
+        all_positive = false;
+        break;
+      }
+    }
+  }
+  delete iter;
+  return all_positive;
+}
+
+MoveOption
+BufferRszOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
+                            EvalContext &ctx)
+{
+  MoveOption result;
+  if (!rebuffer_)
+    return result;
+
+  // Find the worst-slack driver pin on this instance.
+  sta::Network *network = db_sta_->network();
+  sta::Graph *graph = db_sta_->graph();
+  sta::Pin *worst_pin = nullptr;
+  float worst_slack = 0.0f;
+
+  sta::InstancePinIterator *iter = network->pinIterator(inst);
+  while (iter->hasNext()) {
+    sta::Pin *pin = iter->next();
+    if (!network->isDriver(pin))
+      continue;
+    sta::Vertex *vtx = graph->pinDrvrVertex(pin);
+    if (!vtx)
+      continue;
+    float slack = db_sta_->vertexSlack(vtx, sta::MinMax::max());
+    if (slack < worst_slack) {
+      worst_slack = slack;
+      worst_pin = pin;
+    }
+  }
+  delete iter;
+
+  if (!worst_pin)
+    return result;
+
+  // Heavy computation: makeBufferedNet + bufferForTiming + recoverArea
+  // Result stored in rebuffer_->best_bnet_ / drvr_pin_
+  if (rebuffer_->prepareRszBnet(worst_pin)) {
+    result.type = MoveOption::BUFFER_ONLY;
+    result.cost = 0.0f;
+  }
+  return result;
+}
+
+void
+BufferRszOperator::apply(const MoveOption &move, PtGraph *pt_graph,
+                         std::map<std::string, double> &runtime_map)
+{
+  if (!rebuffer_ || !rebuffer_->bestBnet())
+    return;
+
+  auto start = std::chrono::steady_clock::now();
+  int count = rebuffer_->applyBufferingToDb();
+  auto end = std::chrono::steady_clock::now();
+  runtime_map["buffer_count"] += count;
+  runtime_map["applyDb"] +=
+      std::chrono::duration<double>(end - start).count();
+}
+
+void
+BufferRszOperator::setEvalContext(EvalContext *ctx)
+{
+  rebuffer_ = std::make_unique<LrRebuffer>(resizer_, local_sta_, ctx);
+  rebuffer_->init();
+}
+
+std::unique_ptr<LrOperator>
+BufferRszOperator::copy() const
+{
+  // copy() creates with nullptr ctx; caller must call setEvalContext() after
+  auto op = std::make_unique<BufferRszOperator>(db_sta_, local_sta_,
+                                                resizer_, nullptr);
+  return op;
+}
+
+// ═══════════════════════════════════════════════════════════
 // CombinedOperator
 // ═══════════════════════════════════════════════════════════
 

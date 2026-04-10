@@ -820,65 +820,40 @@ IncreSta::parallelBufferingRsz(rsz::Resizer *resizer, float PT_tradeoff,
 
   float avg_delay = averageDelayOnCritPath();
   float avg_leakage = averageLeakage();
+  sta::Slack wns = sta_->worstSlack(sta::MinMax::max());
 
   local_sta_->initParallel();
+  TaskArranger *task_arranger = local_sta_->taskArranger();
 
-  // Reuse the same sensitivity screening as parallelBuffering
+  // Screen buffering candidates via sensitivity-based evaluation
   std::vector<size_t> selected = bufferingVerticesCandidateBySensitivity(
       resizer, avg_delay, avg_leakage, top_n);
   if (selected.empty()) {
     printf("No buffering candidates found. Skipping.\n");
     return;
   }
+  task_arranger->markSelectedInstances(selected);
 
-  TaskArranger *task_arranger = local_sta_->taskArranger();
-  sta::Network *network = network_;
-  sta::Graph *graph = sta_->graph();
-  est::EstimateParasitics *est = resizer->getEstimateParasitics();
+  // Create visitor with BufferRszOperator
+  auto *visitor = new ParallelVisitor(sta_, local_sta_, resizer);
+  visitor->setTaskArranger(task_arranger);
 
-  // Create a single LrRebuffer just for init / rebufferPinRsz
-  EvalContext dummy_ctx;
-  dummy_ctx.pt_graph = nullptr;
-  dummy_ctx.arc_delay_calc = sta_->arcDelayCalc();
-  std::map<std::string, double> rt;
-  dummy_ctx.runtime_map = &rt;
-  LrRebuffer lr_rebuffer(resizer, local_sta_, &dummy_ctx);
   LrRebuffer::initGlobalPreamble(sta_, resizer);
-  lr_rebuffer.init();
+  sta_->findRequireds();  // pre-compute requireds for annotateLoadSlacks
 
-  int total_inserted = 0;
-  int candidates_tried = 0;
+  auto buffer_rsz_op = std::make_unique<BufferRszOperator>(
+      sta_, local_sta_, resizer, &visitor->evalContext());
+  visitor->setOperator(std::move(buffer_rsz_op));
+  visitor->init(avg_delay, avg_leakage, wns, PT_tradeoff, nullptr);
+  visitor->evalContext().debug = debug_;
+
+  // Mark all selected instances for buffer-only
+  for (size_t vid : selected)
+    task_arranger->vertex(vid)->move_mask_ = InstVertex::kMoveBuffer;
+
   auto start_buf = std::chrono::high_resolution_clock::now();
-
-  for (size_t vid : selected) {
-    InstVertex *iv = task_arranger->vertex(vid);
-    sta::Instance *inst = iv->inst();
-
-    // Find driver pins with negative slack
-    sta::InstancePinIterator *iter = network->pinIterator(inst);
-    while (iter->hasNext()) {
-      sta::Pin *pin = iter->next();
-      if (!network->isDriver(pin))
-        continue;
-      sta::Vertex *vtx = graph->pinDrvrVertex(pin);
-      if (!vtx)
-        continue;
-      if (sta_->vertexSlack(vtx, sta::MinMax::max()) >= 0.0f)
-        continue;
-
-      candidates_tried++;
-      int count = lr_rebuffer.rebufferPinRsz(pin);
-      if (count > 0) {
-        total_inserted += count;
-        // Update parasitics for the affected net
-        est->estimateWireParasiticNoDeleteNetwork(network->net(pin));
-        printf("  rebufferPinRsz: %s inserted %d buffers\n",
-               network->pathName(pin), count);
-      }
-    }
-    delete iter;
-  }
-
+  local_sta_->runResize(resizer, visitor);
+  task_arranger->markDirty();
   auto end_buf = std::chrono::high_resolution_clock::now();
 
   sta_->updateTiming(true);
@@ -887,8 +862,6 @@ IncreSta::parallelBufferingRsz(rsz::Resizer *resizer, float PT_tradeoff,
   double wns_after = sta_->worstSlack(sta::MinMax::max());
   printf("After rsz buffering: TNS: %.4f ps, WNS: %.4f ps\n",
          tns_after * 1e12, wns_after * 1e12);
-  printf("  candidates tried: %d, buffers inserted: %d\n",
-         candidates_tried, total_inserted);
   printf("  buffering time: %.3f s\n",
          std::chrono::duration<double>(end_buf - start_buf).count());
 

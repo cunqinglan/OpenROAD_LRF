@@ -68,11 +68,16 @@ public:
   // Repair slew violations on a single driver net by inserting buffers.
   int repairSlew(const sta::Pin *drvr_pin, rsz::Resizer *resizer);
 
-  // Rebuffer a driver pin using the same algorithm as repair_timing's
-  // BufferMove (rsz::Rebuffer::rebufferPin): iterative bufferForTiming
-  // followed by area recovery, then export buffer tree to DB.
-  // Returns the number of inserted buffers.
-  int rebufferPinRsz(const sta::Pin *drvr_pin);
+  // Two-phase RSZ-style rebuffering for parallel execution:
+  //
+  // Phase 1 (parallel-safe): pre-checks, makeBufferedNet, annotateLoadSlacks,
+  // N× bufferForTiming, 5× recoverArea.  Stores result in best_bnet_/drvr_pin_.
+  // Returns true if a valid bnet was prepared.
+  // Does NOT modify the netlist.
+  bool prepareRszBnet(const sta::Pin *drvr_pin, int bft_iter = 3);
+
+  // Phase 2 (requires mutex): call applyBufferingToDb() to export
+  // best_bnet_ to DB, persist parasitics, and write timing.
 
   // Experiment B: generate bnet with RSZ algorithm, evaluate with LRF local timing.
   // Does NOT modify the design — only prints diagnostic info.
