@@ -11,6 +11,7 @@
 #include "lrf/TestLrf.hh"
 #include "PlacementDensityMap.hh"
 #include "Initializer.hh"
+#include "ParallelInitializer.hh"
 #include "odb/db.h"
 #include "sta/Liberty.hh"
 #include "sta/Corner.hh"
@@ -878,7 +879,11 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
 
   if (initialize) {
-    runInitialization(sta, incre_sta, resizer, block);
+    runInitialization(sta, incre_sta, resizer, block, thread_num);
+    incre_sta->localSta()->updateGlobalParasiticsAndSync(
+        resizer->getEstimateParasitics());
+    sta->delaysInvalid();
+    sta->updateTiming(true);
   }
 
   lrf::LocalSta *local_sta = incre_sta->localSta();
@@ -1259,7 +1264,11 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
   incre_sta->setDebug(debug);
 
   if (initialize) {
-    runInitialization(sta, incre_sta, resizer, block);
+    runInitialization(sta, incre_sta, resizer, block, thread_num);
+    incre_sta->localSta()->updateGlobalParasiticsAndSync(
+        resizer->getEstimateParasitics());
+    sta->delaysInvalid();
+    sta->updateTiming(true);
   }
 
   lrf::LocalSta *local_sta = incre_sta->localSta();
@@ -1420,7 +1429,11 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
 
   if (initialize) {
-    runInitialization(sta, incre_sta, resizer, block);
+    runInitialization(sta, incre_sta, resizer, block, thread_num);
+    incre_sta->localSta()->updateGlobalParasiticsAndSync(
+        resizer->getEstimateParasitics());
+    sta->delaysInvalid();
+    sta->updateTiming(true);
   }
 
   lrf::LocalSta *local_sta = incre_sta->localSta();
@@ -3549,10 +3562,12 @@ TestLrf::testRepairSlew(sta::dbSta* sta,
 
 void
 TestLrf::runInitialization(sta::dbSta* sta, IncreSta* incre_sta,
-                           rsz::Resizer *resizer, odb::dbBlock *block)
+                           rsz::Resizer *resizer, odb::dbBlock *block,
+                           size_t thread_num)
 {
   resizer->makeEquivCells();
-  Initializer initializer(sta, incre_sta, resizer, block);
+  ParallelInitializer initializer(sta, incre_sta, resizer, block,
+                                  thread_num, /*minimize_leakage=*/true);
   initializer.run();
 }
 
@@ -3908,40 +3923,39 @@ TestLrf::probeBufferDeep(sta::dbSta* sta,
   };
 
   // Helper: worst slack across all sink pins on the net driven by drvr_pin
-  auto worstSinkSlack = [&](sta::Pin *drvr_pin) -> double {
+  // Helper: collect all load (sink) pins on the net driven by drvr_pin.
+  // Must be called BEFORE buffer insertion to capture original sinks.
+  auto collectSinkPins = [&](sta::Pin *drvr_pin) -> std::vector<sta::Vertex*> {
+    std::vector<sta::Vertex*> sinks;
     sta::Net *net = network->net(drvr_pin);
-    if (!net) return 0.0;
-    double worst = 1e30;
+    if (!net) return sinks;
     sta::NetPinIterator *npi = network->pinIterator(net);
     while (npi->hasNext()) {
       const sta::Pin *pin = npi->next();
       if (network->isLoad(pin)) {
         sta::Vertex *vtx = graph->pinLoadVertex(pin);
-        if (vtx) {
-          float s = sta->vertexSlack(vtx, sta::MinMax::max());
-          if (s < worst) worst = s;
-        }
+        if (vtx) sinks.push_back(vtx);
       }
     }
     delete npi;
+    return sinks;
+  };
+
+  // Helper: worst slack across a pre-captured set of sink vertices
+  auto worstSinkSlack = [&](const std::vector<sta::Vertex*> &sinks) -> double {
+    double worst = 1e30;
+    for (sta::Vertex *vtx : sinks) {
+      float s = sta->vertexSlack(vtx, sta::MinMax::max());
+      if (s < worst) worst = s;
+    }
     return worst == 1e30 ? 0.0 : worst;
   };
 
-  // Helper: sum slack across all sink pins
-  auto sumSinkSlack = [&](sta::Pin *drvr_pin) -> double {
-    sta::Net *net = network->net(drvr_pin);
-    if (!net) return 0.0;
+  // Helper: sum slack across a pre-captured set of sink vertices
+  auto sumSinkSlack = [&](const std::vector<sta::Vertex*> &sinks) -> double {
     double sum = 0.0;
-    sta::NetPinIterator *npi = network->pinIterator(net);
-    while (npi->hasNext()) {
-      const sta::Pin *pin = npi->next();
-      if (network->isLoad(pin)) {
-        sta::Vertex *vtx = graph->pinLoadVertex(pin);
-        if (vtx)
-          sum += sta->vertexSlack(vtx, sta::MinMax::max());
-      }
-    }
-    delete npi;
+    for (sta::Vertex *vtx : sinks)
+      sum += sta->vertexSlack(vtx, sta::MinMax::max());
     return sum;
   };
 
@@ -3985,9 +3999,10 @@ TestLrf::probeBufferDeep(sta::dbSta* sta,
   LrRebuffer::initGlobalPreamble(sta, resizer);
 
   for (auto &t : targets) {
-    // Measure baseline for this pin
-    double orig_worst_sink = worstSinkSlack(t.drvr_pin);
-    double orig_sum_sink = sumSinkSlack(t.drvr_pin);
+    // Capture original sink pins BEFORE any buffer insertion
+    std::vector<sta::Vertex*> orig_sinks = collectSinkPins(t.drvr_pin);
+    double orig_worst_sink = worstSinkSlack(orig_sinks);
+    double orig_sum_sink = sumSinkSlack(orig_sinks);
     float drvr_slack = sta->vertexSlack(graph->pinDrvrVertex(t.drvr_pin),
                                          sta::MinMax::max());
 
@@ -4019,7 +4034,7 @@ TestLrf::probeBufferDeep(sta::dbSta* sta,
     }
 
     // ── All 3 methods: local + global via TestRebuffer ──
-    TestRebuffer::GlobalBaseline bl{base_wns, base_tns, orig_worst_sink, orig_sum_sink};
+    TestRebuffer::GlobalBaseline bl{base_wns, base_tns, orig_worst_sink, orig_sum_sink, orig_sinks};
 
     EvalContext ctx;
     ctx.arc_delay_calc = sta->arcDelayCalc();
@@ -4130,6 +4145,280 @@ TestLrf::probeAllOptions(sta::dbSta* sta, rsz::Resizer *resizer,
          baseline.worst_sink * 1e12, baseline.sum_sink * 1e12);
 
   probe.probeAllOptions(drvr_pin, inst, block, baseline);
+
+  delete incre_sta;
+}
+
+void
+TestLrf::testParallelInitializer(sta::dbSta* sta,
+                                  rsz::Resizer *resizer,
+                                  odb::dbBlock *block,
+                                  int thread_count,
+                                  bool minimize_leakage)
+{
+  sta->findRequireds();
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_count);
+  resizer->makeEquivCells();
+  ParallelInitializer initializer(sta, incre_sta, resizer, block,
+                                  thread_count, minimize_leakage);
+  initializer.run();
+  delete incre_sta;
+}
+
+// ============================================================
+//  debugPrecheckAccuracy — Verify precheck predictions one gate at a time.
+//
+//  After LR convergence, run lmUpdate + precedingResizeCheck to get predicted
+//  benefits, then for each selected instance:
+//    1. Record global WNS/TNS + PtGraph timing/LM before swap
+//    2. Apply single gate sizing (1-hop equiv cell change)
+//    3. Update timing
+//    4. Record global WNS/TNS + PtGraph timing/LM after swap
+//    5. Print detailed comparison
+//    6. Undo the swap (restore original state for next instance)
+// ============================================================
+void
+TestLrf::debugPrecheckAccuracy(sta::dbSta* sta,
+                               rsz::Resizer *resizer,
+                               odb::dbBlock *block,
+                               size_t thread_num,
+                               float PT_tradeoff,
+                               float top_ratio,
+                               std::string lr_helper_method)
+{
+  printf("\n========================================\n");
+  printf(" Debug Precheck Accuracy\n");
+  printf("========================================\n");
+  fflush(stdout);
+
+  sta->findRequireds();
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+
+  incre_sta->makeLRHelper(lr_helper_method);
+  lrf::LRHelper *lr_helper = incre_sta->lrHelper();
+
+  resizer->makeEquivCells();
+  incre_sta->makeSwappableCellsCache(resizer);
+  incre_sta->preSaveLibCellLeakage();
+  incre_sta->makeEquivCellArray();
+  local_sta->initParallel();
+
+  // LM update with current timing state
+  incre_sta->lmUpdate();
+  sta->findRequireds();
+
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+
+  // Run precheck to get predicted benefits
+  printf("\n--- Running precedingResizeCheck ---\n");
+  fflush(stdout);
+  std::vector<size_t> selected = incre_sta->precedingResizeCheck(
+      resizer, avg_delay, avg_leakage, PT_tradeoff, top_ratio);
+
+  printf("\n--- Selected %zu instances for verification ---\n", selected.size());
+  fflush(stdout);
+
+  if (selected.empty()) {
+    printf("No instances selected by precheck. Nothing to debug.\n");
+    delete incre_sta;
+    return;
+  }
+
+  sta::dbNetwork *db_network = sta->getDbNetwork();
+  sta::Graph *graph = sta->graph();
+  const sta::DcalcAnalysisPt *dcalc_ap =
+      sta->cmdCorner()->findDcalcAnalysisPt(sta::MinMax::max());
+
+  // Build reverse map: vertex_idx → Instance*
+  TaskArranger *task_arranger = local_sta->taskArranger();
+  const auto *inst_to_vid = task_arranger->instToVidMap();
+  std::unordered_map<size_t, sta::Instance*> vid_to_inst;
+  for (auto &[inst, vid] : *inst_to_vid)
+    vid_to_inst[vid] = const_cast<sta::Instance*>(inst);
+
+  sta::Corner *cmd_corner = sta->cmdCorner();
+
+  // Helper: dump PtGraph edge-centric info for a given instance
+  auto dumpPtGraph = [&](sta::Instance *inst, const char *label) {
+    PtGraph *pt_graph = local_sta->makePtGraph(inst, true);
+    if (!pt_graph) {
+      printf("    [%s] PtGraph: could not construct\n", label);
+      return;
+    }
+    sta::ArcDelayCalc *arc_delay_calc = sta->arcDelayCalc()->copy();
+    local_sta->findLocalDelays(pt_graph, arc_delay_calc);
+
+    // Compute delay_lm_sum
+    float delay_lm_sum = 0.0f;
+    pt_graph->delayLmSum(dcalc_ap, delay_lm_sum);
+
+    // Leakage of the ref instance
+    float leakage = 0.0f;
+    sta::PowerResult pwr = sta->power(inst, cmd_corner);
+    leakage = pwr.leakage();
+
+    printf("    [%s] ref=%s  delay_lm_sum=%.6f (×1e12=%.6f)  leakage=%.6e W\n",
+           label,
+           pt_graph->refGate() ? pt_graph->refGate()->name() : "?",
+           delay_lm_sum, delay_lm_sum * 1e12, leakage);
+
+    // Print edges with: global edge name, arc delays, LMs
+    for (auto &pt_edge : pt_graph->ptEdges()) {
+      if (pt_edge.arcDelayCount() == 0) continue;
+
+      // Global edge name
+      const sta::Edge *sta_edge = pt_edge.edge();
+      const char *from_name = "(?)";
+      const char *to_name = "(?)";
+      if (sta_edge) {
+        sta::Vertex *from_v = sta_edge->from(graph);
+        sta::Vertex *to_v = sta_edge->to(graph);
+        if (from_v) from_name = db_network->pathName(from_v->pin());
+        if (to_v) to_name = db_network->pathName(to_v->pin());
+      }
+
+      bool is_wire = pt_edge.isWire();
+      const sta::ArcDelay *delays = pt_edge.arcDelays();
+      const sta::LMValue *lms = pt_edge.arcLms();
+      size_t arc_count = pt_edge.arcDelayCount();
+
+      if (arc_count == 0) continue;
+
+      // Aggregate: max delay, max LM, sum(delay*lm) across all arcs
+      float max_delay = 0, max_lm = 0, dlm_sum = 0;
+      for (size_t a = 0; a < arc_count; a++) {
+        float d = sta::delayAsFloat(delays[a]);
+        float l = lms ? lms[a] : 0.0f;
+        max_delay = std::max(max_delay, d);
+        max_lm = std::max(max_lm, l);
+        dlm_sum += d * l;
+      }
+
+      printf("      %s %s → %s  delay=%.1fps lm=%.4f d*lm=%.6f",
+             is_wire ? "WIRE" : "GATE",
+             from_name, to_name,
+             max_delay * 1e12, max_lm, dlm_sum * 1e12);
+
+      // Print per-arc detail if gate edge with multiple arcs
+      if (!is_wire && arc_count > 1) {
+        printf("  [%zu arcs:", arc_count);
+        for (size_t a = 0; a < std::min(arc_count, size_t(4)); a++) {
+          printf(" d=%.1f/lm=%.4f", sta::delayAsFloat(delays[a]) * 1e12,
+                 lms ? lms[a] : 0.0f);
+        }
+        if (arc_count > 4) printf(" ...");
+        printf("]");
+      }
+      printf("\n");
+    }
+
+    // Print head vertex (RefOutput) slack
+    for (size_t vid : pt_graph->sortedVertexIds()) {
+      PtVertex &pv = pt_graph->ptVertex(vid);
+      if (pv.type() != PtVertexType::RefOutput) continue;
+      if (!pv.vertex()) continue;
+      float slack = sta::delayAsFloat(
+          sta->vertexSlack(pv.vertex(), sta::MinMax::max()));
+      const char *pin_name = db_network->pathName(pv.pin());
+      printf("      HEAD_SLACK: %s  slack=%.1fps\n", pin_name, slack * 1e12);
+    }
+
+    delete arc_delay_calc;
+  };
+
+  // Test each selected instance (cap at 20)
+  size_t test_count = std::min(selected.size(), size_t(20));
+  int match = 0, mismatch = 0;
+
+  for (size_t idx = 0; idx < test_count; idx++) {
+    size_t vertex_idx = selected[idx];
+    auto it = vid_to_inst.find(vertex_idx);
+    if (it == vid_to_inst.end()) continue;
+    sta::Instance *inst = it->second;
+    if (!inst) continue;
+
+    sta::LibertyCell *orig_cell = db_network->libertyCell(inst);
+    if (!orig_cell) continue;
+
+    printf("\n--- [%zu/%zu] %s (%s) ---\n",
+           idx+1, test_count,
+           db_network->pathName(inst), orig_cell->name());
+
+    // Record before state
+    sta::Slack wns_before = sta->worstSlack(sta::MinMax::max());
+    sta::Slack tns_before = sta->totalNegativeSlack(sta::MinMax::max());
+
+    printf("  BEFORE: WNS=%.3fps TNS=%.3fps\n",
+           wns_before * 1e12, tns_before * 1e12);
+    dumpPtGraph(inst, "BEFORE");
+
+    // Apply single gate sizing via ECO
+    odb::dbDatabase::beginEco(block);
+
+    // Create a visitor and do single gate sizing
+    auto *visitor = new ParallelVisitor(sta, local_sta, resizer);
+    auto resize_op = std::make_unique<ResizeOperator>(sta, local_sta);
+    resize_op->setEquivCellArray(incre_sta->equivCellArray(),
+                                  incre_sta->equivCellPosMap());
+    visitor->setOperator(std::move(resize_op));
+    visitor->init(avg_delay, avg_leakage,
+                  sta::delayAsFloat(wns_before), PT_tradeoff,
+                  nullptr);
+
+    bool sized = visitor->singleGateSizing(inst);
+
+    // Get new cell
+    sta::LibertyCell *new_cell = db_network->libertyCell(inst);
+
+    if (sized && new_cell != orig_cell) {
+      // Update timing
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
+      sta->findRequireds();
+
+      sta::Slack wns_after = sta->worstSlack(sta::MinMax::max());
+      sta::Slack tns_after = sta->totalNegativeSlack(sta::MinMax::max());
+
+      printf("  AFTER:  WNS=%.3fps TNS=%.3fps  cell=%s→%s\n",
+             wns_after * 1e12, tns_after * 1e12,
+             orig_cell->name(), new_cell->name());
+      dumpPtGraph(inst, "AFTER");
+
+      float wns_delta = (wns_after - wns_before) * 1e12;
+      float tns_delta = (tns_after - tns_before) * 1e12;
+      bool improved = (wns_after > wns_before) ||
+                      (wns_after == wns_before && tns_after > tns_before);
+
+      printf("  VERDICT: WNS_delta=%+.3fps TNS_delta=%+.3fps → %s\n",
+             wns_delta, tns_delta,
+             improved ? "IMPROVED" : "REGRESSED");
+
+      if (improved) match++;
+      else mismatch++;
+    } else {
+      printf("  SKIPPED: singleGateSizing returned no change\n");
+    }
+
+    // Undo the swap
+    odb::dbDatabase::endEco(block);
+    odb::dbDatabase::undoEco(block);
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+    sta->findRequireds();
+
+    delete visitor;
+    fflush(stdout);
+  }
+
+  printf("\n========================================\n");
+  printf(" Summary: %d improved, %d regressed out of %zu tested\n",
+         match, mismatch, test_count);
+  printf("========================================\n");
+  fflush(stdout);
 
   delete incre_sta;
 }

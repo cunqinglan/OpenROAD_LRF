@@ -612,6 +612,30 @@ Timing::runLr(int mode, size_t iterations, size_t max_resize_num,
 }
 
 void
+Timing::testParallelInitializer(bool minimize_leakage) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testParallelInitializer(sta, resizer, design_->getBlock(),
+                                   thread_num, minimize_leakage);
+}
+
+void
+Timing::debugPrecheckAccuracy(float PT_tradeoff, float top_ratio) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting debugPrecheckAccuracy with %zu threads\n", thread_num);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.debugPrecheckAccuracy(sta, resizer, design_->getBlock(),
+    thread_num, PT_tradeoff, top_ratio);
+}
+
+void
 Timing::testParallelResizeByArray(size_t max_resize_num, size_t iterations,
   size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
   const char *lr_helper_method, bool initialize, float density_weight) {

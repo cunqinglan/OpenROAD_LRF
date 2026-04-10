@@ -280,6 +280,23 @@ public:
   void runInitialization(sta::dbSta* sta, IncreSta* incre_sta,
                          rsz::Resizer *resizer, odb::dbBlock *block);
 
+  // Test: level-parallel initializer (standalone, does not start LR).
+  void testParallelInitializer(sta::dbSta* sta,
+                               rsz::Resizer *resizer,
+                               odb::dbBlock *block,
+                               int thread_count,
+                               bool minimize_leakage = true);
+
+  // Debug: verify precheck predictions by applying single-gate sizing
+  // one at a time, recording PtGraph timing + LM before/after each swap.
+  void debugPrecheckAccuracy(sta::dbSta* sta,
+                             rsz::Resizer *resizer,
+                             odb::dbBlock *block,
+                             size_t thread_num,
+                             float PT_tradeoff = 100.0,
+                             float top_ratio = 0.3,
+                             std::string lr_helper_method = "RapidLRHelper");
+
 protected:
   void printSlewComparison(char *inst_name, sta::dbSta* sta, 
                        LocalSta *local_sta, odb::dbInst *db_inst, 
