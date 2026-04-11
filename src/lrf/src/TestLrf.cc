@@ -787,7 +787,9 @@ IterationHelper::recordRow(size_t iter, const char *phase,
            cur.leakage * 1e10,
            decision, cur.runtime_s);
   rows_.push_back(buf);
-  // Print immediately so progress is visible before run completes
+  // Print header + data every row so the log is always self-describing,
+  // no matter where you tail it from.
+  printf("[ITER]  Iter | Phase   | WNS(ps)   |   dWNS  | TNS(ps)      |    dTNS   | Leakage(uW) | Decision\n");
   printf("[ITER]%s\n", buf);
   fflush(stdout);
 }
