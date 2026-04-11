@@ -58,7 +58,10 @@ struct EvalContext {
 
   float bakoglu_k = 2.5f;     // Bakoglu gate coefficient for buffer screening
   bool debug = false;          // Print detailed rebuffer/eval diagnostics
-  bool use_sum_threshold = true; // true=sum slack threshold, false=worst slack threshold
+  bool use_sum_threshold = false; // true=sum slack threshold, false=worst slack threshold
+                                  // (v76 probe showed worst is strictly better: avoids
+                                  // sum-metric's false positives on high-fanout nets
+                                  // where per-sink delta averages out the worst-sink harm)
 
   float swapCost(float delay_lm_sum, float power,
                  float density_cost = 0.0f) const;

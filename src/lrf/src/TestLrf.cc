@@ -1214,7 +1214,8 @@ TestLrf::runLr(sta::dbSta* sta, rsz::Resizer *resizer,
           cfg.max_resize_num, cfg.iterations,
           cfg.num_no_improve_tolerance, cfg.ratcons,
           cfg.PT_tradeoff, cfg.lr_helper_method,
-          cfg.initialize, cfg.density_weight, cfg.debug);
+          cfg.initialize, cfg.density_weight, cfg.debug,
+          cfg.buffering_start_iter);
       break;
     case LrMode::PRECHECK:
       testParallelLrResizeByArrayWithPrecheck(
@@ -1263,9 +1264,11 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
                             std::string lr_helper_method,
                             bool initialize,
                             float density_weight,
-                            bool debug)
+                            bool debug,
+                            size_t buffering_start_iter)
 {
-  printf("----- Testing Parallel LR Resize+Buffering (revert-halve ECO) -----\n");
+  printf("----- Testing Parallel LR Resize+Buffering (revert-halve ECO, buffering_start_iter=%zu) -----\n",
+         buffering_start_iter);
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
@@ -1338,9 +1341,9 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
     if (decision == EcoDecision::TERMINATE)
       break;
 
-    // ── Buffering phase (after iter 3, only when WNS < 0) ──
+    // ── Buffering phase (only when WNS < 0 and iter >= buffering_start_iter) ──
     sta::Slack wns_after_resize = sta->worstSlack(sta::MinMax::max());
-    if (wns_after_resize < 0 && i > 3) {
+    if (wns_after_resize < 0 && (i + 1) >= buffering_start_iter) {
       printf("----- Buffering pass (iter %zu) -----\n", i+1);
       double wns_before = wns_after_resize * 1e12;
       double tns_before = sta->totalNegativeSlack(sta::MinMax::max()) * 1e12;

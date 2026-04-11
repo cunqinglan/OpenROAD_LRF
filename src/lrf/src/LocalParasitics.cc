@@ -9,6 +9,7 @@
 #include "sta/Corner.hh"
 #include "PtGraph.hh"
 #include "sta/Sdc.hh"
+#include "sta/ClkNetwork.hh"
 
 #include "LocalReduceParasitic.hh"
 #include "PtPiElmore.hh"
@@ -67,6 +68,10 @@ LocalParasitics::recomputePtParasitics(PtGraph *pt_graph)
     if (!pt_vertex.vertex() || !pt_vertex.vertex()->pin())
       continue;
     const Pin *drvr_pin = pt_vertex.vertex()->pin();
+    // Ideal clock nets have no parasitic network by design (skipped in
+    // EstimateParasitics). Continue silently to avoid spurious errors.
+    if (clk_network_->isIdealClock(drvr_pin))
+      continue;
     const Net *net = findParasiticNet(drvr_pin);
     for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
       ParasiticAnalysisPt *ap = dcalc_ap->parasiticAnalysisPt();
@@ -100,6 +105,10 @@ LocalParasitics::recomputeSinglePtParasitic(PtGraph *pt_graph, VertexId drvr_vid
   if (!pt_vertex.vertex() || !pt_vertex.vertex()->pin())
     return;
   const Pin *drvr_pin = pt_vertex.vertex()->pin();
+  // Ideal clock nets have no parasitic network by design (skipped in
+  // EstimateParasitics). Return silently to avoid spurious errors.
+  if (clk_network_->isIdealClock(drvr_pin))
+    return;
   const Net *net = findParasiticNet(drvr_pin);
   for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
     ParasiticAnalysisPt *ap = dcalc_ap->parasiticAnalysisPt();

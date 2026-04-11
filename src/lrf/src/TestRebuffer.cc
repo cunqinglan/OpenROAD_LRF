@@ -1,4 +1,6 @@
 #include <set>
+#include <cstdlib>
+#include <cstring>
 #include "TestRebuffer.hh"
 #include "LocalSta.hh"
 #include "PtGraph.hh"
@@ -430,11 +432,35 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
   local_sta_->increAndGetLocalTimingCost(pg, arc_delay_calc_, nullptr);
   annotateLoadLMs(*drvr_pv, bnet);
 
+  // Enable pruning trace for targeted diagnostic pins (env var PRUNE_DEBUG_PIN
+  // acts as a substring filter; empty string disables).
+  bool want_prune_debug = false;
+  if (const char *pat = std::getenv("PRUNE_DEBUG_PIN")) {
+    if (pat[0] != '\0'
+        && strstr(network_->pathName(drvr_pin), pat) != nullptr) {
+      want_prune_debug = true;
+    }
+  }
+  prune_debug_ = want_prune_debug;
+  if (prune_debug_) {
+    printf("[DBG-PRUNE] enabled for pin %s\n", network_->pathName(drvr_pin));
+  }
+
+  // Experiment: use worst-slack gate (instead of sum-slack gate) in
+  // evaluateOption, to align with global WNS. Sum-slack gate rejects RSZ-
+  // style "sacrifice non-critical sinks for worst-sink" multi-buffer
+  // topologies.
+  bool saved_sum_thresh = eval_ctx_->use_sum_threshold;
+  eval_ctx_->use_sum_threshold = false;
+
   // Run 3 iterations; last_top_opts_ saved on final iteration
   for (int i = 0; i < 3; i++) {
     bnet = bufferForTiming(vid, bnet, true, /*last_iteration=*/(i == 2));
     if (!bnet) break;
   }
+
+  eval_ctx_->use_sum_threshold = saved_sum_thresh;
+  prune_debug_ = false;
   cleanupVirtualBuffer();
 
   if (last_top_opts_.empty()) {
@@ -473,8 +499,9 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
   //           gbl_dTNS   = TNS(after) - TNS(baseline)
   //           (uses exportBufferTree + estimate_parasitics + full STA update)
   // Per-sink global slack is printed to identify which sinks improve/degrade.
-  printf("\n    %-4s %4s | %10s %12s | %10s %12s %8s %10s\n",
-         "#", "bufs", "lcl_dWorst", "lcl_dSum", "gbl_dWSink", "gbl_dSSink", "gbl_dWNS", "gbl_dTNS");
+  printf("\n    %-4s %4s | %10s %12s | %10s %12s %8s %10s | %11s %11s %11s %11s\n",
+         "#", "bufs", "lcl_dWorst", "lcl_dSum", "gbl_dWSink", "gbl_dSSink", "gbl_dWNS", "gbl_dTNS",
+         "bnetCost", "dlyLmSum", "leakage", "swapCost");
 
   auto evalOneOption = [&](const char *label, const rsz::BufferedNetPtr &opt) {
     int bufs = bufferNum(opt);
@@ -482,6 +509,10 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
     // ── Local eval (fresh PtGraph + virtual buffer) ──
     PtGraph *pg_l = local_sta_->makePtGraph(inst, true);
     float lw = orig_w, ls = orig_s;
+    float dlm_nobuf = 0.0f;
+    float dlm_after = 0.0f;
+    float swap_nobuf = 0.0f;
+    float swap_after = 0.0f;
     if (pg_l) {  // process buf==0 too for baseline verification
       eval_ctx_->pt_graph = pg_l;
       PtVertex *pv = nullptr;
@@ -492,7 +523,9 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
       }
       if (pv) {
         VertexId v = pv->objectIdx();
-        local_sta_->increAndGetLocalTimingCost(pg_l, arc_delay_calc_, nullptr);
+        auto res_nobuf = local_sta_->increAndGetLocalTimingCost(pg_l, arc_delay_calc_, nullptr);
+        dlm_nobuf = res_nobuf.delay_lm_sum;
+        swap_nobuf = eval_ctx_->swapCost(dlm_nobuf, 0.0f);
 
         // Arrival BEFORE buffer (local vs global baseline)
         char lbl_before[64];
@@ -502,15 +535,23 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
         VirtualBufferInfo vi = buildVirtualBuffer(v, opt);
         if (!vi.failed) {
           pg_l->topoSortVertices();
-          printf("      ── [%s] bufs=%d bnet_root_cap=%.4f fF ──\n",
-                 label, bufs, opt->cap() * 1e15);
+          printf("      ── [%s] bufs=%d bnet_root_cap=%.4f fF bnetCost=%.3e leakage=%.3e ──\n",
+                 label, bufs, opt->cap() * 1e15,
+                 opt->bufferCost(), opt->leakage());
           bool saved_debug = eval_ctx_->debug;
           eval_ctx_->debug = true;
           buildSyntheticParasitics(v, opt, vi);
           eval_ctx_->debug = saved_debug;
-          local_sta_->increAndGetLocalTimingCost(pg_l, arc_delay_calc_, nullptr);
+          auto res_after = local_sta_->increAndGetLocalTimingCost(pg_l, arc_delay_calc_, nullptr);
+          dlm_after = res_after.delay_lm_sum;
+          swap_after = eval_ctx_->swapCost(dlm_after, opt->leakage());
           lw = local_sta_->localWorstSlackOnSinks(pg_l);
           ls = local_sta_->localSlackOnSinks(pg_l);
+          printf("      [%s] LR cost:  dlyLmSum nobuf=%.3e → after=%.3e (Δ=%+.3e) | "
+                 "swapCost nobuf=%.3e → after=%.3e (Δ=%+.3e) | bnetCost=%.3e\n",
+                 label, dlm_nobuf, dlm_after, dlm_after - dlm_nobuf,
+                 swap_nobuf, swap_after, swap_after - swap_nobuf,
+                 opt->bufferCost());
 
           // Collect synthetic Pi for all RefOutput vertices (driver + virtual buffer outputs)
           // and print per-sink local arrival after buffer
@@ -669,10 +710,14 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
       }
     }
 
-    printf("    %-4s %4d | %+10.1f %+12.1f | %+10.1f %+12.1f %+8.1f %+10.1f\n",
+    printf("    %-4s %4d | %+10.1f %+12.1f | %+10.1f %+12.1f %+8.1f %+10.1f | %+11.3e %+11.3e %+11.3e %+11.3e\n",
            label, bufs,
            (lw - orig_w) * 1e12, (ls - orig_s) * 1e12,
-           g_dws, g_dss, g_dwns, g_dtns);
+           g_dws, g_dss, g_dwns, g_dtns,
+           opt->bufferCost(),
+           dlm_after - dlm_nobuf,
+           opt->leakage(),
+           swap_after - swap_nobuf);
     fflush(stdout);
   };
 

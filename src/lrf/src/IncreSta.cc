@@ -757,7 +757,7 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
 
 void
 IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
-                              int top_n)
+                              float top_ratio)
 {
   printf("IncreSta::parallelBuffering start\n");
   auto start_total = std::chrono::high_resolution_clock::now();
@@ -768,6 +768,12 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
 
   local_sta_->initParallel();
   TaskArranger *task_arranger = local_sta_->taskArranger();
+
+  // Convert fractional ratio to an absolute top_n (min 1).
+  int top_n = std::max<int>(
+      1, static_cast<int>(task_arranger->vertexCount() * top_ratio));
+  printf("Buffering candidates: top_ratio=%.3f (→ top %d of %zu instances)\n",
+         top_ratio, top_n, task_arranger->vertexCount());
 
   // Screen buffering candidates via sensitivity-based evaluation
   std::vector<size_t> selected = bufferingVerticesCandidateBySensitivity(
@@ -1334,7 +1340,7 @@ IncreSta::bufferingVerticesCandidateBySensitivity(
 void
 IncreSta::parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
                                        float avg_power, float PT_tradeoff,
-                                       int buffer_top_n)
+                                       float buffer_top_ratio)
 {
   printf("IncreSta::parallelResizeAndBuffering start\n");
   auto start_total = std::chrono::high_resolution_clock::now();
@@ -1348,8 +1354,13 @@ IncreSta::parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
     preSaveLibCellLeakage();
   makeEquivCellArray();
 
-  // Screen buffering candidates by sensitivity, top 100
+  // Screen buffering candidates by sensitivity, top buffer_top_ratio fraction
+  // of total instances (design-size scaled).
   TaskArranger *task_arranger = local_sta_->taskArranger();
+  int buffer_top_n = std::max<int>(
+      1, static_cast<int>(task_arranger->vertexCount() * buffer_top_ratio));
+  printf("Buffering candidates: top_ratio=%.3f (→ top %d of %zu instances)\n",
+         buffer_top_ratio, buffer_top_n, task_arranger->vertexCount());
   std::vector<size_t> buf_candidates = bufferingVerticesCandidateBySensitivity(
       resizer, avg_delay, avg_power, buffer_top_n);
   printf("Buffer candidates (sensitivity): %zu (of %zu total)\n",

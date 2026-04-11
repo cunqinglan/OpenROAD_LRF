@@ -71,8 +71,9 @@ public:
   void setBakogluK(float k) { bakoglu_k_ = k; }
   void setDebug(bool d) { debug_ = d; }
 
+  // top_ratio: fraction of total instances to screen (0.01 = top 1%).
   void parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
-                         int top_n = 100);
+                         float top_ratio = 0.01f);
   // Same sensitivity screening, but apply rsz-style rebuffering (repair_timing)
   // instead of LRF LrRebuffer.
   void parallelBufferingRsz(rsz::Resizer *resizer, float PT_tradeoff,
@@ -81,9 +82,10 @@ public:
                     int top_n = 100);
 
   // Single-pass resize + buffering using CombinedOperator + ParallelVisitor.
+  // buffer_top_ratio: fraction of total instances to screen (0.01 = top 1%).
   void parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
                                     float avg_power, float PT_tradeoff,
-                                    int buffer_top_n = 100);
+                                    float buffer_top_ratio = 0.01f);
 
   // Screen buffering candidates: collect gates with negative late slack,
   // sort by output_cap / input_cap ratio descending, return top_n vertex ids.

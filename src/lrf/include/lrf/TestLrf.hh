@@ -141,7 +141,8 @@ public:
                             std::string lr_helper_method = "LRHelper",
                             bool initialize = false,
                             float density_weight = 0.0f,
-                            bool debug = false);
+                            bool debug = false,
+                            size_t buffering_start_iter = 5);
 
   // Resize iterations + RSZ-style rebuffering phases
   void testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,

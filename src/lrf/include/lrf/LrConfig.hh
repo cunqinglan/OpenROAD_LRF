@@ -43,7 +43,7 @@ struct EcoConfig {
         cfg.halve_factor = 0.5f;
         cfg.use_precheck = true;
         cfg.lm_update_before_revert = true;
-        cfg.warmup_iters = 3;
+        cfg.warmup_iters = 6;
         cfg.max_eco_reverts = 6;
         break;
       case EcoStrategy::HALVE_ALWAYS:
@@ -60,7 +60,7 @@ struct EcoConfig {
         cfg.halve_factor = 1.0f;
         cfg.use_precheck = false;
         cfg.lm_update_before_revert = true;
-        cfg.warmup_iters = 3;
+        cfg.warmup_iters = 6;
         cfg.max_eco_reverts = 6;
         break;
     }
@@ -91,8 +91,13 @@ struct LrConfig {
   float top_ratio = 0.3f;
 
   // ── Buffering ──
-  int buffer_top_n = 100;
+  // Fraction of total instances to select as buffering candidates (by
+  // sensitivity). Used instead of a fixed absolute count so screening scales
+  // with design size. 0.01 = top 1%.
+  float buffer_top_ratio = 0.01f;
   float bakoglu_k = 2.5f;    // Bakoglu gate coefficient (lower = more nets eligible for buffering)
+  size_t buffering_start_iter = 5;  // 1-indexed iter from which Buffering pass is allowed
+                                    // (default 5 preserves original "i > 3" gating)
 
   // ── Initialization ──
   bool initialize = false;           // Run Sharma 3-step init before LR

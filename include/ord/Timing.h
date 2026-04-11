@@ -127,7 +127,8 @@ class Timing
              float top_ratio = 0.3f,
              bool initialize = false,
              const char *checkpoint_dir = "",
-             bool debug = false);
+             bool debug = false,
+             size_t buffering_start_iter = 5);
 
   // Test: level-parallel initializer (standalone, does not start LR).
   void testParallelInitializer(bool minimize_leakage = true);

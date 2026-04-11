@@ -1,5 +1,7 @@
+#include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <mutex>
 #include <cstring>
 #include <string>
@@ -1771,7 +1773,11 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
 
   const Pin *drvr_pin = drvr_pt_vertex.pin();
 
-  // PtPiElmore missing — try to recompute for this driver
+  // PtPiElmore missing — try to recompute for this driver.
+  // This is commonly needed for RefOutput vertices, whose PtPiElmore is
+  // not populated upfront by makePtGraph (parallel path) and only
+  // selectively refreshed by virtualReplaceCellSelective when the
+  // output port cap actually changes.
   if (drvr_pin) {
     local_parasitics_->recomputeSinglePtParasitic(pt_graph,
                                                    drvr_pt_vertex.objectIdx());

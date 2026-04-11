@@ -106,6 +106,13 @@ public:
                            float &repeater_cap);
 
 protected:
+  // Compute buffer gate delay = max(rise, fall) when driving load_cap,
+  // using PtGraph's dcalcAnalysisPt. Standalone replacement for
+  // Rebuffer::bufferDelay, which LRF cannot use because it relies on
+  // arrival_paths_ populated by annotateLoadSlacks (which LRF doesn't call).
+  rsz::FixedDelay computeBufferGateDelay(sta::LibertyCell *buffer_cell,
+                                         float load_cap);
+
   float computeBufferAddedCost(float buffer_delay_seconds,
                                 float buffer_leakage,
                                 const rsz::BufferedNetPtr& load_opt);
@@ -146,6 +153,12 @@ protected:
   float last_slack_after_ = -1e30f;
   VirtualBufferInfo best_vinfo_;
   bool verbose_ = true;
+
+  // Diagnostic flag: when true, bufferForTiming / insertBufferOptions /
+  // attemptTopologyRewrite emit [DBG-PRUNE-*] trace lines on every
+  // candidate decision point. Used by TestRebuffer::probeAllOptions to
+  // investigate why multi-buffer topologies are not being generated.
+  bool prune_debug_ = false;
 
   // Saved from last bufferForTiming call (last iteration's top options)
   std::vector<rsz::BufferedNetPtr> last_top_opts_;

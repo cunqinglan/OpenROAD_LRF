@@ -594,7 +594,7 @@ Timing::runLr(int mode, size_t iterations, size_t max_resize_num,
               float density_weight, bool ratcons,
               const char *lr_helper_method, float top_ratio,
               bool initialize, const char *checkpoint_dir,
-              bool debug) {
+              bool debug, size_t buffering_start_iter) {
   lrf::LrConfig cfg;
   cfg.mode = static_cast<lrf::LrMode>(mode);
   cfg.iterations = iterations;
@@ -608,6 +608,7 @@ Timing::runLr(int mode, size_t iterations, size_t max_resize_num,
   cfg.initialize = initialize;
   cfg.checkpoint_dir = checkpoint_dir ? checkpoint_dir : "";
   cfg.debug = debug;
+  cfg.buffering_start_iter = buffering_start_iter;
   runLr(cfg);
 }
 
