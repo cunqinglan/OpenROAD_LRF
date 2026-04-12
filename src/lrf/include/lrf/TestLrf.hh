@@ -96,6 +96,7 @@ private:
   LocalSta *local_sta_;
   rsz::Resizer *resizer_;
   std::vector<std::string> rows_;
+  Metrics last_cur_;      // cur from previous recordRow; used to compute dWNS/dTNS (delta-vs-prev-iter, not delta-vs-best)
 };
 
 class  TestLrf

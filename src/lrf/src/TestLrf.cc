@@ -775,35 +775,42 @@ IterationHelper::snapshot(double runtime_s)
 
 void
 IterationHelper::recordRow(size_t iter, const char *phase,
-                           const Metrics &cur, const Metrics &before,
+                           const Metrics &cur, const Metrics &best,
                            const char *decision)
 {
-  char buf[256];
+  // dWNS/dTNS = delta vs the PREVIOUS iter's cur (not vs best).
+  // For iter 1 there is no previous iter, so fall back to `best`
+  // (which is the pre-LR baseline snapshot taken right before the loop).
+  const Metrics &prev = rows_.empty() ? best : last_cur_;
+
+  char buf[512];
   snprintf(buf, sizeof(buf),
-           " %4zu | %-7s | %9.3f | %+7.3f | %12.3f | %+9.3f | %11.3f | %s (%.1fs)",
+           " %4zu | %-7s | %9.3f/%-9.3f | %+7.3f | %12.3f/%-12.3f | %+9.3f | %11.3f/%-11.3f | %s (%.1fs)",
            iter, phase,
-           cur.wns_ps, cur.wns_ps - before.wns_ps,
-           cur.tns_ps, cur.tns_ps - before.tns_ps,
-           cur.leakage * 1e10,
+           cur.wns_ps, best.wns_ps, cur.wns_ps - prev.wns_ps,
+           cur.tns_ps, best.tns_ps, cur.tns_ps - prev.tns_ps,
+           cur.leakage * 1e10, best.leakage * 1e10,
            decision, cur.runtime_s);
   rows_.push_back(buf);
   // Print header + data every row so the log is always self-describing,
   // no matter where you tail it from.
-  printf("[ITER]  Iter | Phase   | WNS(ps)   |   dWNS  | TNS(ps)      |    dTNS   | Leakage(uW) | Decision\n");
+  printf("[ITER]  Iter | Phase   | WNS(ps) cur/best    |  dWNS   | TNS(ps) cur/best          |   dTNS    | Leakage(uW) cur/best    | Decision\n");
   printf("[ITER]%s\n", buf);
   fflush(stdout);
+
+  last_cur_ = cur;
 }
 
 void
 IterationHelper::printSummary(const Metrics &best)
 {
   printf("\n");
-  printf("==============================================================================================\n");
-  printf(" Iter | Phase   | WNS(ps)   |   dWNS  | TNS(ps)      |    dTNS   | Leakage(uW) | Decision\n");
-  printf("----------------------------------------------------------------------------------------------\n");
+  printf("==========================================================================================================================\n");
+  printf(" Iter | Phase   | WNS(ps) cur/best    |  dWNS   | TNS(ps) cur/best          |   dTNS    | Leakage(uW) cur/best    | Decision\n");
+  printf("--------------------------------------------------------------------------------------------------------------------------\n");
   for (const auto &row : rows_)
     printf("%s\n", row.c_str());
-  printf("----------------------------------------------------------------------------------------------\n");
+  printf("--------------------------------------------------------------------------------------------------------------------------\n");
   printf(" Best checkpoint: WNS %.3f ps, TNS %.3f ps, Leakage %.3f uW\n",
          best.wns_ps, best.tns_ps, best.leakage * 1e10);
   printf("==============================================================================================\n");

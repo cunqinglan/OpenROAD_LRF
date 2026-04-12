@@ -40,9 +40,14 @@ EcoController::decide(size_t iter,
     return EcoDecision::ACCEPT;
   }
 
+  // Not improved.
   if (iter < config_.warmup_iters) {
-    total_accepts_++;
-    return EcoDecision::ACCEPT_WARMUP;
+    // Warmup revert: undo the regression so `best` (timing-best) is preserved
+    // as the eventual ECO start point. Stay in phase1 — don't set in_eco_ and
+    // don't count toward consecutive_reverts_ (warmup reverts must not trip
+    // the max_eco_reverts termination).
+    total_reverts_++;
+    return EcoDecision::REVERT_WARMUP;
   }
 
   if (!in_eco_) {
@@ -64,10 +69,15 @@ EcoController::updateRatio(EcoDecision decision)
 {
   float current_ratio = incre_sta_->adaptiveTopRatio();
 
-  if (decision == EcoDecision::ACCEPT || decision == EcoDecision::ACCEPT_WARMUP) {
+  if (decision == EcoDecision::ACCEPT) {
     first_eco_entry_ = false;
     return current_ratio;
   }
+
+  // Warmup revert is pre-ECO: don't touch the ratio (no halving, no init
+  // ratio re-derivation — those only make sense once ECO has started).
+  if (decision == EcoDecision::REVERT_WARMUP)
+    return current_ratio;
 
   if (config_.strategy == EcoStrategy::NO_HALVE)
     return current_ratio;
@@ -131,13 +141,18 @@ EcoController::execute(EcoDecision decision,
   bool first_revert = false;
   switch (decision) {
     case EcoDecision::ACCEPT:
-    case EcoDecision::ACCEPT_WARMUP:
       best = cur;
       executeAccept();
       break;
     case EcoDecision::REVERT:
       executeRevert();
       first_revert = (total_reverts_ == 1);
+      break;
+    case EcoDecision::REVERT_WARMUP:
+      // Roll back the regression but don't touch `best`. Keeps the netlist
+      // at the prior (better) checkpoint so the next warmup iter re-runs
+      // the resize from the timing-best state.
+      executeRevert();
       break;
     case EcoDecision::TERMINATE:
       executeRevert();
@@ -196,11 +211,11 @@ EcoController::runIteration(size_t iter,
   // ⑦ Execute
   switch (decision) {
     case EcoDecision::ACCEPT:
-    case EcoDecision::ACCEPT_WARMUP:
       best = cur;
       executeAccept();
       break;
     case EcoDecision::REVERT:
+    case EcoDecision::REVERT_WARMUP:
     case EcoDecision::TERMINATE:
       executeRevert();
       break;
@@ -220,8 +235,8 @@ EcoController::decisionStr(EcoDecision d) const
 {
   switch (d) {
     case EcoDecision::ACCEPT:        return "accept";
-    case EcoDecision::ACCEPT_WARMUP: return "accept(warmup)";
     case EcoDecision::REVERT:        return "revert";
+    case EcoDecision::REVERT_WARMUP: return "revert(warmup)";
     case EcoDecision::TERMINATE:     return "terminate";
   }
   return "unknown";

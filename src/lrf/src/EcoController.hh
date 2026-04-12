@@ -26,8 +26,8 @@ class TaskArranger;
 
 enum class EcoDecision {
   ACCEPT,
-  ACCEPT_WARMUP,
-  REVERT,
+  REVERT,          // ECO revert: undo regression, count toward ECO termination
+  REVERT_WARMUP,   // Warmup revert: undo regression, stay in phase1, preserve best
   TERMINATE
 };
 
