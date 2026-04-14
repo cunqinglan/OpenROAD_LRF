@@ -62,6 +62,11 @@ struct EvalContext {
                                   // (v76 probe showed worst is strictly better: avoids
                                   // sum-metric's false positives on high-fanout nets
                                   // where per-sink delta averages out the worst-sink harm)
+  // Slack margin for bufferForTiming gate — multiplicative, same semantics as
+  // ParallelVisitor's slack_margin_. For negative orig_slack, margin > 1.0
+  // means "allow slack to degrade by (margin-1)×|orig_slack|". Typical: 1.05
+  // (5% tolerance). Set from wns / clock_period in caller to match visitor.
+  float slack_margin = 1.0f;
 
   float swapCost(float delay_lm_sum, float power,
                  float density_cost = 0.0f) const;
@@ -232,6 +237,34 @@ public:
   void setEvalContext(EvalContext *ctx) override;
 
 private:
+  sta::dbSta *db_sta_;
+  LocalSta *local_sta_;
+  rsz::Resizer *resizer_;
+  std::unique_ptr<LrRebuffer> rebuffer_;
+};
+
+// ─── BufferSdpOperator ──────────────────────────────────
+// LRF slack-DP rebuffering. Strict mirror of BufferOperator (cost-DP):
+// pin selection via thread-local pt_graph RefOutput vertices; requires
+// exactly 1 driver per instance; uses PtGraphLevel=Full (inherited default)
+// because prepareSlackDpBnet's evaluateOption runs increAndGetLocalTimingCost.
+// Only difference from BufferOperator: invokes prepareSlackDpBnet instead
+// of rebufferPin.
+class BufferSdpOperator : public LrOperator {
+public:
+  BufferSdpOperator(sta::dbSta *db_sta, LocalSta *local_sta,
+                    rsz::Resizer *resizer, EvalContext *ctx);
+  MoveOption evaluate(PtGraph *pt_graph, sta::Instance *inst,
+                      EvalContext &ctx) override;
+  void apply(const MoveOption &move, PtGraph *pt_graph,
+             std::map<std::string, double> &runtime_map) override;
+  std::unique_ptr<LrOperator> copy() const override;
+  void setEvalContext(EvalContext *ctx) override;
+
+  LrRebuffer *rebuffer() { return rebuffer_.get(); }
+  rsz::Resizer *resizer() { return resizer_; }
+
+protected:
   sta::dbSta *db_sta_;
   LocalSta *local_sta_;
   rsz::Resizer *resizer_;

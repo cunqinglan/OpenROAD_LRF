@@ -78,6 +78,11 @@ public:
   // instead of LRF LrRebuffer.
   void parallelBufferingRsz(rsz::Resizer *resizer, float PT_tradeoff,
                              int top_n = 100);
+  // LRF slack-DP rebuffering — uses BufferSdpOperator which invokes
+  // LrRebuffer::prepareSlackDpBnet (bufferForTimingSlackDp + recoverLrCost).
+  // Mirrors parallelBuffering (cost-DP) signature; only operator differs.
+  void parallelBufferingSdp(rsz::Resizer *resizer, float PT_tradeoff,
+                             float top_ratio = 0.01f);
   void probeRszBnet(rsz::Resizer *resizer, float PT_tradeoff = 10.0f,
                     int top_n = 100);
 

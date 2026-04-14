@@ -160,6 +160,25 @@ public:
                             float density_weight = 0.0f,
                             bool debug = false);
 
+  // Resize iterations + LRF slack-DP rebuffering phases (uses
+  // BufferSdpOperator → prepareSlackDpBnet → bufferForTimingSlackDp +
+  // recoverLrCost). Mirrors testParallelLrResizeByArrayWithBuffering but
+  // swaps the buffering-phase operator.
+  void testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons = false,
+                            float PT_tradeoff = 100.0,
+                            std::string lr_helper_method = "LRHelper",
+                            bool initialize = false,
+                            float density_weight = 0.0f,
+                            bool debug = false,
+                            size_t buffering_start_iter = 5);
+
   // Print all liberty cells information grouped by unique equiv cell groups.
   void printAllCellsInfo(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
 
@@ -284,6 +303,12 @@ public:
   void probeAllOptions(sta::dbSta* sta, rsz::Resizer *resizer,
                        odb::dbBlock *block, size_t thread_num,
                        const char *pin_name);
+
+  // Batch variant: select top-N buffering candidates by sensitivity and run
+  // probeAllOptions on each (RSZ vs SDP vs LRF 3-way comparison per pin).
+  void probeAllOptionsBySensitivity(sta::dbSta* sta, rsz::Resizer *resizer,
+                                    odb::dbBlock *block, size_t thread_num,
+                                    int top_n);
 
   // ── Unified entry point ──
   // Single function that dispatches by LrConfig::mode.

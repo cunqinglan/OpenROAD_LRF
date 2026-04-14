@@ -818,6 +818,64 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
 }
 
 void
+IncreSta::parallelBufferingSdp(rsz::Resizer *resizer, float PT_tradeoff,
+                                float top_ratio)
+{
+  printf("IncreSta::parallelBufferingSdp start (LRF slack-DP rebuffering)\n");
+  auto start_total = std::chrono::high_resolution_clock::now();
+
+  float avg_delay = averageDelayOnCritPath();
+  float avg_leakage = averageLeakage();
+  sta::Slack wns = sta_->worstSlack(sta::MinMax::max());
+
+  local_sta_->initParallel();
+  TaskArranger *task_arranger = local_sta_->taskArranger();
+
+  int top_n = std::max<int>(
+      1, static_cast<int>(task_arranger->vertexCount() * top_ratio));
+  printf("SDP buffering candidates: top_ratio=%.3f (→ top %d of %zu instances)\n",
+         top_ratio, top_n, task_arranger->vertexCount());
+
+  std::vector<size_t> selected = bufferingVerticesCandidateBySensitivity(
+      resizer, avg_delay, avg_leakage, top_n);
+  if (selected.empty()) {
+    printf("No buffering candidates found. Skipping.\n");
+    return;
+  }
+  task_arranger->markSelectedInstances(selected);
+
+  auto *visitor = new ParallelVisitor(sta_, local_sta_, resizer);
+  visitor->setTaskArranger(task_arranger);
+
+  auto buffer_op = std::make_unique<BufferSdpOperator>(
+      sta_, local_sta_, resizer, &visitor->evalContext());
+  visitor->setOperator(std::move(buffer_op));
+  visitor->init(avg_delay, avg_leakage, wns, PT_tradeoff, nullptr);
+  visitor->evalContext().debug = debug_;
+
+  for (size_t vid : selected)
+    task_arranger->vertex(vid)->move_mask_ = InstVertex::kMoveBuffer;
+
+  auto start_buf = std::chrono::high_resolution_clock::now();
+  local_sta_->runResize(resizer, visitor);
+  task_arranger->markDirty();
+  auto end_buf = std::chrono::high_resolution_clock::now();
+
+  sta_->updateTiming(true);
+  sta_->findRequireds();
+  double tns_after = sta_->totalNegativeSlack(sta::MinMax::max());
+  double wns_after = sta_->worstSlack(sta::MinMax::max());
+  printf("After SDP buffering: TNS: %.4f ps, WNS: %.4f ps\n",
+         tns_after * 1e12, wns_after * 1e12);
+  printf("  buffering time: %.3f s\n",
+         std::chrono::duration<double>(end_buf - start_buf).count());
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  printf("IncreSta::parallelBufferingSdp total time %.3f s\n",
+         std::chrono::duration<double>(end_total - start_total).count());
+}
+
+void
 IncreSta::parallelBufferingRsz(rsz::Resizer *resizer, float PT_tradeoff,
                                 int top_n)
 {

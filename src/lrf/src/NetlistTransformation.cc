@@ -782,23 +782,8 @@ BufferRszOperator::BufferRszOperator(sta::dbSta *db_sta, LocalSta *local_sta,
 bool
 BufferRszOperator::skipInstance(sta::Instance *inst) const
 {
-  // Skip instances whose driver pins all have non-negative slack.
-  sta::Network *network = db_sta_->network();
-  sta::Graph *graph = db_sta_->graph();
-  sta::InstancePinIterator *iter = network->pinIterator(inst);
-  bool all_positive = true;
-  while (iter->hasNext()) {
-    sta::Pin *pin = iter->next();
-    if (network->isDriver(pin)) {
-      sta::Vertex *vtx = graph->pinDrvrVertex(pin);
-      if (vtx && db_sta_->vertexSlack(vtx, sta::MinMax::max()) < 0.0f) {
-        all_positive = false;
-        break;
-      }
-    }
-  }
-  delete iter;
-  return all_positive;
+  return false;  // operators which do actual operation never skip, 
+                  // since they are required to update timing.
 }
 
 MoveOption
@@ -872,6 +857,94 @@ BufferRszOperator::copy() const
   auto op = std::make_unique<BufferRszOperator>(db_sta_, local_sta_,
                                                 resizer_, nullptr);
   return op;
+}
+
+// ═══════════════════════════════════════════════════════════
+// BufferSdpOperator — LRF slack-DP rebuffering.
+// Strict mirror of BufferOperator: pin selection via thread-local pt_graph
+// RefOutput vertices (no global STA read), requires exactly 1 driver per
+// instance. Only difference: invokes prepareSlackDpBnet (slack-DP +
+// recoverLrCost) instead of rebufferPin (cost-DP).
+// ═══════════════════════════════════════════════════════════
+
+BufferSdpOperator::BufferSdpOperator(sta::dbSta *db_sta, LocalSta *local_sta,
+                                      rsz::Resizer *resizer, EvalContext *ctx)
+  : db_sta_(db_sta), local_sta_(local_sta), resizer_(resizer)
+{
+  if (ctx) {
+    rebuffer_ = std::make_unique<LrRebuffer>(resizer, local_sta, ctx);
+    rebuffer_->init();
+  }
+}
+
+MoveOption
+BufferSdpOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
+                             EvalContext &ctx)
+{
+  MoveOption result;
+  if (!rebuffer_) {
+    printf("Error: BufferSdpOperator's rebuffer is not initialized.\n");
+    return result;
+  }
+
+  // Sync pt_graph into eval context so LrRebuffer sees the right graph.
+  ctx.pt_graph = pt_graph;
+
+  // Collect RefOutput driver pins from thread-local pt_graph (no global STA).
+  struct DrvrInfo { sta::Pin *pin; VertexId vid; };
+  std::vector<DrvrInfo> drvr_infos;
+  for (size_t i = 0; i < pt_graph->vertexCount(); i++) {
+    PtVertex &pv = pt_graph->ptVertex(i);
+    if (pv.vertex() && pv.type() == PtVertexType::RefOutput)
+      drvr_infos.push_back({pv.vertex()->pin(), pv.objectIdx()});
+  }
+
+  if (drvr_infos.size() != 1)
+    return result;
+
+  // Heavy computation: slack-DP bufferForTiming + recoverLrCost.
+  // Pass vid directly (not PtVertex&) so internal pt_graph mutations
+  // (virtual buffer insertion in evaluateOption etc.) never invalidate
+  // the reference — prepareSlackDpBnet re-looks-up PtVertex via vid
+  // fresh each time it's needed.
+  rebuffer_->prepareSlackDpBnet(drvr_infos[0].pin, drvr_infos[0].vid);
+
+  if (!rebuffer_->bestBnet())
+    return result;
+
+  result.type = MoveOption::BUFFER_ONLY;
+  result.cost = rebuffer_->bestCost();
+  result.buffer_tree = rebuffer_->bestBnet();
+  return result;
+}
+
+void
+BufferSdpOperator::setEvalContext(EvalContext *ctx)
+{
+  rebuffer_ = std::make_unique<LrRebuffer>(resizer_, local_sta_, ctx);
+  rebuffer_->init();
+}
+
+std::unique_ptr<LrOperator>
+BufferSdpOperator::copy() const
+{
+  auto op = std::make_unique<BufferSdpOperator>(db_sta_, local_sta_,
+                                                resizer_, nullptr);
+  return op;
+}
+
+void
+BufferSdpOperator::apply(const MoveOption &move, PtGraph *pt_graph,
+                          std::map<std::string, double> &runtime_map)
+{
+  auto start = std::chrono::steady_clock::now();
+  if (rebuffer_) {
+    int count = rebuffer_->applyBufferingToDb();
+    runtime_map["buffer_count"] += count;
+  }
+  auto end = std::chrono::steady_clock::now();
+  runtime_map["applyDb"] +=
+      std::chrono::duration<double>(end - start).count();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1304,6 +1377,11 @@ ParallelVisitor::init(float average_delay, float average_power, float wns,
       : std::max(-std::min(wns, 0.0f) / clock_period + 1.0f, 1.05f);
   printf("slack_margin: %f\n", slack_margin);
   fflush(stdout);
+
+  // Also expose via EvalContext so LrRebuffer::evaluateOption gate uses the
+  // same margin (otherwise buffering candidates get rejected by strict gate
+  // while same margin is applied on the resize / size-up path).
+  eval_ctx_.slack_margin = slack_margin;
 
   // Propagate to operator via virtual interface
   if (operator_) {

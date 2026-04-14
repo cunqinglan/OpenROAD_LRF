@@ -2348,7 +2348,27 @@ LocalSta::ptVertexWorstSlackPath(PtVertex &pt_vertex, const sta::MinMax *min_max
     const Tag *tag = path->tag(this);
     sta::Slack path_slack = path->slack(this);
     if (tag->pathAnalysisPt(this)->pathMinMax() == min_max
-        && (!path->tag(this)->isGenClkSrcPath() 
+        && (!path->tag(this)->isGenClkSrcPath()
+            && delayLess(path_slack, worst_slack, this))) {
+      worst_slack = path_slack;
+      worst_slack_path = path;
+    }
+  }
+  return worst_slack_path;
+}
+
+sta::Path *
+LocalSta::ptVertexWorstSlackPath(PtVertex &pt_vertex,
+                                 const sta::DcalcAnalysisPt *dcalc_ap) const
+{
+  Path *worst_slack_path = nullptr;
+  sta::Slack worst_slack = sta::MinMax::min()->initValue();
+  PtVertexPathIterator path_iter(pt_vertex, this);
+  while (path_iter.hasNext()) {
+    sta::Path *path = path_iter.next();
+    sta::Slack path_slack = path->slack(this);
+    if (path->dcalcAnalysisPt(this) == dcalc_ap
+        && (!path->tag(this)->isGenClkSrcPath()
             && delayLess(path_slack, worst_slack, this))) {
       worst_slack = path_slack;
       worst_slack_path = path;

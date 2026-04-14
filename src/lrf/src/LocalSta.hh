@@ -155,6 +155,8 @@ public:
                  float &slack1) const;
 
   sta::Path *ptVertexWorstSlackPath(PtVertex &pt_vertex, const sta::MinMax *min_max) const;
+  sta::Path *ptVertexWorstSlackPath(PtVertex &pt_vertex,
+                                    const sta::DcalcAnalysisPt *dcalc_ap) const;
 
   // Public API for operators
   DelayLmSumResult initAndGetLocalTimingCost(PtGraph *pt_graph, sta::ArcDelayCalc *arc_delay_calc);

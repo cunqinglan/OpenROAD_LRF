@@ -167,6 +167,16 @@ class Timing
                                               const char *lr_helper_method = "LRHelper",
                                               bool initialize = false,
                                               float density_weight = 0.0f);
+  // LRF slack-DP rebuffering variant (BufferSdpOperator →
+  // prepareSlackDpBnet → bufferForTimingSlackDp + recoverLrCost).
+  void testParallelResizeByArrayWithSdpBuffering(size_t max_resize_num,
+                                              size_t iterations,
+                                              size_t num_no_improve_tolerance,
+                                              bool ratcons = false,
+                                              float PT_tradeoff = 100.0,
+                                              const char *lr_helper_method = "LRHelper",
+                                              bool initialize = false,
+                                              float density_weight = 0.0f);
   void testCombinedResizeBuffering(size_t max_resize_num,
                                              size_t iterations,
                                              size_t num_no_improve_tolerance,
@@ -209,6 +219,7 @@ class Timing
   void probeRszBnet();
   void probeBufferDeep(const char *pin_names_csv);
   void probeAllOptions(const char *pin_name);
+  void probeAllOptionsBySensitivity(int top_n);
   /////////////////////////////////////////////////////////////
   // End functions for testing LR sizing
   /////////////////////////////////////////////////////////////

@@ -3,6 +3,8 @@
 #include <tcl.h>
 #include "db_sta/dbSta.hh"
 #include "sta/ArcDelayCalc.hh"
+#include "sta/Sdc.hh"
+#include "sta/Clock.hh"
 #include "rsz/Resizer.hh"
 #include "sta/Liberty.hh"
 #include "LocalSta.hh"
@@ -1412,6 +1414,171 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
   }
 
   // Final check
+  IterationHelper::Metrics final_m = helper.snapshot();
+  if (final_m.wns_ps > best.wns_ps) {
+    odb::dbDatabase::endEco(block);
+    printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
+  } else {
+    odb::dbDatabase::endEco(block);
+    odb::dbDatabase::undoEco(block);
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+    local_sta->taskArranger()->markDirty();
+    printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+  }
+
+  helper.printSummary(best);
+  delete incre_sta;
+}
+
+void
+TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons,
+                            float PT_tradeoff,
+                            std::string lr_helper_method,
+                            bool initialize,
+                            float density_weight,
+                            bool debug,
+                            size_t buffering_start_iter)
+{
+  printf("----- Testing Parallel LR Resize + SDP Buffering (revert-halve ECO, "
+         "buffering_start_iter=%zu) -----\n", buffering_start_iter);
+
+  sta->findRequireds();
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  incre_sta->setDebug(debug);
+
+  if (initialize) {
+    runInitialization(sta, incre_sta, resizer, block, thread_num);
+    incre_sta->localSta()->updateGlobalParasiticsAndSync(
+        resizer->getEstimateParasitics());
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+  }
+
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+
+  incre_sta->makeLRHelper(lr_helper_method);
+  lrf::LRHelper *lr_helper = incre_sta->lrHelper();
+  lr_helper->setRatcons(ratcons);
+
+  incre_sta->setMaxResizeNum(max_resize_num);
+
+  odb::dbDatabase::beginEco(block);
+  IterationHelper helper(sta, block, local_sta, resizer);
+  IterationHelper::Metrics best = helper.snapshot();
+  printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
+
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+  local_sta->initParallel();
+
+  PlacementDensityMap density_map;
+  setupDensityMap(density_map, sta, block, incre_sta, density_weight);
+
+  EcoConfig eco_cfg = EcoConfig::make(EcoStrategy::HALVE_ON_CONSECUTIVE);
+  eco_cfg.max_eco_reverts = num_no_improve_tolerance;
+  EcoController eco(eco_cfg, incre_sta, sta, block, resizer);
+
+  for (size_t i = 0; i < iterations; ++i) {
+    // ── Resize phase ──
+    incre_sta->lmUpdate();
+    sta->findRequireds();
+    printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
+    auto start = std::chrono::high_resolution_clock::now();
+    incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    auto end = std::chrono::high_resolution_clock::now();
+    double runtime = std::chrono::duration<double>(end - start).count();
+
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+
+    IterationHelper::Metrics cur = helper.snapshot(runtime);
+    printf("After resize: WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW (%.1fs)\n",
+           cur.wns_ps, cur.tns_ps, cur.leakage * 1e10, runtime);
+    fflush(stdout);
+
+    EcoDecision decision = eco.decide(i, cur, best);
+    float new_ratio = eco.updateRatio(decision);
+    incre_sta->setAdaptiveTopRatio(new_ratio);
+    eco.execute(decision, best, cur);
+
+    helper.recordRow(i+1, eco.inEco() ? "eco" : "resize", cur, best,
+                     eco.decisionStr(decision));
+    printf("Decision: %s\n", eco.decisionStr(decision));
+    fflush(stdout);
+
+    if (decision == EcoDecision::TERMINATE)
+      break;
+
+    // ── SDP Buffering phase ──
+    sta::Slack wns_after_resize = sta->worstSlack(sta::MinMax::max());
+    if (wns_after_resize < 0 && (i + 1) >= buffering_start_iter) {
+      printf("----- SDP Buffering pass (iter %zu) -----\n", i+1);
+      double wns_before = wns_after_resize * 1e12;
+      double tns_before = sta->totalNegativeSlack(sta::MinMax::max()) * 1e12;
+      sta->findRequireds();
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+
+      auto buf_start = std::chrono::high_resolution_clock::now();
+      // ↓ Only line that differs from WithBuffering: SDP variant.
+      incre_sta->parallelBufferingSdp(resizer, PT_tradeoff);
+      auto buf_end = std::chrono::high_resolution_clock::now();
+      double buf_runtime = std::chrono::duration<double>(buf_end - buf_start).count();
+
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
+
+      IterationHelper::Metrics buf_cur = helper.snapshot(buf_runtime);
+      double wns_delta = buf_cur.wns_ps - wns_before;
+      double tns_delta = buf_cur.tns_ps - tns_before;
+      printf("SDP Buffering diff: WNS %.3f -> %.3f ps (delta=%+.3f), "
+             "TNS %.3f -> %.3f ps (delta=%+.3f), Leakage %.3f uW (%.1fs)\n",
+             wns_before, buf_cur.wns_ps, wns_delta,
+             tns_before, buf_cur.tns_ps, tns_delta,
+             buf_cur.leakage * 1e10, buf_runtime);
+      fflush(stdout);
+
+      double buf_wns = buf_cur.wns_ps / 1e12;
+      double best_wns_s = best.wns_ps / 1e12;
+      double wns_thresh = best_wns_s < 0 ? best_wns_s * 1.1 : 0;
+      if ((buf_wns > best_wns_s && buf_wns < 0)
+          || (buf_wns >= 0.0 && (buf_wns > best_wns_s || buf_cur.leakage < best.leakage))) {
+        best = buf_cur;
+        odb::dbDatabase::endEco(block);
+        odb::dbDatabase::beginEco(block);
+        helper.recordRow(i+1, "buffer", buf_cur, best, "accept");
+        printf("SDP Buffering: accept (WNS improved)\n");
+      } else if (buf_wns >= wns_thresh && buf_cur.leakage < best.leakage) {
+        best = buf_cur;
+        odb::dbDatabase::endEco(block);
+        odb::dbDatabase::beginEco(block);
+        helper.recordRow(i+1, "buffer", buf_cur, best, "accept(margin)");
+        printf("SDP Buffering: accept (WNS within 1.1x margin, leakage improved)\n");
+      } else {
+        odb::dbDatabase::endEco(block);
+        odb::dbDatabase::undoEco(block);
+        local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+        sta->delaysInvalid();
+        sta->updateTiming(true);
+        odb::dbDatabase::beginEco(block);
+        helper.recordRow(i+1, "buffer", buf_cur, best, "revert");
+        printf("SDP Buffering: revert (WNS=%.3f < thresh=%.3f or no leakage gain)\n",
+               buf_wns * 1e12, wns_thresh * 1e12);
+      }
+      fflush(stdout);
+    }
+  }
+
   IterationHelper::Metrics final_m = helper.snapshot();
   if (final_m.wns_ps > best.wns_ps) {
     odb::dbDatabase::endEco(block);
@@ -4332,6 +4499,125 @@ TestLrf::probeAllOptions(sta::dbSta* sta, rsz::Resizer *resizer,
          baseline.worst_sink * 1e12, baseline.sum_sink * 1e12);
 
   probe.probeAllOptions(drvr_pin, inst, block, baseline);
+
+  delete incre_sta;
+}
+
+void
+TestLrf::probeAllOptionsBySensitivity(sta::dbSta* sta, rsz::Resizer *resizer,
+                                        odb::dbBlock *block, size_t thread_num,
+                                        int top_n)
+{
+  printf("\n========================================================\n");
+  printf(" probeAllOptionsBySensitivity: top-%d pins by sensitivity\n", top_n);
+  printf("========================================================\n");
+
+  sta->findRequireds();
+  IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  LocalSta *local_sta = incre_sta->localSta();
+  local_sta->setParasiticsEst(resizer->getEstimateParasitics());
+  local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+  local_sta->initParallel();
+
+  sta->updateTiming(true);
+  sta->findRequireds();
+
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+
+  // Pick top-N sensitivity candidates (same ranking as parallelBuffering)
+  std::vector<size_t> selected = incre_sta->bufferingVerticesCandidateBySensitivity(
+      resizer, avg_delay, avg_leakage, top_n);
+  if (selected.empty()) {
+    printf("No buffering candidates. Done.\n");
+    delete incre_sta;
+    return;
+  }
+
+  EvalContext ctx;
+  ctx.arc_delay_calc = sta->arcDelayCalc();
+  ctx.average_delay = avg_delay;
+  ctx.average_leakage = avg_leakage;
+  ctx.PT_tradeoff = 10.0f;
+  std::map<std::string, double> rt;
+  ctx.runtime_map = &rt;
+
+  // Match real-flow slack_margin = 1 + |wns|/clock_period (same formula as
+  // ParallelVisitor::init in NetlistTransformation.cc). Without this, probe
+  // uses strict gate (margin=1.0) which over-rejects LRF bufs>=1 options.
+  float wns = sta->worstSlack(sta::MinMax::max());
+  float clock_period = 0.0f;
+  for (auto *clock : *sta->sdc()->clocks()) {
+    if (clock->period() > clock_period) { clock_period = clock->period(); break; }
+  }
+  float slack_margin = (wns >= 0.0f)
+      ? 1.05f
+      : std::max(-std::min(wns, 0.0f) / clock_period + 1.0f, 1.05f);
+  ctx.slack_margin = slack_margin;
+  printf("[probe] slack_margin=%.4f (wns=%.1fps, clk_period=%.1fps)\n",
+         slack_margin, wns * 1e12, clock_period * 1e12);
+
+  TestRebuffer probe(resizer, local_sta, &ctx);
+  LrRebuffer::initGlobalPreamble(sta, resizer);
+  probe.init();
+
+  TaskArranger *task_arranger = local_sta->taskArranger();
+  sta::Network *network = sta->network();
+  sta::Graph *graph = sta->graph();
+
+  int probed = 0;
+  for (size_t vid : selected) {
+    InstVertex *iv = task_arranger->vertex(vid);
+    sta::Instance *inst = iv->inst();
+
+    sta::Pin *drvr_pin = nullptr;
+    float best_slack = 1e30;
+    sta::InstancePinIterator *pi = network->pinIterator(inst);
+    while (pi->hasNext()) {
+      sta::Pin *pin = pi->next();
+      if (network->isDriver(pin)) {
+        sta::Vertex *vtx = graph->pinDrvrVertex(pin);
+        if (vtx) {
+          float s = sta->vertexSlack(vtx, sta::MinMax::max());
+          if (s < best_slack) { best_slack = s; drvr_pin = pin; }
+        }
+      }
+    }
+    delete pi;
+    if (!drvr_pin) continue;
+
+    // Per-pin baseline
+    TestRebuffer::GlobalBaseline baseline;
+    baseline.wns = sta->worstSlack(sta::MinMax::max());
+    baseline.tns = sta->totalNegativeSlack(sta::MinMax::max());
+    baseline.worst_sink = 1e30;
+    baseline.sum_sink = 0;
+    sta::Net *net = network->net(drvr_pin);
+    sta::NetPinIterator *npi = network->pinIterator(net);
+    while (npi->hasNext()) {
+      const sta::Pin *p = npi->next();
+      if (network->isLoad(p)) {
+        sta::Vertex *v = graph->pinLoadVertex(p);
+        if (v) {
+          float s = sta->vertexSlack(v, sta::MinMax::max());
+          if (s < baseline.worst_sink) baseline.worst_sink = s;
+          baseline.sum_sink += s;
+        }
+      }
+    }
+    delete npi;
+
+    printf("\n[%d/%zu] Baseline: WNS=%.1f TNS=%.1f worst_sink=%.1f sum_sink=%.1f\n",
+           probed + 1, selected.size(),
+           baseline.wns * 1e12, baseline.tns * 1e12,
+           baseline.worst_sink * 1e12, baseline.sum_sink * 1e12);
+
+    probe.probeAllOptions(drvr_pin, inst, block, baseline);
+    probed++;
+  }
+
+  printf("\n[probeAllOptionsBySensitivity] done: probed %d/%zu pins\n",
+         probed, selected.size());
 
   delete incre_sta;
 }

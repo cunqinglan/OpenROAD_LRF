@@ -685,6 +685,22 @@ Timing::testParallelResizeByArrayWithRszBuffering(size_t max_resize_num, size_t 
 }
 
 void
+Timing::testParallelResizeByArrayWithSdpBuffering(size_t max_resize_num, size_t iterations,
+  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
+  const char *lr_helper_method, bool initialize, float density_weight) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testParallelResizeByArrayWithSdpBuffering with %zu threads\n", thread_num);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testParallelLrResizeByArrayWithSdpBuffering(sta, resizer, design_->getBlock(),
+    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
+    PT_tradeoff, lr_helper_method, initialize, density_weight);
+}
+
+void
 Timing::testEcoResizeNoHalve(size_t iterations, float PT_tradeoff,
   const char *lr_helper_method, float halve_factor, bool use_precheck) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
@@ -885,6 +901,17 @@ Timing::probeAllOptions(const char *pin_name) {
   lrf::TestLrf test_lrf;
   test_lrf.probeAllOptions(sta, resizer, design_->getBlock(),
                            thread_num, pin_name);
+}
+
+void
+Timing::probeAllOptionsBySensitivity(int top_n) {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  lrf::TestLrf test_lrf;
+  test_lrf.probeAllOptionsBySensitivity(sta, resizer, design_->getBlock(),
+                                         thread_num, top_n);
 }
 
 void
