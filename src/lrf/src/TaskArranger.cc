@@ -864,6 +864,11 @@ TaskArranger::visitAll(ParallelVisitor *visitor)
 
   // Dispatch all combinational instances (no dependency graph)
   const size_t total = vertices_.size();
+  size_t com_count = 0;
+  for (size_t i = 0; i < total; i++) {
+    if (vertices_[i].type() == VertexType::COMBINATIONAL) com_count++;
+  }
+  resetProgress(com_count);
   for (size_t i = 0; i < total; i++) {
     if (vertices_[i].type() != VertexType::COMBINATIONAL)
       continue;
@@ -871,9 +876,11 @@ TaskArranger::visitAll(ParallelVisitor *visitor)
     VertexId vid = static_cast<VertexId>(i);
     if (!dispatch_queue_) {
       visitors_[0]->visit(iv->inst(), vid);
+      tickProgress();
     } else {
       dispatch_queue_->dispatch([this, iv, vid](int tid) {
         visitors_[tid]->visit(iv->inst(), vid);
+        tickProgress();
       });
     }
   }
@@ -1121,6 +1128,8 @@ TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta,
   for (size_t i = 1; i < thread_count_; i++) {
     visitors_.emplace_back(visitor->copy());
   }
+  // visitOrdered eventually processes all combinational vertices.
+  resetProgress(num_com_);
   for (size_t i = 0; i < zero_ref_vertices.size(); i++) {
     createTask(zero_ref_vertices[i]);
   }
@@ -1170,6 +1179,33 @@ TaskArranger::runTask(ParallelVisitor *visitor, InstVertex* inst_vertex)
   for (VertexId zero_ref_id : zero_ref_vertices) {
     InstVertex* zero_ref_vertex = vertex(zero_ref_id);
     createTask(zero_ref_vertex);
+  }
+  tickProgress();
+}
+
+void
+TaskArranger::resetProgress(size_t total_tasks)
+{
+  tasks_done_.store(0, std::memory_order_relaxed);
+  next_milestone_.store(10, std::memory_order_relaxed);
+  total_tasks_ = total_tasks;
+}
+
+void
+TaskArranger::tickProgress()
+{
+  if (total_tasks_ == 0) return;
+  size_t done = tasks_done_.fetch_add(1, std::memory_order_relaxed) + 1;
+  int pct = static_cast<int>(done * 100 / total_tasks_);
+  int cur = next_milestone_.load(std::memory_order_relaxed);
+  while (pct >= cur && cur <= 100) {
+    if (next_milestone_.compare_exchange_weak(cur, cur + 10,
+                                              std::memory_order_relaxed)) {
+      printf("[%s progress] %zu/%zu (%d%%)\n",
+             progress_tag_, done, total_tasks_, cur);
+      fflush(stdout);
+      break;
+    }
   }
 }
 

@@ -707,6 +707,7 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
   }
   visitor->evalContext().debug = debug_;
 
+  local_sta_->taskArranger()->setProgressTag("LRF resize");
   local_sta_->runResize(resizer, visitor);
 
   auto end_resize = std::chrono::high_resolution_clock::now();
@@ -799,6 +800,7 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
     task_arranger->vertex(vid)->move_mask_ = InstVertex::kMoveBuffer;
 
   auto start_buf = std::chrono::high_resolution_clock::now();
+  local_sta_->taskArranger()->setProgressTag("LRF buffering");
   local_sta_->runResize(resizer, visitor);
   task_arranger->markDirty();
   auto end_buf = std::chrono::high_resolution_clock::now();
@@ -858,6 +860,7 @@ IncreSta::parallelBufferingRsz(rsz::Resizer *resizer, float PT_tradeoff,
     task_arranger->vertex(vid)->move_mask_ = InstVertex::kMoveBuffer;
 
   auto start_buf = std::chrono::high_resolution_clock::now();
+  local_sta_->taskArranger()->setProgressTag("LRF buffering");
   local_sta_->runResize(resizer, visitor);
   task_arranger->markDirty();
   auto end_buf = std::chrono::high_resolution_clock::now();
@@ -1084,6 +1087,7 @@ IncreSta::parallelResizeByArrayWithPrecheck(
   }
   visitor->evalContext().debug = debug_;
 
+  local_sta_->taskArranger()->setProgressTag("LRF precheck");
   local_sta_->runResize(resizer, visitor);
   auto t_resize_end = std::chrono::high_resolution_clock::now();
   double resize_sec = std::chrono::duration<double>(t_resize_end - t_resize_start).count();
@@ -1398,6 +1402,7 @@ IncreSta::parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &inst_info_map_);
   visitor->evalContext().debug = debug_;
 
+  local_sta_->taskArranger()->setProgressTag("LRF resize+buf");
   local_sta_->runResize(resizer, visitor);
 
   // If any buffers were inserted, mark graph dirty for next pass

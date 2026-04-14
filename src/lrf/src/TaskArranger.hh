@@ -207,6 +207,13 @@ public:
 
   void setMaxResizeNum(size_t max_resize_num) { max_resize_num_ = max_resize_num; }
   size_t vertexCount() const { return vertices_.size(); }
+
+  // Progress reporting: set the tag shown in progress lines (e.g. "resize",
+  // "buffering"). Milestone printing is driven by tickProgress(), called once
+  // per completed task in runTask() and visitAll().
+  void setProgressTag(const char *tag) { progress_tag_ = tag; }
+  void resetProgress(size_t total_tasks);
+  void tickProgress();
   const std::unordered_map<const sta::Instance*, VertexId> *instToVidMap() const { return &inst_to_vid_; }
   
   // Topology validation
@@ -254,6 +261,13 @@ protected:
   // Aggregated visit/change counts (set by updatePruningStats)
   int last_visit_count_ = 0;
   int last_change_count_ = 0;
+
+  // Progress reporting (simple global atomics; overhead is negligible vs
+  // per-task STA work and the existing atomic traffic on vertex_ref_counts_).
+  std::atomic<size_t> tasks_done_{0};
+  size_t total_tasks_ = 0;
+  std::atomic<int> next_milestone_{10};
+  const char *progress_tag_ = "LRF";
 
 private:
   friend class InstVertexOutEdgeIterator;

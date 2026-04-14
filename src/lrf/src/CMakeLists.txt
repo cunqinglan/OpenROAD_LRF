@@ -40,7 +40,7 @@ add_library(lrf_lib
     ViolationCheck.cc
     Initializer.cc
     ParallelInitializer.cc
-  Rebranch.cc
+    Rebranch.cc
 )
 
 target_sources(lrf
