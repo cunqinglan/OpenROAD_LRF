@@ -2955,7 +2955,6 @@ TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
     inst_count++;
   }
   printf("Pass 0: %zu instances (%zu resized)\n", inst_count, resize_count);
-  PtGraph::printWritePathStats();
 
   // ---- Pass 1: second traversal (no resize) ----
   size_t pass1_count = 0;
@@ -2969,7 +2968,6 @@ TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
     pass1_count++;
   }
   printf("Pass 1: %zu instances (no resize)\n", pass1_count);
-  PtGraph::printWritePathStats();
   printf("\n");
   fflush(stdout);
 

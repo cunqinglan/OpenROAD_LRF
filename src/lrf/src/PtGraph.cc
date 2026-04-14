@@ -703,43 +703,22 @@ PtGraph::writeSlewToGraph(const PtVertex &pt_vertex, sta::Vertex *sta_vertex)
   }
 }
 
-// Static counters for writePathsToGraph diagnostics
-static size_t wp_total_ = 0;
-static size_t wp_written_ = 0;
-static size_t wp_skip_null_ = 0;
-static size_t wp_skip_tg_ = 0;
-
 void
 PtGraph::writePathsToGraph(const PtVertex &pt_vertex, sta::Vertex *sta_vertex)
 {
-  wp_total_++;
   sta::Path *pt_paths = pt_vertex.paths();
   sta::Path *sta_paths = sta_vertex->paths();
-  if (!pt_paths || !sta_paths) {
-    wp_skip_null_++;
+  if (!pt_paths || !sta_paths)
     return;
-  }
   sta::TagGroup *pt_tg = tagGroup(pt_vertex);
   sta::TagGroup *sta_tg = sta_->search()->tagGroup(sta_vertex);
-  if (!pt_tg || !sta_tg || pt_tg->index() != sta_tg->index()) {
-    wp_skip_tg_++;
+  if (!pt_tg || !sta_tg || pt_tg->index() != sta_tg->index())
     return;
-  }
-  wp_written_++;
   size_t count = pt_tg->pathCount();
   for (size_t i = 0; i < count; i++) {
     sta_paths[i].setArrival(pt_paths[i].arrival());
     sta_paths[i].setRequired(pt_paths[i].required());
   }
-}
-
-void
-PtGraph::printWritePathStats()
-{
-  printf("writePathsToGraph stats: total=%zu written=%zu skip_null=%zu skip_tg=%zu\n",
-         wp_total_, wp_written_, wp_skip_null_, wp_skip_tg_);
-  fflush(stdout);
-  wp_total_ = wp_written_ = wp_skip_null_ = wp_skip_tg_ = 0;
 }
 
 bool
