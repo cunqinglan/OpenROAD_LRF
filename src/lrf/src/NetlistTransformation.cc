@@ -199,6 +199,21 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   if (candidates.size() < 2)
     return result;
 
+  // Reorder ori_cell to LAST position. Pass 1 loop leaves PtGraph in the
+  // last candidate's timing state; putting ori last means:
+  //   - No-change path (best == ori): early-return + writeBack writes the
+  //     correct ori state (instead of whatever last candidate was).
+  //   - Change path: Pass 3 virtualReplaces to best, writeBack correct.
+  // Cost: the "best == candidates.back()" Pass 3 skip optimization at L337
+  // never triggers since back() == ori and best != ori in change path, but
+  // empirically that skip rarely fired anyway (recompute_final_count ==
+  // change_count in traces).
+  {
+    auto it = std::find(candidates.begin(), candidates.end(), ori_cell);
+    if (it != candidates.end() && it != candidates.end() - 1)
+      std::iter_swap(it, candidates.end() - 1);
+  }
+
   auto start_eval = std::chrono::high_resolution_clock::now();
 
   // Precompute density at this cell's location (shared across candidates).
@@ -259,6 +274,7 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
         std::chrono::duration<double>(end_eval - start_eval).count();
     (*ctx.runtime_map)["equiv_cell_count"] += candidates.size();
   }
+  auto start_post = std::chrono::high_resolution_clock::now();
 
   // Pass 2: pick best (with slack margin check)
   for (size_t i = 0; i < candidates.size(); i++) {
@@ -310,16 +326,36 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   // If best is the original cell, no change
   if (result.target_cell == ori_cell) {
     result.type = MoveOption::NONE;
+    if (ctx.runtime_map) {
+      auto end_post = std::chrono::high_resolution_clock::now();
+      (*ctx.runtime_map)["eval_post"] +=
+          std::chrono::duration<double>(end_post - start_post).count();
+    }
     return result;
   }
 
-  if (!result.hasChange())
+  if (!result.hasChange()) {
+    if (ctx.runtime_map) {
+      auto end_post = std::chrono::high_resolution_clock::now();
+      (*ctx.runtime_map)["eval_post"] +=
+          std::chrono::duration<double>(end_post - start_post).count();
+    }
     return result;
+  }
 
   // Recompute final timing for best cell
+  auto start_recompute = std::chrono::high_resolution_clock::now();
   if (result.target_cell != candidates.back())
     local_sta_->increAndGetLocalTimingCost(pt_graph, ctx.arc_delay_calc,
-                                           result.target_cell);
+                                           result.target_cell, ctx.runtime_map);
+  if (ctx.runtime_map) {
+    auto end_recompute = std::chrono::high_resolution_clock::now();
+    (*ctx.runtime_map)["recompute_final"] +=
+        std::chrono::duration<double>(end_recompute - start_recompute).count();
+    (*ctx.runtime_map)["eval_post"] +=
+        std::chrono::duration<double>(end_recompute - start_post).count();
+    (*ctx.runtime_map)["recompute_final_count"] += 1.0;
+  }
   return result;
 }
 
@@ -341,6 +377,13 @@ ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
   std::vector<sta::LibertyCell*> candidates = collectCandidates(ori_cell);
   if (candidates.size() < 2)
     return results;
+
+  // Reorder ori_cell to last (see rationale in evaluate()).
+  {
+    auto it = std::find(candidates.begin(), candidates.end(), ori_cell);
+    if (it != candidates.end() && it != candidates.end() - 1)
+      std::iter_swap(it, candidates.end() - 1);
+  }
 
   auto start_eval = std::chrono::high_resolution_clock::now();
 
@@ -1326,17 +1369,25 @@ ParallelVisitor::visit(sta::Instance *inst, sta::VertexId vid)
     return false;
   }
 
-  // Build PtGraph (visitor-owned, freed at next visit or destructor)
+  // Build PtGraph (visitor-owned, freed at next visit or destructor).
+  // Time the destructor of the old PtGraph separately — deallocating vectors
+  // of ArcDelay/Slew/Arrival/Path across ~100 vertices can be non-trivial.
+  auto start_ptg_destroy = std::chrono::high_resolution_clock::now();
+  pt_graph_.reset();
+  auto end_ptg_destroy = std::chrono::high_resolution_clock::now();
+  runtime_map_["pt_graph_destroy"] +=
+      std::chrono::duration<double>(end_ptg_destroy - start_ptg_destroy).count();
+
   auto start_pt = std::chrono::high_resolution_clock::now();
   pt_graph_.reset(new PtGraph(db_sta_));
   const bool driver_only = operator_
       && operator_->ptGraphLevel() == LrOperator::PtGraphLevel::DriverOnly;
   if (driver_only)
     local_sta_->makePtGraphDriverOnly(pt_graph_.get(), inst);
-  else
+  else {
     local_sta_->makePtGraph(pt_graph_.get(), inst);
-  if (!driver_only)
     pt_graph_->pruneInsignificantSiblings();
+  }
   auto end_pt = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
       std::chrono::duration<double>(end_pt - start_pt).count();
@@ -1370,7 +1421,18 @@ ParallelVisitor::visit(sta::Instance *inst, sta::VertexId vid)
 
   // Always write back timing so downstream instances see up-to-date
   // slew/arrival on shared vertices, even when no resize/buffer is chosen.
+  auto start_wb = std::chrono::high_resolution_clock::now();
   updateTimingFromPtGraph(pt_graph_.get());
+  auto end_wb = std::chrono::high_resolution_clock::now();
+  runtime_map_["writeBack"] +=
+      std::chrono::duration<double>(end_wb - start_wb).count();
+  if (!best_move_.hasChange()) {
+    runtime_map_["writeBack_nochange"] +=
+        std::chrono::duration<double>(end_wb - start_wb).count();
+    runtime_map_["nochange_count"] += 1.0;
+  } else {
+    runtime_map_["change_count"] += 1.0;
+  }
 
   // Track visit/change counts for pruning K detection
   resize_visit_count_++;

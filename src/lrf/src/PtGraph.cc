@@ -729,11 +729,9 @@ PtGraph::topoSortVertices()
   if (graph_made_) {
     size_t n = (pt_vertices_.size() > 1) ? pt_vertices_.size() - 1 : 0;
     sorted_vertex_ids_.resize(n);
-    if (n > 0)
-      std::iota(sorted_vertex_ids_.begin(), sorted_vertex_ids_.end(), static_cast<VertexId>(1));
-    for (auto &pt_vertex : pt_vertices_) {
-      if (pt_vertex.type() == PtVertexType::Sentinel)
-        continue;
+    if (n > 0) {
+      std::iota(sorted_vertex_ids_.begin(), sorted_vertex_ids_.end(),
+                static_cast<VertexId>(1));
       std::stable_sort(sorted_vertex_ids_.begin(), sorted_vertex_ids_.end(),
                        PtVertexIdLevelLess(this));
     }
