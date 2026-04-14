@@ -4,8 +4,6 @@
 #include "PtGraph.hh"
 #include "LrRebuffer.hh"
 #include "TaskArranger.hh"
-#include "TaskTrace.hh"
-#include "DummyReplayOperator.hh"
 #include "sta/GraphDelayCalc.hh"
 #include "sta/Liberty.hh"
 #include "sta/Graph.hh"
@@ -18,8 +16,6 @@
 
 #include <chrono>
 #include <algorithm>
-#include <thread>
-#include <functional>
 
 namespace lrf {
 
@@ -203,6 +199,21 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   if (candidates.size() < 2)
     return result;
 
+  // Reorder ori_cell to LAST position. Pass 1 loop leaves PtGraph in the
+  // last candidate's timing state; putting ori last means:
+  //   - No-change path (best == ori): early-return + writeBack writes the
+  //     correct ori state (instead of whatever last candidate was).
+  //   - Change path: Pass 3 virtualReplaces to best, writeBack correct.
+  // Cost: the "best == candidates.back()" Pass 3 skip optimization at L337
+  // never triggers since back() == ori and best != ori in change path, but
+  // empirically that skip rarely fired anyway (recompute_final_count ==
+  // change_count in traces).
+  {
+    auto it = std::find(candidates.begin(), candidates.end(), ori_cell);
+    if (it != candidates.end() && it != candidates.end() - 1)
+      std::iter_swap(it, candidates.end() - 1);
+  }
+
   auto start_eval = std::chrono::high_resolution_clock::now();
 
   // Precompute density at this cell's location (shared across candidates).
@@ -366,6 +377,13 @@ ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
   std::vector<sta::LibertyCell*> candidates = collectCandidates(ori_cell);
   if (candidates.size() < 2)
     return results;
+
+  // Reorder ori_cell to last (see rationale in evaluate()).
+  {
+    auto it = std::find(candidates.begin(), candidates.end(), ori_cell);
+    if (it != candidates.end() && it != candidates.end() - 1)
+      std::iter_swap(it, candidates.end() - 1);
+  }
 
   auto start_eval = std::chrono::high_resolution_clock::now();
 
@@ -1341,16 +1359,6 @@ bool
 ParallelVisitor::visit(sta::Instance *inst, sta::VertexId vid)
 {
   auto start_time = std::chrono::steady_clock::now();
-  // Task trace: capture per-task timestamps for load-imbalance analysis.
-  auto &trace_collector = TaskTraceCollector::instance();
-  const bool tracing = (trace_collector.mode() != TaskTraceCollector::OFF);
-  const uint64_t trace_start_ns = tracing ? nowNs() : 0;
-  // Stash vid for DummyReplayOperator lookup (thread_local).
-  if (trace_collector.isReplay())
-    DummyReplayOperator::setCurrentVid(static_cast<uint32_t>(vid));
-  uint64_t trace_eval_start_ns = 0;
-  uint64_t trace_eval_end_ns = 0;
-
   best_move_ = MoveOption{};
 
   // Early skip: operator can reject this instance before PtGraph construction
@@ -1376,10 +1384,10 @@ ParallelVisitor::visit(sta::Instance *inst, sta::VertexId vid)
       && operator_->ptGraphLevel() == LrOperator::PtGraphLevel::DriverOnly;
   if (driver_only)
     local_sta_->makePtGraphDriverOnly(pt_graph_.get(), inst);
-  else
+  else {
     local_sta_->makePtGraph(pt_graph_.get(), inst);
-  if (!driver_only)
     pt_graph_->pruneInsignificantSiblings();
+  }
   auto end_pt = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
       std::chrono::duration<double>(end_pt - start_pt).count();
@@ -1397,10 +1405,8 @@ ParallelVisitor::visit(sta::Instance *inst, sta::VertexId vid)
   }
 
   // Evaluate via operator
-  if (tracing) trace_eval_start_ns = nowNs();
   if (operator_)
     best_move_ = operator_->evaluate(pt_graph_.get(), inst, eval_ctx_);
-  if (tracing) trace_eval_end_ns = nowNs();
 
   // Precheck mode: store cost in results vector, don't apply to DB
   if (precheck_results_ && vid != sta::object_id_null) {
@@ -1436,24 +1442,6 @@ ParallelVisitor::visit(sta::Instance *inst, sta::VertexId vid)
   auto end_time = std::chrono::steady_clock::now();
   runtime_map_["visit"] +=
       std::chrono::duration<double>(end_time - start_time).count();
-
-  // Task trace: record this task's timing for offline analysis.
-  if (tracing) {
-    TaskTraceRecord rec;
-    rec.vid = static_cast<uint32_t>(vid);
-    // Worker thread index is unknown here; dispatch queue maps it by tid.
-    // Use a hash of the current thread id as a stable identifier.
-    rec.tid = static_cast<uint32_t>(
-        std::hash<std::thread::id>{}(std::this_thread::get_id()) & 0xFFFF);
-    rec.start_ns = trace_start_ns;
-    rec.end_ns = nowNs();
-    rec.eval_ns = (trace_eval_end_ns > trace_eval_start_ns)
-                      ? (trace_eval_end_ns - trace_eval_start_ns)
-                      : 0;
-    rec.iter_idx = trace_collector.iterIdx();
-    rec.sub_iter = trace_collector.subIter();
-    trace_collector.append(rec);
-  }
   return best_move_.hasChange();
 }
 

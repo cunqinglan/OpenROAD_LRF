@@ -41,8 +41,6 @@ add_library(lrf_lib
     Initializer.cc
     ParallelInitializer.cc
     Rebranch.cc
-    TaskTrace.cc
-    DummyReplayOperator.cc
 )
 
 target_sources(lrf
