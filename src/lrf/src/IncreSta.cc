@@ -17,6 +17,8 @@
 #include "parasitics/ConcreteParasitics.hh"
 #include "TaskArranger.hh"
 #include "NetlistTransformation.hh"
+#include "TaskTrace.hh"
+#include "DummyReplayOperator.hh"
 #include "LrRebuffer.hh"
 #include "TestRebuffer.hh"
 #include "rsz/Resizer.hh"
@@ -689,10 +691,19 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
 
   auto start_resize = std::chrono::high_resolution_clock::now();
 
-  // Create new-framework visitor with ResizeOperator
+  // Create new-framework visitor with ResizeOperator.
+  // In REPLAY mode (env LRF_TRACE_REPLAY), substitute DummyReplayOperator to
+  // isolate framework overhead from actual compute cost.
+  auto &trace = TaskTraceCollector::instance();
+  trace.initFromEnv();
   auto *visitor = new ParallelVisitor(sta_, local_sta_, resizer);
 
-  auto resize_op = std::make_unique<ResizeOperator>(sta_, local_sta_);
+  std::unique_ptr<ResizeOperator> resize_op;
+  if (trace.isReplay()) {
+    resize_op = std::make_unique<DummyReplayOperator>(sta_, local_sta_);
+  } else {
+    resize_op = std::make_unique<ResizeOperator>(sta_, local_sta_);
+  }
   resize_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
   resize_op->setPruningControl(&pruning_control_);
   visitor->setOperator(std::move(resize_op));
@@ -707,6 +718,7 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
   }
   visitor->evalContext().debug = debug_;
 
+  local_sta_->taskArranger()->setProgressTag("LRF resize");
   local_sta_->runResize(resizer, visitor);
 
   auto end_resize = std::chrono::high_resolution_clock::now();
@@ -753,6 +765,13 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_total = end_total - start_total;
   printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
+
+  // Bump trace sub_iter counter and dump partial CSV after each LR sub-run.
+  // This way even a killed run still has useful trace data on disk.
+  if (trace.mode() != TaskTraceCollector::OFF) {
+    trace.setIterIdx(trace.iterIdx(), trace.subIter() + 1);
+    if (trace.isRecord()) trace.dumpCsv();
+  }
 }
 
 void
@@ -799,6 +818,7 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
     task_arranger->vertex(vid)->move_mask_ = InstVertex::kMoveBuffer;
 
   auto start_buf = std::chrono::high_resolution_clock::now();
+  local_sta_->taskArranger()->setProgressTag("LRF buffering");
   local_sta_->runResize(resizer, visitor);
   task_arranger->markDirty();
   auto end_buf = std::chrono::high_resolution_clock::now();
@@ -858,6 +878,7 @@ IncreSta::parallelBufferingRsz(rsz::Resizer *resizer, float PT_tradeoff,
     task_arranger->vertex(vid)->move_mask_ = InstVertex::kMoveBuffer;
 
   auto start_buf = std::chrono::high_resolution_clock::now();
+  local_sta_->taskArranger()->setProgressTag("LRF buffering");
   local_sta_->runResize(resizer, visitor);
   task_arranger->markDirty();
   auto end_buf = std::chrono::high_resolution_clock::now();
@@ -1084,6 +1105,7 @@ IncreSta::parallelResizeByArrayWithPrecheck(
   }
   visitor->evalContext().debug = debug_;
 
+  local_sta_->taskArranger()->setProgressTag("LRF precheck");
   local_sta_->runResize(resizer, visitor);
   auto t_resize_end = std::chrono::high_resolution_clock::now();
   double resize_sec = std::chrono::duration<double>(t_resize_end - t_resize_start).count();
@@ -1385,19 +1407,29 @@ IncreSta::parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
   // Initialize global STA/Resizer state for buffering (serial preamble)
   LrRebuffer::initGlobalPreamble(sta_, resizer);
 
-  // Create ParallelVisitor with CombinedOperator
+  // Create ParallelVisitor. In REPLAY mode, swap the combined op for a
+  // DummyReplayOperator so we isolate framework overhead.
+  auto &trace = TaskTraceCollector::instance();
+  trace.initFromEnv();
   auto start_resize = std::chrono::high_resolution_clock::now();
   auto *visitor = new ParallelVisitor(sta_, local_sta_, resizer);
   visitor->setTaskArranger(task_arranger);
 
-  auto combined_op = std::make_unique<CombinedOperator>(
-      sta_, local_sta_, resizer, &visitor->evalContext());
-  combined_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
-  visitor->setOperator(std::move(combined_op));
+  if (trace.isReplay()) {
+    auto dummy_op = std::make_unique<DummyReplayOperator>(sta_, local_sta_);
+    dummy_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+    visitor->setOperator(std::move(dummy_op));
+  } else {
+    auto combined_op = std::make_unique<CombinedOperator>(
+        sta_, local_sta_, resizer, &visitor->evalContext());
+    combined_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+    visitor->setOperator(std::move(combined_op));
+  }
 
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &inst_info_map_);
   visitor->evalContext().debug = debug_;
 
+  local_sta_->taskArranger()->setProgressTag("LRF resize+buf");
   local_sta_->runResize(resizer, visitor);
 
   // If any buffers were inserted, mark graph dirty for next pass
@@ -1440,6 +1472,12 @@ IncreSta::parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
   auto end_total = std::chrono::high_resolution_clock::now();
   printf("IncreSta::parallelResizeAndBuffering total time %.3f s\n",
          std::chrono::duration<double>(end_total - start_total).count());
+
+  // Bump sub_iter and flush trace (buffering path).
+  if (trace.mode() != TaskTraceCollector::OFF) {
+    trace.setIterIdx(trace.iterIdx(), trace.subIter() + 1);
+    if (trace.isRecord()) trace.dumpCsv();
+  }
 }
 
 } // namespace lrf

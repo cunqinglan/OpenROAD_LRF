@@ -137,32 +137,25 @@ LocalParasitics::recomputeSinglePtParasitic(PtGraph *pt_graph, VertexId drvr_vid
 Parasitic *
 LocalParasitics::findLocalParasiticNetwork(const Net *net, const ParasiticAnalysisPt *ap) const
 {
+  // TODO (Future target.md): resurface these misses via a deduped warning
+  // once the flat-vs-hierarchical net identity mismatch is fixed. Until then
+  // the prints are silenced — they were spamming 100K+ lines per run on
+  // designs with real hierarchy (see ariane133 SRAM dangling outputs).
   if (global_parasitic_network_map_ && !global_parasitic_network_map_->empty()) {
     ConcreteParasiticNetwork **parasitic_array =
       global_parasitic_network_map_->findKey(net);
     if (!parasitic_array) {
-      const char *unconnected_net_name = "UNCONNECTED";
-      if (!network_->name(net) || !strstr(network_->name(net), unconnected_net_name)) {
-        printf("Error: LocalParasitics::findLocalParasiticNetwork: No parasitic array found for net %s\n",
-                network_->name(net));
-        fflush(stdout);
-      }
       return nullptr;
     }
     ConcreteParasiticNetwork *parasitic = parasitic_array[ap->index()];
     if (!parasitic) {
       parasitic = parasitic_array[ap->indexMax()];
       if (parasitic == nullptr) {
-        printf("Error: LocalParasitics::findLocalParasiticNetwork: No parasitic found for net %s\n",
-               network_->name(net));
-        fflush(stdout);
         return nullptr;
       }
     }
     return parasitic;
   }
-  printf("Error: LocalParasitics::findLocalParasiticNetwork: global parasitic network map is null or empty\n");
-  fflush(stdout);
   return nullptr;
 }
 

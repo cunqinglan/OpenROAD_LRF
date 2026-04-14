@@ -40,7 +40,9 @@ add_library(lrf_lib
     ViolationCheck.cc
     Initializer.cc
     ParallelInitializer.cc
-  Rebranch.cc
+    Rebranch.cc
+    TaskTrace.cc
+    DummyReplayOperator.cc
 )
 
 target_sources(lrf
