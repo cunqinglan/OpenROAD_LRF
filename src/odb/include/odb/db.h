@@ -7559,6 +7559,16 @@ class dbDatabase : public dbObject
   void read(std::istream& f);
 
   ///
+  /// Read a database from this stream WITHOUT firing triggerPostReadDb.
+  /// Callers that need to adjust db state (e.g. hierarchy flag) between
+  /// stream-in and the postReadDb observers should use this, then invoke
+  /// triggerPostReadDb() manually once the state is in place.
+  /// WARNING: This function destroys the data currently in the database.
+  /// Throws ZIOError..
+  ///
+  void readNoTrigger(std::istream& f);
+
+  ///
   /// Write a database to this stream.
   /// Throws ZIOError..
   ///

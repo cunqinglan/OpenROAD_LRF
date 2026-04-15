@@ -557,11 +557,25 @@ void OpenRoad::readDb(const char* filename, bool hierarchy)
 {
   try {
     utl::InStreamHandler handler(filename, true);
-    readDb(handler.getStream());
+    std::istream& stream = handler.getStream();
+    if (db_->getChip() && db_->getChip()->getBlock()) {
+      logger_->error(
+          ORD, 58, "You can't load a new db file as the db is already populated");
+    }
+    stream.exceptions(std::ifstream::failbit | std::ifstream::badbit
+                      | std::ios::eofbit);
+
+    // Stream in the db WITHOUT firing triggerPostReadDb, so we can apply
+    // setHierarchy before dbSta::postReadDb -> dbNetwork::readDbAfter runs.
+    // Without this split, readDbAfter would build the STA top cell and
+    // register hier modules with whatever hierarchy_ was serialized in the
+    // file, and a late setHierarchy flip afterwards would leave the
+    // top cell / pin encodings inconsistent with later hier-aware lookups.
+    db_->readNoTrigger(stream);
   } catch (const std::ios_base::failure& f) {
     logger_->error(ORD, 54, "odb file {} is invalid: {}", filename, f.what());
   }
-  // treat this as a hierarchical network.
+  // Honor either the caller's -hier request or the serialized flag.
   if (hierarchy || db_->hasHierarchy()) {
     logger_->warn(
         ORD,
@@ -570,10 +584,10 @@ void OpenRoad::readDb(const char* filename, bool hierarchy)
         "multiple issues. Do not use in production environments.");
 
     sta::dbSta* sta = getSta();
-    // After streaming in the last thing we do is build the hashes
-    // we cannot rely on orders to do this during stream in
     sta->getDbNetwork()->setHierarchy();
   }
+  // Now fire postReadDb with the correct hier flag in place.
+  db_->triggerPostReadDb();
 }
 
 void OpenRoad::readDb(std::istream& stream)
