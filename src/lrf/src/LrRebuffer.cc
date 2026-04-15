@@ -218,10 +218,19 @@ LrRebuffer::attemptTopologyRewriteSlackDp(const BnetPtr& node,
 
       const BnetPtr in1 = addWire(aux1, node->location(), -1);
       const BnetPtr in2 = addWire(aux2, node->location(), -1);
+      // Create inner junction, merge LMs from its two children, then wrap
+      // in a wire. Without merging, junc1->lms() stays empty and the buffer
+      // created below (with propagateLmsThroughBuffer(buf, junc1)) would
+      // inherit empty LMs → downstream virtual edges warn "no lm values".
+      BnetPtr junc_inner
+          = createBnetJunctionLrf(resizer_, in1, in2, node->location());
+      {
+        auto merged_lms = mergeLmVectors(in1->lms(), in2->lms());
+        if (!merged_lms.empty())
+          junc_inner->setLms(std::move(merged_lms));
+      }
       const BnetPtr junc1
-          = addWire(createBnetJunctionLrf(resizer_, in1, in2, node->location()),
-                    node->location(),
-                    -1);
+          = addWire(junc_inner, node->location(), -1);
       const BnetPtr in3 = addWire(crit2, node->location(), -1);
 
       for (rsz::Rebuffer::BufferSize size : buffer_sizes_) {
@@ -246,6 +255,7 @@ LrRebuffer::attemptTopologyRewriteSlackDp(const BnetPtr& node,
           buffer->setSlack(buffer_slack);
           buffer->setSlackTransition(junc1->slackTransition());
           buffer->setDelay(buffer_delay);
+          propagateLmsThroughBuffer(buffer, junc1);
           return createBnetJunctionLrf(resizer_, buffer, in3, node->location());
         }
       }
@@ -540,10 +550,25 @@ LrRebuffer::bufferForTimingSlackDp(VertexId drvr_vertex_id,
             BnetPtr junc;
             if (allow_topology_rewrite) {
               junc = attemptTopologyRewriteSlackDp(node, *li, *ri, best_cap);
-              if (junc) rewrote = true;
+              if (junc) {
+                rewrote = true;
+                // Topology-rewrite returns a junction wrapping (buffer, in3).
+                // Merge LMs from the two original children so downstream
+                // virtual edges inherit non-empty arc_lms_.
+                auto merged_lms = mergeLmVectors((*li)->lms(), (*ri)->lms());
+                if (!merged_lms.empty())
+                  junc->setLms(std::move(merged_lms));
+              }
             }
             if (!rewrote) {
               junc = createBnetJunctionLrf(resizer_, *li, *ri, node->location());
+              // Propagate LMs through junction (merge of children) so that
+              // downstream insertBufferOptionsSlackDp can transitively pass
+              // them to newly-created buffer nodes (otherwise delayLmSum
+              // warns "pt_edge has no lm values" for virtual edges).
+              auto merged_lms = mergeLmVectors((*li)->lms(), (*ri)->lms());
+              if (!merged_lms.empty())
+                junc->setLms(std::move(merged_lms));
             }
 
             if (junc->fanout() <= fanout_limit_) {
@@ -790,6 +815,11 @@ LrRebuffer::recoverLrCost(VertexId drvr_vertex_id,
               // Annotate junction's bufferCost (sum of children).
               junc->setBufferCost(left->bufferCost() + right->bufferCost());
               junc->setLeakage(left->leakage() + right->leakage());
+              // Propagate merged LMs (non-SDP path does this via mergeLmVectors;
+              // without it, downstream virtual buffer edges get empty arc_lms_).
+              auto merged_lms = mergeLmVectors(left->lms(), right->lms());
+              if (!merged_lms.empty())
+                junc->setLms(std::move(merged_lms));
               if (!assured_fallback && junc->fitsEnvelope(assured_envelope)) {
                 assured_fallback = junc;
               }
@@ -3662,6 +3692,20 @@ LrRebuffer::prepareRszBnet(const sta::Pin *drvr_pin, int bft_iter)
   }
 
   best_bnet_ = bnet;
+
+  // Rebuild virtual buffer for best_bnet_ and refresh local timing so that
+  // (a) best_vinfo_ matches the tree writeTimingToGraph will walk, and
+  // (b) findLocalArrivals allocates paths_ on each virtual vertex.
+  // Without this, writeTimingToGraph's walkTree hits the vi/ei-bounds break
+  // and never calls initNewStaVertexPaths on the inserted rebuffer sta::Vertex.
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
+  VertexId drvr_vid = pt_graph->ptVertex(drvr_vertex)->objectIdx();
+  best_vinfo_ = buildVirtualBuffer(drvr_vid, best_bnet_);
+  if (!best_vinfo_.failed) {
+    pt_graph->topoSortVertices();
+    buildSyntheticParasitics(drvr_vid, best_bnet_, best_vinfo_);
+    local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
+  }
   return true;
 }
 
@@ -3731,6 +3775,19 @@ LrRebuffer::prepareSlackDpBnet(const sta::Pin *drvr_pin,
   }
 
   best_bnet_ = bnet;
+
+  // Rebuild virtual buffer for best_bnet_ and refresh local timing so that
+  // (a) best_vinfo_ matches the tree writeTimingToGraph will walk, and
+  // (b) findLocalArrivals allocates paths_ on each virtual vertex.
+  // Without this, writeTimingToGraph's walkTree hits the vi/ei-bounds break
+  // and never calls initNewStaVertexPaths on the inserted rebuffer sta::Vertex.
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
+  best_vinfo_ = buildVirtualBuffer(drvr_vid, best_bnet_);
+  if (!best_vinfo_.failed) {
+    pt_graph->topoSortVertices();
+    buildSyntheticParasitics(drvr_vid, best_bnet_, best_vinfo_);
+    local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
+  }
   return true;
 }
 
