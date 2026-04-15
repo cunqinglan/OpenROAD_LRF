@@ -120,9 +120,13 @@ public:
   // Get max slew across rise/fall for a PtVertex
   float getVertexMaxSlew(PtGraph *pt_graph, PtVertex &ptv,
                          sta::DcalcAnalysisPt *dcalc_ap);
-  // Check slew limits for all wire-fanout loads of a driver PtVertex
+  // Check slew limits for all wire-fanout loads of a driver PtVertex.
+  // slew_limit_scale multiplies the library slew limit. Default 0.9 = 10%
+  // headroom, reserved so the optimizer rejects cells that would ship
+  // post-GRT slew violations after the placement → global_routing RC shift.
   bool checkFanoutLoadSlew(PtGraph *pt_graph, VertexId drvr_id,
-                           sta::DcalcAnalysisPt *dcalc_ap);
+                           sta::DcalcAnalysisPt *dcalc_ap,
+                           float slew_limit_scale = 0.9f);
   sta::LibertyPort *findTargetPort(const PtVertex &ptv,
                                    sta::LibertyCell *to_lib_cell) const;
   float getPinSlew(sta::Pin *pin, const sta::Corner *corner,
@@ -134,11 +138,16 @@ public:
                             const sta::Corner *corner,
                             const sta::MinMax *min_max,
                             PtGraph *pt_graph);
-  bool legalCheckAfterSwap(sta::Instance *inst, 
+  // slew_limit_scale: multiplier on the library slew limit. Default 0.9 =
+  // 10% headroom, matching LrConfig::slew_margin's default. Reserved so the
+  // optimizer rejects cells that would ship post-GRT slew violations after
+  // the placement → global_routing RC shift.
+  bool legalCheckAfterSwap(sta::Instance *inst,
                            sta::LibertyCell *to_lib_cell,
                            const sta::Corner *corner,
                            const sta::MinMax *min_max,
-                           PtGraph *pt_graph);
+                           PtGraph *pt_graph,
+                           float slew_limit_scale = 0.9f);
 
   // Violation check functions - public interfaces
   void checkSlew(const sta::Pin *pin,

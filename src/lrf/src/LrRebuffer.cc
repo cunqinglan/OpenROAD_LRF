@@ -362,6 +362,10 @@ LrRebuffer::insertBufferOptionsSlackDp(BnetSeq& opts,
       z->setBufferCost(load_opt->bufferCost() + load_opt_buf_added_cost);
       z->setLeakage(load_opt->leakage()
                     + local_sta_->cellAvgLeakage(buffer_cell));
+      // Propagate LMs through buffer so downstream virtual buffer edges
+      // have arc_lms_ populated (delayLmSum would otherwise warn
+      // "pt_edge N has no lm values" and skip this edge).
+      propagateLmsThroughBuffer(z, load_opt);
       if (!assured_satisfied && z->fitsEnvelope(assured_envelope)) {
         assured_satisfied = true;
       }
@@ -402,6 +406,7 @@ LrRebuffer::insertBufferOptionsSlackDp(BnetSeq& opts,
           z->setDelay(buffer_delay);
           z->setBufferCost(load_opt->bufferCost() + added);
           z->setLeakage(load_opt->leakage() + buf_leak);
+          propagateLmsThroughBuffer(z, load_opt);
           if (z->fitsEnvelope(assured_envelope)) {
             best_lrcost_local = load_opt->bufferCost();
             best_option = z;

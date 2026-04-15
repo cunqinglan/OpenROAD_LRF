@@ -859,6 +859,7 @@ IncreSta::parallelBufferingSdp(rsz::Resizer *resizer, float PT_tradeoff,
     task_arranger->vertex(vid)->move_mask_ = InstVertex::kMoveBuffer;
 
   auto start_buf = std::chrono::high_resolution_clock::now();
+  local_sta_->taskArranger()->setProgressTag("LRF buffering (SDP)");
   local_sta_->runResize(resizer, visitor);
   task_arranger->markDirty();
   auto end_buf = std::chrono::high_resolution_clock::now();

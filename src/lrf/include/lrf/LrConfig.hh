@@ -99,6 +99,15 @@ struct LrConfig {
   size_t buffering_start_iter = 5;  // 1-indexed iter from which Buffering pass is allowed
                                     // (default 5 preserves original "i > 3" gating)
 
+  // ── Legal check margin ──
+  // Fraction of the library slew limit reserved as headroom in LocalSta's
+  // legalCheck* (applied in getLegalSlewLimit() via limit * (1 - margin)).
+  // Purpose: the optimizer picks cells that have enough slew slack to survive
+  // the placement-RC → global_routing-RC change introduced by DPL+GRT, so we
+  // don't ship post-GRT slew violations the contest eval would flag.
+  // Default 0.10 = 10% headroom. Set to 0.0 to disable.
+  float slew_margin = 0.10f;
+
   // ── Initialization ──
   bool initialize = false;           // Run Sharma 3-step init before LR
 
