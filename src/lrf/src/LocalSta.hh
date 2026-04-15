@@ -126,7 +126,7 @@ public:
   // post-GRT slew violations after the placement → global_routing RC shift.
   bool checkFanoutLoadSlew(PtGraph *pt_graph, VertexId drvr_id,
                            sta::DcalcAnalysisPt *dcalc_ap,
-                           float slew_limit_scale = 0.9f);
+                           float slew_limit_scale = 0.95f);
   sta::LibertyPort *findTargetPort(const PtVertex &ptv,
                                    sta::LibertyCell *to_lib_cell) const;
   float getPinSlew(sta::Pin *pin, const sta::Corner *corner,
@@ -147,7 +147,7 @@ public:
                            const sta::Corner *corner,
                            const sta::MinMax *min_max,
                            PtGraph *pt_graph,
-                           float slew_limit_scale = 0.9f);
+                           float slew_limit_scale = 0.95f);
 
   // Violation check functions - public interfaces
   void checkSlew(const sta::Pin *pin,

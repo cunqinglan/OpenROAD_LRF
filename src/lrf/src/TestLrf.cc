@@ -1314,18 +1314,33 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
   PlacementDensityMap density_map;
   setupDensityMap(density_map, sta, block, incre_sta, density_weight);
 
-  // ECO controller
+  // Resize ECO controller
   EcoConfig eco_cfg = EcoConfig::make(EcoStrategy::HALVE_ON_CONSECUTIVE);
   eco_cfg.max_eco_reverts = num_no_improve_tolerance;
   EcoController eco(eco_cfg, incre_sta, sta, block, resizer);
+
+  // Buffering ECO controller: accept/revert only, no halving, no lmUpdate-before-revert.
+  EcoConfig buffer_eco_cfg = EcoConfig::make(EcoStrategy::NO_HALVE);
+  buffer_eco_cfg.lm_update_before_revert = false;
+  buffer_eco_cfg.warmup_iters = 0;
+  buffer_eco_cfg.max_eco_reverts = std::numeric_limits<size_t>::max();
+  EcoController buffer_eco(buffer_eco_cfg, incre_sta, sta, block, resizer);
 
   for (size_t i = 0; i < iterations; ++i) {
     // ── Resize phase ──
     incre_sta->lmUpdate();
     sta->findRequireds();
-    printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
     auto start = std::chrono::high_resolution_clock::now();
-    incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    if (eco.usePrecheck()) {
+      float ratio = incre_sta->adaptiveTopRatio();
+      printf("----- LR ResizeByArrayWithPrecheck Iteration %zu (ratio=%.4f) -----\n",
+             i+1, ratio);
+      incre_sta->parallelResizeByArrayWithPrecheck(
+          resizer, avg_delay, avg_leakage, PT_tradeoff, ratio);
+    } else {
+      printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
+      incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    }
     auto end = std::chrono::high_resolution_clock::now();
     double runtime = std::chrono::duration<double>(end - start).count();
 
@@ -1338,7 +1353,7 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
            cur.wns_ps, cur.tns_ps, cur.leakage * 1e10, runtime);
     fflush(stdout);
 
-    // ── ECO decision ──
+    // ── Resize ECO decision ──
     EcoDecision decision = eco.decide(i, cur, best);
     float new_ratio = eco.updateRatio(decision);
     incre_sta->setAdaptiveTopRatio(new_ratio);
@@ -1355,6 +1370,7 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
     // ── Buffering phase (only when WNS < 0 and iter >= buffering_start_iter) ──
     sta::Slack wns_after_resize = sta->worstSlack(sta::MinMax::max());
     if (wns_after_resize < 0 && (i + 1) >= buffering_start_iter) {
+      incre_sta->lmUpdate();
       printf("----- Buffering pass (iter %zu) -----\n", i+1);
       double wns_before = wns_after_resize * 1e12;
       double tns_before = sta->totalNegativeSlack(sta::MinMax::max()) * 1e12;
@@ -1380,35 +1396,14 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
              buf_cur.leakage * 1e10, buf_runtime);
       fflush(stdout);
 
-      // Accept if WNS improved or within 1.1x slack margin
-      double buf_wns = buf_cur.wns_ps / 1e12;
-      double best_wns_s = best.wns_ps / 1e12;
-      double wns_thresh = best_wns_s < 0 ? best_wns_s * 1.1 : 0;  // allow 10% WNS degradation
-      if ((buf_wns > best_wns_s && buf_wns < 0)
-          || (buf_wns >= 0.0 && (buf_wns > best_wns_s || buf_cur.leakage < best.leakage))) {
-        best = buf_cur;
-        odb::dbDatabase::endEco(block);
-        odb::dbDatabase::beginEco(block);
-        helper.recordRow(i+1, "buffer", buf_cur, best, "accept");
-        printf("Buffering: accept (WNS improved)\n");
-      } else if (buf_wns >= wns_thresh && buf_cur.leakage < best.leakage) {
-        // WNS within margin and leakage improved
-        best = buf_cur;
-        odb::dbDatabase::endEco(block);
-        odb::dbDatabase::beginEco(block);
-        helper.recordRow(i+1, "buffer", buf_cur, best, "accept(margin)");
-        printf("Buffering: accept (WNS within 1.1x margin, leakage improved)\n");
-      } else {
-        odb::dbDatabase::endEco(block);
-        odb::dbDatabase::undoEco(block);
-        local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
-        sta->delaysInvalid();
-        sta->updateTiming(true);
-        odb::dbDatabase::beginEco(block);
-        helper.recordRow(i+1, "buffer", buf_cur, best, "revert");
-        printf("Buffering: revert (WNS=%.3f < thresh=%.3f or no leakage gain)\n",
-               buf_wns * 1e12, wns_thresh * 1e12);
-      }
+      // Buffering ECO: accept/revert only (no halve, no lmUpdate-before-revert).
+      EcoDecision buf_decision = buffer_eco.decide(i, buf_cur, best);
+      if (buf_decision == EcoDecision::TERMINATE)
+        buf_decision = EcoDecision::REVERT;
+      buffer_eco.execute(buf_decision, best, buf_cur);
+      helper.recordRow(i+1, "buffer", buf_cur, best,
+                       buffer_eco.decisionStr(buf_decision));
+      printf("Buffering: %s\n", buffer_eco.decisionStr(buf_decision));
       fflush(stdout);
     }
   }
@@ -1483,17 +1478,33 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
   PlacementDensityMap density_map;
   setupDensityMap(density_map, sta, block, incre_sta, density_weight);
 
+  // Resize ECO controller
   EcoConfig eco_cfg = EcoConfig::make(EcoStrategy::HALVE_ON_CONSECUTIVE);
   eco_cfg.max_eco_reverts = num_no_improve_tolerance;
   EcoController eco(eco_cfg, incre_sta, sta, block, resizer);
+
+  // Buffering ECO controller: accept/revert only, no halving, no lmUpdate-before-revert.
+  EcoConfig buffer_eco_cfg = EcoConfig::make(EcoStrategy::NO_HALVE);
+  buffer_eco_cfg.lm_update_before_revert = false;
+  buffer_eco_cfg.warmup_iters = 0;
+  buffer_eco_cfg.max_eco_reverts = std::numeric_limits<size_t>::max();
+  EcoController buffer_eco(buffer_eco_cfg, incre_sta, sta, block, resizer);
 
   for (size_t i = 0; i < iterations; ++i) {
     // ── Resize phase ──
     incre_sta->lmUpdate();
     sta->findRequireds();
-    printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
     auto start = std::chrono::high_resolution_clock::now();
-    incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    if (eco.usePrecheck()) {
+      float ratio = incre_sta->adaptiveTopRatio();
+      printf("----- LR ResizeByArrayWithPrecheck Iteration %zu (ratio=%.4f) -----\n",
+             i+1, ratio);
+      incre_sta->parallelResizeByArrayWithPrecheck(
+          resizer, avg_delay, avg_leakage, PT_tradeoff, ratio);
+    } else {
+      printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
+      incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    }
     auto end = std::chrono::high_resolution_clock::now();
     double runtime = std::chrono::duration<double>(end - start).count();
 
@@ -1506,6 +1517,7 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
            cur.wns_ps, cur.tns_ps, cur.leakage * 1e10, runtime);
     fflush(stdout);
 
+    // ── Resize ECO decision ──
     EcoDecision decision = eco.decide(i, cur, best);
     float new_ratio = eco.updateRatio(decision);
     incre_sta->setAdaptiveTopRatio(new_ratio);
@@ -1522,6 +1534,7 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
     // ── SDP Buffering phase ──
     sta::Slack wns_after_resize = sta->worstSlack(sta::MinMax::max());
     if (wns_after_resize < 0 && (i + 1) >= buffering_start_iter) {
+      incre_sta->lmUpdate();
       printf("----- SDP Buffering pass (iter %zu) -----\n", i+1);
       double wns_before = wns_after_resize * 1e12;
       double tns_before = sta->totalNegativeSlack(sta::MinMax::max()) * 1e12;
@@ -1548,33 +1561,14 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
              buf_cur.leakage * 1e10, buf_runtime);
       fflush(stdout);
 
-      double buf_wns = buf_cur.wns_ps / 1e12;
-      double best_wns_s = best.wns_ps / 1e12;
-      double wns_thresh = best_wns_s < 0 ? best_wns_s * 1.1 : 0;
-      if ((buf_wns > best_wns_s && buf_wns < 0)
-          || (buf_wns >= 0.0 && (buf_wns > best_wns_s || buf_cur.leakage < best.leakage))) {
-        best = buf_cur;
-        odb::dbDatabase::endEco(block);
-        odb::dbDatabase::beginEco(block);
-        helper.recordRow(i+1, "buffer", buf_cur, best, "accept");
-        printf("SDP Buffering: accept (WNS improved)\n");
-      } else if (buf_wns >= wns_thresh && buf_cur.leakage < best.leakage) {
-        best = buf_cur;
-        odb::dbDatabase::endEco(block);
-        odb::dbDatabase::beginEco(block);
-        helper.recordRow(i+1, "buffer", buf_cur, best, "accept(margin)");
-        printf("SDP Buffering: accept (WNS within 1.1x margin, leakage improved)\n");
-      } else {
-        odb::dbDatabase::endEco(block);
-        odb::dbDatabase::undoEco(block);
-        local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
-        sta->delaysInvalid();
-        sta->updateTiming(true);
-        odb::dbDatabase::beginEco(block);
-        helper.recordRow(i+1, "buffer", buf_cur, best, "revert");
-        printf("SDP Buffering: revert (WNS=%.3f < thresh=%.3f or no leakage gain)\n",
-               buf_wns * 1e12, wns_thresh * 1e12);
-      }
+      // Buffering ECO: accept/revert only (no halve, no lmUpdate-before-revert).
+      EcoDecision buf_decision = buffer_eco.decide(i, buf_cur, best);
+      if (buf_decision == EcoDecision::TERMINATE)
+        buf_decision = EcoDecision::REVERT;
+      buffer_eco.execute(buf_decision, best, buf_cur);
+      helper.recordRow(i+1, "buffer", buf_cur, best,
+                       buffer_eco.decisionStr(buf_decision));
+      printf("SDP Buffering: %s\n", buffer_eco.decisionStr(buf_decision));
       fflush(stdout);
     }
   }
@@ -2030,6 +2024,66 @@ TestLrf::testBufferOnly(sta::dbSta* sta,
   printf("Final buffer-only WNS: %.3f, TNS: %.3f\n",
          final_m.wns_ps, final_m.tns_ps);
   helper.printSummary(best);
+  delete incre_sta;
+}
+
+void
+TestLrf::testSingleBufferPass(sta::dbSta* sta,
+                              rsz::Resizer *resizer,
+                              odb::dbBlock *block,
+                              size_t thread_num,
+                              bool use_sdp,
+                              float PT_tradeoff,
+                              std::string lr_helper_method,
+                              size_t lm_warmup_rounds)
+{
+  printf("----- Single Buffer Pass: %s (warmup=%zu, PT=%.1f) -----\n",
+         use_sdp ? "SDP" : "LRF", lm_warmup_rounds, PT_tradeoff);
+
+  sta->findRequireds();
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+  incre_sta->makeLRHelper(lr_helper_method);
+  incre_sta->lrHelper()->setRatcons(true);
+  incre_sta->setMaxResizeNum(20000000);
+
+  for (size_t w = 0; w < lm_warmup_rounds; ++w) {
+    incre_sta->lmUpdate();
+    sta->findRequireds();
+  }
+
+  IterationHelper helper(sta, block, local_sta, resizer);
+  IterationHelper::Metrics before = helper.snapshot();
+  printf("Before: WNS=%.3f ps  TNS=%.3f ps  Leakage=%.3f uW\n",
+         before.wns_ps, before.tns_ps, before.leakage * 1e10);
+
+  local_sta->initParallel();
+  incre_sta->lmUpdate();
+  sta->findRequireds();
+  local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+
+  auto t0 = std::chrono::high_resolution_clock::now();
+  if (use_sdp)
+    incre_sta->parallelBufferingSdp(resizer, PT_tradeoff);
+  else
+    incre_sta->parallelBuffering(resizer, PT_tradeoff);
+  auto t1 = std::chrono::high_resolution_clock::now();
+  double runtime = std::chrono::duration<double>(t1 - t0).count();
+
+  local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+  sta->delaysInvalid();
+  sta->updateTiming(true);
+
+  IterationHelper::Metrics after = helper.snapshot(runtime);
+  printf("After:  WNS=%.3f ps  TNS=%.3f ps  Leakage=%.3f uW (%.1fs)\n",
+         after.wns_ps, after.tns_ps, after.leakage * 1e10, runtime);
+  printf("Delta:  dWNS=%+.3f ps  dTNS=%+.3f ps  dLeakage=%+.3f uW  runtime=%.1fs\n",
+         after.wns_ps - before.wns_ps,
+         after.tns_ps - before.tns_ps,
+         (after.leakage - before.leakage) * 1e10,
+         runtime);
+  fflush(stdout);
+
   delete incre_sta;
 }
 
