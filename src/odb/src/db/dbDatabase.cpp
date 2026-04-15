@@ -748,6 +748,17 @@ void dbDatabase::read(std::istream& file)
   ((dbDatabase*) db)->triggerPostReadDb();
 }
 
+void dbDatabase::readNoTrigger(std::istream& file)
+{
+  _dbDatabase* db = (_dbDatabase*) this;
+  dbIStream stream(db, file);
+  stream >> *db;
+  // Intentionally do NOT call triggerPostReadDb — caller is responsible
+  // for invoking it after performing any db-state adjustments
+  // (e.g. setHierarchy) that dbNetwork::readDbAfter must observe when it
+  // rebuilds the STA top cell and registers hier modules.
+}
+
 void dbDatabase::write(std::ostream& file)
 {
   _dbDatabase* db = (_dbDatabase*) this;
