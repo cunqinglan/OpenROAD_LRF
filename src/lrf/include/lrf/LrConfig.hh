@@ -31,6 +31,7 @@ struct EcoConfig {
   size_t max_eco_reverts = 6;         // terminate after N consecutive reverts
   bool use_precheck = true;           // ECO phase uses precheck (vs full resize)
   bool lm_update_before_revert = true;// run lmUpdate on worse state before revert
+  double max_runtime_seconds = 10800.0; // Hard wall-clock limit for LR loop (0=no limit, default 3h)
 
   // Preset configurations from experimental results (ECO_halve_effect.md).
   static EcoConfig make(EcoStrategy preset) {
@@ -107,6 +108,15 @@ struct LrConfig {
   // don't ship post-GRT slew violations the contest eval would flag.
   // Default 0.10 = 10% headroom. Set to 0.0 to disable.
   float slew_margin = 0.10f;
+
+  // ── LR Helper timing margin ──
+  // Absolute slack headroom (seconds) subtracted from arc_slack inside
+  // RapidLrHelper::getMultiplier *before* the critical/non-critical k
+  // selection.  Paths with 0 < slack < timing_margin are treated as
+  // violating (k=critical_arc_k_), making the optimizer fight harder to
+  // keep headroom that survives post-GR degradation.
+  // Default 0 = no headroom.  Typical: 20e-12 .. 50e-12 (20–50 ps).
+  float timing_margin = 0.01f;
 
   // ── Initialization ──
   bool initialize = false;           // Run Sharma 3-step init before LR

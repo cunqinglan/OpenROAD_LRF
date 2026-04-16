@@ -68,13 +68,12 @@ public:
   // Repair slew violations on a single driver net by inserting buffers.
   int repairSlew(const sta::Pin *drvr_pin, rsz::Resizer *resizer);
 
-  // Two-phase RSZ-style rebuffering for parallel execution:
-  //
-  // Phase 1 (parallel-safe): pre-checks, makeBufferedNet, annotateLoadSlacks,
-  // N× bufferForTiming, 5× recoverArea.  Stores result in best_bnet_/drvr_pin_.
-  // Returns true if a valid bnet was prepared.
-  // Does NOT modify the netlist.
-  bool prepareRszBnet(const sta::Pin *drvr_pin, int bft_iter = 3);
+  // Parallel-safe RSZ-style rebuffering (pure slack-DP, no recovery):
+  // pre-checks, makeBufferedNet, annotateLoadSlacksSlackDp,
+  // N× bufferForTimingSlackDp.  Stores result in best_bnet_/drvr_pin_.
+  // No recoverArea (not parallel-safe).  Takes VertexId for thread safety.
+  bool prepareRszBnet(const sta::Pin *drvr_pin, sta::VertexId drvr_vid,
+                      int bft_iter = 3);
 
   // Slack-DP entry: parallel to prepareRszBnet but uses LRF's slack-DP
   // family (bufferForTimingSlackDp + recoverLrCost). Stores result in
@@ -207,6 +206,13 @@ protected:
   void buildSyntheticParasitics(VertexId drvr_vertex_id,
                                 const rsz::BufferedNetPtr& option,
                                 const VirtualBufferInfo &vinfo);
+  // Bottom-up pass: set correct levels on virtual buffer vertices so that
+  // topo sort places each VirtualOutput before its downstream loads.
+  // Returns the level of the topmost (closest-to-driver) vertex in the subtree.
+  float fixupVirtualLevels(const rsz::BufferedNetPtr& node,
+                           float drvr_level,
+                           VirtualBufferInfo &info,
+                           size_t &vi);
 
 protected:
   LocalSta *local_sta_;

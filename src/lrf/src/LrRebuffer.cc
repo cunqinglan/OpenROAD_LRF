@@ -2948,10 +2948,7 @@ LrRebuffer::buildVirtualBuffer(VertexId drvr_vertex_id,
             buf_cell, out_port, true, false, PtVertexType::VirtualOutput);
         info.vertex_ids.push_back(buf_out_id);
 
-        // Levels: midpoint between driver and downstream
-        float drvr_level = pt_graph->ptVertex(current_drvr_id).level();
-        pt_graph->ptVertex(buf_in_id).setLevel(drvr_level + 0.25f);
-        pt_graph->ptVertex(buf_out_id).setLevel(drvr_level + 0.5f);
+        // Levels: set by fixupVirtualLevels after the full tree walk.
 
         // Proxy vertex for tag_bldr init
         pt_graph->ptVertex(buf_in_id).setProxyVertex(drvr_vertex);
@@ -3050,7 +3047,68 @@ LrRebuffer::buildVirtualBuffer(VertexId drvr_vertex_id,
   };
 
   walk(option, drvr_vertex_id, 0.0f);
+
+  // Bottom-up pass: set virtual vertex levels so topo sort is correct.
+  if (!info.failed && !info.vertex_ids.empty()) {
+    float drvr_level = pt_graph->ptVertex(drvr_vertex_id).level();
+    size_t vi = 0;
+    fixupVirtualLevels(option, drvr_level, info, vi);
+  }
+
   return info;
+}
+
+float
+LrRebuffer::fixupVirtualLevels(const rsz::BufferedNetPtr& node,
+                                float drvr_level,
+                                VirtualBufferInfo &info,
+                                size_t &vi)
+{
+  using BnetType = rsz::BufferedNetType;
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
+
+  switch (node->type()) {
+    case BnetType::load: {
+      const sta::Pin *load_pin = node->loadPin();
+      sta::Vertex *load_vertex = graph_->pinLoadVertex(load_pin);
+      if (load_vertex)
+        return static_cast<float>(load_vertex->level());
+      return drvr_level + 1.0f;  // fallback
+    }
+
+    case BnetType::wire:
+    case BnetType::via:
+      return fixupVirtualLevels(node->ref(), drvr_level, info, vi);
+
+    case BnetType::junction: {
+      float l1 = fixupVirtualLevels(node->ref(), drvr_level, info, vi);
+      float l2 = fixupVirtualLevels(node->ref2(), drvr_level, info, vi);
+      return std::min(l1, l2);
+    }
+
+    case BnetType::buffer: {
+      // Consume the two vertex IDs (same order as walk: buf_in, buf_out)
+      if (vi + 1 >= info.vertex_ids.size())
+        return drvr_level + 1.0f;
+      VertexId buf_in_id  = info.vertex_ids[vi++];
+      VertexId buf_out_id = info.vertex_ids[vi++];
+
+      // Recurse first to get downstream level
+      float downstream_level = fixupVirtualLevels(node->ref(), drvr_level, info, vi);
+
+      // Interpolate: buf_in at 1/4, buf_out at 3/4 between drvr and downstream
+      float buf_in_level  = drvr_level * 0.75f + downstream_level * 0.25f;
+      float buf_out_level = drvr_level * 0.25f + downstream_level * 0.75f;
+      pt_graph->ptVertex(buf_in_id).setLevel(buf_in_level);
+      pt_graph->ptVertex(buf_out_id).setLevel(buf_out_level);
+
+      // Return buf_in level (closest to driver) for upstream computation
+      return buf_in_level;
+    }
+
+    default:
+      return drvr_level + 1.0f;
+  }
 }
 
 // Info collected per leaf node when building a synthetic parasitic network.
@@ -3621,7 +3679,9 @@ static FixedDelay rszCriticalPathDelay(const BufferedNetPtr &root)
 }
 
 bool
-LrRebuffer::prepareRszBnet(const sta::Pin *drvr_pin, int bft_iter)
+LrRebuffer::prepareRszBnet(const sta::Pin *drvr_pin,
+                            sta::VertexId drvr_vid,
+                            int bft_iter)
 {
   best_bnet_ = nullptr;
 
@@ -3646,60 +3706,41 @@ LrRebuffer::prepareRszBnet(const sta::Pin *drvr_pin, int bft_iter)
     return false;
 
   setPin(const_cast<sta::Pin*>(drvr_pin));
-  BufferedNetPtr bnet = resizer_->makeBufferedNet(drvr_pin, corner_);
+  drvr_pin_ = drvr_pin;
+
+  BnetPtr bnet = resizer_->makeBufferedNet(drvr_pin, corner_);
   if (!bnet) {
     printf("prepareRszBnet: Warning: unable to create buffered net for pin %s\n",
            network_->name(drvr_pin));
     return false;
   }
 
-  annotateLoadSlacks(bnet, drvr_vertex);
+  // Parallel-safe slack + LM annotation (no arrival_paths_ dependency).
+  annotateLoadSlacksSlackDp(bnet, drvr_vid);
+  annotateLoadLMs(eval_ctx_->pt_graph->ptVertex(drvr_vid), bnet);
 
   const bool allow_topology_rewrite
       = (estimate_parasitics_->getParasiticsSrc()
          == est::ParasiticsSrc::placement);
 
-  // bft_iter rounds of bufferForTiming (3 = same as rsz::Rebuffer::rebufferPin).
+  // Phase 1: parallel-safe slack-DP (replaces Rebuffer::bufferForTiming which
+  // reads arrival_paths_ / bufferDelay from shared STA).
   for (int i = 0; i < bft_iter; i++) {
-    bnet = Rebuffer::bufferForTiming(bnet, allow_topology_rewrite);
+    bnet = bufferForTimingSlackDp(drvr_vid, bnet, allow_topology_rewrite);
     if (!bnet) {
-      printf("prepareRszBnet: Warning: bufferForTiming failed for pin %s "
+      printf("prepareRszBnet: Warning: bufferForTimingSlackDp failed for pin %s "
              "after %d rounds\n", network_->name(drvr_pin), i + 1);
-      break;
+      return false;
     }
   }
 
-  if (!bnet)
-    return false;
-
-  // Area recovery (same as rsz::Rebuffer::rebufferPin).
-  sta::Delay drvr_gate_delay;
-  std::tie(drvr_gate_delay, std::ignore, std::ignore) = drvrPinTiming(bnet);
-  sta::Delay relaxation = (std::max(drvr_gate_delay, 0.0f)
-                           + rszCriticalPathDelay(bnet).toSeconds())
-                          * relaxation_factor_;
-  rsz::FixedDelay target
-      = slackAtDriverPin(bnet) - rsz::FixedDelay(relaxation, resizer_);
-
-  for (int i = 0; i < 5 && bnet; i++) {
-    bnet = recoverArea(bnet, target, ((float) (1 + i)) / 5);
-  }
-
-  if (!bnet) {
-    printf("prepareRszBnet: Warning: area recovery failed for pin %s\n",
-           network_->name(drvr_pin));
-    return false;
-  }
+  // No Phase 2 recovery — pure slack-DP result (RSZ ablation baseline).
+  // recoverArea is not parallel-safe (reads arrival_paths_).
 
   best_bnet_ = bnet;
 
-  // Rebuild virtual buffer for best_bnet_ and refresh local timing so that
-  // (a) best_vinfo_ matches the tree writeTimingToGraph will walk, and
-  // (b) findLocalArrivals allocates paths_ on each virtual vertex.
-  // Without this, writeTimingToGraph's walkTree hits the vi/ei-bounds break
-  // and never calls initNewStaVertexPaths on the inserted rebuffer sta::Vertex.
+  // Rebuild virtual buffer and refresh local timing (same as prepareSlackDpBnet).
   PtGraph *pt_graph = eval_ctx_->pt_graph;
-  VertexId drvr_vid = pt_graph->ptVertex(drvr_vertex)->objectIdx();
   best_vinfo_ = buildVirtualBuffer(drvr_vid, best_bnet_);
   if (!best_vinfo_.failed) {
     pt_graph->topoSortVertices();

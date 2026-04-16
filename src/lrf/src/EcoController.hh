@@ -93,10 +93,13 @@ private:
 
   bool in_eco_ = false;
   bool first_eco_entry_ = false;
+  bool reached_positive_wns_ = false;  // true once best WNS >= 0
   size_t consecutive_reverts_ = 0;
   size_t total_accepts_ = 0;
   size_t total_reverts_ = 0;
   float top_ratio_ = 0.3f;
+  std::chrono::steady_clock::time_point wall_start_
+      = std::chrono::steady_clock::now();
 };
 
 }  // namespace lrf

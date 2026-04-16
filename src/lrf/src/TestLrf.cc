@@ -882,15 +882,17 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
                             std::string lr_helper_method,
                             bool initialize,
                             float density_weight,
-                            std::string checkpoint_dir)
+                            std::string checkpoint_dir,
+                            float timing_margin)
 {
-  printf("----- Testing Parallel LR Resize By Array (New Framework) -----\n");
+  printf("----- Testing Parallel LR Resize By Array (New Framework, timing_margin=%.4f) -----\n",
+         timing_margin);
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
 
   if (initialize) {
-    runInitialization(sta, incre_sta, resizer, block, thread_num);
+    runInitialization(sta, incre_sta, resizer, block, thread_num, true);
     incre_sta->localSta()->updateGlobalParasiticsAndSync(
         resizer->getEstimateParasitics());
     sta->delaysInvalid();
@@ -902,6 +904,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   incre_sta->makeLRHelper(lr_helper_method);
   lrf::LRHelper *lr_helper = incre_sta->lrHelper();
   lr_helper->setRatcons(ratcons);
+  lr_helper->setTimingMargin(timing_margin);
 
   incre_sta->setMaxResizeNum(max_resize_num);
 
@@ -1217,7 +1220,7 @@ TestLrf::runLr(sta::dbSta* sta, rsz::Resizer *resizer,
           cfg.num_no_improve_tolerance, cfg.ratcons,
           cfg.PT_tradeoff, cfg.lr_helper_method,
           cfg.initialize, cfg.density_weight,
-          cfg.checkpoint_dir);
+          cfg.checkpoint_dir, cfg.timing_margin);
       break;
     case LrMode::RESIZE_BUFFER:
       testParallelLrResizeByArrayWithBuffering(
@@ -1286,7 +1289,7 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
   incre_sta->setDebug(debug);
 
   if (initialize) {
-    runInitialization(sta, incre_sta, resizer, block, thread_num);
+    runInitialization(sta, incre_sta, resizer, block, thread_num, true);
     incre_sta->localSta()->updateGlobalParasiticsAndSync(
         resizer->getEstimateParasitics());
     sta->delaysInvalid();
@@ -1444,14 +1447,15 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
                             size_t buffering_start_iter)
 {
   printf("----- Testing Parallel LR Resize + SDP Buffering (revert-halve ECO, "
-         "buffering_start_iter=%zu) -----\n", buffering_start_iter);
+         "buffering_start_iter=%zu, minimize_leakage=false) -----\n",
+         buffering_start_iter);
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   incre_sta->setDebug(debug);
 
   if (initialize) {
-    runInitialization(sta, incre_sta, resizer, block, thread_num);
+    runInitialization(sta, incre_sta, resizer, block, thread_num, true);
     incre_sta->localSta()->updateGlobalParasiticsAndSync(
         resizer->getEstimateParasitics());
     sta->delaysInvalid();
@@ -1613,7 +1617,7 @@ TestLrf::testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,
   incre_sta->setDebug(debug);
 
   if (initialize) {
-    runInitialization(sta, incre_sta, resizer, block, thread_num);
+    runInitialization(sta, incre_sta, resizer, block, thread_num, true);
     incre_sta->localSta()->updateGlobalParasiticsAndSync(
         resizer->getEstimateParasitics());
     sta->delaysInvalid();
@@ -1777,7 +1781,7 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
 
   if (initialize) {
-    runInitialization(sta, incre_sta, resizer, block, thread_num);
+    runInitialization(sta, incre_sta, resizer, block, thread_num, true);
     incre_sta->localSta()->updateGlobalParasiticsAndSync(
         resizer->getEstimateParasitics());
     sta->delaysInvalid();
@@ -3969,11 +3973,11 @@ TestLrf::testRepairSlew(sta::dbSta* sta,
 void
 TestLrf::runInitialization(sta::dbSta* sta, IncreSta* incre_sta,
                            rsz::Resizer *resizer, odb::dbBlock *block,
-                           size_t thread_num)
+                           size_t thread_num, bool minimize_leakage)
 {
   resizer->makeEquivCells();
   ParallelInitializer initializer(sta, incre_sta, resizer, block,
-                                  thread_num, /*minimize_leakage=*/true);
+                                  thread_num, minimize_leakage);
   initializer.run();
 }
 

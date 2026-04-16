@@ -128,7 +128,8 @@ public:
                             std::string lr_helper_method = "LRHelper",
                             bool initialize = false,
                             float density_weight = 0.0f,
-                            std::string checkpoint_dir = "");
+                            std::string checkpoint_dir = "",
+                            float timing_margin = 0.01f);
 
   void testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
                             rsz::Resizer *resizer,
@@ -204,6 +205,18 @@ public:
                       std::string lr_helper_method = "RapidLRHelper",
                       float bakoglu_k = 2.5f,
                       bool debug = false);
+
+  // Minimal single-pass buffer operator comparison entry.
+  // LM warmup → one parallelBuffering (use_sdp=false) or parallelBufferingSdp
+  // (use_sdp=true) call → report WNS/TNS/leakage delta. No resize, no ECO.
+  void testSingleBufferPass(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            bool use_sdp = false,
+                            float PT_tradeoff = 10.0f,
+                            std::string lr_helper_method = "RapidLRHelper",
+                            size_t lm_warmup_rounds = 5);
 
   // Resize by array with precheck (ParallelVisitor + ResizePrecheckOperator)
   void testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
@@ -321,7 +334,8 @@ public:
   // Called internally by testParallelLrResize* when initialize=true.
   void runInitialization(sta::dbSta* sta, IncreSta* incre_sta,
                          rsz::Resizer *resizer, odb::dbBlock *block,
-                         size_t thread_num);
+                         size_t thread_num,
+                         bool minimize_leakage = true);
 
   // Test: level-parallel initializer (standalone, does not start LR).
   void testParallelInitializer(sta::dbSta* sta,

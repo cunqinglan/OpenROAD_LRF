@@ -31,6 +31,8 @@ public:
   virtual void updateAllEdgeLms(Sta *sta);
   void enqueueVertex(Vertex *vertex);
   void setRatcons(bool ratcons) { RATCONS_ = ratcons; }
+  void setTimingMargin(float margin) { timing_margin_ = margin; }
+  float timingMargin() const { return timing_margin_; }
   virtual std::string strategyName() const { return "Base LRHelper"; }
   virtual bool updateCriticalPathLms(sta::Path *path_end) { return false; };
   virtual void setMode(std::string mode) {};
@@ -88,6 +90,7 @@ protected:
   VertexSeq sorted_lm_vertices_;
   bool levelized_valid_;
   bool RATCONS_ = false;
+  float timing_margin_ = 0.01f;  // ratio; T_eff = T*(1+margin). Positive = slightly looser (best on sweep).
   LmHistory lm_history_;
 
   // vertex_to_sorted_idx_[vertex_id] -> index in sorted_lm_vertices_

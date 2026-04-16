@@ -128,7 +128,8 @@ class Timing
              bool initialize = false,
              const char *checkpoint_dir = "",
              bool debug = false,
-             size_t buffering_start_iter = 5);
+             size_t buffering_start_iter = 5,
+             float timing_margin = 0.01f);
 
   // Test: level-parallel initializer (standalone, does not start LR).
   void testParallelInitializer(bool minimize_leakage = true);
@@ -189,6 +190,10 @@ class Timing
                       const char *lr_helper_method = "RapidLRHelper",
                       float bakoglu_k = 2.5,
                       bool debug = false);
+  void testSingleBufferPass(bool use_sdp = false,
+                            float PT_tradeoff = 10.0f,
+                            const char *lr_helper_method = "RapidLRHelper",
+                            size_t lm_warmup_rounds = 5);
   void testParallelResizeByArrayWithPrecheck(size_t max_resize_num,
                                              size_t iterations,
                                              size_t num_no_improve_tolerance,

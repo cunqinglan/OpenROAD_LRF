@@ -594,7 +594,8 @@ Timing::runLr(int mode, size_t iterations, size_t max_resize_num,
               float density_weight, bool ratcons,
               const char *lr_helper_method, float top_ratio,
               bool initialize, const char *checkpoint_dir,
-              bool debug, size_t buffering_start_iter) {
+              bool debug, size_t buffering_start_iter,
+              float timing_margin) {
   lrf::LrConfig cfg;
   cfg.mode = static_cast<lrf::LrMode>(mode);
   cfg.iterations = iterations;
@@ -609,6 +610,7 @@ Timing::runLr(int mode, size_t iterations, size_t max_resize_num,
   cfg.checkpoint_dir = checkpoint_dir ? checkpoint_dir : "";
   cfg.debug = debug;
   cfg.buffering_start_iter = buffering_start_iter;
+  cfg.timing_margin = timing_margin;
   runLr(cfg);
 }
 
@@ -745,6 +747,21 @@ Timing::testBufferOnly(size_t iterations, float PT_tradeoff,
   lrf::TestLrf test_lrf;
   test_lrf.testBufferOnly(sta, resizer, design_->getBlock(),
     thread_num, iterations, PT_tradeoff, lr_helper_method, bakoglu_k, debug);
+}
+
+void
+Timing::testSingleBufferPass(bool use_sdp, float PT_tradeoff,
+  const char *lr_helper_method, size_t lm_warmup_rounds) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testSingleBufferPass with %zu threads, use_sdp=%d\n",
+         thread_num, use_sdp);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testSingleBufferPass(sta, resizer, design_->getBlock(),
+    thread_num, use_sdp, PT_tradeoff, lr_helper_method, lm_warmup_rounds);
 }
 
 void

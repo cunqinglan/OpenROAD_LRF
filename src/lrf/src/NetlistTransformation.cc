@@ -837,34 +837,23 @@ BufferRszOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   if (!rebuffer_)
     return result;
 
-  // Find the worst-slack driver pin on this instance.
-  sta::Network *network = db_sta_->network();
-  sta::Graph *graph = db_sta_->graph();
-  sta::Pin *worst_pin = nullptr;
-  float worst_slack = 0.0f;
-
-  sta::InstancePinIterator *iter = network->pinIterator(inst);
-  while (iter->hasNext()) {
-    sta::Pin *pin = iter->next();
-    if (!network->isDriver(pin))
-      continue;
-    sta::Vertex *vtx = graph->pinDrvrVertex(pin);
-    if (!vtx)
-      continue;
-    float slack = db_sta_->vertexSlack(vtx, sta::MinMax::max());
-    if (slack < worst_slack) {
-      worst_slack = slack;
-      worst_pin = pin;
-    }
+  // Collect RefOutput driver pins from thread-local PtGraph (no global STA).
+  // Mirrors BufferSdpOperator::evaluate — parallel-safe.
+  struct DrvrInfo { sta::Pin *pin; VertexId vid; };
+  std::vector<DrvrInfo> drvr_infos;
+  for (size_t i = 0; i < pt_graph->vertexCount(); i++) {
+    PtVertex &pv = pt_graph->ptVertex(i);
+    if (pv.vertex() && pv.type() == PtVertexType::RefOutput)
+      drvr_infos.push_back({pv.vertex()->pin(), pv.objectIdx()});
   }
-  delete iter;
 
-  if (!worst_pin)
+  if (drvr_infos.size() != 1)
     return result;
 
-  // Heavy computation: makeBufferedNet + bufferForTiming + recoverArea
-  // Result stored in rebuffer_->best_bnet_ / drvr_pin_
-  if (rebuffer_->prepareRszBnet(worst_pin)) {
+  // Sync pt_graph into eval context so LrRebuffer sees the right graph.
+  ctx.pt_graph = pt_graph;
+
+  if (rebuffer_->prepareRszBnet(drvr_infos[0].pin, drvr_infos[0].vid)) {
     result.type = MoveOption::BUFFER_ONLY;
     result.cost = 0.0f;
   }

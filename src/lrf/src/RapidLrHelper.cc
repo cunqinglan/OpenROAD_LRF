@@ -22,7 +22,7 @@ RapidLrHelper::RapidLrHelper(sta::dbSta *sta) : LRHelper(sta)
   setTimingMode();
 }
 
-float 
+float
 RapidLrHelper::getMultiplier(Slack arc_slack) {
   // Here we use a simple heuristic based on criticality
   int k = arc_slack < 0.0 ? critical_arc_k_ : non_critical_arc_k_;
@@ -40,10 +40,17 @@ RapidLrHelper::getMultiplier(Slack arc_slack) {
     fflush(stdout);
     throw std::runtime_error("RapidLrHelper::updateArcLms: found zero clock period");
   }
-  if (arc_slack >= clock_period) {
+  // Inflate effective clock period by timing_margin_ (ratio).
+  // E.g. margin=0.05 → T_eff = 1.05*T.  Positive-slack paths' LMs
+  // decrease slower (optimizer keeps fighting to maintain headroom);
+  // violating paths' LMs increase slightly slower but the net effect
+  // is that ALL paths carry higher LMs → more timing headroom survives
+  // post-GR degradation.
+  float T_eff = clock_period * (1.0f + timing_margin_);
+  if (arc_slack >= T_eff) {
     return 0.0f;
   }
-  float scaling_factor = std::pow((clock_period - arc_slack) / clock_period, k);
+  float scaling_factor = std::pow((T_eff - arc_slack) / T_eff, k);
   return scaling_factor;
 }
 

@@ -28,8 +28,32 @@ EcoController::decide(size_t iter,
                       const IterationHelper::Metrics &cur,
                       const IterationHelper::Metrics &best)
 {
+  // Hard wall-clock limit: terminate immediately if exceeded.
+  if (config_.max_runtime_seconds > 0) {
+    double elapsed = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - wall_start_).count();
+    if (elapsed > config_.max_runtime_seconds) {
+      printf("ECO: wall-clock limit reached (%.0fs > %.0fs), terminating at iter %zu.\n",
+             elapsed, config_.max_runtime_seconds, iter + 1);
+      fflush(stdout);
+      return EcoDecision::TERMINATE;
+    }
+  }
+
   double cur_wns = cur.wns_ps / 1e12;
   double best_wns = best.wns_ps / 1e12;
+
+  // Track whether we've ever reached positive WNS (timing met).
+  // Once met, any regression back to WNS < 0 triggers immediate termination
+  // to protect the achieved timing closure.
+  if (best_wns >= 0.0)
+    reached_positive_wns_ = true;
+  if (reached_positive_wns_ && cur_wns < 0.0) {
+    printf("ECO: WNS regressed below 0 (%.3f ps) after reaching timing closure, "
+           "terminating at iter %zu.\n", cur.wns_ps, iter + 1);
+    fflush(stdout);
+    return EcoDecision::TERMINATE;
+  }
 
   bool improved = (cur_wns > best_wns && cur_wns < 0)
       || (cur_wns >= 0.0 && (cur_wns > best_wns || cur.leakage < best.leakage));
@@ -42,12 +66,19 @@ EcoController::decide(size_t iter,
 
   // Not improved.
   if (iter < config_.warmup_iters) {
-    // Warmup revert: undo the regression so `best` (timing-best) is preserved
-    // as the eventual ECO start point. Stay in phase1 — don't set in_eco_ and
-    // don't count toward consecutive_reverts_ (warmup reverts must not trip
-    // the max_eco_reverts termination).
-    total_reverts_++;
-    return EcoDecision::REVERT_WARMUP;
+    // Warmup: only revert when both WNS and TNS regressed.
+    // If only one metric worsened, accept and keep going — the netlist may
+    // still be making useful progress along the other dimension.
+    bool wns_worse = (cur.wns_ps < best.wns_ps);
+    bool tns_worse = (cur.tns_ps < best.tns_ps);
+    if (wns_worse && tns_worse) {
+      total_reverts_++;
+      return EcoDecision::REVERT_WARMUP;
+    }
+    // Partial regression — treat as accept during warmup.
+    consecutive_reverts_ = 0;
+    total_accepts_++;
+    return EcoDecision::ACCEPT;
   }
 
   if (!in_eco_) {
