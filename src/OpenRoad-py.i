@@ -11,6 +11,7 @@
 #include "ord/Tech.h"
 #include "ord/Design.h"
 #include "ord/Timing.h"
+#include "lrf/LrConfig.hh"
 #include "ifp/InitFloorplan.hh"
 
 using odb::dbDatabase;
@@ -55,6 +56,7 @@ get_db_block();
 %include "Exception-py.i"
 %include "ord/Tech.h"
 %include "ord/Design.h"
+%include "lrf/LrConfig.hh"
 %include "ord/Timing.h"
 
 #ifdef BAZEL

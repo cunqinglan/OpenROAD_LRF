@@ -415,14 +415,14 @@ protected:
   // Use tagGroup of search to initialize paths_ of PtGraph
   void initPtGraphPaths(PtGraph *pt_graph);
 
-  dbSta *sta_;
+  sta::dbSta *sta_;
 
   bool collected_;
   bool sorted_;
   bool parasitics_set_;
 
-  InstanceSet local_fanins_;
-  InstanceSet local_fanout_siblings_;
+  sta::InstanceSet local_fanins_;
+  sta::InstanceSet local_fanout_siblings_;
 
   VertexSeq local_vertices_;
   VertexSeq root_vertices_;
@@ -431,8 +431,8 @@ protected:
   LocalParasitics *local_parasitics_;
   TaskArranger *task_arranger_;
   bool equiv_cells_made_ = false;
-  SearchPred *pred_;
-  SearchPred *search_pred_;
+  sta::SearchPred *pred_;
+  sta::SearchPred *search_pred_;
   std::mutex pt_graph_vector_mutex_;
 
   std::string debug_label_ = "LocalSTA";

@@ -416,6 +416,7 @@ if (Python3_FOUND AND BUILD_PYTHON)
       odb
       OpenSTA
       ifp
+      lrf_lib
   )
   target_link_libraries(openroad
     ord_py

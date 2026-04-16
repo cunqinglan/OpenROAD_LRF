@@ -122,4 +122,9 @@ struct LrConfig {
   std::string checkpoint_dir;
 };
 
+// Process-wide config instance. Python mutates via Timing::lrConfig();
+// C++ consumers (LocalSta / LRHelper / LrRebuffer / IncreSta / LrSizer)
+// read with `lrf::getConfig().field` — zero parameter threading.
+LrConfig& getConfig();
+
 }  // namespace lrf

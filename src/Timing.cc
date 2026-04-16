@@ -5,8 +5,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
+#include <limits>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -573,6 +576,52 @@ Timing::testMEEAssignments() {
   sta::dbSta* sta = getSta();
   lrf::TestLrf test_lrf;
   test_lrf.testMEEAssignments(sta, resizer, design_->getBlock());
+}
+
+lrf::LrConfig&
+Timing::lrConfig() {
+  return lrf::getConfig();
+}
+
+void
+Timing::runLr() {
+  runLr(lrf::getConfig());
+}
+
+// Phase 1 round-trip: read back fields from lrf::getConfig() to catch
+// SWIG copy-vs-reference regressions. Phase 2 will add consumer-layer
+// instrumentation (LocalSta / IncreSta / LrRebuffer) to catch migration
+// gaps as the getConfig() direct-read pattern is rolled out.
+float
+Timing::debugReadField(const char* who, const char* field) {
+  const lrf::LrConfig &cfg = lrf::getConfig();
+  std::string w = who ? who : "";
+  std::string f = field ? field : "";
+
+  if (w == "getConfig") {
+    if (f == "slew_margin")          return cfg.slew_margin;
+    if (f == "bakoglu_k")            return cfg.bakoglu_k;
+    if (f == "PT_tradeoff")          return cfg.PT_tradeoff;
+    if (f == "density_weight")       return cfg.density_weight;
+    if (f == "top_ratio")            return cfg.top_ratio;
+    if (f == "buffer_top_ratio")     return cfg.buffer_top_ratio;
+    if (f == "iterations")           return static_cast<float>(cfg.iterations);
+    if (f == "max_resize_num")       return static_cast<float>(cfg.max_resize_num);
+    if (f == "num_no_improve_tolerance")
+      return static_cast<float>(cfg.num_no_improve_tolerance);
+    if (f == "buffering_start_iter") return static_cast<float>(cfg.buffering_start_iter);
+    if (f == "mode")                 return static_cast<float>(cfg.mode);
+    if (f == "ratcons")              return cfg.ratcons ? 1.0f : 0.0f;
+    if (f == "initialize")           return cfg.initialize ? 1.0f : 0.0f;
+    if (f == "debug")                return cfg.debug ? 1.0f : 0.0f;
+    if (f == "eco.halve_factor")     return cfg.eco.halve_factor;
+    if (f == "eco.warmup_iters")     return static_cast<float>(cfg.eco.warmup_iters);
+    if (f == "eco.max_eco_reverts")  return static_cast<float>(cfg.eco.max_eco_reverts);
+    if (f == "eco.use_precheck")     return cfg.eco.use_precheck ? 1.0f : 0.0f;
+    if (f == "eco.strategy")         return static_cast<float>(cfg.eco.strategy);
+  }
+  // Not instrumented — caller treats NaN as "not available".
+  return std::numeric_limits<float>::quiet_NaN();
 }
 
 void

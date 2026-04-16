@@ -111,6 +111,29 @@ class Timing
   /////////////////////////////////////////////////////////////
   // Functions for testing LR sizing
   ///////////////////////////////////////////////////////////
+
+  // Access to the process-wide LrConfig instance (lrf::getConfig()).
+  // Python usage:
+  //   cfg = timing.lrConfig()
+  //   cfg.iterations = 30
+  //   timing.runLr()
+  lrf::LrConfig& lrConfig();
+
+  // No-arg entry point — runs LR using lrf::getConfig().
+  void runLr();
+
+  // Debug round-trip: report the value a deep consumer actually observed.
+  // Used to verify Python-side mutation truly reaches C++ layers (catches
+  // SWIG copy semantics, setter-migration gaps, initialization-order bugs).
+  //
+  //   who   ∈ {"LocalSta","LRHelper","LrRebuffer","IncreSta","LrSizer",
+  //            "getConfig"}
+  //   field ∈ LrConfig field name
+  // Returns the value the named consumer recorded on its last use, or
+  // NaN if the (who,field) pair is not instrumented. Returns a value
+  // read directly from lrf::getConfig() when who == "getConfig".
+  float debugReadField(const char* who, const char* field);
+
   // Unified LR entry point — dispatches by cfg.mode.
   void runLr(const lrf::LrConfig &cfg);
 
