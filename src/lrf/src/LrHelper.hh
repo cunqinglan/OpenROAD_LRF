@@ -52,6 +52,12 @@ public:
   int lmFrameCount() const;
   // Clear all recorded LM frames.
   void clearLmHistory();
+  // Save the last recorded LM frame to a binary file.
+  // design_name is stored in the header for validation on load.
+  bool saveLmToFile(const std::string &path, const std::string &design_name);
+  // Load an LM frame from a binary file, restore it, and return frame id.
+  // Validates design_name and vertex count against the file header.
+  int loadLmFromFile(const std::string &path, const std::string &design_name);
 
 protected:
   void distributeLmOutToIn(Vertex *vertex,

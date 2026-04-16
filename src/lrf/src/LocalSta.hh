@@ -1,5 +1,7 @@
 #pragma once
 
+#include <map>
+#include <string>
 #include "sta/Sta.hh"
 #include "PtGraph.hh"
 #include "sta/GraphDelayCalc.hh"
@@ -41,7 +43,6 @@ typedef Map<const Net*, ConcreteParasiticNetwork**> ConcreteParasiticNetworkMap;
 typedef float LocalCost;
 
 class LocalParasitics;
-class ParallelLrVisitor;
 class ParallelVisitor;
 
 class LocalSta: public GraphDelayCalc {
@@ -53,11 +54,15 @@ public:
 
   void collectLocalGraph(Instance *inst, InstanceSet &local_instances);
   void collectLocalVertices(Instance *inst, VertexSet &local_vertices);
+  // Lightweight: ref-instance pins + direct wire fanout loads only
+  // (no fanin sibling collection, no downstream driver traversal).
+  void collectDriverFanoutOnly(Instance *inst, VertexSet &local_vertices);
   void makePtGraph(PtGraph *pt_graph, Instance *inst,
                           DcalcAnalysisPt *dcalc_ap = nullptr);
+  // Lightweight PtGraph: skips fanin siblings; no pruneInsignificantSiblings.
+  void makePtGraphDriverOnly(PtGraph *pt_graph, Instance *inst,
+                             DcalcAnalysisPt *dcalc_ap = nullptr);
   PtGraph *makePtGraph(Instance *inst, bool update_timing_first = false);
-  void rebuildPtGraph(PtGraph *pt_graph, Instance *inst,
-                      bool update_timing_first = false);
 
   sta::dbSta *getSta() { return sta_; }
   TaskArranger *taskArranger() { return task_arranger_; }
@@ -70,6 +75,9 @@ public:
   float maxInputSlew(const Pin* input,
                             const Corner* corner) const;
   void setParasiticsEst(est::EstimateParasitics *estimate_parasitics);
+  void updateGlobalParasiticsAndSync(est::EstimateParasitics *est_parasitics);
+  // Sync local parasitic map from global (without re-estimating).
+  void syncParasiticMapFromGlobal();
   void setAnalysisPoints(const std::vector<const DcalcAnalysisPt*> &dcalc_ap_set);
   void setDebugLabel(const std::string &label) { debug_label_ = label; }
 
@@ -102,7 +110,6 @@ public:
 
   // Functions for parallel LR
   void initParallel();
-  void runResize(rsz::Resizer *resizer, ParallelLrVisitor *visitor);
   void runResize(rsz::Resizer *resizer, ParallelVisitor *visitor);
 
   // Functions for ERC check
@@ -110,6 +117,12 @@ public:
   float getPinMaxCapLimit(sta::Pin *pin, sta::LibertyCell *lib_cell);
   float getPortMaxSlewLimit(sta::LibertyPort *port);
   float getPortMaxCapLimit(sta::LibertyPort *port);
+  // Get max slew across rise/fall for a PtVertex
+  float getVertexMaxSlew(PtGraph *pt_graph, PtVertex &ptv,
+                         sta::DcalcAnalysisPt *dcalc_ap);
+  // Check slew limits for all wire-fanout loads of a driver PtVertex
+  bool checkFanoutLoadSlew(PtGraph *pt_graph, VertexId drvr_id,
+                           sta::DcalcAnalysisPt *dcalc_ap);
   sta::LibertyPort *findTargetPort(const PtVertex &ptv,
                                    sta::LibertyCell *to_lib_cell) const;
   float getPinSlew(sta::Pin *pin, const sta::Corner *corner,
@@ -147,9 +160,16 @@ public:
   DelayLmSumResult initAndGetLocalTimingCost(PtGraph *pt_graph, sta::ArcDelayCalc *arc_delay_calc);
   DelayLmSumResult increAndGetLocalTimingCost(PtGraph *pt_graph,
                                     sta::ArcDelayCalc *arc_delay_calc,
-                                    sta::LibertyCell *equiv_cell);
+                                    sta::LibertyCell *equiv_cell,
+                                    std::map<std::string, double> *runtime_map = nullptr);
   sta::Slack localSlackAroundRef(PtGraph *pt_graph);
+  sta::Slack localSlackOnSinks(PtGraph *pt_graph);
+  sta::Slack localWorstSlackOnSinks(PtGraph *pt_graph);
+  void recomputeSinglePtParasitic(PtGraph *pt_graph, sta::VertexId drvr_vid);
   bool virtualReplaceCell(PtGraph *pt_graph, sta::LibertyCell *new_cell);
+  // Swap ref cell with selective parasitic recompute: skip RefOutput
+  // drivers whose output port cap is unchanged after cell swap.
+  bool virtualReplaceCellSelective(PtGraph *pt_graph, sta::LibertyCell *new_cell);
 
 protected:
   const Pin *findNetParasiticDrvrPin(sta::Net *net) const;
@@ -349,9 +369,7 @@ protected:
   // moved to public section above
   void updateLocalTiming(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
   Slack localSlackAtEndpoints(PtGraph *pt_graph);
-  // Compute slack at sink pins using STA required (unchanged by buffer)
-  // and PtVertex arrival (updated by findLocalArrivals through virtual buffer).
-  Slack localSlackOnSinks(PtGraph *pt_graph);
+  // localSlackOnSinks / localWorstSlackOnSinks moved to public section
   
   ////////////////////////////////////////////////////////
   // Deal with parasitics
@@ -360,8 +378,7 @@ protected:
   // will change largely. So the parasitic network and its
   // reduced pi model need to be recomputed.
   void recomputeLocalParasitics(PtGraph *pt_graph);
-  void recomputeSinglePtParasitic(PtGraph *pt_graph, sta::VertexId drvr_vid);
-  void syncParasiticNetworkFromGlobal(const sta::Net *net);
+  // recomputeSinglePtParasitic moved to public section
   void loadLocalParasitics(const Pin *drvr_pin,
                            const RiseFall *rf,
                            const DcalcAnalysisPt *dcalc_ap,
@@ -408,14 +425,21 @@ protected:
   std::mutex pt_graph_vector_mutex_;
 
   std::string debug_label_ = "LocalSTA";
+  bool debug_ = false;
+public:
+  void setDebug(bool d) { debug_ = d; }
+  bool debug() const { return debug_; }
+protected:
 
 private:
   friend class IncreSta;
   friend class TestLrf;
   friend class LrRebuffer;
-  friend class LrRebufferV2;
-  friend class ParallelLrVisitor;
-  friend class CombinedVisitor;
+  friend class TestRebuffer;
+public:
+  // Print per-sink arrival comparison: local (PtGraph) vs global (OpenSTA)
+  // for max/default/rise path. Shows which sinks have arrival mismatch.
+  void printPerSinkArrivals(PtGraph *pt_graph, const char *label);
 };
 
 

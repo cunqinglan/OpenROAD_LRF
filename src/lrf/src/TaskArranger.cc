@@ -14,7 +14,6 @@
 #include "sta/Liberty.hh"
 #include "sta/TimingRole.hh"
 #include "sta/DispatchQueue.hh"
-#include "ParallelVisitor.hh"
 #include "db_sta/dbSta.hh"
 #include "LocalSta.hh"
 #include "rsz/Resizer.hh"
@@ -90,7 +89,7 @@ void
 TaskArranger::init()
 {
   if (vertices_.empty()) {
-    // printf("TaskArranger::init making graph...\n");
+    printf("TaskArranger::init making graph...\n");
     makeGraph();
     initVertexRefCounts(true);
     ensureGraphVertices();
@@ -101,7 +100,7 @@ void
 TaskArranger::reinit()
 {
   if (dirty_) {
-    // printf("TaskArranger::reinit graph marked dirty, rebuilding...\n");
+    printf("TaskArranger::reinit graph marked dirty, rebuilding...\n");
     rebuild();
   } else {
     initVertexRefCounts(false);
@@ -112,20 +111,21 @@ TaskArranger::reinit()
 void
 TaskArranger::rebuild()
 {
-  // printf("TaskArranger::rebuild clearing and rebuilding graph...\n");
+  printf("TaskArranger::rebuild clearing and rebuilding graph...\n");
   vertices_.clear();
   edges_.clear();
   inst_to_vid_.clear();
   vertex_ref_counts_.reset();
   num_com_ = 0;
+  topo_edge_count_ = 0;
   incremental_ = false;
   dirty_ = false;
 
   makeGraph();
   initVertexRefCounts(true);
   ensureGraphVertices();
-  // printf("TaskArranger::rebuild done. %zu vertices, %zu edges\n",
-         // vertices_.size(), edges_.size());
+  printf("TaskArranger::rebuild done. %zu vertices, %zu edges\n",
+         vertices_.size(), edges_.size());
 }
 
 void
@@ -134,8 +134,8 @@ TaskArranger::ensureGraphVertices()
   // Pre-warm the graph by accessing all relevant vertices.
   // This forces OpenSTA to allocate vertices in the graph, preventing
   // reallocation/pointer invalidation during parallel execution.
-  // printf("TaskArranger::ensureGraphVertices pre-warming graph...\n");
-  // fflush(stdout);
+  printf("TaskArranger::ensureGraphVertices pre-warming graph...\n");
+  fflush(stdout);
   
   sta::Graph *graph = graph_;
   sta::Network *network = network_;
@@ -185,8 +185,8 @@ TaskArranger::ensureGraphVertices()
       }
     }
   }
-  // printf("TaskArranger::ensureGraphVertices done.\n");
-  // fflush(stdout);
+  printf("TaskArranger::ensureGraphVertices done.\n");
+  fflush(stdout);
 }
 
 VertexId
@@ -261,13 +261,13 @@ TaskArranger::makeGraph()
 void 
 TaskArranger::checkGraph() const
 {
-  // printf("Checking all vertices in the graph...\n");
-  // fflush(stdout);
+  printf("Checking all vertices in the graph...\n");
+  fflush(stdout);
   for (size_t vid = 0; vid < vertices_.size(); vid++) {
     const InstVertex &inst_vertex = vertices_[vid];
     if (inst_vertex.type() == VertexType::NONE) {
-      // printf("ERROR: Vertex %zu has type NONE in checkGraph.\n", vid);
-      // fflush(stdout);
+      printf("ERROR: Vertex %zu has type NONE in checkGraph.\n", vid);
+      fflush(stdout);
       continue;
     }
     if (inst_vertex.objectIdx() == object_idx_null) {
@@ -277,11 +277,11 @@ TaskArranger::checkGraph() const
       throw std::runtime_error("Instance to VertexId mapping incorrect in checkGraph.");
     }
   }
-  // printf("All vertices checked successfully in checkGraph.\n");
-  // fflush(stdout);
+  printf("All vertices checked successfully in checkGraph.\n");
+  fflush(stdout);
 
-  // printf("Checking all edges in the graph...\n");
-  // fflush(stdout);
+  printf("Checking all edges in the graph...\n");
+  fflush(stdout);
   for (size_t eid = 0; eid < edges_.size(); eid++) {
     const InstEdge &inst_edge = edges_[eid];
     if (inst_edge.objectIdx() == object_idx_null) {
@@ -300,10 +300,10 @@ TaskArranger::checkGraph() const
       }
     }
   }
-  // printf("All edges checked successfully in checkGraph.\n");
-  // fflush(stdout);
+  printf("All edges checked successfully in checkGraph.\n");
+  fflush(stdout);
 
-  // printf("Checking ref counts of vertices in the graph...\n");
+  printf("Checking ref counts of vertices in the graph...\n");
   for (size_t vid = 0; vid < vertices_.size(); vid++) {
     const InstVertex &inst_vertex = vertices_[vid];
     if (inst_vertex.tempRefNum() == 0) {
@@ -350,9 +350,9 @@ TaskArranger::makeVertices()
   // Pre-reserve mapping capacity to keep unordered_map lookups O(1) without rehash.
   inst_to_vid_.reserve(vertices_.size());
   num_com_ = num_com_insts;
-  // printf("Making vertices: %d combinational, %d sequential, %zu numcom\n", 
-         // num_com_insts, num_root_insts, num_com_);
-  // fflush(stdout);
+  printf("Making vertices: %d combinational, %d sequential, %zu numcom\n", 
+         num_com_insts, num_root_insts, num_com_);
+  fflush(stdout);
   sta::LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
   num_com_insts = 0;
   num_root_insts = 0;
@@ -390,9 +390,9 @@ TaskArranger::makeVertices()
     }
   }
   delete inst_iter;
-  // printf("Double check size: num_root_insts=%d, num_com_insts=%d\n", 
-         // num_root_insts, num_com_insts);
-  // fflush(stdout);
+  printf("Double check size: num_root_insts=%d, num_com_insts=%d\n", 
+         num_root_insts, num_com_insts);
+  fflush(stdout);
 
   // Create vertex for top instance
   {
@@ -406,9 +406,9 @@ TaskArranger::makeVertices()
     setInstanceId1(top_inst, vid);
     vertex.setType(VertexType::TOP);
     const char *inst_name = network_->name(top_inst);
-    // printf("  Initialized top instance vertex %d: inst=%p, name=%s\n", 
-           // vid, (void*)top_inst, inst_name);
-    // fflush(stdout);
+    printf("  Initialized top instance vertex %d: inst=%p, name=%s\n", 
+           vid, (void*)top_inst, inst_name);
+    fflush(stdout);
   }
   
   // Verify vertex layout invariant: [0, num_com_) must all be COMBINATIONAL,
@@ -443,22 +443,26 @@ void
 TaskArranger::makeEdges()
 {
   // ✅ 先验证所有 vertices 的 inst_ 指针
-  // printf("Verifying all vertices before makeEdges...\n");
-  // fflush(stdout);
+  printf("Verifying all vertices before makeEdges...\n");
+  fflush(stdout);
   for (size_t vid = 0; vid < vertices_.size(); vid++) {
     InstVertex &inst_vertex = vertices_[vid];
     if (!inst_vertex.inst()) {
       throw std::runtime_error("Vertex has null inst_ before makeEdges.");
     }
   }
-  // printf("Verification complete. Starting makeEdges...\n");
-  // fflush(stdout);
+  printf("Verification complete. Starting makeEdges...\n");
+  fflush(stdout);
   
+  // Phase 1: topological edges (driver → fanout)
   for (size_t vid = 0; vid < vertices_.size(); vid++) {
     InstVertex &inst_vertex = vertices_[vid];
     if (inst_vertex.inst())
       makeInstDrvrWireMEE(inst_vertex.inst());
   }
+  // Record boundary so Phase 2 only sees topological edges when enumerating fanouts.
+  topo_edge_count_ = edges_.size();
+  // Phase 2: MEE edges (sibling chain + cross-sibling)
   for (size_t vid = 0; vid < vertices_.size(); vid++) {
     InstVertex& inst_vertex = vertices_[vid];
     if (inst_vertex.inst())
@@ -505,8 +509,8 @@ TaskArranger::FanoutsInstances(const sta::Pin *drvr_pin)
     }
   } else {
     // Bidirect pin case, not supported yet.
-    // printf("Bidirect pin found, not supported yet.\n");
-    // fflush(stdout);
+    printf("Bidirect pin found, not supported yet.\n");
+    fflush(stdout);
   }
   
   return fanout_insts;
@@ -516,8 +520,8 @@ void
 TaskArranger::makeInstDrvrWireMEE(sta::Instance* inst)
 {
   if (inst == nullptr) {
-    // printf("Instance is nullptr in makeInstDrvrWireMEE.\n");
-    // fflush(stdout);
+    printf("Instance is nullptr in makeInstDrvrWireMEE.\n");
+    fflush(stdout);
     return;
   }
   InstVertex* from_inst_vertex = vertex(inst);
@@ -563,31 +567,29 @@ TaskArranger::makeSiblingFanoutsMEE(InstVertex* inst_vertex)
 {
   // debug print
   if (!inst_vertex) {
-    // printf("ERROR: inst_vertex is nullptr in makeSiblingFanoutsMEE\n");
-    // fflush(stdout);
+    printf("ERROR: inst_vertex is nullptr in makeSiblingFanoutsMEE\n");
+    fflush(stdout);
     return;
   }
   
   sta::Instance* inst = inst_vertex->inst();
   if (!inst) {
-    // printf("ERROR: inst_vertex->inst() is nullptr in makeSiblingFanoutsMEE\n");
-    // fflush(stdout);
+    printf("ERROR: inst_vertex->inst() is nullptr in makeSiblingFanoutsMEE\n");
+    fflush(stdout);
     return;
   }
-  // First, get all fanout instances of this instance.
-  // Finally, connect the last one to all others' fanout instances.
-  // Then, sort them by level. And create MEE among them.
+  // Collect only topological fanouts (edges from Phase 1) as siblings.
+  // MEE edges added by earlier Phase 2 iterations must be excluded.
   std::vector<InstVertex*> fanout_inst_vertices;
   InstVertexOutEdgeIterator edge_iter_init(inst_vertex, this);
   while (edge_iter_init.hasNext()) {
-    InstEdge *inst_edge = edge(edge_iter_init.next());
-    InstVertex* to_inst_vertex = vertex(inst_edge->to());
+    EdgeId eid = edge_iter_init.next();
+    if (eid >= topo_edge_count_)
+      continue;
+    InstVertex* to_inst_vertex = vertex(edge(eid)->to());
     fanout_inst_vertices.push_back(to_inst_vertex);
   }
   if (fanout_inst_vertices.empty()) {
-    // printf("  No fanout instances found for instance %s, skipping sibling MEE creation.\n",
-    //        network_->name(inst));
-    //        fflush(stdout);
     return;
   }
   sort(fanout_inst_vertices.begin(),
@@ -595,14 +597,15 @@ TaskArranger::makeSiblingFanoutsMEE(InstVertex* inst_vertex)
         InstVertexLevelLess());
 
   InstVertex* last_inst_vertex = fanout_inst_vertices[fanout_inst_vertices.size() - 1];
-  
+
   std::set<VertexId> sib_fanout_ids_set;
   for (size_t i = 0; i < fanout_inst_vertices.size() - 1; i++) {
     InstVertexOutEdgeIterator edge_iter_temp(fanout_inst_vertices[i], this);
     while (edge_iter_temp.hasNext()) {
       EdgeId temp_edge_id = edge_iter_temp.next();
-      InstEdge* temp_edge = edge(temp_edge_id);
-      sib_fanout_ids_set.insert(temp_edge->to());
+      if (temp_edge_id >= topo_edge_count_)
+        continue;
+      sib_fanout_ids_set.insert(edge(temp_edge_id)->to());
     }
   }
   for (VertexId fid : sib_fanout_ids_set) {
@@ -636,8 +639,8 @@ TaskArranger::makeEdge(InstVertex* from_vertex,
     // Disallow incoming edges to SEQ/TOP: do not create * -> (SEQ/TOP).
     const char* from_name = from_vertex->inst() ? network_->name(from_vertex->inst()) : "<null>";
     const char* to_name = to_vertex->inst() ? network_->name(to_vertex->inst()) : "<null>";
-    // printf("Disallow edge into %s (SEQ/TOP): from=%s -> to=%s\n", to_name, from_name, to_name);
-    // fflush(stdout);
+    printf("Disallow edge into %s (SEQ/TOP): from=%s -> to=%s\n", to_name, from_name, to_name);
+    fflush(stdout);
     return edge_id_null;
   }
   // Check for duplicate edge and skip if exists.
@@ -690,9 +693,9 @@ TaskArranger::printFailed() const
     if (vertex_ref_counts_[vid].load() == 0) {
       com_without_zero_fanout++;
       if (inst_vertex_set.find(const_cast<InstVertex*>(&vertices_[vid])) == inst_vertex_set.end()) {
-        // printf("ERROR: Com vertex %s with zero ref is not visited\n",
-               // network_->name(vertices_[vid].inst()));
-        // fflush(stdout);
+        printf("ERROR: Com vertex %s with zero ref is not visited\n",
+               network_->name(vertices_[vid].inst()));
+        fflush(stdout);
         zero_ref_not_visited = true;
       }
       InstVertexOutEdgeIterator edge_iter(
@@ -702,21 +705,21 @@ TaskArranger::printFailed() const
         VertexId to_vid = id(out_inst_vertex);
         if (vertex_ref_counts_[to_vid].load() != 0) {
           com_visited_but_has_nonezero_fanout++;
-          // printf("WARNING: Com vertex %s has non-zero ref fanout: %s \n",
-                 // network_->name(vertices_[vid].inst()),
-                 // network_->name(out_inst_vertex->inst()));
-          // fflush(stdout);
+          printf("WARNING: Com vertex %s has non-zero ref fanout: %s \n",
+                 network_->name(vertices_[vid].inst()),
+                 network_->name(out_inst_vertex->inst()));
+          fflush(stdout);
         }
       }
     }
   }
-  // printf("Total combinational vertices without zero ref fanout: %d\n",
-         // com_without_zero_fanout);
-  // printf("Total combinational vertices visited but has non-zero ref fanout: %d\n",
-         // com_visited_but_has_nonezero_fanout);
-  // if (zero_ref_not_visited)
-  //   printf("Some zero-ref combinational vertices were not visited!\n");
-  // fflush(stdout);
+  printf("Total combinational vertices without zero ref fanout: %d\n",
+         com_without_zero_fanout);
+  printf("Total combinational vertices visited but has non-zero ref fanout: %d\n",
+         com_visited_but_has_nonezero_fanout);
+  if (zero_ref_not_visited)
+    printf("Some zero-ref combinational vertices were not visited!\n");
+  fflush(stdout);
 }
 
 void
@@ -727,16 +730,16 @@ TaskArranger::printGraph() const
       continue;
     const InstVertex &inst_vertex = vertices_[vid];
     const sta::Instance* inst = inst_vertex.inst();
-    // printf("Vertex %zu: Instance %s, Level %u, TempRefNum %zu, atomicRefCount %zu, type %s\n",
-           // vid,
-           // inst ? network_->name(inst) : "nullptr",
-           // inst_vertex.level(),
-           // inst_vertex.tempRefNum(),
-           // vertex_ref_counts_[vid].load(),
-           // inst_vertex.type() == VertexType::COMBINATIONAL ? "COMBINATIONAL" :
-           // inst_vertex.type() == VertexType::SEQUENTIAL ? "SEQUENTIAL" :
-           // inst_vertex.type() == VertexType::TOP ? "TOP" : "NONE");
-           // fflush(stdout);
+    printf("Vertex %zu: Instance %s, Level %u, TempRefNum %zu, atomicRefCount %zu, type %s\n",
+           vid,
+           inst ? network_->name(inst) : "nullptr",
+           inst_vertex.level(),
+           inst_vertex.tempRefNum(),
+           vertex_ref_counts_[vid].load(),
+           inst_vertex.type() == VertexType::COMBINATIONAL ? "COMBINATIONAL" :
+           inst_vertex.type() == VertexType::SEQUENTIAL ? "SEQUENTIAL" :
+           inst_vertex.type() == VertexType::TOP ? "TOP" : "NONE");
+           fflush(stdout);
     InstVertexOutEdgeIterator edge_iter(
         const_cast<InstVertex*>(&inst_vertex), this);
     while (edge_iter.hasNext()) {
@@ -744,9 +747,9 @@ TaskArranger::printGraph() const
       const InstEdge *edge_ptr = edge(edge_id);
       const InstVertex* to_vertex = vertex(edge_ptr->to());
       const sta::Instance* to_inst = to_vertex->inst();
-      // printf("  Edge to : Instance %s\n",
-             // to_inst ? network_->name(to_inst) : "nullptr");
-             // fflush(stdout);
+      printf("  Edge to : Instance %s\n",
+             to_inst ? network_->name(to_inst) : "nullptr");
+             fflush(stdout);
     }
   }
 }
@@ -759,11 +762,11 @@ TaskArranger::reduceEdgeFromRoots()
   || inst_vertex.type() == VertexType::TOP) {
       if (inst_vertex.hasFanins()) {
         if (inst_vertex.type() == VertexType::SEQUENTIAL) {
-          // printf("Sequential vertex of %s has fanins in reduceEdgeFromReg, skipping.\n", network_->name(inst_vertex.inst()));
-          // fflush(stdout);
+          printf("Sequential vertex of %s has fanins in reduceEdgeFromReg, skipping.\n", network_->name(inst_vertex.inst()));
+          fflush(stdout);
         } else {
-          // printf("Top vertex of %s has fanins in reduceEdgeFromReg, skipping.\n", network_->name(inst_vertex.inst()));
-          // fflush(stdout);
+          printf("Top vertex of %s has fanins in reduceEdgeFromReg, skipping.\n", network_->name(inst_vertex.inst()));
+          fflush(stdout);
         }
         throw std::runtime_error("Sequential or Top vertex has fanins in reduceEdgeFromReg.");
       }
@@ -793,7 +796,7 @@ TaskArranger::getZeroRefComInstVertices(std::vector<InstVertex*>& zero_ref_verti
   }
 }
 
-std::vector<VertexId>
+std::set<VertexId>
 TaskArranger::decreOutRefCount(InstVertex *inst_vertex)
 {
   if (!inst_vertex) {
@@ -802,19 +805,19 @@ TaskArranger::decreOutRefCount(InstVertex *inst_vertex)
   return decreOutRefCount(*inst_vertex);
 }
 
-std::vector<VertexId>
+std::set<VertexId>
 TaskArranger::decreOutRefCount(InstVertex &inst_vertex)
 {
-  std::vector<VertexId> zero_ref_vec;
+  std::set<VertexId> zero_ref_set;
   InstVertexOutEdgeIterator edge_iter(&inst_vertex, this);
   while (edge_iter.hasNext()) {
     EdgeId edge_id = edge_iter.next();
     InstEdge* inst_edge = edge(edge_id);
     if (decreRefCount(inst_edge->to()) == 0) {
-       zero_ref_vec.push_back(inst_edge->to());
+       zero_ref_set.insert(inst_edge->to());
     }
   }
-  return zero_ref_vec;
+  return zero_ref_set;
 }
 
 size_t
@@ -838,77 +841,19 @@ TaskArranger::finishTasks()
   }
 }
 
-void 
-TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer,
-                           ParallelLrVisitor *visitor)
-{
-  use_v2_visitors_ = false;
-  if (incremental_)
-    reinit();
-  // Clear previous visit records
-  clearVisitedInstVertices();
-  resizer_ = resizer;
-  
-  // Initialize topology checker if enabled
-  if (enable_topology_check_) {
-    // printf("Topology check enabled.\n");
-    topology_checker_ = std::make_unique<TopologyChecker>(this);
-  }
-  
-  // Clean up old visitors if any
-  for (auto v : visitors_) delete v;
-  visitors_.clear();
-
-  std::vector<InstVertex*> zero_ref_vertices;
-  getZeroRefComInstVertices(zero_ref_vertices);
-  
-  visitors_.reserve(thread_count_);
-  visitors_.push_back(visitor);
-  // printf("Visit with %u threads\n", thread_count_);
-  // fflush(stdout);
-  for (size_t i = 1; i < thread_count_; i++) {
-    visitors_.emplace_back(visitor->copy());
-  }
-  for (size_t i = 0; i < zero_ref_vertices.size(); i++) {
-    createTask(zero_ref_vertices[i]);
-  }
-  finishTasks();
-  
-  // Aggregate change stats from all thread visitors and detect K
-  // (first iteration where change_rate < threshold). Must run before
-  // visitors are deleted since it reads their counters.
-  updatePruningStats();
-
-  int cnt = 0;
-  for (auto v : visitors_) {
-    // printf("Visitor %d runtime profile:\n", cnt);
-    // v->printRuntimeProfile();
-    // v->printVisitedInstNames();
-    delete v;
-    cnt++;
-  }
-  visitors_.clear();
-  
-  // Print topology violations if any
-  if (enable_topology_check_ && topology_checker_) {
-    topology_checker_->printViolations();
-    topology_checker_.reset();
-  }
-
-  // Next time we visit, reuse the graph.
-  incremental_ = true;
-}
-
 void
-TaskArranger::visitAll(ParallelLrVisitor *visitor)
+TaskArranger::visitAll(ParallelVisitor *visitor)
 {
+  if (dirty_)
+    rebuild();
+
   // Clean up old visitors if any
   for (auto v : visitors_) delete v;
   visitors_.clear();
 
-  // printf("visitAll: %zu combinational instances out of %zu total, %u threads\n",
-  //        num_com_, vertices_.size(), thread_count_);
-  // fflush(stdout);
+  printf("visitAll: %zu combinational instances out of %zu total, %u threads\n",
+         num_com_, vertices_.size(), thread_count_);
+  fflush(stdout);
 
   // Create visitor copies for each thread
   visitors_.reserve(thread_count_);
@@ -919,6 +864,11 @@ TaskArranger::visitAll(ParallelLrVisitor *visitor)
 
   // Dispatch all combinational instances (no dependency graph)
   const size_t total = vertices_.size();
+  size_t com_count = 0;
+  for (size_t i = 0; i < total; i++) {
+    if (vertices_[i].type() == VertexType::COMBINATIONAL) com_count++;
+  }
+  resetProgress(com_count);
   for (size_t i = 0; i < total; i++) {
     if (vertices_[i].type() != VertexType::COMBINATIONAL)
       continue;
@@ -926,9 +876,11 @@ TaskArranger::visitAll(ParallelLrVisitor *visitor)
     VertexId vid = static_cast<VertexId>(i);
     if (!dispatch_queue_) {
       visitors_[0]->visit(iv->inst(), vid);
+      tickProgress();
     } else {
       dispatch_queue_->dispatch([this, iv, vid](int tid) {
         visitors_[tid]->visit(iv->inst(), vid);
+        tickProgress();
       });
     }
   }
@@ -940,49 +892,6 @@ TaskArranger::visitAll(ParallelLrVisitor *visitor)
     delete v;
   }
   visitors_.clear();
-}
-
-void
-TaskArranger::visitAll(ParallelVisitor *visitor)
-{
-  // Clean up old visitors if any
-  for (auto v : visitors_v2_) delete v;
-  visitors_v2_.clear();
-
-  // printf("visitAll (V2): %zu combinational instances out of %zu total, %u threads\n",
-         // num_com_, vertices_.size(), thread_count_);
-  // fflush(stdout);
-
-  // Create visitor copies for each thread
-  visitors_v2_.reserve(thread_count_);
-  visitors_v2_.push_back(visitor);
-  for (size_t i = 1; i < thread_count_; i++) {
-    visitors_v2_.emplace_back(visitor->copy());
-  }
-
-  // Dispatch all combinational instances (no dependency graph)
-  const size_t total = vertices_.size();
-  for (size_t i = 0; i < total; i++) {
-    if (vertices_[i].type() != VertexType::COMBINATIONAL)
-      continue;
-    InstVertex *iv = &vertices_[i];
-    VertexId vid = static_cast<VertexId>(i);
-    if (!dispatch_queue_) {
-      visitors_v2_[0]->visit(iv->inst(), vid);
-    } else {
-      dispatch_queue_->dispatch([this, iv, vid](int tid) {
-        visitors_v2_[tid]->visit(iv->inst(), vid);
-      });
-    }
-  }
-  finishTasks();
-
-  // Cleanup visitors
-  for (auto v : visitors_v2_) {
-    v->printRuntimeProfile();
-    delete v;
-  }
-  visitors_v2_.clear();
 }
 
 void
@@ -1011,83 +920,50 @@ TaskArranger::createTask(InstVertex* inst_vertex)
   if (!dispatch_queue_) {
     if (thread_count_ == 1) {
       // Single-threaded execution
-      if (use_v2_visitors_)
-        runTask(visitors_v2_[0], inst_vertex);
-      else
-        runTask(visitors_[0], inst_vertex);
+      runTask(visitors_[0], inst_vertex);
       return;
     } else {
       throw std::runtime_error("Dispatch queue is null in multi-threaded mode.");
     }
   }
   dispatch_queue_->dispatch([inst_vertex, this](int id) {
-    if (use_v2_visitors_)
-      runTask(visitors_v2_[id], inst_vertex);
-    else
-      runTask(visitors_[id], inst_vertex);
+    runTask(visitors_[id], inst_vertex);
   });
 }
 
 void
-TaskArranger::runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex)
+TaskArranger::updatePruningStats(PruningControl *pc_override)
 {
-  if (inst_vertex->move_mask_ != 0) {
-    // Selected instance: full evaluation + DB apply
-    if (enable_topology_check_ && topology_checker_) {
-      topology_checker_->onVisit(inst_vertex, std::this_thread::get_id());
-    }
-
-    if (visitor->visit(inst_vertex->inst(), inst_vertex->objectIdx()))
-    {
-      if (enable_topology_check_ && topology_checker_) {
-        topology_checker_->onBeforeModify(inst_vertex, std::this_thread::get_id());
-      }
-
-      visitor->applyChangesToDb(resizer_);
-
-      if (enable_topology_check_ && topology_checker_) {
-        topology_checker_->onAfterModify(inst_vertex, std::this_thread::get_id());
-      }
-    }
-  }
-  // Non-selected: skip visitSlewOnly, just cascade dependencies.
-  // The global sta->updateTiming(false) at iteration end provides correct timing.
-  std::vector<VertexId> zero_ref_vertices = decreOutRefCount(inst_vertex);
-  for (VertexId zero_ref_id : zero_ref_vertices) {
-    InstVertex* zero_ref_vertex = vertex(zero_ref_id);
-    createTask(zero_ref_vertex);
-  }
-}
-
-void
-TaskArranger::updatePruningStats()
-{
+  last_visit_count_ = 0;
+  last_change_count_ = 0;
   if (visitors_.empty())
     return;
-  PruningControl *pc = visitors_[0]->pruningControl();
+
+  PruningControl *pc = pc_override;
   if (!pc)
-    return;
+    pc = visitors_[0]->pruningControl();
 
-  int total_visit = 0, total_change = 0;
   for (auto *v : visitors_) {
-    total_visit += v->resizeVisitCount();
-    total_change += v->resizeChangeCount();
+    last_visit_count_ += v->resizeVisitCount();
+    last_change_count_ += v->resizeChangeCount();
   }
-  if (total_visit == 0)
+  if (last_visit_count_ == 0)
     return;
 
-  float change_rate = static_cast<float>(total_change) / total_visit;
-  // printf("Pruning: change_rate=%.4f (%d/%d), iteration=%d, enabled=%d, K=%d\n",
-  //        change_rate, total_change, total_visit,
-  //        pc->iteration, pc->enabled, pc->K);
-  // fflush(stdout);
+  float change_rate = static_cast<float>(last_change_count_) / last_visit_count_;
+  printf("Pruning: change_rate=%.4f (%d/%d)",
+         change_rate, last_change_count_, last_visit_count_);
 
-  if (pc->K == -1 && change_rate < pc->change_threshold) {
-    pc->K = pc->iteration;
-    pc->enabled = true;
-    // printf("Pruning: K detected at iteration %d, pruning enabled\n", pc->K);
-    // fflush(stdout);
+  if (pc) {
+    printf(", iteration=%d, enabled=%d, K=%d", pc->iteration, pc->enabled, pc->K);
+    if (pc->K == -1 && change_rate < pc->change_threshold) {
+      pc->K = pc->iteration;
+      pc->enabled = true;
+      printf("\nPruning: K detected at iteration %d, pruning enabled", pc->K);
+    }
   }
+  printf("\n");
+  fflush(stdout);
 }
 
 InstVertexOutEdgeIterator::InstVertexOutEdgeIterator(const InstVertex* vertex,
@@ -1205,13 +1081,13 @@ SearchMEEPred::searchTo(const sta::Vertex* to_vertex)
 void
 TaskArranger::printVisitedInstNames() const
 {
-  // printf("=== Visited Instance Names (in order) ===\n");
-  // printf("Total visited: %zu instances\n", visited_inst_vertices_.size());
+  printf("=== Visited Instance Names (in order) ===\n");
+  printf("Total visited: %zu instances\n", visited_inst_vertices_.size());
   for (size_t i = 0; i < visited_inst_vertices_.size(); i++) {
-    // printf("[%zu] %s\n", i, network_->name(visited_inst_vertices_[i]->inst()));
+    printf("[%zu] %s\n", i, network_->name(visited_inst_vertices_[i]->inst()));
   }
-  // printf("=========================================\n");
-  // fflush(stdout);
+  printf("=========================================\n");
+  fflush(stdout);
 }
 
 void
@@ -1220,55 +1096,55 @@ TaskArranger::printTopologyViolations() const
   if (topology_checker_) {
     topology_checker_->printViolations();
   } else {
-    // printf("Topology checker not initialized. Call enableTopologyCheck(true) before visitOrdered().\n");
+    printf("Topology checker not initialized. Call enableTopologyCheck(true) before visitOrdered().\n");
   }
 }
-
-////////////////////////////////////////////////////////////////
-// ParallelVisitor overloads (NetlistTransformation framework)
-////////////////////////////////////////////////////////////////
 
 void
 TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta,
                            rsz::Resizer *resizer,
                            ParallelVisitor *visitor)
 {
-  use_v2_visitors_ = true;
   if (incremental_)
     reinit();
   clearVisitedInstVertices();
   resizer_ = resizer;
 
   if (enable_topology_check_) {
-    // printf("Topology check enabled.\n");
+    printf("Topology check enabled.\n");
     topology_checker_ = std::make_unique<TopologyChecker>(this);
   }
 
-  for (auto v : visitors_v2_) delete v;
-  visitors_v2_.clear();
+  for (auto v : visitors_) delete v;
+  visitors_.clear();
 
   std::vector<InstVertex*> zero_ref_vertices;
   getZeroRefComInstVertices(zero_ref_vertices);
 
-  visitors_v2_.reserve(thread_count_);
-  visitors_v2_.push_back(visitor);
-  // printf("Visit with %u threads\n", thread_count_);
-  // fflush(stdout);
+  visitors_.reserve(thread_count_);
+  visitors_.push_back(visitor);
+  printf("Visit with %u threads\n", thread_count_);
+  fflush(stdout);
   for (size_t i = 1; i < thread_count_; i++) {
-    visitors_v2_.emplace_back(visitor->copy());
+    visitors_.emplace_back(visitor->copy());
   }
+  // visitOrdered eventually processes all combinational vertices.
+  resetProgress(num_com_);
   for (size_t i = 0; i < zero_ref_vertices.size(); i++) {
     createTask(zero_ref_vertices[i]);
   }
   finishTasks();
 
+  // Aggregate pruning stats from visitors before deleting them
+  updatePruningStats();
+
   int cnt = 0;
-  for (auto v : visitors_v2_) {
+  for (auto v : visitors_) {
     v->printRuntimeProfile();
     delete v;
     cnt++;
   }
-  visitors_v2_.clear();
+  visitors_.clear();
 
   if (enable_topology_check_ && topology_checker_) {
     topology_checker_->printViolations();
@@ -1299,10 +1175,37 @@ TaskArranger::runTask(ParallelVisitor *visitor, InstVertex* inst_vertex)
       }
     }
   }
-  std::vector<VertexId> zero_ref_vertices = decreOutRefCount(inst_vertex);
+  std::set<VertexId> zero_ref_vertices = decreOutRefCount(inst_vertex);
   for (VertexId zero_ref_id : zero_ref_vertices) {
     InstVertex* zero_ref_vertex = vertex(zero_ref_id);
     createTask(zero_ref_vertex);
+  }
+  tickProgress();
+}
+
+void
+TaskArranger::resetProgress(size_t total_tasks)
+{
+  tasks_done_.store(0, std::memory_order_relaxed);
+  next_milestone_.store(10, std::memory_order_relaxed);
+  total_tasks_ = total_tasks;
+}
+
+void
+TaskArranger::tickProgress()
+{
+  if (total_tasks_ == 0) return;
+  size_t done = tasks_done_.fetch_add(1, std::memory_order_relaxed) + 1;
+  int pct = static_cast<int>(done * 100 / total_tasks_);
+  int cur = next_milestone_.load(std::memory_order_relaxed);
+  while (pct >= cur && cur <= 100) {
+    if (next_milestone_.compare_exchange_weak(cur, cur + 10,
+                                              std::memory_order_relaxed)) {
+      printf("[%s progress] %zu/%zu (%d%%)\n",
+             progress_tag_, done, total_tasks_, cur);
+      fflush(stdout);
+      break;
+    }
   }
 }
 

@@ -2,11 +2,19 @@
 
 #include "sta/GraphClass.hh"
 #include "sta/NetworkClass.hh"
+#include "sta/Delay.hh"
 #include "lrf/LrfClass.hh"
+#include "lrf/LrConfig.hh"
 
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+namespace odb
+{
+class dbBlock;
+class dbInst;
+}  // namespace odb
 
 namespace rsz
 {
@@ -29,6 +37,7 @@ class EstimateParasitics;
 
 namespace lrf
 {
+class IncreSta;
 class LocalSta;
 class PtGraph;
 class PtVertex;
@@ -40,8 +49,8 @@ struct ErrorPoint
   PtEdge   *local_edge;
   PtVertex *open_vertex;
   PtEdge   *open_edge;
-  Arrival local_arrival;
-  Arrival open_arrival;
+  sta::Arrival local_arrival;
+  sta::Arrival open_arrival;
   sta::DcalcAnalysisPt* analysis_pt;
 };
 
@@ -57,7 +66,9 @@ public:
     double runtime_s = 0.0;
   };
 
-  IterationHelper(sta::dbSta *sta, odb::dbBlock *block);
+  IterationHelper(sta::dbSta *sta, odb::dbBlock *block,
+                  LocalSta *local_sta = nullptr,
+                  rsz::Resizer *resizer = nullptr);
 
   // Snapshot current timing + leakage
   Metrics snapshot(double runtime_s = 0.0);
@@ -82,6 +93,8 @@ private:
   sta::dbSta *sta_;
   odb::dbBlock *block_;
   sta::Corner *corner_;
+  LocalSta *local_sta_;
+  rsz::Resizer *resizer_;
   std::vector<std::string> rows_;
 };
 
@@ -98,34 +111,9 @@ public:
 
   void testDifferenceBetweenLocalAndOpen(char *inst_name, sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
 
-  void testParallelVisitor(const std::vector<odb::dbInst*>& db_insts, sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
-
-  // Test single net buffer insertion
-  void testBufferInsertion(char *inst_name, sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
-
-  // Test buffering on a single instance via visitor->visit() path
-  void testSingleInstBuffering(char *inst_name, sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
-
   void testMEEAssignments(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
 
-  void testParallelResize(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
-
   void testReportVertices(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
-
-  void testParallelLrResizing(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block, size_t thread_num, 
-    size_t max_resize_num, size_t iterations, size_t num_no_improve_tolerance, bool ratcons = false,
-    float PT_tradeoff = 100.0, std::string lr_helper_method = "LRHelper");
-
-  void testParallelLrResizingBuffering(sta::dbSta* sta, 
-                            rsz::Resizer *resizer, 
-                            odb::dbBlock *block,
-                            size_t thread_num,
-                            size_t max_resize_num,
-                            size_t iterations,
-                            size_t num_no_improve_tolerance,
-                            bool ratcons,
-                            float PT_tradeoff,
-                            std::string lr_helper_method);
 
   void testParallelLrResizeByArray(sta::dbSta* sta,
                             rsz::Resizer *resizer,
@@ -136,48 +124,11 @@ public:
                             size_t num_no_improve_tolerance,
                             bool ratcons = false,
                             float PT_tradeoff = 100.0,
-                            std::string lr_helper_method = "LRHelper");
+                            std::string lr_helper_method = "LRHelper",
+                            bool initialize = false,
+                            float density_weight = 0.0f,
+                            std::string checkpoint_dir = "");
 
-  // Speedup variant: critical-path filtering + incremental STA + hazard fixes.
-  void testParallelLrResizeByArraySpeedup(sta::dbSta* sta,
-                            rsz::Resizer *resizer,
-                            odb::dbBlock *block,
-                            size_t thread_num,
-                            size_t max_resize_num,
-                            size_t iterations,
-                            size_t num_no_improve_tolerance,
-                            bool ratcons = false,
-                            float PT_tradeoff = 100.0,
-                            std::string lr_helper_method = "LRHelper");
-
-  void testParallelLrResizeByArrayV2(sta::dbSta* sta,
-                            rsz::Resizer *resizer,
-                            odb::dbBlock *block,
-                            size_t thread_num,
-                            size_t max_resize_num,
-                            size_t iterations,
-                            size_t num_no_improve_tolerance,
-                            bool ratcons = false,
-                            float PT_tradeoff = 100.0,
-                            std::string lr_helper_method = "LRHelper");
-
-  void testParallelLrResizeByArrayWithBufferingV2(sta::dbSta* sta,
-                            rsz::Resizer *resizer,
-                            odb::dbBlock *block,
-                            size_t thread_num,
-                            size_t max_resize_num,
-                            size_t iterations,
-                            size_t num_no_improve_tolerance,
-                            bool ratcons = false,
-                            float PT_tradeoff = 100.0,
-                            std::string lr_helper_method = "LRHelper");
-
-  void testTimingComputeAndWriteBack(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block, const std::vector<odb::dbInst*> &insts);
-
-  // Print all liberty cells information grouped by unique equiv cell groups.
-  void printAllCellsInfo(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
-
-  // integrate resizing by array and parallel buffering
   void testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
                             rsz::Resizer *resizer,
                             odb::dbBlock *block,
@@ -187,7 +138,29 @@ public:
                             size_t num_no_improve_tolerance,
                             bool ratcons = false,
                             float PT_tradeoff = 100.0,
-                            std::string lr_helper_method = "RapidLRHelper");
+                            std::string lr_helper_method = "LRHelper",
+                            bool initialize = false,
+                            float density_weight = 0.0f,
+                            bool debug = false,
+                            size_t buffering_start_iter = 5);
+
+  // Resize iterations + RSZ-style rebuffering phases
+  void testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons = false,
+                            float PT_tradeoff = 100.0,
+                            std::string lr_helper_method = "LRHelper",
+                            bool initialize = false,
+                            float density_weight = 0.0f,
+                            bool debug = false);
+
+  // Print all liberty cells information grouped by unique equiv cell groups.
+  void printAllCellsInfo(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
 
   // Single-pass resize + buffering (combined visitor)
   void testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
@@ -199,9 +172,20 @@ public:
                             size_t num_no_improve_tolerance,
                             bool ratcons = false,
                             float PT_tradeoff = 100.0,
-                            std::string lr_helper_method = "RapidLRHelper");
+                            std::string lr_helper_method = "RapidLRHelper",
+                            bool initialize = false);
 
-  // Resize by array with preceding precheck filtering
+  void testBufferOnly(sta::dbSta* sta,
+                      rsz::Resizer *resizer,
+                      odb::dbBlock *block,
+                      size_t thread_num,
+                      size_t iterations = 6,
+                      float PT_tradeoff = 10.0,
+                      std::string lr_helper_method = "RapidLRHelper",
+                      float bakoglu_k = 2.5f,
+                      bool debug = false);
+
+  // Resize by array with precheck (ParallelVisitor + ResizePrecheckOperator)
   void testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
                             rsz::Resizer *resizer,
                             odb::dbBlock *block,
@@ -214,34 +198,8 @@ public:
                             std::string lr_helper_method = "RapidLRHelper",
                             float top_ratio = 0.3);
 
-  // Resize by array with precheck + buffering (precheck replaces adaptive resize)
+  // Resize by array with precheck + buffering
   void testParallelLrResizeByArrayWithPrecheckBuffering(sta::dbSta* sta,
-                            rsz::Resizer *resizer,
-                            odb::dbBlock *block,
-                            size_t thread_num,
-                            size_t max_resize_num,
-                            size_t iterations,
-                            size_t num_no_improve_tolerance,
-                            bool ratcons = false,
-                            float PT_tradeoff = 100.0,
-                            std::string lr_helper_method = "RapidLRHelper",
-                            float top_ratio = 0.3);
-
-  // V2 resize by array with precheck (new framework: ParallelVisitor + ResizePrecheckOperator)
-  void testParallelLrResizeByArrayWithPrecheckV2(sta::dbSta* sta,
-                            rsz::Resizer *resizer,
-                            odb::dbBlock *block,
-                            size_t thread_num,
-                            size_t max_resize_num,
-                            size_t iterations,
-                            size_t num_no_improve_tolerance,
-                            bool ratcons = false,
-                            float PT_tradeoff = 100.0,
-                            std::string lr_helper_method = "RapidLRHelper",
-                            float top_ratio = 0.3);
-
-  // V2 resize by array with precheck + buffering (new framework)
-  void testParallelLrResizeByArrayWithPrecheckBufferingV2(sta::dbSta* sta,
                             rsz::Resizer *resizer,
                             odb::dbBlock *block,
                             size_t thread_num,
@@ -269,6 +227,93 @@ public:
                                   size_t thread_num,
                                   std::string lr_helper_method = "LRHelper");
 
+  // Test LocalSTA slew + arrival accuracy: full traversal with selective
+  // resize, compare global graph against updateTiming ground truth.
+  void testLocalStaAccuracy(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t max_steps);
+
+  // Analyze slew violation pins: for each violated driver, check whether
+  // downsizing fanout loads and/or upsizing the driver can fix the violation.
+  void testSlewViolationFeasibility(sta::dbSta* sta,
+                                    rsz::Resizer *resizer,
+                                    odb::dbBlock *block);
+
+  // Repair slew violations by buffer insertion on violated driver nets.
+  void testRepairSlew(sta::dbSta* sta,
+                      rsz::Resizer *resizer,
+                      odb::dbBlock *block);
+  // ECO experiment: lmUpdate → resize → if worse → lmUpdate → revert (no halve)
+  void testEcoResizeNoHalve(sta::dbSta* sta,
+                             rsz::Resizer *resizer,
+                             odb::dbBlock *block,
+                             size_t thread_num,
+                             size_t iterations = 12,
+                             float PT_tradeoff = 10.0,
+                             std::string lr_helper_method = "RapidLRHelper",
+                             float halve_factor = 0.5f,
+                             bool use_precheck = true);
+
+  // Sensitivity screening + rsz-style rebuffering (repair_timing algorithm).
+  void testBufferingRsz(sta::dbSta* sta,
+                        rsz::Resizer *resizer,
+                        odb::dbBlock *block,
+                        size_t thread_num,
+                        float PT_tradeoff = 100.0f,
+                        int top_n = 100);
+  // Probe: try rebuffering one instance at a time, report WNS/TNS delta, revert.
+  void probeBufferOneByOne(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num = 10,
+                            bool use_rsz = true);
+
+  // Probe: RSZ bnet generation + LRF local timing evaluation (diagnostic only).
+  void probeRszBnet(sta::dbSta* sta, rsz::Resizer *resizer,
+                    odb::dbBlock *block, size_t thread_num = 10);
+
+  // Deep probe: for specific pins, compare 3 methods (RSZ, LRF-worst, LRF-sum)
+  // with full local + global timing analysis.
+  void probeBufferDeep(sta::dbSta* sta, rsz::Resizer *resizer,
+                       odb::dbBlock *block, size_t thread_num,
+                       const std::vector<std::string> &pin_names);
+
+  // Enumerate ALL bnet options for one pin, eval local+global for each.
+  void probeAllOptions(sta::dbSta* sta, rsz::Resizer *resizer,
+                       odb::dbBlock *block, size_t thread_num,
+                       const char *pin_name);
+
+  // ── Unified entry point ──
+  // Single function that dispatches by LrConfig::mode.
+  // Replaces testParallelLrResizeByArray, WithBuffering, WithPrecheck, etc.
+  void runLr(sta::dbSta* sta, rsz::Resizer *resizer,
+             odb::dbBlock *block, size_t thread_num,
+             const LrConfig &cfg);
+
+  // Run parallel 4-step initialization (Sharma) on an existing IncreSta.
+  // Called internally by testParallelLrResize* when initialize=true.
+  void runInitialization(sta::dbSta* sta, IncreSta* incre_sta,
+                         rsz::Resizer *resizer, odb::dbBlock *block,
+                         size_t thread_num);
+
+  // Test: level-parallel initializer (standalone, does not start LR).
+  void testParallelInitializer(sta::dbSta* sta,
+                               rsz::Resizer *resizer,
+                               odb::dbBlock *block,
+                               int thread_count,
+                               bool minimize_leakage = true);
+
+  // Debug: verify precheck predictions by applying single-gate sizing
+  // one at a time, recording PtGraph timing + LM before/after each swap.
+  void debugPrecheckAccuracy(sta::dbSta* sta,
+                             rsz::Resizer *resizer,
+                             odb::dbBlock *block,
+                             size_t thread_num,
+                             float PT_tradeoff = 100.0,
+                             float top_ratio = 0.3,
+                             std::string lr_helper_method = "RapidLRHelper");
+
 protected:
   void printSlewComparison(char *inst_name, sta::dbSta* sta, 
                        LocalSta *local_sta, odb::dbInst *db_inst, 
@@ -279,9 +324,6 @@ protected:
   bool comparePtGraphs(PtGraph *local_pt_graph, PtGraph *open_pt_graph, sta::dbSta* sta);
 
   void collectTimingInfoForInstancesUsingOpenSta(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block, std::vector<sta::Instance*> &sta_insts,
-  std::unordered_map<sta::Instance*, TimingRecord> &instance_timing_map);
-
-  void collectTimingInfoForInstancesUsingLocalSta(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block, std::vector<sta::Instance*> &sta_insts,
   std::unordered_map<sta::Instance*, TimingRecord> &instance_timing_map);
 
   bool compareTimingRecords(const std::unordered_map<sta::Instance*, TimingRecord> &records1,

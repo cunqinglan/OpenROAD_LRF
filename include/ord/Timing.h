@@ -11,6 +11,10 @@
 #include "sta/Sdc.hh"
 #include "sta/SdcClass.hh"
 
+namespace lrf {
+struct LrConfig;
+}  // namespace lrf
+
 namespace odb {
 class dbMaster;
 class dbMTerm;
@@ -72,10 +76,6 @@ class Timing
   float getMaxCapLimit(odb::dbMTerm* pin);
   float getMaxSlewLimit(odb::dbMTerm* pin);
   float staticPower(odb::dbInst* inst, sta::Corner* corner);
-
-  float leakagePower(odb::dbInst* inst, odb::dbMaster* master, 
-    sta::Corner* corner);
-
   float dynamicPower(odb::dbInst* inst, sta::Corner* corner);
 
   std::vector<odb::dbMTerm*> getTimingFanoutFrom(odb::dbMTerm* input);
@@ -91,7 +91,7 @@ class Timing
   /////////////////////////////////////////////////////////////
   float getLmDelaySum(odb::dbInst* inst, const sta::MinMax *minmax = sta::MinMax::max());
     
-  // bool checkErcViolations(odb::dbInst* inst, sta::Corner* corner);
+  bool checkErcViolations(odb::dbInst* inst, sta::Corner* corner);
 
   void lmUpdate();
 
@@ -99,6 +99,11 @@ class Timing
   float getWorstSlack(MinMax minmax = Max);
   float getTns(MinMax minmax = Max);
   float getTns(sta::Corner* corner, MinMax minmax = Max);
+  // Save/load LM vector to/from binary file for deterministic experiments.
+  // The file includes design name and vertex count for validation.
+  bool saveLmSnapshot(const char *path);
+  bool loadLmSnapshot(const char *path);
+
   /////////////////////////////////////////////////////////////
   // End functions for LR sizing
   /////////////////////////////////////////////////////////////
@@ -106,65 +111,74 @@ class Timing
   /////////////////////////////////////////////////////////////
   // Functions for testing LR sizing
   ///////////////////////////////////////////////////////////
+  // Unified LR entry point — dispatches by cfg.mode.
+  void runLr(const lrf::LrConfig &cfg);
+
+  // Python-friendly: construct LrConfig from individual args.
+  // mode: 0=RESIZE, 1=RESIZE_BUFFER, 2=PRECHECK, 3=PRECHECK_BUFFER, 4=COMBINED
+  void runLr(int mode,
+             size_t iterations = 12,
+             size_t max_resize_num = 20000000,
+             size_t num_no_improve_tolerance = 6,
+             float PT_tradeoff = 100.0f,
+             float density_weight = 0.0f,
+             bool ratcons = false,
+             const char *lr_helper_method = "RapidLRHelper",
+             float top_ratio = 0.3f,
+             bool initialize = false,
+             const char *checkpoint_dir = "",
+             bool debug = false,
+             size_t buffering_start_iter = 5);
+
+  // Test: level-parallel initializer (standalone, does not start LR).
+  void testParallelInitializer(bool minimize_leakage = true);
+
+  // Debug: verify precheck predictions one gate at a time.
+  void debugPrecheckAccuracy(float PT_tradeoff = 100.0,
+                             float top_ratio = 0.3);
+
   void testLocalDelayCompute(char *inst_name);
   void testLocalArrivalCompute(char *inst_name);
   void testLocalSlewCompute(char *inst_name);
   void testPtGraphErrors(char* inst_name);
-  void testParallelVisitor(const std::vector<odb::dbInst*> &inst_names);
   void testMEEAssignments();
-  void testParallelResize();
-  void testParallelLrResizing(size_t max_resize_num,
-                             size_t iterations,
-                             size_t num_no_improve_tolerance,
-                             bool ratcons = false,
-                             float PT_tradeoff = 100.0,
-                             const char *lr_helper_method = "LRHelper");
-  void testTimingComputeAndWriteBack(const std::vector<odb::dbInst*> &insts);
   void testReportVertices();
-  void testBufferInsertion(char *inst_name);
-  void testParallelResizingBuffering(size_t max_resize_num,
-                                     size_t iterations,
-                                     size_t num_no_improve_tolerance,
-                                     bool ratcons = false,
-                                     float PT_tradeoff = 100.0,
-                                     const char *lr_helper_method = "LRHelper");
   void testParallelResizeByArray(size_t max_resize_num,
                                  size_t iterations,
                                  size_t num_no_improve_tolerance,
                                  bool ratcons = false,
                                  float PT_tradeoff = 100.0,
-                                 const char *lr_helper_method = "LRHelper");
-  // Speedup: critical-path filtering + incremental STA + dirty tracking
-  void testParallelResizeByArraySpeedup(size_t max_resize_num,
-                                        size_t iterations,
-                                        size_t num_no_improve_tolerance,
-                                        bool ratcons = false,
-                                        float PT_tradeoff = 100.0,
-                                        const char *lr_helper_method = "LRHelper");
-  void testParallelResizeByArrayV2(size_t max_resize_num,
-                                   size_t iterations,
-                                   size_t num_no_improve_tolerance,
-                                   bool ratcons = false,
-                                   float PT_tradeoff = 100.0,
-                                   const char *lr_helper_method = "LRHelper");
-  void testParallelResizeByArrayWithBufferingV2(size_t max_resize_num,
-                                   size_t iterations,
-                                   size_t num_no_improve_tolerance,
-                                   bool ratcons = false,
-                                   float PT_tradeoff = 100.0,
-                                   const char *lr_helper_method = "LRHelper");
+                                 const char *lr_helper_method = "LRHelper",
+                                 bool initialize = false,
+                                 float density_weight = 0.0f);
   void testParallelResizeByArrayWithBuffering(size_t max_resize_num,
                                               size_t iterations,
                                               size_t num_no_improve_tolerance,
                                               bool ratcons = false,
                                               float PT_tradeoff = 100.0,
-                                              const char *lr_helper_method = "RapidLRHelper");
+                                              const char *lr_helper_method = "LRHelper",
+                                              bool initialize = false,
+                                              float density_weight = 0.0f);
+  void testParallelResizeByArrayWithRszBuffering(size_t max_resize_num,
+                                              size_t iterations,
+                                              size_t num_no_improve_tolerance,
+                                              bool ratcons = false,
+                                              float PT_tradeoff = 100.0,
+                                              const char *lr_helper_method = "LRHelper",
+                                              bool initialize = false,
+                                              float density_weight = 0.0f);
   void testCombinedResizeBuffering(size_t max_resize_num,
                                              size_t iterations,
                                              size_t num_no_improve_tolerance,
                                              bool ratcons = false,
                                              float PT_tradeoff = 100.0,
-                                             const char *lr_helper_method = "RapidLRHelper");
+                                             const char *lr_helper_method = "RapidLRHelper",
+                                             bool initialize = false);
+  void testBufferOnly(size_t iterations = 6,
+                      float PT_tradeoff = 10.0,
+                      const char *lr_helper_method = "RapidLRHelper",
+                      float bakoglu_k = 2.5,
+                      bool debug = false);
   void testParallelResizeByArrayWithPrecheck(size_t max_resize_num,
                                              size_t iterations,
                                              size_t num_no_improve_tolerance,
@@ -172,20 +186,6 @@ class Timing
                                              float PT_tradeoff = 100.0,
                                              const char *lr_helper_method = "RapidLRHelper",
                                              float top_ratio = 0.3);
-  void testParallelResizeByArrayWithPrecheckV2(size_t max_resize_num,
-                                               size_t iterations,
-                                               size_t num_no_improve_tolerance,
-                                               bool ratcons = false,
-                                               float PT_tradeoff = 100.0,
-                                               const char *lr_helper_method = "RapidLRHelper",
-                                               float top_ratio = 0.3);
-  void testParallelResizeByArrayWithPrecheckBufferingV2(size_t max_resize_num,
-                                               size_t iterations,
-                                               size_t num_no_improve_tolerance,
-                                               bool ratcons = false,
-                                               float PT_tradeoff = 100.0,
-                                               const char *lr_helper_method = "RapidLRHelper",
-                                               float top_ratio = 0.3);
   void testParallelResizeByArrayWithPrecheckBuffering(size_t max_resize_num,
                                              size_t iterations,
                                              size_t num_no_improve_tolerance,
@@ -193,10 +193,22 @@ class Timing
                                              float PT_tradeoff = 100.0,
                                              const char *lr_helper_method = "RapidLRHelper",
                                              float top_ratio = 0.3);
+  void testEcoResizeNoHalve(size_t iterations = 12,
+                            float PT_tradeoff = 10.0,
+                            const char *lr_helper_method = "RapidLRHelper",
+                            float halve_factor = 0.5f,
+                            bool use_precheck = true);
   void testPrecedingResizeCheck(float PT_tradeoff = 100.0,
                                 float top_ratio = 0.3);
-  void testSingleInstBuffering(char *inst_name);
   void testParallelKKTProjection(const char *lr_helper_method = "RapidLRHelper");
+  void testLocalStaAccuracy(size_t max_steps = 50);
+  void testSlewViolationFeasibility();
+  void testRepairSlew();
+  void testBufferingRsz(float PT_tradeoff = 100.0f, int top_n = 100);
+  void probeBufferOneByOne(bool use_rsz = true);
+  void probeRszBnet();
+  void probeBufferDeep(const char *pin_names_csv);
+  void probeAllOptions(const char *pin_name);
   /////////////////////////////////////////////////////////////
   // End functions for testing LR sizing
   /////////////////////////////////////////////////////////////

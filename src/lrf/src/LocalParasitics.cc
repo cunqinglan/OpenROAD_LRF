@@ -9,6 +9,7 @@
 #include "sta/Corner.hh"
 #include "PtGraph.hh"
 #include "sta/Sdc.hh"
+#include "sta/ClkNetwork.hh"
 
 #include "LocalReduceParasitic.hh"
 #include "PtPiElmore.hh"
@@ -45,14 +46,14 @@ void
 LocalParasitics::initParasiticMapFromBase()
 {
   if (!corners_) {
-    // printf("DEBUG: LocalParasitics::initParasiticMapFromBase: corners_ is null\n");
-    // fflush(stdout);
+    printf("DEBUG: LocalParasitics::initParasiticMapFromBase: corners_ is null\n");
+    fflush(stdout);
     return;
   }
 
   ConcreteParasitics *global = dynamic_cast<ConcreteParasitics*>(parasitics_);
   if (global != nullptr) {
-    local_parasitic_network_map_ = global->parasitic_network_map_;
+    global_parasitic_network_map_ = &global->parasitic_network_map_;
   }
 }
 
@@ -67,6 +68,10 @@ LocalParasitics::recomputePtParasitics(PtGraph *pt_graph)
     if (!pt_vertex.vertex() || !pt_vertex.vertex()->pin())
       continue;
     const Pin *drvr_pin = pt_vertex.vertex()->pin();
+    // Ideal clock nets have no parasitic network by design (skipped in
+    // EstimateParasitics). Continue silently to avoid spurious errors.
+    if (clk_network_->isIdealClock(drvr_pin))
+      continue;
     const Net *net = findParasiticNet(drvr_pin);
     for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
       ParasiticAnalysisPt *ap = dcalc_ap->parasiticAnalysisPt();
@@ -100,6 +105,10 @@ LocalParasitics::recomputeSinglePtParasitic(PtGraph *pt_graph, VertexId drvr_vid
   if (!pt_vertex.vertex() || !pt_vertex.vertex()->pin())
     return;
   const Pin *drvr_pin = pt_vertex.vertex()->pin();
+  // Ideal clock nets have no parasitic network by design (skipped in
+  // EstimateParasitics). Return silently to avoid spurious errors.
+  if (clk_network_->isIdealClock(drvr_pin))
+    return;
   const Net *net = findParasiticNet(drvr_pin);
   for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
     ParasiticAnalysisPt *ap = dcalc_ap->parasiticAnalysisPt();
@@ -124,45 +133,29 @@ LocalParasitics::recomputeSinglePtParasitic(PtGraph *pt_graph, VertexId drvr_vid
   }
 }
 
-void
-LocalParasitics::syncParasiticNetworkFromGlobal(const Net *net)
-{
-  ConcreteParasitics *global = dynamic_cast<ConcreteParasitics*>(parasitics_);
-  if (!global) return;
-  ConcreteParasiticNetwork **array = global->parasitic_network_map_.findKey(net);
-  if (array)
-    local_parasitic_network_map_[net] = array;
-}
 
 Parasitic *
 LocalParasitics::findLocalParasiticNetwork(const Net *net, const ParasiticAnalysisPt *ap) const
 {
-  if (!local_parasitic_network_map_.empty()) {
+  // TODO (Future target.md): resurface these misses via a deduped warning
+  // once the flat-vs-hierarchical net identity mismatch is fixed. Until then
+  // the prints are silenced — they were spamming 100K+ lines per run on
+  // designs with real hierarchy (see ariane133 SRAM dangling outputs).
+  if (global_parasitic_network_map_ && !global_parasitic_network_map_->empty()) {
     ConcreteParasiticNetwork **parasitic_array =
-      local_parasitic_network_map_.findKey(net);
+      global_parasitic_network_map_->findKey(net);
     if (!parasitic_array) {
-      const char *unconnected_net_name = "UNCONNECTED";
-      if (!network_->name(net) || !strstr(network_->name(net), unconnected_net_name)) {
-        // printf("Error: LocalParasitics::findLocalParasiticNetwork: No parasitic array found for net %s\n",
-                // network_->name(net));
-        // fflush(stdout);
-      }
       return nullptr;
     }
     ConcreteParasiticNetwork *parasitic = parasitic_array[ap->index()];
     if (!parasitic) {
       parasitic = parasitic_array[ap->indexMax()];
       if (parasitic == nullptr) {
-        // printf("Error: LocalParasitics::findLocalParasiticNetwork: No parasitic found for net %s\n",
-               // network_->name(net));
-        // fflush(stdout);
         return nullptr;
       }
     }
     return parasitic;
   }
-  // printf("Error: LocalParasitics::findLocalParasiticNetwork: local_parasitic_network_map_ is empty\n");
-  // fflush(stdout);
   return nullptr;
 }
 

@@ -13,6 +13,10 @@
 #include <limits>
 #include <mutex>
 
+namespace odb {
+  class dbInst;
+}
+
 namespace sta {
   class ArcDelayCalc;
   class dbSta;
@@ -30,9 +34,9 @@ class LocalSta;
 class PtGraph;
 class PtVertex;
 class LrRebuffer;
-class LrRebufferV2;
 class LocalCellInfo;
 class TaskArranger;
+class PlacementDensityMap;
 
 // ═══════════════════════════════════════════════════════════
 // Layer 1: EvalContext — per-thread evaluation context
@@ -47,7 +51,20 @@ struct EvalContext {
   bool allow_buffer = true;
   std::map<std::string, double> *runtime_map = nullptr;
 
-  float swapCost(float delay_lm_sum, float power) const;
+  // Placement density awareness for swap cost.
+  const PlacementDensityMap *density_map = nullptr;
+  float density_weight = 0.0f;    // α coefficient
+  float average_area = 1.0f;      // normalizer (liberty area units)
+
+  float bakoglu_k = 2.5f;     // Bakoglu gate coefficient for buffer screening
+  bool debug = false;          // Print detailed rebuffer/eval diagnostics
+  bool use_sum_threshold = false; // true=sum slack threshold, false=worst slack threshold
+                                  // (v76 probe showed worst is strictly better: avoids
+                                  // sum-metric's false positives on high-fanout nets
+                                  // where per-sink delta averages out the worst-sink harm)
+
+  float swapCost(float delay_lm_sum, float power,
+                 float density_cost = 0.0f) const;
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -79,6 +96,17 @@ void updateTimingFromPtGraph(PtGraph *pt_graph);
 class LrOperator {
 public:
   virtual ~LrOperator() = default;
+
+  // PtGraph construction level requested by this operator.
+  //   Full       — complete local graph (fanout + fanin siblings)
+  //   DriverOnly — ref-instance pins + direct fanout loads only
+  enum class PtGraphLevel { Full, DriverOnly };
+  virtual PtGraphLevel ptGraphLevel() const { return PtGraphLevel::Full; }
+
+  // Pre-PtGraph skip: return true to skip this instance entirely
+  // (no PtGraph construction, no evaluation).
+  virtual bool skipInstance(sta::Instance *) const { return false; }
+
   virtual MoveOption evaluate(PtGraph *pt_graph, sta::Instance *inst,
                               EvalContext &ctx) = 0;
   virtual void apply(const MoveOption &move, PtGraph *pt_graph,
@@ -90,6 +118,7 @@ public:
   virtual void setInstInfoMap(std::unordered_map<sta::Instance*, LocalCellInfo*> *) {}
   virtual void setSlackMargin(float) {}
   virtual void setEvalContext(EvalContext *) {}
+  virtual PruningControl *pruningControl() const { return nullptr; }
 };
 
 // ─── ResizeOperator ──────────────────────────────────────
@@ -111,7 +140,8 @@ public:
   void setSlackMargin(float margin) override { slack_margin_ = margin; }
   void setColPadding(int p) { col_padding_ = p; }
   void setRowPadding(int p) { row_padding_ = p; }
-
+  void setPruningControl(PruningControl *prune_control) { pruning_control_ = prune_control; }
+  PruningControl *pruningControl() const override { return pruning_control_; }
   friend class CombinedOperator;
 
 protected:
@@ -130,6 +160,7 @@ protected:
   float slack_margin_ = 0.0f;
   int col_padding_ = 3;
   int row_padding_ = 1;
+  PruningControl *pruning_control_ = nullptr;
 };
 
 // ─── ResizePrecheckOperator ──────────────────────────────
@@ -156,7 +187,7 @@ public:
              std::map<std::string, double> &runtime_map) override;
   std::unique_ptr<LrOperator> copy() const override;
 
-  LrRebufferV2 *rebuffer() { return rebuffer_.get(); }
+  LrRebuffer *rebuffer() { return rebuffer_.get(); }
   rsz::Resizer *resizer() { return resizer_; }
   // Update the EvalContext pointer (called after copy() when new visitor's ctx is ready)
   void setEvalContext(EvalContext *ctx) override;
@@ -165,7 +196,7 @@ protected:
   sta::dbSta *db_sta_;
   LocalSta *local_sta_;
   rsz::Resizer *resizer_;
-  std::unique_ptr<LrRebufferV2> rebuffer_;
+  std::unique_ptr<LrRebuffer> rebuffer_;
 };
 
 // ─── BufferSensitivityOperator ───────────────────────────
@@ -174,11 +205,37 @@ protected:
 class BufferSensitivityOperator : public BufferOperator {
 public:
   using BufferOperator::BufferOperator;
+  PtGraphLevel ptGraphLevel() const override { return PtGraphLevel::DriverOnly; }
+  bool skipInstance(sta::Instance *inst) const override;
   MoveOption evaluate(PtGraph *pt_graph, sta::Instance *inst,
                       EvalContext &ctx) override;
   void apply(const MoveOption &, PtGraph *,
              std::map<std::string, double> &) override {}
   std::unique_ptr<LrOperator> copy() const override;
+};
+
+// ─── BufferRszOperator ──────────────────────────────────
+// RSZ-style rebuffering (iterative bufferForTiming + area recovery).
+// evaluate() calls prepareRszBnet (parallel, no DB modification);
+// apply() calls applyBufferingToDb (serialized under mutex).
+class BufferRszOperator : public LrOperator {
+public:
+  BufferRszOperator(sta::dbSta *db_sta, LocalSta *local_sta,
+                    rsz::Resizer *resizer, EvalContext *ctx);
+  PtGraphLevel ptGraphLevel() const override { return PtGraphLevel::DriverOnly; }
+  bool skipInstance(sta::Instance *inst) const override;
+  MoveOption evaluate(PtGraph *pt_graph, sta::Instance *inst,
+                      EvalContext &ctx) override;
+  void apply(const MoveOption &move, PtGraph *pt_graph,
+             std::map<std::string, double> &runtime_map) override;
+  std::unique_ptr<LrOperator> copy() const override;
+  void setEvalContext(EvalContext *ctx) override;
+
+private:
+  sta::dbSta *db_sta_;
+  LocalSta *local_sta_;
+  rsz::Resizer *resizer_;
+  std::unique_ptr<LrRebuffer> rebuffer_;
 };
 
 // ─── CombinedOperator ────────────────────────────────────
@@ -196,7 +253,7 @@ public:
   void setInstInfoMap(std::unordered_map<sta::Instance*, LocalCellInfo*> *map) override;
   void setSlackMargin(float margin) override;
   void setEvalContext(EvalContext *ctx) override;
-  LrRebufferV2 *rebuffer() { return buffer_op_ ? buffer_op_->rebuffer() : nullptr; }
+  LrRebuffer *rebuffer() { return buffer_op_ ? buffer_op_->rebuffer() : nullptr; }
 
 private:
   // Two-phase buffering: try buffering on each candidate cell, return
@@ -206,6 +263,10 @@ private:
       PtGraph *pt_graph, sta::Instance *inst, EvalContext &ctx,
       const std::vector<MoveOption> &resize_candidates,
       sta::LibertyCell *ori_cell, float ori_cost);
+  MoveOption tryBufferingOnTop1AndSmaller(
+      PtGraph *pt_graph, sta::Instance *inst, EvalContext &ctx,
+      const std::vector<MoveOption> &resize_candidates,
+      sta::LibertyCell *ori_cell, float baseline_cost);
 
   std::unique_ptr<ResizeOperator> resize_op_;
   std::unique_ptr<BufferOperator> buffer_op_;
@@ -241,6 +302,9 @@ public:
   void setOperator(std::unique_ptr<LrOperator> op) { operator_ = std::move(op); }
 
   void setTaskArranger(TaskArranger *ta) { task_arranger_ = ta; }
+  PruningControl *pruningControl() const {
+    return operator_ ? operator_->pruningControl() : nullptr;
+  }
 
   // Precheck mode: when set, visit() stores cost in results vector
   // indexed by vertex ID instead of applying changes to DB.
@@ -259,6 +323,10 @@ public:
   sta::LibertyCell *bestCell() const { return best_move_.target_cell; }
   EvalContext &evalContext() { return eval_ctx_; }
 
+  // Pruning stats (aggregated across threads)
+  int resizeVisitCount() const { return resize_visit_count_; }
+  int resizeChangeCount() const { return resize_change_count_; }
+
   // Profiling
   void printRuntimeProfile() const;
   const std::map<std::string, double> &runtimeMap() const { return runtime_map_; }
@@ -273,12 +341,17 @@ protected:
   TaskArranger *task_arranger_ = nullptr;
   std::unique_ptr<LrOperator> operator_;
   std::vector<ResizeBenefit> *precheck_results_ = nullptr;
+  int resize_visit_count_ = 0;
+  int resize_change_count_ = 0;
 
   std::map<std::string, double> runtime_map_ = {
     {"visit", 0.0},
     {"pt_graph_construction", 0.0},
     {"equiv_cell_check", 0.0},
     {"equiv_cell_count", 0.0},
+    {"eval_post", 0.0},
+    {"recompute_final", 0.0},
+    {"writeBack", 0.0},
     {"swap", 0.0},
     {"writeTimingToDb", 0.0},
     {"applyDb", 0.0},
@@ -289,7 +362,8 @@ protected:
     {"rebuffer_setup", 0.0},
     {"rebuffer_coarse", 0.0},
     {"rebuffer_precise", 0.0},
-    {"rebuffer_pin_count", 0.0}
+    {"rebuffer_pin_count", 0.0},
+    {"skip_count", 0.0}
   };
 };
 

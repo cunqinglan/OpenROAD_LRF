@@ -22,11 +22,14 @@ add_library(lrf_lib
     LocalReduceParasitic.cc
     IncreSta.cc
     TestLrf.cc
+    TestRebuffer.cc
+    EcoController.cc
     LocalSearch.cc
     LocalPath.cc
-    ParallelVisitor.cc
     NetlistTransformation.cc
-    LrRebufferV2.cc
+    PlacementDensityMap.cc
+    LrRebuffer.cc
+    TestRebuffer.cc
     GraphBase.cc
     TaskArranger.cc
     LocalCellInfo.cc
@@ -35,8 +38,9 @@ add_library(lrf_lib
     RapidLrHelper.cc
     LrSizer.cc
     ViolationCheck.cc
-    LrRebuffer.cc
-  Rebranch.cc
+    Initializer.cc
+    ParallelInitializer.cc
+    Rebranch.cc
 )
 
 target_sources(lrf
@@ -66,6 +70,7 @@ target_include_directories(lrf_lib
     ${OPENSTA_HOME}
     # ${OPENSTA_HOME}/include
     ${OPENSTA_HOME}/include/sta
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../rsz/src
     .
 )
 
