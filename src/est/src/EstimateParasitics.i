@@ -303,6 +303,13 @@ set_parasitics_src(ParasiticsSrc src)
 }
 
 void
+reset_block_cmd()
+{
+  est::EstimateParasitics *estimate_parasitics = getEstimateParasitics();
+  estimate_parasitics->resetBlock();
+}
+
+void
 highlight_steiner_tree(const Pin *drvr_pin)
 {
   est::EstimateParasitics *estimate_parasitics = getEstimateParasitics();
