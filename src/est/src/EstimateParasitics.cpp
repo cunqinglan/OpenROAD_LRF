@@ -350,6 +350,17 @@ void EstimateParasitics::removeDbCbkOwner()
   db_cbk_->removeOwner();
 }
 
+void EstimateParasitics::resetBlock()
+{
+  if (db_cbk_->hasOwner()) {
+    db_cbk_->removeOwner();
+  }
+  block_ = nullptr;
+  parasitics_src_ = ParasiticsSrc::kNone;
+  parasitics_invalid_.clear();
+  incremental_parasitics_enabled_ = false;
+}
+
 // block_ indicates core_, design_area_, db_network_ etc valid.
 void EstimateParasitics::initBlock()
 {

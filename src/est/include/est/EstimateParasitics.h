@@ -228,6 +228,14 @@ class EstimateParasitics : public sta::dbStaState, public ParasiticsService
 
   void initBlock();
 
+  // Reset block_ and callback owner so the next initBlock() rebinds to a
+  // freshly loaded block. Supports "destroy chip + read_db" in the same
+  // OpenROAD session — initBlock() guards block_ rebind with a nullptr
+  // check, and db_cbk_ ownership lingers across chip destroy. Call this
+  // BEFORE dbChip::destroy so the callback is unregistered from the live
+  // block while it is still valid.
+  void resetBlock();
+
   utl::Logger* getLogger() { return logger_; }
 
  private:
