@@ -1831,48 +1831,24 @@ std::string dbNetwork::name(const Net* net) const
   staToDb(net, dnet, modnet);
   std::string name;
 
-  Network* sta_nwk = (Network*) this;
-
   if (dnet && !modnet) {
     name = dnet->getName();
-    // strip out the parent name in hierarchy mode
-    // turn this off to get full flat names
-
-    if (hasHierarchy()) {
-      //
-      // If this is not a hierarchical name, return it
-      //
-      if (name.find_last_of('/') == std::string::npos) {
-        return name;
-      }
-      //
-      // Get the net name within this module of the hierarchy
-      // Note we know we are dealing with an instance pin
-      // of the form parent/instance/Z
-      // Strip out the parent/instance part from the net name.
-      // Because this object is not hooked to a modnet
-      // then we know it is inside the core of the module..
-      //
-      dbITerm* connected_iterm = dnet->getFirstOutput();
-      if (connected_iterm) {
-        Pin* related_pin = dbToSta(connected_iterm);
-        std::string related_pin_name_string = sta_nwk->pathName(related_pin);
-        const size_t last_idx = related_pin_name_string.find_last_of('/');
-        if (last_idx != std::string::npos) {
-          related_pin_name_string = related_pin_name_string.substr(0, last_idx);
-          const size_t second_last_idx
-              = related_pin_name_string.find_last_of('/');
-          if (second_last_idx != std::string::npos) {
-            std::string header_to_remove
-                = related_pin_name_string.substr(0, second_last_idx);
-            size_t pos = name.find(header_to_remove);
-            if (pos != std::string::npos) {
-              name.erase(pos, header_to_remove.length() + 1);
-            }
-          }
-        }
-      }
-    }
+    // Intentionally do NOT strip parent-hier prefix in hierarchy mode for
+    // orphan dbNets (those without a dbModNet companion). The earlier
+    // heuristic used the first output iterm's pathName to derive a
+    // "parent hier" and then removed it from the net name, producing a
+    // local-leaf form (e.g. "count_f[0]"). But when an orphan dbNet spans
+    // multiple sub-module scopes — which happens when rsz inserts
+    // buffers/clones/splits at top-level that connect to sub-module-local
+    // nets — multiple distinct dbNets all strip to identical leaf names
+    // and write_verilog emits duplicate `wire count_f[0];` declarations
+    // in the top module. Cadence Innovus then reports IMPVL-385.
+    //
+    // Returning the full flat name matches flat-mode behavior: write_verilog
+    // emits it as a Verilog escaped identifier (\a/b/c/count_f[0] ) which
+    // is uniquely distinguishable across dbNets. Legitimate sub-module
+    // internal nets are not affected because they carry a dbModNet
+    // companion and take the fall-through branch below.
   }
   // Note the fall through: if we have a dnet which has a
   // little modnet friend, we use the modnet name.
