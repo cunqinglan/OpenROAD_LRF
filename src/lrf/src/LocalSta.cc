@@ -1,6 +1,11 @@
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
 #include <mutex>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "sta/Sta.hh"
 #include "sta/Corner.hh"
@@ -57,8 +62,8 @@ LocalSta::LocalSta(sta::dbSta *sta) :
   pred_(new SearchMEEPred(sta)),
   search_pred_(new SearchPredNonLatch2(sta))
 {
-  // printf("LocalSta::LocalSta created\n");
-  // fflush(stdout);
+  printf("LocalSta::LocalSta created\n");
+  fflush(stdout);
   parasitics_set_ = false;
 }
 
@@ -84,13 +89,33 @@ LocalSta::copyState(const Sta *sta)
   sorted_ = false;
 }
 
-void 
+void
 LocalSta::setParasiticsEst(est::EstimateParasitics *estimate_parasitics) {
   estimate_parasitics_ = estimate_parasitics;
   parasitics_set_ = true;
 }
 
-void 
+void
+LocalSta::updateGlobalParasiticsAndSync(est::EstimateParasitics *est_parasitics)
+{
+  auto t0 = std::chrono::high_resolution_clock::now();
+  est_parasitics->updateWireParasiticsNoDeleteNetworkParallel();
+  auto t1 = std::chrono::high_resolution_clock::now();
+  local_parasitics_->initParasiticMapFromBase();
+  auto t2 = std::chrono::high_resolution_clock::now();
+  printf("[PARASITIC_TIMING] updateWireParasitics: %.4f s, initParasiticMap: %.4f s\n",
+         std::chrono::duration<double>(t1 - t0).count(),
+         std::chrono::duration<double>(t2 - t1).count());
+  fflush(stdout);
+}
+
+void
+LocalSta::syncParasiticMapFromGlobal()
+{
+  local_parasitics_->initParasiticMapFromBase();
+}
+
+void
 LocalSta::collectLocalGraph(Instance *inst, InstanceSet &local_instances)
 {
   if (network_->libertyCell(inst)->hasSequentials()) {
@@ -156,31 +181,36 @@ LocalSta::collectLocalFanoutVertices(sta::Vertex *drvr_vertex,
   VertexOutEdgeIterator edge_iter(drvr_vertex, graph_);
   while (edge_iter.hasNext()) {
     Edge *out_edge = edge_iter.next();
-    if (!out_edge->isWire() || !search_pred_->searchThru(out_edge))
+    if (!out_edge->isWire())
       continue;
     Vertex *load_vertex = out_edge->to(graph_);
     if (!network_->isLoad(load_vertex->pin()))
       continue;
+    // Always include fanout load so parasitic network traversal
+    // can find its PtVertex (avoids stale-pin crash in reducePiDfs).
     local_vertices.insert(load_vertex);
+    // Only expand to load's driver if search predicate allows.
+    if (!search_pred_->searchThru(out_edge))
+      continue;
 
     VertexOutEdgeIterator in_inst_edge_iter(load_vertex, graph_);
     while (in_inst_edge_iter.hasNext()) {
       Edge *in_inst_edge = in_inst_edge_iter.next();
       Vertex *out_driver_vertex = in_inst_edge->to(graph_);
-      if (!search_pred_->searchThru(in_inst_edge) || 
+      if (!search_pred_->searchThru(in_inst_edge) ||
                       !search_pred_->searchFrom(load_vertex)) {
         continue;
       }
       if (!network_->isDriver(out_driver_vertex->pin())) {
-        // printf("Warining: LocalSta::collectLocalFanoutVertices: from driver %s vertex %s of edge %s is not a driver\n",
-                // drvr_vertex->to_string(graph_).c_str(),
-               // out_driver_vertex->to_string(graph_).c_str(),
-               // in_inst_edge->to_string(graph_).c_str());
-        // fflush(stdout);
+        printf("Warining: LocalSta::collectLocalFanoutVertices: from driver %s vertex %s of edge %s is not a driver\n",
+                drvr_vertex->to_string(graph_).c_str(),
+               out_driver_vertex->to_string(graph_).c_str(),
+               in_inst_edge->to_string(graph_).c_str());
+        fflush(stdout);
         continue;
       }
       // We avoid collecting latches in the local graph.
-      if (search_pred_->searchThru(in_inst_edge) && 
+      if (search_pred_->searchThru(in_inst_edge) &&
                       search_pred_->searchTo(out_driver_vertex))
         local_vertices.insert(out_driver_vertex);
     }
@@ -226,9 +256,13 @@ LocalSta::collectLocalFaninSiblingVertices(Vertex *load_vertex,
     if (load_pin == load_vertex->pin())
       continue;
     Vertex *sibling_load_vertex = graph_->pinLoadVertex(load_pin);
-    if (sibling_load_vertex
-        && search_pred_->searchFrom(sibling_load_vertex)) {
-      local_vertices.insert(sibling_load_vertex);
+    if (!sibling_load_vertex)
+      continue;
+    // Always include sibling load so parasitic network traversal
+    // can find its PtVertex (avoids stale-pin crash in reducePiDfs).
+    local_vertices.insert(sibling_load_vertex);
+    // Only expand to sibling's driver/fanin if search predicate allows.
+    if (search_pred_->searchFrom(sibling_load_vertex)) {
       // Collect sibling driver vertices, skip check edges and latch edges
       VertexOutEdgeIterator in_inst_edge_iter(sibling_load_vertex, graph_);
       while (in_inst_edge_iter.hasNext()) {
@@ -237,46 +271,88 @@ LocalSta::collectLocalFaninSiblingVertices(Vertex *load_vertex,
         if (search_pred_->searchThru(sibling_inst_edge) && 
                         search_pred_->searchTo(sibling_drvr_vertex)) {
           if (!network_->isDriver(sibling_drvr_vertex->pin())) {
-            // printf("Warining: LocalSta::collectLocalFaninSiblingVertices: vertex %s is not a driver\n",
-                  // sibling_drvr_vertex->to_string(graph_).c_str());
+            printf("Warining: LocalSta::collectLocalFaninSiblingVertices: vertex %s is not a driver\n",
+                  sibling_drvr_vertex->to_string(graph_).c_str());
             continue;
           }
           
           local_vertices.insert(sibling_drvr_vertex);
+          // Collect all fanin vertices of the SibDrvr so that
+          // findLocalArrivals can compute its arrival through
+          // all input arcs, not just the one shared with RefDriver.
+          VertexInEdgeIterator sib_in_iter(sibling_drvr_vertex, graph_);
+          while (sib_in_iter.hasNext()) {
+            Edge *sib_in_edge = sib_in_iter.next();
+            Vertex *sib_fanin = sib_in_edge->from(graph_);
+            if (search_pred_->searchThru(sib_in_edge)
+                && search_pred_->searchFrom(sib_fanin))
+              local_vertices.insert(sib_fanin);
+          }
         }
       }
     }
   }
 }
 
-void 
+void
+LocalSta::collectDriverFanoutOnly(Instance *inst, VertexSet &local_vertices)
+{
+  InstancePinIterator *pin_iter = network_->pinIterator(inst);
+  while (pin_iter->hasNext()) {
+    Pin *pin = pin_iter->next();
+    if (network_->isDriver(pin)) {
+      Vertex *drvr = graph_->pinDrvrVertex(pin);
+      if (drvr && search_pred_->searchTo(drvr)) {
+        local_vertices.insert(drvr);
+        // Direct wire fanout loads only — no downstream driver collection
+        VertexOutEdgeIterator edge_iter(drvr, graph_);
+        while (edge_iter.hasNext()) {
+          Edge *edge = edge_iter.next();
+          if (!edge->isWire() || !search_pred_->searchThru(edge))
+            continue;
+          Vertex *load = edge->to(graph_);
+          if (network_->isLoad(load->pin()))
+            local_vertices.insert(load);
+        }
+      }
+    }
+    if (network_->isLoad(pin)) {
+      Vertex *load = graph_->pinLoadVertex(pin);
+      if (load)
+        local_vertices.insert(load);
+    }
+  }
+  delete pin_iter;
+}
+
+void
 LocalSta::collectLocalFanouts(Pin *drvr_pin, InstanceSet &local_instances)
 {
   if (graph_ == nullptr) {
-    // printf("LocalSta::collectLocalFanouts graph pointer is nullptr\n");
-    // fflush(stdout);
+    printf("LocalSta::collectLocalFanouts graph pointer is nullptr\n");
+    fflush(stdout);
     return;
   }
 
   if (drvr_pin == nullptr) {
-    // printf("LocalSta::collectLocalFanouts drvr_pin is nullptr\n");
-    // fflush(stdout);
+    printf("LocalSta::collectLocalFanouts drvr_pin is nullptr\n");
+    fflush(stdout);
     return;
   }
 
   VertexId vertex_id = network_->vertexId(drvr_pin);
   if (vertex_id == vertex_id_null) {
-    // printf("LocalSta::collectLocalFanouts vertex_id is 0 for pin %s\n",
-           // network_->name(drvr_pin));
-    // fflush(stdout);
+    printf("LocalSta::collectLocalFanouts vertex_id is 0 for pin %s\n",
+           network_->name(drvr_pin));
+    fflush(stdout);
     return;
   }
 
   Vertex *vertex = graph_->pinDrvrVertex(drvr_pin);
   if (vertex == nullptr) {
-    // printf("LocalSta::collectLocalFanouts vertex is nullptr for pin %s\n",
-           // network_->name(drvr_pin));
-    // fflush(stdout);
+    printf("LocalSta::collectLocalFanouts vertex is nullptr for pin %s\n",
+           network_->name(drvr_pin));
+    fflush(stdout);
     return;
   }
 
@@ -487,6 +563,22 @@ LocalSta::makePtGraph(PtGraph *pt_graph, Instance *inst,
   pt_graph->setDcalcAnalysisPt(dcalc_ap);
 }
 
+void
+LocalSta::makePtGraphDriverOnly(PtGraph *pt_graph, Instance *inst,
+                                DcalcAnalysisPt *dcalc_ap)
+{
+  VertexSet local_vertices(graph_);
+  collectDriverFanoutOnly(inst, local_vertices);
+  pt_graph->makeGraph(local_vertices, inst);
+  if (dcalc_ap == nullptr) {
+    Corner *corner = sta_->corners()->findCorner("default");
+    dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
+    if (dcalc_ap == nullptr)
+      throw std::runtime_error("LocalSta::makePtGraphDriverOnly: No dcalc analysis point found");
+  }
+  pt_graph->setDcalcAnalysisPt(dcalc_ap);
+}
+
 PtGraph *
 LocalSta::makePtGraph(Instance *inst, bool update_timing_first)
 {
@@ -503,20 +595,6 @@ LocalSta::makePtGraph(Instance *inst, bool update_timing_first)
   std::lock_guard<std::mutex> lock(pt_graph_vector_mutex_);
   local_graphs_.push_back(pt_graph);
   return pt_graph;
-}
-
-void
-LocalSta::rebuildPtGraph(PtGraph *pt_graph, Instance *inst,
-                          bool update_timing_first)
-{
-  pt_graph->reset();
-  makePtGraph(pt_graph, inst);
-  if (update_timing_first) {
-    Level top_level = pt_graph->topVertexLevel();
-    findDelays(top_level);
-    search_->findArrivals(top_level);
-    pt_graph->initVertexAndEdges();
-  }
 }
 
 void
@@ -579,7 +657,7 @@ LocalSta::seedDrvrSlew(PtVertex &pt_drvr_vertex, PtGraph *pt_graph,
 	drive->driveCell(rf, cnst_min_max, drvr_cell, from_port,
 			 from_slews, to_port);
   if (drvr_cell) {
-    // printf("Warning: LocalSta::seedDrvrSlew: Input drive seeding not implemented yet\n");
+    printf("Warning: LocalSta::seedDrvrSlew: Input drive seeding not implemented yet\n");
     // if (from_port == nullptr) {
     //   from_port = driveCellDefaultFromPort(drvr_cell, to_port);
     // }
@@ -615,9 +693,9 @@ LocalSta::seedNoDrvrCellSlew(PtVertex &pt_drvr_vertex,
   else {
     // Top level bidirect driver uses load slew unless
     // bidirect instance paths are disabled.
-    // printf("Warning: LocalSta::seedNoDrvrCellSlew: Input drive slew not found for pin %s\n",
-           // network_->name(drvr_pin));
-           // fflush(stdout);
+    printf("Warning: LocalSta::seedNoDrvrCellSlew: Input drive slew not found for pin %s\n",
+           network_->name(drvr_pin));
+           fflush(stdout);
   }
   Delay drive_delay = delay_zero;
   float drive_res;
@@ -639,7 +717,7 @@ LocalSta::seedNoDrvrCellSlew(PtVertex &pt_drvr_vertex,
   ArcDcalcResult dcalc_result =
     arc_delay_calc->inputPortDelay(drvr_pin, delayAsFloat(slew), rf, parasitic,
                                    load_pin_index_map, dcalc_ap);
-  annotateLoadDelays(pt_drvr_vertex, rf, dcalc_result, load_pin_index_map, 
+  annotateLoadDelays(pt_drvr_vertex, rf, dcalc_result, load_pin_index_map,
                      drive_delay, false, dcalc_ap, pt_graph);
   arc_delay_calc->finishDrvrPin();
 }
@@ -907,11 +985,11 @@ LocalSta::findDriverEdgeDelays(PtVertex &drvr_pt_vertex,
   // If both vertices belong to ref instance, use ref cell's timing
   TimingArcSet *ref_arc_set = pt_edge.timingArcSet();
   if (ref_arc_set == nullptr){
-    // printf("ERROR findDriverEdgeDelays: timingArcSet is nullptr for edge %u "
-           // "(from %u to %u), type=%d, hasBase=%d, isWire=%d\n",
-           // pt_edge.objectIdx(), pt_edge.ptFromId(), pt_edge.ptToId(),
-           // (int)pt_edge.type(), (int)pt_edge.hasBase(), (int)pt_edge.isWire());
-    // fflush(stdout);
+    printf("ERROR findDriverEdgeDelays: timingArcSet is nullptr for edge %u "
+           "(from %u to %u), type=%d, hasBase=%d, isWire=%d\n",
+           pt_edge.objectIdx(), pt_edge.ptFromId(), pt_edge.ptToId(),
+           (int)pt_edge.type(), (int)pt_edge.hasBase(), (int)pt_edge.isWire());
+    fflush(stdout);
     throw std::runtime_error("LocalSta::findDriverEdgeDelays: timingArcSet is nullptr");
   }
   
@@ -982,8 +1060,8 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
       // ArcDcalcArg dcalc_args = makeArcDcalcArgs(drvr_pt_vertex,
                                   // multi_drvr_net, pt_edge, arc,
                                   // dcalc_ap, arc_delay_calc, pt_graph);
-      // printf("LocalSta::findDriverArcDelays multi-driver net not implemented\n");
-      // fflush(stdout);
+      printf("LocalSta::findDriverArcDelays multi-driver net not implemented\n");
+      fflush(stdout);
     }
     arc_delay_calc->finishDrvrPin();
   }
@@ -1185,11 +1263,9 @@ LocalSta::computeVirtualLoadCap(PtVertex &drvr_pt_vertex,
   if (drvr_port) {
     float dcap = drvr_port->capacitance(drvr_rf, min_max);
     load_cap += dcap;
-    // printf("[DEBUG computeVirtualLoadCap] drvr_port=%s self_cap=%.6f pF\n",
-    //        drvr_port->name(), dcap * 1e12);
   } else {
-    // printf("[WARNING computeVirtualLoadCap] drvr_port=NULL (pin=%p)\n",
-           // (void*)drvr_pin);
+    printf("[WARNING computeVirtualLoadCap] drvr_port=NULL (pin=%p)\n",
+           (void*)drvr_pin);
   }
 
   // Downstream load pin capacitances
@@ -1217,14 +1293,10 @@ LocalSta::computeVirtualLoadCap(PtVertex &drvr_pt_vertex,
       if (load_port) {
         float pin_cap = load_port->capacitance(drvr_rf, min_max);
         load_cap += pin_cap;
-        // printf("[DEBUG computeVirtualLoadCap] load=%s cap=%.6f\n",
-        //        load_name.c_str(), pin_cap * 1e12);
         load_count++;
       }
     }
   }
-  // printf("[DEBUG computeVirtualLoadCap] total_cap=%.6f (loads=%d)\n",
-  //        load_cap * 1e12, load_count);
   return load_cap;
 }
 
@@ -1411,21 +1483,95 @@ LocalSta::initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_c
   return delayLmSum(pt_graph, dcalc_ap, false);
 }
 
+// Swap ref cell and selectively recompute parasitics.
+// RefDriver parasitics always recomputed (input pin cap changes on cell swap).
+// RefOutput parasitics only recomputed if the output port cap actually changed.
+bool
+LocalSta::virtualReplaceCellSelective(PtGraph *pt_graph, LibertyCell *new_cell)
+{
+  if (!new_cell)
+    return pt_graph->refGate() != nullptr;
+  if (!sta::equivCellsArcs(pt_graph->refGate(), new_cell))
+    return false;
+
+  // Snapshot output port caps before swap.
+  std::vector<float> old_output_caps;
+  old_output_caps.reserve(4);
+  for (const auto &ptv : pt_graph->ptVertices()) {
+    if (ptv.type() == PtVertexType::RefOutput) {
+      LibertyPort *port = ptv.libertyPort();
+      old_output_caps.push_back(
+          port ? port->capacitance(RiseFall::rise(), MinMax::max()) : 0.0f);
+    }
+  }
+
+  // Swap cell.
+  pt_graph->setRefGate(new_cell);
+  pt_graph->updateTimingArcSets();
+  pt_graph->updateRefPorts();
+
+  // Always recompute RefDriver parasitics (input cap changed).
+  for (const auto &ptv : pt_graph->ptVertices()) {
+    if (ptv.type() == PtVertexType::RefDriver)
+      recomputeSinglePtParasitic(pt_graph, ptv.objectIdx());
+  }
+
+  // Only recompute RefOutput parasitics if port cap changed.
+  size_t oi = 0;
+  for (const auto &ptv : pt_graph->ptVertices()) {
+    if (ptv.type() != PtVertexType::RefOutput)
+      continue;
+    if (oi < old_output_caps.size()) {
+      LibertyPort *port = ptv.libertyPort();
+      float new_cap = port ? port->capacitance(RiseFall::rise(), MinMax::max()) : 0.0f;
+      if (new_cap != old_output_caps[oi])
+        recomputeSinglePtParasitic(pt_graph, ptv.objectIdx());
+    }
+    oi++;
+  }
+  return true;
+}
+
 DelayLmSumResult
 LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph,
                                      ArcDelayCalc *arc_delay_calc,
-                                     LibertyCell *equiv_cell)
+                                     LibertyCell *equiv_cell,
+                                     std::map<std::string, double> *runtime_map)
 {
-  if (!virtualReplaceCell(pt_graph, equiv_cell)) {
-    // Incompatible cell: return max cost to reject this candidate.
+  auto t0 = std::chrono::high_resolution_clock::now();
+
+  if (!virtualReplaceCellSelective(pt_graph, equiv_cell)) {
     return DelayLmSumResult{};
   }
+
+  auto t0b = std::chrono::high_resolution_clock::now();
+  auto t1 = t0b;
   findLocalDelays(pt_graph, arc_delay_calc);
+  auto t2 = std::chrono::high_resolution_clock::now();
   findLocalArrivals(pt_graph);
+  auto t3 = std::chrono::high_resolution_clock::now();
   findLocalRequireds(pt_graph);
+  auto t4 = std::chrono::high_resolution_clock::now();
   const Corner *corner = corners_->findCorner("default");
   DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
-  return delayLmSum(pt_graph, dcalc_ap, false);
+  auto result = delayLmSum(pt_graph, dcalc_ap, false);
+  auto t5 = std::chrono::high_resolution_clock::now();
+
+  if (runtime_map) {
+    (*runtime_map)["vrc_setRefGate"] +=
+        std::chrono::duration<double>(t0b - t0).count();
+    (*runtime_map)["vrc_recomputeParasitics"] +=
+        std::chrono::duration<double>(t1 - t0b).count();
+    (*runtime_map)["findLocalDelays"] +=
+        std::chrono::duration<double>(t2 - t1).count();
+    (*runtime_map)["findLocalArrivals"] +=
+        std::chrono::duration<double>(t3 - t2).count();
+    (*runtime_map)["findLocalRequireds"] +=
+        std::chrono::duration<double>(t4 - t3).count();
+    (*runtime_map)["delayLmSum"] +=
+        std::chrono::duration<double>(t5 - t4).count();
+  }
+  return result;
 }
 
 void
@@ -1449,11 +1595,6 @@ LocalSta::recomputeSinglePtParasitic(PtGraph *pt_graph, VertexId drvr_vid)
   local_parasitics_->recomputeSinglePtParasitic(pt_graph, drvr_vid);
 }
 
-void
-LocalSta::syncParasiticNetworkFromGlobal(const Net *net)
-{
-  local_parasitics_->syncParasiticNetworkFromGlobal(net);
-}
 
 
 Slack
@@ -1535,12 +1676,12 @@ LocalSta::localSlackOnSinks(PtGraph *pt_graph)
     sta::TagGroup *pt_tg = search_->tagGroup(pt_vertex.tagGroupIndex());
     sta::TagGroup *sta_tg = search_->tagGroup(sta_vertex);
     if (!pt_tg || !sta_tg || pt_tg->index() != sta_tg->index()) {
-      // printf("Warning: localSlackOnSinks: tag group mismatch on vertex %s "
-             // "(pt_tg=%p idx=%d, sta_tg=%p idx=%d)\n",
-             // sta_vertex->to_string(graph_).c_str(),
-             // pt_tg, pt_tg ? (int)pt_tg->index() : -1,
-             // sta_tg, sta_tg ? (int)sta_tg->index() : -1);
-      // fflush(stdout);
+      printf("Warning: localSlackOnSinks: tag group mismatch on vertex %s "
+             "(pt_tg=%p idx=%d, sta_tg=%p idx=%d)\n",
+             sta_vertex->to_string(graph_).c_str(),
+             pt_tg, pt_tg ? (int)pt_tg->index() : -1,
+             sta_tg, sta_tg ? (int)sta_tg->index() : -1);
+      fflush(stdout);
       continue;
     }
 
@@ -1559,6 +1700,53 @@ LocalSta::localSlackOnSinks(PtGraph *pt_graph)
   return local_slack;
 }
 
+Slack
+LocalSta::localWorstSlackOnSinks(PtGraph *pt_graph)
+{
+  // Same sink collection as localSlackOnSinks, but return worst (min) slack.
+  std::vector<PtVertex*> sink_vertices;
+  for (auto& pv : pt_graph->ptVertices()) {
+    if (pv.type() != PtVertexType::RefOutput || !pv.vertex())
+      continue;
+    sta::VertexOutEdgeIterator out_iter(pv.vertex(), graph_);
+    while (out_iter.hasNext()) {
+      sta::Edge *edge = out_iter.next();
+      if (!edge->isWire())
+        continue;
+      sta::Vertex *load_vertex = edge->to(graph_);
+      PtVertex *load_pv = pt_graph->ptVertex(load_vertex);
+      if (load_pv && load_pv->hasBase())
+        sink_vertices.push_back(load_pv);
+    }
+  }
+
+  Slack worst_slack = 0.0;
+  for (PtVertex *pt_vp : sink_vertices) {
+    PtVertex &pt_vertex = *pt_vp;
+    sta::Path *pt_paths = pt_vertex.paths();
+    if (!pt_paths) continue;
+    sta::Vertex *sta_vertex = pt_vertex.vertex();
+    sta::Path *sta_paths = sta_vertex->paths();
+    if (!sta_paths) continue;
+
+    sta::TagGroup *pt_tg = search_->tagGroup(pt_vertex.tagGroupIndex());
+    sta::TagGroup *sta_tg = search_->tagGroup(sta_vertex);
+    if (!pt_tg || !sta_tg || pt_tg->index() != sta_tg->index())
+      continue;
+
+    size_t path_count = pt_tg->pathCount();
+    for (size_t i = 0; i < path_count; i++) {
+      if (pt_paths[i].dcalcAnalysisPt(this) != pt_graph->dcalcAnalysisPt())
+        continue;
+      sta::Slack slack = sta_paths[i].required() - pt_paths[i].arrival();
+      if (sta::delayInf(slack)) continue;
+      if (slack < worst_slack)
+        worst_slack = slack;
+    }
+  }
+  return worst_slack;
+}
+
 void
 LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
                           const RiseFall *rf,
@@ -1572,9 +1760,9 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
   parasitic = nullptr;
   load_cap = 0.0f;
 
-  const Pin *drvr_pin = drvr_pt_vertex.pin();
-
-  // PtGraph-local PiElmore parasitic (highest priority)
+  // PtGraph-local PiElmore parasitic (highest priority).
+  // Uses objectIdx indexing — works for both real and virtual vertices.
+  // Includes synthetic Pi set by buildSyntheticParasitics.
   PtPiElmore *pt_pi = pt_graph->findPtParasitic(
       drvr_pt_vertex.objectIdx(), rf, dcalc_ap->index());
   if (pt_pi && pt_pi->capacitance() > 0.0f) {
@@ -1583,38 +1771,40 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
     return;
   }
 
-  // PtPiElmore missing — try to recompute for this driver
-  local_parasitics_->recomputeSinglePtParasitic(pt_graph,
-                                                 drvr_pt_vertex.objectIdx());
-  pt_pi = pt_graph->findPtParasitic(
-      drvr_pt_vertex.objectIdx(), rf, dcalc_ap->index());
-  if (pt_pi && pt_pi->capacitance() > 0.0f) {
-    parasitic = pt_pi;
-    load_cap = pt_pi->capacitance();
-    return;
+  const Pin *drvr_pin = drvr_pt_vertex.pin();
+
+  // PtPiElmore missing — try to recompute for this driver.
+  // This is commonly needed for RefOutput vertices, whose PtPiElmore is
+  // not populated upfront by makePtGraph (parallel path) and only
+  // selectively refreshed by virtualReplaceCellSelective when the
+  // output port cap actually changes.
+  if (drvr_pin) {
+    local_parasitics_->recomputeSinglePtParasitic(pt_graph,
+                                                   drvr_pt_vertex.objectIdx());
+    pt_pi = pt_graph->findPtParasitic(
+        drvr_pt_vertex.objectIdx(), rf, dcalc_ap->index());
+    if (pt_pi && pt_pi->capacitance() > 0.0f) {
+      parasitic = pt_pi;
+      load_cap = pt_pi->capacitance();
+      return;
+    }
   }
 
   // Virtual driver or driver with virtual buffer downstream
-  if (!drvr_pin || drvr_pt_vertex.hasVirtualBuffer()) {
+  if (drvr_pt_vertex.hasVirtualBuffer()) {
     load_cap = computeVirtualLoadCap(drvr_pt_vertex, rf, dcalc_ap, pt_graph);
     return;
   }
 
-  // Fallback for uncomputed parasitic of real drivers.
-  if (network_->net(drvr_pin) == nullptr) {
-    load_cap = 0.0;
-  } else {
-    bool has_net_load;
-    float fanout;
-    float pin_cap, wire_cap;
-    netCaps(drvr_pin, rf, dcalc_ap, multi_drvr_net,
+  // Fallback: use netCaps (requires net)
+  if (!drvr_pin || network_->net(drvr_pin) == nullptr)
+    return;
+  bool has_net_load;
+  float fanout;
+  float pin_cap, wire_cap;
+  netCaps(drvr_pin, rf, dcalc_ap, multi_drvr_net,
           pin_cap, wire_cap, fanout, has_net_load);
-    load_cap = pin_cap + wire_cap;
-    // Recompute failed
-    // printf("Error: localParasiticLoad: recompute failed for pin %s, using fallback\n",
-          // drvr_pin ? network_->name(drvr_pin) : "(virtual)");
-    // fflush(stdout);
-  }
+  load_cap = pin_cap + wire_cap;
 }
 
 
@@ -1633,13 +1823,13 @@ LocalSta::printLocalParasitics(PtGraph *pt_graph) const
           PtPiElmore *pt_pi = pt_graph->findPtParasitic(
               pt_vertex.objectIdx(), rf, dcalc_ap->index());
           if (pt_pi) {
-            // printf("%s::printLocalParasitics: Pin %s, RF %s, AP %u, with cap %f\n",
-                   // debug_label_.c_str(),
-                   // network_->name(vertex->pin()),
-                   // rf->to_string().c_str(),
-                   // dcalc_ap->index(),
-                   // pt_pi->capacitance() * 1.0e15);
-            // fflush(stdout);
+            printf("%s::printLocalParasitics: Pin %s, RF %s, AP %u, with cap %f\n",
+                   debug_label_.c_str(),
+                   network_->name(vertex->pin()),
+                   rf->to_string().c_str(),
+                   dcalc_ap->index(),
+                   pt_pi->capacitance() * 1.0e15);
+            fflush(stdout);
           }
         }
       }
@@ -1663,12 +1853,12 @@ LocalSta::printParasitics(PtGraph *pt_graph) const
             arc_delay_calc_->findParasitic(vertex->pin(), rf, dcalc_ap);
           float load_cap = local_parasitics_->capacitance(parasitic);
           if (parasitic != nullptr) {
-            // printf("LOCALSTA::printLocalParasitics: Pin %s, RF %s, AP %u, with cap %f\n",
-                   // network_->name(vertex->pin()),
-                   // rf->to_string().c_str(),
-                   // dcalc_ap->index(),
-                   // load_cap * 1.0e15);
-            // fflush(stdout);
+            printf("LOCALSTA::printLocalParasitics: Pin %s, RF %s, AP %u, with cap %f\n",
+                   network_->name(vertex->pin()),
+                   rf->to_string().c_str(),
+                   dcalc_ap->index(),
+                   load_cap * 1.0e15);
+            fflush(stdout);
           }
         }
       }
@@ -1685,14 +1875,14 @@ LocalSta::printLocalArrivals(PtGraph *pt_graph) const
     PtVertexPathIterator path_iter(pt_vertex, this);
     while (path_iter.hasNext()) {
       Path *path = path_iter.next();
-      // printf("%s::printLocalArrivals: Vertex %s arrival path: %s, arrival = %f\n",
-             // debug_label_.c_str(),
-             // pt_vertex.vertex()->to_string(graph_).c_str(),
-             // path->to_string(sta_).c_str(),
-             // path->arrival() * 1.0e12);
+      printf("%s::printLocalArrivals: Vertex %s arrival path: %s, arrival = %f\n",
+             debug_label_.c_str(),
+             pt_vertex.vertex()->to_string(graph_).c_str(),
+             path->to_string(sta_).c_str(),
+             path->arrival() * 1.0e12);
     }
   }
-  // fflush(stdout);
+  fflush(stdout);
 }
 
 void 
@@ -1704,14 +1894,14 @@ LocalSta::printLocalRequireds(PtGraph *pt_graph) const
     PtVertexPathIterator path_iter(pt_vertex, this);
     while (path_iter.hasNext()) {
       Path *path = path_iter.next();
-      // printf("%s::printLocalRequireds: Vertex %s required path: %s, required = %f\n",
-             // debug_label_.c_str(),
-             // pt_vertex.vertex()->to_string(graph_).c_str(),
-             // path->to_string(sta_).c_str(),
-             // path->required() * 1.0e12);
+      printf("%s::printLocalRequireds: Vertex %s required path: %s, required = %f\n",
+             debug_label_.c_str(),
+             pt_vertex.vertex()->to_string(graph_).c_str(),
+             path->to_string(sta_).c_str(),
+             path->required() * 1.0e12);
     }
   }
-  // fflush(stdout);
+  fflush(stdout);
 }
 
 void 
@@ -1723,25 +1913,25 @@ LocalSta::printLocalTiming(PtGraph *pt_graph) const
     std::string vname = pt_vertex.vertex()
         ? pt_vertex.vertex()->to_string(graph_)
         : ("virtual_" + std::to_string(pt_vertex.objectIdx()));
-    // printf("%s::printLocalTiming: Vertex %s\n",
-    //        debug_label_.c_str(),
-    //        vname.c_str());
+    printf("%s::printLocalTiming: Vertex %s\n",
+           debug_label_.c_str(),
+           vname.c_str());
     PtVertexPathIterator path_iter(pt_vertex, this);
     while (path_iter.hasNext()) {
       Path *path = path_iter.next();
-      // printf("  Path: %s, arrival = %f, required = %f\n",
-             // path->to_string(sta_).c_str(),
-             // path->arrival() * 1.0e12,
-             // path->required() * 1.0e12);
+      printf("  Path: %s, arrival = %f, required = %f\n",
+             path->to_string(sta_).c_str(),
+             path->arrival() * 1.0e12,
+             path->required() * 1.0e12);
     }
   }
-  // fflush(stdout);
+  fflush(stdout);
 }
 
 void
 LocalSta::printLocalSlews(PtGraph *pt_graph) const
 {
-  // printf("LocalSta::printLocalSlews: \n");
+  printf("LocalSta::printLocalSlews: \n");
   for (auto& pt_vertex : pt_graph->ptVertices()) {
     if (pt_vertex.type() == PtVertexType::Sentinel)
       continue;
@@ -1751,15 +1941,15 @@ LocalSta::printLocalSlews(PtGraph *pt_graph) const
     for (const RiseFall *rf : RiseFall::range()) {
       for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
         Slew slew = pt_graph->slew(pt_vertex, rf, dcalc_ap->index());
-        // printf("Vertex %s, RF %s, AP %u, slew = %f\n",
-        //        vname.c_str(),
-        //        rf->to_string().c_str(),
-        //        dcalc_ap->index(),
-        //        slew * 1.0e12);
+        printf("Vertex %s, RF %s, AP %u, slew = %f\n",
+               vname.c_str(),
+               rf->to_string().c_str(),
+               dcalc_ap->index(),
+               slew * 1.0e12);
       }
     }
   }
-  // fflush(stdout);
+  fflush(stdout);
 }
 
 /////////////////////////////////////////////////////
@@ -1777,9 +1967,9 @@ LocalSta::getPinMaxSlewLimit(sta::Pin *pin, sta::LibertyCell *lib_cell)
     throw std::runtime_error("LocalSta::getPinMaxSlewLimit: sta_port is nullptr");
   odb::dbMTerm *db_iterm = network->staToDb(sta_port);
   if (db_iterm == nullptr) {
-    // printf("LocalSta::getPinMaxSlewLimit: db_iterm is nullptr for port %s of pin %s\n",
-           // port_name,
-           // network->name(pin));
+    printf("LocalSta::getPinMaxSlewLimit: db_iterm is nullptr for port %s of pin %s\n",
+           port_name,
+           network->name(pin));
     // If DB mapping fails, try to get limit from Liberty port directly
     sta::LibertyLibrary *lib = network->defaultLibertyLibrary();
     bool max_slew_exists;
@@ -1803,8 +1993,8 @@ LocalSta::getPinMaxSlewLimit(sta::Pin *pin, sta::LibertyCell *lib_cell)
         max_slew = INF;
     }
   } else {
-    // printf("LocalSta::getPinMaxSlewLimit: Supply pin %s, setting max_slew to INF\n",
-           // network->name(pin));
+    printf("LocalSta::getPinMaxSlewLimit: Supply pin %s, setting max_slew to INF\n",
+           network->name(pin));
     max_slew = INF;
   }
   return max_slew;
@@ -1823,9 +2013,9 @@ LocalSta::getPinMaxCapLimit(sta::Pin *pin, sta::LibertyCell *lib_cell)
     throw std::runtime_error("LocalSta::getPinMaxCapLimit: sta_port is nullptr");
   odb::dbMTerm *db_iterm = network->staToDb(sta_port);
   if (db_iterm == nullptr) {
-    // printf("LocalSta::getPinMaxCapLimit: db_iterm is nullptr for port %s of pin %s\n",
-           // port_name,
-           // network->name(pin));
+    printf("LocalSta::getPinMaxCapLimit: db_iterm is nullptr for port %s of pin %s\n",
+           port_name,
+           network->name(pin));
     // If DB mapping fails, try to get limit from Liberty port directly
     sta::LibertyLibrary *lib = network->defaultLibertyLibrary();
     float max_cap = 0.0;
@@ -1903,6 +2093,45 @@ LocalSta::findTargetPort(const PtVertex &ptv,
 }
 
 float
+LocalSta::getVertexMaxSlew(PtGraph *pt_graph, PtVertex &ptv,
+                           sta::DcalcAnalysisPt *dcalc_ap)
+{
+  float max_slew = 0.0;
+  for (const RiseFall *rf : RiseFall::range()) {
+    float s = pt_graph->slew(ptv, rf, dcalc_ap->index());
+    if (s > max_slew)
+      max_slew = s;
+  }
+  return max_slew;
+}
+
+bool
+LocalSta::checkFanoutLoadSlew(PtGraph *pt_graph, VertexId drvr_id,
+                              sta::DcalcAnalysisPt *dcalc_ap)
+{
+  PtVertexOutEdgeIterator out_iter(drvr_id, pt_graph);
+  while (out_iter.hasNext()) {
+    PtEdge &pt_edge = out_iter.next();
+    if (pt_edge.type() == PtEdgeType::Sentinel || !pt_edge.isWire())
+      continue;
+    PtVertex &load_ptv = pt_graph->ptVertex(pt_edge.ptToId());
+    sta::LibertyPort *load_port = load_ptv.libertyPort();
+    if (!load_port) {
+      if (const Pin *load_pin = load_ptv.pin()) {
+        load_port = network_->libertyPort(load_pin);
+      } else {
+        // Virtual load without liberty port: skip slew check (assume it's legal).
+        continue;
+      }
+    }
+    if (getVertexMaxSlew(pt_graph, load_ptv, dcalc_ap)
+        > getPortMaxSlewLimit(load_port))
+      return false;
+  }
+  return true;
+}
+
+float
 LocalSta::getPortMaxSlewLimit(sta::LibertyPort *port)
 {
   if (!port)
@@ -1915,8 +2144,11 @@ LocalSta::getPortMaxSlewLimit(sta::LibertyPort *port)
   bool exists;
   port->slewLimit(MinMax::max(), max_slew, exists);
   if (!exists) {
-    sta::LibertyLibrary *lib = port->libertyCell()
-        ? port->libertyCell()->libertyLibrary() : nullptr;
+    // Use defaultLibertyLibrary() for fallback, matching the MLCAD
+    // contest evaluation script (Timing::getMaxSlewLimit).
+    // Using the cell's own library would give a more permissive limit
+    // for SRAM cells (320ps vs 227ps), causing violations in scoring.
+    sta::LibertyLibrary *lib = network_->defaultLibertyLibrary();
     if (lib)
       lib->defaultMaxSlew(max_slew, exists);
     if (!exists)
@@ -1963,21 +2195,7 @@ LocalSta::legalCheckBeforeSwap(sta::Instance *inst,
   sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(min_max);
 
   for (auto &ptv : pt_graph->ptVertices()) {
-    if (ptv.type() == PtVertexType::RefInput) {
-      sta::LibertyPort *to_port = findTargetPort(ptv, to_lib_cell);
-      if (!to_port)
-        continue;
-      float slew_limit = getPortMaxSlewLimit(to_port);
-      float max_slew = 0.0;
-      for (const RiseFall *rf : RiseFall::range()) {
-        float s = pt_graph->slew(ptv, rf, dcalc_ap->index());
-        if (s > max_slew)
-          max_slew = s;
-      }
-      if (max_slew > slew_limit)
-        return false;
-    }
-    else if (ptv.type() == PtVertexType::RefOutput) {
+    if (ptv.type() == PtVertexType::RefOutput) {
       sta::LibertyPort *to_port = findTargetPort(ptv, to_lib_cell);
       if (!to_port)
         continue;
@@ -2007,58 +2225,34 @@ LocalSta::legalCheckAfterSwap(sta::Instance *inst,
   sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(min_max);
 
   for (auto &ptv : pt_graph->ptVertices()) {
+    sta::LibertyPort *port = ptv.libertyPort();
+    if (!port)
+      continue;
+
     if (ptv.type() == PtVertexType::RefOutput) {
-      sta::LibertyPort *port = ptv.libertyPort();
-      if (!port)
-        continue;
-      float slew_limit = getPortMaxSlewLimit(port);
-      float max_slew = 0.0;
-      for (const RiseFall *rf : RiseFall::range()) {
-        float s = pt_graph->slew(ptv, rf, dcalc_ap->index());
-        if (s > max_slew)
-          max_slew = s;
-      }
-      if (max_slew > slew_limit)
+      // Output slew + fanout load slew
+      if (getVertexMaxSlew(pt_graph, ptv, dcalc_ap) > getPortMaxSlewLimit(port))
         return false;
-      // Check fanout load pin slew limits via PtGraph out-edges.
-      // The ref cell's output slew propagates through wire to fanout loads;
-      // each load cell may have a different (stricter) input slew limit.
-      PtVertexOutEdgeIterator out_iter(ptv.objectIdx(), pt_graph);
-      while (out_iter.hasNext()) {
-        PtEdge &pt_edge = out_iter.next();
-        if (pt_edge.type() == PtEdgeType::Sentinel || !pt_edge.isWire())
-          continue;
-        PtVertex &load_ptv = pt_graph->ptVertex(pt_edge.ptToId());
-        if (!load_ptv.vertex())
-          continue;
-        sta::LibertyPort *load_port = network_->libertyPort(load_ptv.vertex()->pin());
-        if (!load_port)
-          continue;
-        float load_slew_limit;
-        bool exists;
-        load_port->slewLimit(sta::MinMax::max(), load_slew_limit, exists);
-        if (!exists) {
-          load_port->libertyLibrary()->defaultMaxSlew(load_slew_limit, exists);
-          if (!exists)
-            continue;
-        }
-        float load_max_slew = 0.0;
-        for (const RiseFall *rf : RiseFall::range()) {
-          float s = pt_graph->slew(load_ptv, rf, dcalc_ap->index());
-          if (s > load_max_slew)
-            load_max_slew = s;
-        }
-        if (load_max_slew > load_slew_limit)
-          return false;
-      }
+      if (!checkFanoutLoadSlew(pt_graph, ptv.objectIdx(), dcalc_ap))
+        return false;
     }
     else if (ptv.type() == PtVertexType::RefDriver) {
-      sta::LibertyPort *port = ptv.libertyPort();
-      if (!port)
-        continue;
-      float cap_limit = getPortMaxCapLimit(port);
-      float load_cap = getLoadCap(ptv, corner, min_max, pt_graph);
-      if (load_cap > cap_limit)
+      // RefInput slew is checked via checkFanoutLoadSlew below
+      // (RefInput is a wire fanout of RefDriver, and its libertyPort
+      // is already updated to the new cell's port by updateRefPorts).
+      // Driver output cap + slew + fanout load slew (including siblings)
+      if (getLoadCap(ptv, corner, min_max, pt_graph) > getPortMaxCapLimit(port))
+        return false;
+      if (getVertexMaxSlew(pt_graph, ptv, dcalc_ap) > getPortMaxSlewLimit(port))
+        return false;
+      if (!checkFanoutLoadSlew(pt_graph, ptv.objectIdx(), dcalc_ap))
+        return false;
+    }
+    else if (ptv.type() == PtVertexType::SiblingDrvr) {
+      // Sibling driver output slew: resize of the ref instance can
+      // change RefDriver's output slew → SibLoad slew → SibDrvr
+      // output slew may exceed its port limit.
+      if (getVertexMaxSlew(pt_graph, ptv, dcalc_ap) > getPortMaxSlewLimit(port))
         return false;
     }
   }
@@ -2087,10 +2281,7 @@ void
 LRSInstanceVisitor::visit(Instance *inst)
 {
   inst_ = inst;
-  if (!local_graph_)
-    local_graph_ = new PtGraph(local_sta_->getSta());
-  else
-    local_graph_->reset();
+  local_graph_ = new PtGraph(local_sta_->getSta());
   local_sta_->makePtGraph(local_graph_, inst_);
 }
 
@@ -2140,13 +2331,6 @@ LocalSta::initParallel()
   task_arranger_->init();
 }
 
-void 
-LocalSta::runResize(rsz::Resizer *resizer, ParallelLrVisitor *visitor)
-{
-  // task_arranger_->enableTopologyCheck(true);
-  task_arranger_->visitOrdered(sta_, this, resizer, visitor);
-}
-
 void
 LocalSta::runResize(rsz::Resizer *resizer, ParallelVisitor *visitor)
 {
@@ -2171,6 +2355,70 @@ LocalSta::ptVertexWorstSlackPath(PtVertex &pt_vertex, const sta::MinMax *min_max
     }
   }
   return worst_slack_path;
+}
+
+void
+LocalSta::printPerSinkArrivals(PtGraph *pt_graph, const char *label)
+{
+  // Collect sink vertices (wire-edge targets from RefOutput, same as localWorstSlackOnSinks)
+  std::vector<PtVertex*> sink_vertices;
+  for (auto& pv : pt_graph->ptVertices()) {
+    if (pv.type() != PtVertexType::RefOutput || !pv.vertex())
+      continue;
+    sta::VertexOutEdgeIterator out_iter(pv.vertex(), graph_);
+    while (out_iter.hasNext()) {
+      sta::Edge *edge = out_iter.next();
+      if (!edge->isWire()) continue;
+      sta::Vertex *load_vertex = edge->to(graph_);
+      PtVertex *load_pv = pt_graph->ptVertex(load_vertex);
+      if (load_pv && load_pv->hasBase())
+        sink_vertices.push_back(load_pv);
+    }
+  }
+
+  // Target: max / default corner / rise
+  sta::DcalcAnalysisPt *target_ap = pt_graph->dcalcAnalysisPt();
+  const sta::RiseFall *target_rf = sta::RiseFall::rise();
+
+  printf("      [%s] per-sink arrival (max/default/rise, ps):\n", label);
+  printf("        %-40s %10s %10s %10s %10s %10s\n",
+         "sink", "lcl_arr", "gbl_arr", "delta_arr", "gbl_req", "gbl_slack");
+
+  for (PtVertex *pt_vp : sink_vertices) {
+    PtVertex &pt_vertex = *pt_vp;
+    sta::Path *pt_paths = pt_vertex.paths();
+    if (!pt_paths) continue;
+    sta::Vertex *sta_vertex = pt_vertex.vertex();
+    sta::Path *sta_paths = sta_vertex->paths();
+    if (!sta_paths) continue;
+
+    sta::TagGroup *pt_tg = search_->tagGroup(pt_vertex.tagGroupIndex());
+    sta::TagGroup *sta_tg = search_->tagGroup(sta_vertex);
+    if (!pt_tg || !sta_tg || pt_tg->index() != sta_tg->index())
+      continue;
+
+    // Find the path matching target_ap + rise
+    size_t path_count = pt_tg->pathCount();
+    for (size_t i = 0; i < path_count; i++) {
+      if (pt_paths[i].dcalcAnalysisPt(this) != target_ap)
+        continue;
+      sta::Tag *tag = pt_paths[i].tag(this);
+      if (!tag || tag->rfIndex() != target_rf->index())
+        continue;
+
+      float local_arr = pt_paths[i].arrival();
+      float global_arr = sta_paths[i].arrival();
+      float global_req = sta_paths[i].required();
+      float global_slack = global_req - global_arr;
+
+      printf("        %-40s %+10.1f %+10.1f %+10.1f %+10.1f %+10.1f\n",
+             network_->name(sta_vertex->pin()),
+             local_arr * 1e12, global_arr * 1e12,
+             (local_arr - global_arr) * 1e12,
+             global_req * 1e12, global_slack * 1e12);
+      break;  // only one matching path per sink
+    }
+  }
 }
 
 } // namespace lrf

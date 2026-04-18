@@ -32,11 +32,10 @@
 
 #include "sta/DcalcAnalysisPt.hh"
 #include "sta/ArcDelayCalc.hh"
+#include "lrf/LrConfig.hh"
 #include "lrf/IncreSta.hh"
 #include "lrf/TestLrf.hh"
 
-
-#include "rmp/SeqRemapper.hh"
 
 namespace ord {
 
@@ -395,6 +394,20 @@ float Timing::staticPower(odb::dbInst* inst, sta::Corner* corner)
   return power.leakage();
 }
 
+float Timing::leakagePower(odb::dbInst* inst, odb::dbMaster* master,
+  sta::Corner* corner)
+{
+  sta::dbSta* sta = getSta();
+  sta::dbNetwork* network = sta->getDbNetwork();
+
+  sta::Instance* sta_inst = network->dbToSta(inst);
+  if (!sta_inst) {
+    return 0.0;
+  }
+  sta::PowerResult power = sta->power(sta_inst, corner);
+  return power.leakage();
+}
+
 float Timing::dynamicPower(odb::dbInst* inst, sta::Corner* corner)
 {
   sta::dbSta* sta = getSta();
@@ -448,45 +461,77 @@ Timing::getLmDelaySum(odb::dbInst* inst, const sta::MinMax *minmax) {
   return delay_lambda_sum;
 }
 
-float Timing::getWorstSlack(MinMax minmax)
-{
-  sta::dbSta* sta = getSta();
-  sta::Vertex* vertex;
-  sta::Slack worstSlack;
-  sta->worstSlack(getMinMax(minmax), worstSlack, vertex);
-  return worstSlack;
-}
-
-float Timing::getTns(sta::Corner* corner, MinMax minmax)
-{
-  sta::dbSta* sta = getSta();
-  float tns = sta->totalNegativeSlack(corner, getMinMax(minmax));
-  return tns;
-}
-
-float Timing::getTns(MinMax minmax)
-{
-  sta::dbSta* sta = getSta();
-  return sta->totalNegativeSlack(getMinMax(minmax));
-}
-
-float Timing::leakagePower(odb::dbInst* inst, odb::dbMaster* master, sta::Corner* corner)
-{
+bool
+Timing::checkErcViolations(odb::dbInst* inst, sta::Corner* corner) {
+  bool violated = false;
   sta::dbSta* sta = getSta();
   sta::dbNetwork* network = sta->getDbNetwork();
-
   sta::Instance* sta_inst = network->dbToSta(inst);
-  if (!sta_inst) {
-    return 0.0;
+
+  sta::InstancePinIterator* pin_iterator = sta->network()->pinIterator(sta_inst);
+  while (pin_iterator->hasNext()) {
+    sta::Pin* pin = pin_iterator->next();
+    // Check max slew
+    float limit = sta->getIncreSta()->maxInputSlew(pin, corner);
+    for (const sta::RiseFall* rf : sta::RiseFall::range()) {
+      if (network->isLoad(pin)) {
+        sta::Vertex *vertex = sta->graph()->pinLoadVertex(pin);
+        const sta::DcalcAnalysisPt* dcalc_ap = corner->findDcalcAnalysisPt(sta::MinMax::max());
+        float actual_slew = sta->graph()->slew(vertex, rf, dcalc_ap->index());
+        if (actual_slew > limit) {
+          violated = true;
+          // Use the project's logger (fmt-style) instead of printf to avoid
+          // format-string/type mismatches and integrate with logging.
+          design_->getLogger()->report(
+            "ERC Violation: Instance {} Pin {} exceeds max slew limit {:.3f} with actual slew {:.3f}",
+            inst->getName(),
+            network->name(pin),
+            limit,
+            actual_slew);
+        }
+      }
+    }
+    // Check max capacitance
+    if (network->isDriver(pin)) {
+      const sta::Corner* corner1 = nullptr;
+      float cap1, max_cap1, cap_slack1;
+      const sta::RiseFall* rf;
+      sta->checkCapacitance(pin, corner, sta::MinMax::max(), corner1, rf, cap1, max_cap1, cap_slack1);
+      if (cap_slack1 < 0.0) {
+        violated = true;
+        design_->getLogger()->report(
+          "ERC Violation: Instance {} Pin {} exceeds max capacitance limit {:.3f} with actual capacitance {:.3f}",
+          inst->getName(),
+          network->name(pin),
+          max_cap1,
+          cap1);
+      }
+    }
   }
-  sta::PowerResult power = sta->power(sta_inst, corner);
-  return power.leakage();
+  return violated;
 }
 
-void 
+void
 Timing::lmUpdate() {
   sta::dbSta* sta = getSta();
   sta->getIncreSta()->lmUpdate();
+}
+
+bool
+Timing::saveLmSnapshot(const char *path) {
+  sta::dbSta* sta = getSta();
+  odb::dbBlock* block = design_->getBlock();
+  std::string design_name = block->getName();
+  return sta->getIncreSta()->saveLmToFile(path, design_name);
+}
+
+bool
+Timing::loadLmSnapshot(const char *path) {
+  sta::dbSta* sta = getSta();
+  odb::dbBlock* block = design_->getBlock();
+  std::string design_name = block->getName();
+  int frame_id = sta->getIncreSta()->loadLmFromFile(path, design_name);
+  return frame_id >= 0;
 }
 
 float 
@@ -499,24 +544,6 @@ Timing::averageDelayOnCritPath() {
 ////////////////////////////////////////////
 // Functions of testing IncreSta
 ////////////////////////////////////////////
-void
-Timing::testBufferInsertion(char *inst_name) {
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  test_lrf.testBufferInsertion(inst_name, sta, resizer, design_->getBlock());
-}
-
-void
-Timing::testSingleInstBuffering(char *inst_name) {
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  test_lrf.testSingleInstBuffering(inst_name, sta, resizer, design_->getBlock());
-}
-
 void
 Timing::testLocalDelayCompute(char *inst_name) {
   design_->updateParasiticsNoDeleteNetwork();
@@ -553,16 +580,7 @@ Timing::testPtGraphErrors(char* inst_name) {
   test_lrf.testDifferenceBetweenLocalAndOpen(inst_name, sta, resizer, design_->getBlock());
 }
 
-void 
-Timing::testParallelVisitor(const std::vector<odb::dbInst*>& db_insts) {
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  test_lrf.testParallelVisitor(db_insts, sta, resizer, design_->getBlock());
-}
-
-void 
+void
 Timing::testMEEAssignments() {
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
@@ -571,124 +589,87 @@ Timing::testMEEAssignments() {
   test_lrf.testMEEAssignments(sta, resizer, design_->getBlock());
 }
 
-void 
-Timing::testParallelResize() {
-  printf("Starting testParallelResize\n");
-  printf("First compute all parasitic networks...\n");
+void
+Timing::runLr(const lrf::LrConfig &cfg) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting runLr (mode=%d) with %zu threads\n",
+         static_cast<int>(cfg.mode), thread_num);
   fflush(stdout);
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
   sta::dbSta* sta = getSta();
   lrf::TestLrf test_lrf;
-  printf("Starting testParallelResize\n");
-  fflush(stdout);
-  test_lrf.testParallelResize(sta, resizer, design_->getBlock());
+  test_lrf.runLr(sta, resizer, design_->getBlock(), thread_num, cfg);
 }
 
 void
-Timing::testParallelLrResizing(size_t max_resize_num, size_t iterations, 
-  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method) {
-  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  // printf("Starting testParallelLrResizing with %zu threads\n", thread_num);
-  // printf("First compute all parasitic networks...\n");
-  // fflush(stdout);
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  // printf("Starting testParallelLrResizing\n");
-  // fflush(stdout);
-  test_lrf.testParallelLrResizing(sta, resizer, design_->getBlock(), 
-thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons, 
-  PT_tradeoff, lr_helper_method);
+Timing::runLr(int mode, size_t iterations, size_t max_resize_num,
+              size_t num_no_improve_tolerance, float PT_tradeoff,
+              float density_weight, bool ratcons,
+              const char *lr_helper_method, float top_ratio,
+              bool initialize, const char *checkpoint_dir,
+              bool debug, size_t buffering_start_iter) {
+  lrf::LrConfig cfg;
+  cfg.mode = static_cast<lrf::LrMode>(mode);
+  cfg.iterations = iterations;
+  cfg.max_resize_num = max_resize_num;
+  cfg.num_no_improve_tolerance = num_no_improve_tolerance;
+  cfg.PT_tradeoff = PT_tradeoff;
+  cfg.density_weight = density_weight;
+  cfg.ratcons = ratcons;
+  cfg.lr_helper_method = lr_helper_method;
+  cfg.top_ratio = top_ratio;
+  cfg.initialize = initialize;
+  cfg.checkpoint_dir = checkpoint_dir ? checkpoint_dir : "";
+  cfg.debug = debug;
+  cfg.buffering_start_iter = buffering_start_iter;
+  runLr(cfg);
 }
 
 void
-Timing::testParallelResizingBuffering(size_t max_resize_num, size_t iterations,
-  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method) {
+Timing::testParallelInitializer(bool minimize_leakage) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  printf("Starting testParallelResizingBuffering with %zu threads\n", thread_num);
-  printf("First compute all parasitic networks...\n");
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testParallelInitializer(sta, resizer, design_->getBlock(),
+                                   thread_num, minimize_leakage);
+}
+
+void
+Timing::debugPrecheckAccuracy(float PT_tradeoff, float top_ratio) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting debugPrecheckAccuracy with %zu threads\n", thread_num);
   fflush(stdout);
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
   sta::dbSta* sta = getSta();
   lrf::TestLrf test_lrf;
-  printf("Starting testParallelResizingBuffering\n");
-  fflush(stdout);
-  test_lrf.testParallelLrResizingBuffering(sta, resizer, design_->getBlock(),
-    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method);
+  test_lrf.debugPrecheckAccuracy(sta, resizer, design_->getBlock(),
+    thread_num, PT_tradeoff, top_ratio);
 }
 
 void
 Timing::testParallelResizeByArray(size_t max_resize_num, size_t iterations,
   size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method) {
+  const char *lr_helper_method, bool initialize, float density_weight) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  // printf("Starting testParallelResizeByArray with %zu threads\n", thread_num);
-  // fflush(stdout);
+  printf("Starting testParallelResizeByArray with %zu threads\n", thread_num);
+  fflush(stdout);
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
   sta::dbSta* sta = getSta();
   lrf::TestLrf test_lrf;
   test_lrf.testParallelLrResizeByArray(sta, resizer, design_->getBlock(),
     thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method);
-}
-
-void
-Timing::testParallelResizeByArraySpeedup(size_t max_resize_num, size_t iterations,
-  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method) {
-  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  test_lrf.testParallelLrResizeByArraySpeedup(sta, resizer, design_->getBlock(),
-    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method);
-}
-
-void
-Timing::testParallelResizeByArrayV2(size_t max_resize_num, size_t iterations,
-  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method) {
-  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  printf("Starting testParallelResizeByArrayV2 with %zu threads\n", thread_num);
-  fflush(stdout);
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  test_lrf.testParallelLrResizeByArrayV2(sta, resizer, design_->getBlock(),
-    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method);
-}
-
-void
-Timing::testParallelResizeByArrayWithBufferingV2(size_t max_resize_num, size_t iterations,
-  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method) {
-  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  printf("Starting testParallelResizeByArrayWithBufferingV2 with %zu threads\n", thread_num);
-  fflush(stdout);
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  test_lrf.testParallelLrResizeByArrayWithBufferingV2(sta, resizer, design_->getBlock(),
-    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method);
+    PT_tradeoff, lr_helper_method, initialize, density_weight);
 }
 
 void
 Timing::testParallelResizeByArrayWithBuffering(size_t max_resize_num, size_t iterations,
   size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method) {
+  const char *lr_helper_method, bool initialize, float density_weight) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
   printf("Starting testParallelResizeByArrayWithBuffering with %zu threads\n", thread_num);
   fflush(stdout);
@@ -698,13 +679,45 @@ Timing::testParallelResizeByArrayWithBuffering(size_t max_resize_num, size_t ite
   lrf::TestLrf test_lrf;
   test_lrf.testParallelLrResizeByArrayWithBuffering(sta, resizer, design_->getBlock(),
     thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method);
+    PT_tradeoff, lr_helper_method, initialize, density_weight);
+}
+
+void
+Timing::testParallelResizeByArrayWithRszBuffering(size_t max_resize_num, size_t iterations,
+  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
+  const char *lr_helper_method, bool initialize, float density_weight) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testParallelResizeByArrayWithRszBuffering with %zu threads\n", thread_num);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testParallelLrResizeByArrayWithRszBuffering(sta, resizer, design_->getBlock(),
+    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
+    PT_tradeoff, lr_helper_method, initialize, density_weight);
+}
+
+void
+Timing::testEcoResizeNoHalve(size_t iterations, float PT_tradeoff,
+  const char *lr_helper_method, float halve_factor, bool use_precheck) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testEcoResizeNoHalve with %zu threads, halve_factor=%.2f, precheck=%s\n",
+         thread_num, halve_factor, use_precheck ? "yes" : "no");
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testEcoResizeNoHalve(sta, resizer, design_->getBlock(),
+    thread_num, iterations, PT_tradeoff, lr_helper_method, halve_factor,
+    use_precheck);
 }
 
 void
 Timing::testCombinedResizeBuffering(size_t max_resize_num, size_t iterations,
   size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method) {
+  const char *lr_helper_method, bool initialize) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
   printf("Starting testCombinedResizeBuffering with %zu threads\n", thread_num);
   fflush(stdout);
@@ -714,7 +727,22 @@ Timing::testCombinedResizeBuffering(size_t max_resize_num, size_t iterations,
   lrf::TestLrf test_lrf;
   test_lrf.testParallelLrCombinedResizeBuffering(sta, resizer, design_->getBlock(),
     thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method);
+    PT_tradeoff, lr_helper_method, initialize);
+}
+
+void
+Timing::testBufferOnly(size_t iterations, float PT_tradeoff,
+  const char *lr_helper_method, float bakoglu_k, bool debug) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testBufferOnly with %zu threads, bakoglu_k=%.2f, debug=%d\n",
+         thread_num, bakoglu_k, debug);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testBufferOnly(sta, resizer, design_->getBlock(),
+    thread_num, iterations, PT_tradeoff, lr_helper_method, bakoglu_k, debug);
 }
 
 void
@@ -722,45 +750,13 @@ Timing::testParallelResizeByArrayWithPrecheck(size_t max_resize_num,
   size_t iterations, size_t num_no_improve_tolerance, bool ratcons,
   float PT_tradeoff, const char *lr_helper_method, float top_ratio) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  // printf("Starting testParallelResizeByArrayWithPrecheck with %zu threads\n", thread_num);
-  // fflush(stdout);
+  printf("Starting testParallelResizeByArrayWithPrecheck with %zu threads\n", thread_num);
+  fflush(stdout);
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
   sta::dbSta* sta = getSta();
   lrf::TestLrf test_lrf;
   test_lrf.testParallelLrResizeByArrayWithPrecheck(sta, resizer, design_->getBlock(),
-    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method, top_ratio);
-}
-
-void
-Timing::testParallelResizeByArrayWithPrecheckV2(size_t max_resize_num,
-  size_t iterations, size_t num_no_improve_tolerance, bool ratcons,
-  float PT_tradeoff, const char *lr_helper_method, float top_ratio) {
-  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  printf("Starting testParallelResizeByArrayWithPrecheckV2 with %zu threads\n", thread_num);
-  fflush(stdout);
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  test_lrf.testParallelLrResizeByArrayWithPrecheckV2(sta, resizer, design_->getBlock(),
-    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method, top_ratio);
-}
-
-void
-Timing::testParallelResizeByArrayWithPrecheckBufferingV2(size_t max_resize_num,
-  size_t iterations, size_t num_no_improve_tolerance, bool ratcons,
-  float PT_tradeoff, const char *lr_helper_method, float top_ratio) {
-  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  printf("Starting testParallelResizeByArrayWithPrecheckBufferingV2 with %zu threads\n", thread_num);
-  fflush(stdout);
-  design_->updateParasiticsNoDeleteNetwork();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::dbSta* sta = getSta();
-  lrf::TestLrf test_lrf;
-  test_lrf.testParallelLrResizeByArrayWithPrecheckBufferingV2(sta, resizer, design_->getBlock(),
     thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
     PT_tradeoff, lr_helper_method, top_ratio);
 }
@@ -810,16 +806,102 @@ Timing::testParallelKKTProjection(const char *lr_helper_method)
 }
 
 void
-Timing::testTimingComputeAndWriteBack(const std::vector<odb::dbInst*> &insts)
+Timing::testLocalStaAccuracy(size_t max_steps)
 {
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
   sta::dbSta* sta = getSta();
   lrf::TestLrf test_lrf;
-  test_lrf.testTimingComputeAndWriteBack(sta, resizer, design_->getBlock(), insts);
+  test_lrf.testLocalStaAccuracy(sta, resizer, design_->getBlock(), max_steps);
 }
 
-void 
+
+void
+Timing::testSlewViolationFeasibility()
+{
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testSlewViolationFeasibility(sta, resizer, design_->getBlock());
+}
+
+void
+Timing::testRepairSlew()
+{
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testRepairSlew(sta, resizer, design_->getBlock());
+}
+
+void
+Timing::testBufferingRsz(float PT_tradeoff, int top_n)
+{
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  lrf::TestLrf test_lrf;
+  test_lrf.testBufferingRsz(sta, resizer, design_->getBlock(),
+                             thread_num, PT_tradeoff, top_n);
+}
+
+void
+Timing::probeRszBnet() {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  lrf::TestLrf test_lrf;
+  test_lrf.probeRszBnet(sta, resizer, design_->getBlock(), thread_num);
+}
+
+void
+Timing::probeBufferOneByOne(bool use_rsz) {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  lrf::TestLrf test_lrf;
+  test_lrf.probeBufferOneByOne(sta, resizer, design_->getBlock(),
+                                thread_num, use_rsz);
+}
+
+void
+Timing::probeBufferDeep(const char *pin_names_csv) {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  // Parse CSV into vector
+  std::vector<std::string> pin_names;
+  std::string csv(pin_names_csv);
+  size_t pos = 0;
+  while ((pos = csv.find(',')) != std::string::npos) {
+    std::string token = csv.substr(0, pos);
+    if (!token.empty()) pin_names.push_back(token);
+    csv.erase(0, pos + 1);
+  }
+  if (!csv.empty()) pin_names.push_back(csv);
+  lrf::TestLrf test_lrf;
+  test_lrf.probeBufferDeep(sta, resizer, design_->getBlock(),
+                           thread_num, pin_names);
+}
+
+void
+Timing::probeAllOptions(const char *pin_name) {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  lrf::TestLrf test_lrf;
+  test_lrf.probeAllOptions(sta, resizer, design_->getBlock(),
+                           thread_num, pin_name);
+}
+
+void
 Timing::testReportVertices() {
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
@@ -854,29 +936,27 @@ Timing::testReportVertices() {
   }
 }
 
-/*
-// Test functions of Seqremapper
-void Timing::testSeqRemapper()
+
+float Timing::getWorstSlack(MinMax minmax)
 {
   sta::dbSta* sta = getSta();
-  odb::dbDatabase* db = design_->getDb();
-  rsz::Resizer* resizer = design_->getResizer();
-  sta::Corner * corner = sta->findCorner("default");
-  utl::Logger* logger = design_->getLogger();
-  gpl::Replace* replace = design_->getReplace();
-  dpl::Opendp* opendp = design_->getOpendp();
-  est::EstimateParasitics* est = design_->getOpenRoad()->getEstimateParasitics();
-
-  // Constructor signature is (sta, db, corner, resizer, logger, gpl, dpl, est)
-  // Fix argument order (was resizer, corner) to match `SeqRemapper` definition.
-  rmp::SeqRemapper remapper(
-    sta, db, corner, resizer, logger, replace, opendp, est);
-  remapper.runOpt();
-
+  sta::Vertex* vertex;
+  sta::Slack worstSlack;
+  sta->worstSlack(getMinMax(minmax), worstSlack, vertex);
+  return worstSlack;
 }
-*/
 
+float Timing::getTns(sta::Corner* corner, MinMax minmax)
+{
+  sta::dbSta* sta = getSta();
+  float tns = sta->totalNegativeSlack(corner, getMinMax(minmax));
+  return tns;
+}
 
-
+float Timing::getTns(MinMax minmax)
+{
+  sta::dbSta* sta = getSta();
+  return sta->totalNegativeSlack(getMinMax(minmax));
+}
 
 }  // namespace ord

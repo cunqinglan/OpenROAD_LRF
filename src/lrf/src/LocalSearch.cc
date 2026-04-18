@@ -126,6 +126,15 @@ LocalArrivalVisitor::findVertexArrival(VertexId vertex_id)
     // But when the vertex is a refoutput, its arrival
     // is needed.
     seedLocalRootArrivals(pt_vertex);
+  else if (pt_vertex.type() == PtVertexType::RefInput) {
+    // RefInput: arrival was copied from global graph by initVertexAndEdges.
+    // Recomputing from RefDriver would use the root's raw input_delay
+    // (missing input transition delay), producing incorrect values.
+    // Keep the global graph value and only recompute the arrival from
+    // the RefDriver gate arc + updated delay.
+    // TODO: proper fix is to make root arrival include input driver delay.
+    findVertexArrival(pt_vertex);
+  }
   else
     findVertexArrival(pt_vertex);
 }
@@ -212,6 +221,7 @@ LocalPathVisitor::localVisitFaninPaths(PtVertex &to_pt_vertex)
   // Skip vertices with preset input delays.
   bool search_to = to_pt_vertex.hasBase()
       ? pred_->searchTo(to_pt_vertex.vertex()) : true;
+
   if (search_to) {
     PtVertexInEdgeIterator pt_edge_iter(to_pt_vertex.objectIdx(), pt_graph_);
     while (pt_edge_iter.hasNext()) {
@@ -535,40 +545,13 @@ LocalArrivalVisitor::localVisitFromToPath(
   Path *match;
   size_t path_index;
   tag_bldr_->tagMatchPath(to_tag, match, path_index);
-  
-  // if (is_debug_pin) {
-  //   printf("[LOCAL_ARRIVAL] %s <- %s:\n", 
-  //          to_pin_name, network_->name(from_pt_vertex.pin()));
-  //   printf("  from_tag: %s\n", from_tag->to_string(this).c_str());
-  //   printf("  to_tag: %s\n", to_tag->to_string(this).c_str());
-  //   printf("  from_arrival: %.6f ps\n", delayAsFloat(from_arrival) * 1e12);
-  //   printf("  arc_delay: %.6f ps\n", delayAsFloat(arc_delay) * 1e12);
-  //   printf("  to_arrival: %.6f ps\n", delayAsFloat(to_arrival) * 1e12);
-  //   printf("  BEFORE setMatchPath: match=%p, path_index=%zu\n", match, path_index);
-  //   if (match) {
-  //     printf("  match->arrival: %.6f ps\n", delayAsFloat(match->arrival()) * 1e12);
-  //   }
-  //   printf("  will_update: %s\n", 
-  //          (match == nullptr || delayGreater(to_arrival, match->arrival(), min_max, this)) ? "YES" : "NO");
-  //   fflush(stdout);
-  // }
-  
+
   if (match == nullptr || delayGreater(to_arrival, match->arrival(), min_max, this)) {
     // Virtual edges have no base sta::Edge; Path::init would crash at
     // graph->id(prev_edge) if prev_path is non-null with a null edge.
     // Local search never uses prev_path/prev_edge linkage, so nullptr is safe.
     Path *prev = pt_edge.hasBase() ? from_path : nullptr;
     tag_bldr_->setMatchPath(match, path_index, to_tag, to_arrival, prev, pt_edge.edge(), arc);
-    
-    // Debug: print final path_index after setMatchPath
-    // if (is_debug_pin) {
-    //   size_t final_index;
-    //   Path *final_match;
-    //   tag_bldr_->tagMatchPath(to_tag, final_match, final_index);
-    //   printf("  AFTER setMatchPath: final_path_index=%zu, tag_bldr pathCount=%zu\n", 
-    //          final_index, tag_bldr_->pathCount());
-    //   fflush(stdout);
-    // }
   }
   return true;
 }
@@ -581,6 +564,7 @@ LocalArrivalVisitor::localSetVertexArrivals(PtVertex &pt_vertex, TagGroupBldr *t
   TagGroup *prev_tag_group = search_->tagGroup(pt_vertex.tagGroupIndex());
   Path *prev_paths = pt_vertex.paths();
   TagGroup *tag_group = search_->findExistingTagGroup(tag_bldr);
+
   if (tag_group == prev_tag_group) {
     if (prev_paths == nullptr) {
       // Normal for virtual vertices (paths_ starts null after initVirtualPaths).

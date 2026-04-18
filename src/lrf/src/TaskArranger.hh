@@ -36,7 +36,6 @@ using sta::Level;
 using sta::ObjectIdx;
 using rsz::Resizer;
 
-class ParallelLrVisitor;
 class ParallelVisitor;
 class LocalSta;
 class InstVertex;
@@ -148,19 +147,15 @@ public:
   // Dependency-ordered traversal: visits instances in topological order,
   // calling visitor->visit() + visitor->applyChangesToDb() per instance.
   void visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer,
-                    ParallelLrVisitor *visitor);
-  void visitOrdered(sta::dbSta *sta, LocalSta *local_sta, rsz::Resizer *resizer,
                     ParallelVisitor *visitor);
   // Embarrassingly parallel: dispatches all combinational instances to
   // visitor->visit() with no dependency graph. The visitor defines what to do.
-  void visitAll(ParallelLrVisitor *visitor);
   void visitAll(ParallelVisitor *visitor);
-  std::vector<VertexId> decreOutRefCount(InstVertex *inst_vertex);
-  std::vector<VertexId> decreOutRefCount(InstVertex &inst_vertex);
+  std::set<VertexId> decreOutRefCount(InstVertex *inst_vertex);
+  std::set<VertexId> decreOutRefCount(InstVertex &inst_vertex);
   size_t decreRefCount(VertexId vid);
   void getZeroRefComInstVertices(std::vector<InstVertex*>& zero_ref_vertices);
   void createTask(InstVertex* inst_vertex);
-  void runTask(ParallelLrVisitor *visitor, InstVertex* inst_vertex);
   void runTask(ParallelVisitor *visitor, InstVertex* inst_vertex);
   void finishTasks();
 
@@ -204,10 +199,21 @@ public:
 
   // Aggregate change stats from all visitors and update PruningControl.
   // Must be called before visitors are deleted.
-  void updatePruningStats();
+  void updatePruningStats(PruningControl *pruning_control = nullptr);
+
+  // Last aggregated change stats (valid after visitOrdered returns)
+  int lastVisitCount() const { return last_visit_count_; }
+  int lastChangeCount() const { return last_change_count_; }
 
   void setMaxResizeNum(size_t max_resize_num) { max_resize_num_ = max_resize_num; }
   size_t vertexCount() const { return vertices_.size(); }
+
+  // Progress reporting: set the tag shown in progress lines (e.g. "resize",
+  // "buffering"). Milestone printing is driven by tickProgress(), called once
+  // per completed task in runTask() and visitAll().
+  void setProgressTag(const char *tag) { progress_tag_ = tag; }
+  void resetProgress(size_t total_tasks);
+  void tickProgress();
   const std::unordered_map<const sta::Instance*, VertexId> *instToVidMap() const { return &inst_to_vid_; }
   
   // Topology validation
@@ -228,6 +234,9 @@ protected:
 
   // Number of combinational vertices.
   size_t num_com_ = 0;
+  // Edge count after Phase 1 (topological edges only).
+  // Phase 2 uses this to skip MEE edges when enumerating fanouts.
+  size_t topo_edge_count_ = 0;
   // Safe mapping from Instance* to VertexId to avoid mutating STA internals.
   std::unordered_map<const sta::Instance*, VertexId> inst_to_vid_;
   bool use_direct_inst_id1_ = false;
@@ -237,20 +246,28 @@ protected:
   std::mutex visited_inst_names_mutex_;
   // Mutex removed: apply_change_to_db_mutex_ is replaced by g_odb_sta_access_mutex
   // Visitors for each thread
-  std::vector<ParallelLrVisitor *> visitors_;
-  std::vector<ParallelVisitor *> visitors_v2_;
+  std::vector<ParallelVisitor *> visitors_;
   // Maximum resize number allowed in one iteration
   size_t max_resize_num_ = 1000000;
   // Flag of if the first time visitOrdered
   bool incremental_ = false;
   // Flag set after netlist-modifying operations (e.g. buffer insertion)
   bool dirty_ = false;
-  // Flag: true when dispatching with ParallelVisitor (v2) vs ParallelLrVisitor
-  bool use_v2_visitors_ = false;
   
   // Topology validation
   bool enable_topology_check_ = false;
   std::unique_ptr<TopologyChecker> topology_checker_;
+
+  // Aggregated visit/change counts (set by updatePruningStats)
+  int last_visit_count_ = 0;
+  int last_change_count_ = 0;
+
+  // Progress reporting (simple global atomics; overhead is negligible vs
+  // per-task STA work and the existing atomic traffic on vertex_ref_counts_).
+  std::atomic<size_t> tasks_done_{0};
+  size_t total_tasks_ = 0;
+  std::atomic<int> next_milestone_{10};
+  const char *progress_tag_ = "LRF";
 
 private:
   friend class InstVertexOutEdgeIterator;

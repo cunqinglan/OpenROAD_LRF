@@ -193,11 +193,20 @@ class EstimateParasitics : public sta::dbStaState
   //////////////////////////////////////////////////
   void updateParasiticsNoDeleteNetwork(const sta::Net* net);
   void updateWireParasiticsNoDeleteNetwork();
+  void updateWireParasiticsNoDeleteNetworkParallel();
+  // Incremental version: only re-estimate nets in parasitics_invalid_.
+  void updateWireParasiticsNoDeleteNetworkIncremental();
   // Incremental: update wire parasitics only for the given nets.
   void updateWireParasiticsForNets(const std::unordered_set<sta::Net*>& nets);
-  void estimateWireParasiticNoDeleteNetwork(const sta::Net* net);      
+  void estimateWireParasiticNoDeleteNetwork(const sta::Net* net);
   void estimateWireParasiticSteinerNoDeleteNetwork(const sta::Pin* drvr_pin,
                                                    const sta::Net* net);
+  // Thread-safe variants: bypass Sta::makeParasiticNetwork to avoid
+  // delaysInvalidFromFanin (not thread-safe). Uses parasitics_->makeParasiticNetwork
+  // directly (has LockGuard). Caller must call sta_->delaysInvalid() after.
+  void estimateWireParasiticNoDeleteNetworkParallel(const sta::Net* net);
+  void estimateWireParasiticSteinerNoDeleteNetworkParallel(const sta::Pin* drvr_pin,
+                                                           const sta::Net* net);
   void checkIfParasiticsNetworkExists(const sta::Net* net);
   void estimateWireParasiticSteinerLrf(const sta::Pin* drvr_pin,
                                         const sta::Net* net,
@@ -236,6 +245,7 @@ class EstimateParasitics : public sta::dbStaState
                                     const sta::Net* net,
                                     sta::SpefWriter* spef_writer);
   void makePadParasitic(const sta::Net* net, sta::SpefWriter* spef_writer);
+  void makePadParasiticParallel(const sta::Net* net);
   bool isPadNet(const sta::Net* net) const;
   bool isPadPin(const sta::Pin* pin) const;
   bool isPad(const sta::Instance* inst) const;

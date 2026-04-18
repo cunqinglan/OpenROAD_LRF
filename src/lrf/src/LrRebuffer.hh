@@ -1,10 +1,10 @@
+// LrRebuffer: buffer insertion using EvalContext.
 #pragma once
 
 #include <string>
 #include <vector>
 #include "lrf/LrfClass.hh"
 #include "../../rsz/src/Rebuffer.hh"
-// #include "LocalSta.hh"
 
 namespace rsz {
 class Resizer;
@@ -13,17 +13,11 @@ using BufferedNetPtr = std::shared_ptr<BufferedNet>;
 using BufferedNetSeq = std::vector<BufferedNetPtr>;
 }
 
-namespace utl {
-
-}
-
-
 namespace lrf {
 
-class ParallelLrVisitor;
+struct EvalContext;
 class PtGraph;
 class LocalSta;
-class TestLrf;
 
 struct VirtualBufferInfo {
   std::vector<sta::VertexId> vertex_ids;
@@ -34,57 +28,91 @@ struct VirtualBufferInfo {
 
 class LrRebuffer : public rsz::Rebuffer
 {
-  friend class TestLrf;
-  friend class CombinedVisitor;
 public:
-  LrRebuffer(rsz::Resizer* resizer, ParallelLrVisitor* parallel_visitor);
-  // Call once in serial before creating any LrRebuffer instances in parallel.
+  LrRebuffer(rsz::Resizer* resizer, LocalSta* local_sta, EvalContext* eval_ctx);
   static void initGlobalPreamble(sta::dbSta* sta, rsz::Resizer* resizer);
   void init();
-  // Compute the best buffering option and save it at best_bnet_.
   void rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex);
-  // void annoataLoadSlacks();
   rsz::BufferedNetPtr bufferForTiming(sta::VertexId drvr_vertex_id, const rsz::BufferedNetPtr& tree, bool allow_topology_rewrite, bool last_iteration);
   void annotateLoadLMs(PtVertex &drvr_pt_vertex, const rsz::BufferedNetPtr& tree);
-  void insertBufferOptions(rsz::BufferedNetSeq& opts,
-                           int level,
-                           int next_segment_wl = 0);
-  rsz::BufferedNetPtr addWire(const rsz::BufferedNetPtr& p,
-                       odb::Point wire_end,
-                       int wire_layer,
-                       int level = -1);
+  void insertBufferOptions(rsz::BufferedNetSeq& opts, int level, int next_segment_wl = 0);
+  rsz::BufferedNetPtr addWire(const rsz::BufferedNetPtr& p, odb::Point wire_end, int wire_layer, int level = -1);
   int applyBufferingToDb();
+  void persistBufferParasitics();
   const sta::Pin *drvrPin() const { return drvr_pin_; }
   const rsz::BufferedNetPtr& bestBnet() const { return best_bnet_; }
   float bestCost() const { return best_cost_; }
+  rsz::Resizer *resizer() const { return resizer_; }
 
-  // ── Two-phase buffering for CombinedVisitor cache reuse ──
+  float computeNetSensitivity(const sta::Pin *drvr_pin,
+                              PtVertex &drvr_pt_vertex,
+                              float avg_delay, float avg_leakage);
+
+  // ── Two-phase buffering for CombinedOperator cache reuse ──
   //
   // Phase A (cell-independent): build Steiner tree, annotate LMs, run 2 rounds
   // of coarse bufferForTiming.  The returned BnetPtr encodes the buffer option
   // list and can be reused across multiple resize candidates.
-  // Sets drvr_pin_/drvr_port_ for subsequent evaluateBufferOnCandidate calls.
-  // Returns nullptr if buffering is not applicable.
   rsz::BufferedNetPtr prepareBufferOptions(const sta::Pin *drvr_pin,
                                            PtVertex &drvr_pt_vertex);
 
   // Phase B (cell-dependent): given a prepared BnetPtr from prepareBufferOptions,
-  // run 1 round of precise bufferForTiming on the current PtGraph state
-  // (after virtualReplaceCell for a specific resize candidate).
+  // run 1 round of precise bufferForTiming on the current PtGraph state.
   // Updates best_bnet_/best_cost_ if a better option is found.
   // Must call cleanupVirtualBuffer() after each candidate.
   void evaluateBufferOnCandidate(sta::VertexId drvr_vid,
                                  const rsz::BufferedNetPtr &prepared_bnet);
 
-  // Sensitivity-based precheck: compute max S(v,e) over all buffer points
-  // on the driving net. Does NOT insert any buffers.
-  // Returns the maximum sensitivity score (positive = buffering is beneficial).
-  float computeNetSensitivity(const sta::Pin *drvr_pin,
-                              PtVertex &drvr_pt_vertex,
-                              float avg_delay, float avg_leakage);
+  void cleanupVirtualBuffer();
+
+  // Repair slew violations on a single driver net by inserting buffers.
+  int repairSlew(const sta::Pin *drvr_pin, rsz::Resizer *resizer);
+
+  // Two-phase RSZ-style rebuffering for parallel execution:
+  //
+  // Phase 1 (parallel-safe): pre-checks, makeBufferedNet, annotateLoadSlacks,
+  // N× bufferForTiming, 5× recoverArea.  Stores result in best_bnet_/drvr_pin_.
+  // Returns true if a valid bnet was prepared.
+  // Does NOT modify the netlist.
+  bool prepareRszBnet(const sta::Pin *drvr_pin, int bft_iter = 3);
+
+  // Phase 2 (requires mutex): call applyBufferingToDb() to export
+  // best_bnet_ to DB, persist parasitics, and write timing.
+
+  // Experiment B: generate bnet with RSZ algorithm, evaluate with LRF local timing.
+  // Does NOT modify the design — only prints diagnostic info.
+  void probeRszBnetWithLocalEval(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex);
+  // Repair cap violations on a single driver net by inserting buffers.
+  // Walks the Steiner tree bottom-up; at each junction where combined
+  // cap exceeds max_cap, inserts a buffer to isolate the larger branch
+  // (same strategy as RepairDesign::repairNetJunc).
+  static int repairCap(const sta::Pin *drvr_pin, float max_cap,
+                       sta::dbSta *sta, rsz::Resizer *resizer);
+
+  // Slew-aware buffer cell selection (mirrors RepairDesign::findBufferUnderSlew).
+  // Picks the smallest buffer whose output slew stays under max_slew when
+  // driving load_cap.  Falls back to the buffer with minimum achievable slew.
+  static sta::LibertyCell *findBufferUnderSlew(
+      rsz::Resizer *resizer, float max_slew, float load_cap);
+
+  // Insert a repeater buffer at the given location, resize it, and update
+  // load_pins / repeater_cap to reflect the buffer's input pin.
+  // Returns true on success (mirrors RepairDesign::makeRepeater).
+  static bool makeRepeater(rsz::Resizer *resizer,
+                           const sta::Corner *corner,
+                           const odb::Point &loc,
+                           sta::LibertyCell *buffer_cell,
+                           sta::PinSeq &load_pins,
+                           float &repeater_cap);
 
 protected:
-  // Cost computation: delay_LM_sum + leakage
+  // Compute buffer gate delay = max(rise, fall) when driving load_cap,
+  // using PtGraph's dcalcAnalysisPt. Standalone replacement for
+  // Rebuffer::bufferDelay, which LRF cannot use because it relies on
+  // arrival_paths_ populated by annotateLoadSlacks (which LRF doesn't call).
+  rsz::FixedDelay computeBufferGateDelay(sta::LibertyCell *buffer_cell,
+                                         float load_cap);
+
   float computeBufferAddedCost(float buffer_delay_seconds,
                                 float buffer_leakage,
                                 const rsz::BufferedNetPtr& load_opt);
@@ -102,47 +130,38 @@ protected:
   VirtualBufferInfo buildVirtualBuffer(sta::VertexId drvr_vertex_id,
                                        const rsz::BufferedNetPtr& option);
   void removeVirtualBuffer(VirtualBufferInfo &info);
-  void cleanupVirtualBuffer();
   float computeVirtualSlack(const VirtualBufferInfo &info);
   rsz::BufferedNetPtr attemptTopologyRewrite(const rsz::BufferedNetPtr& node,
                                              const rsz::BufferedNetPtr& left,
                                              const rsz::BufferedNetPtr& right,
                                              float best_cap);
   int bufferNum(const rsz::BufferedNetPtr& tree);
-  // After exportBufferTree physically inserts buffers, write the LMs from
-  // the BnetPtr tree back onto the corresponding real graph wire edges.
   void writeLmsToGraph();
-  // After physical buffer insertion, rebuild parasitic networks for new buffer
-  // nets via est and reduce to PiElmore in local parasitic maps.
-  void persistBufferParasitics();
-  // Write timing (slew, arrival, required, arc delay) from PtGraph virtual
-  // buffer vertices/edges to the corresponding real graph vertices/edges.
   void writeTimingToGraph();
   void initNewStaVertexPaths(const PtVertex &pt_vertex, sta::Vertex *sta_vertex);
-  // Build PtPiElmore parasitics for virtual buffer sub-graph.
-  // For original driver: adds virtual buffer input Elmore to existing PtPiElmore.
-  // For virtual buffer outputs: builds synthetic PtPiElmore from BnetPtr wireRC.
-  void buildVirtualParasitics(VertexId drvr_vertex_id,
-                              const rsz::BufferedNetPtr& option,
-                              const VirtualBufferInfo &vinfo);
-  // New: build synthetic ConcreteParasiticNetwork from BnetPtr wireRC and
-  // reduce to PtPiElmore.  Replaces driver's PtPiElmore with one that
-  // reflects the modified topology (driver sees only buffer input cap,
-  // not all original loads).  Parallel to buildVirtualParasitics for testing.
   void buildSyntheticParasitics(VertexId drvr_vertex_id,
                                 const rsz::BufferedNetPtr& option,
                                 const VirtualBufferInfo &vinfo);
-private:
+
+protected:
   LocalSta *local_sta_;
-  ParallelLrVisitor* visitor_;
+  EvalContext *eval_ctx_;
   const sta::Pin *drvr_pin_ = nullptr;
   rsz::BufferedNetPtr best_bnet_ = nullptr;
   float best_cost_ = std::numeric_limits<float>::max();
+  float last_delay_lm_sum_ = 0.0f;
+  float last_slack_after_ = -1e30f;
   VirtualBufferInfo best_vinfo_;
   bool verbose_ = true;
+
+  // Diagnostic flag: when true, bufferForTiming / insertBufferOptions /
+  // attemptTopologyRewrite emit [DBG-PRUNE-*] trace lines on every
+  // candidate decision point. Used by TestRebuffer::probeAllOptions to
+  // investigate why multi-buffer topologies are not being generated.
+  bool prune_debug_ = false;
+
+  // Saved from last bufferForTiming call (last iteration's top options)
+  std::vector<rsz::BufferedNetPtr> last_top_opts_;
 };
-
-
-
 
 } // namespace lrf
