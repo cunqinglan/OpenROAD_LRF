@@ -32,6 +32,20 @@ EvalContext::swapCost(float delay_lm_sum, float power,
        + density_weight * density_cost / average_area;
 }
 
+float
+EvalContext::getDensityCost(odb::dbInst *inst, float delta_area) const
+{
+  if (!density_map)
+    return 0.0f;
+  // Per-bin λ path: cost = λ_d(bin) × Δarea (density_weight acts as 1.0).
+  if (density_map->hasLambda())
+    return density_map->getLambda(inst) * delta_area;
+  // Legacy path: cost = Δarea × Φ(x,y), scaled by density_weight in swapCost.
+  if (density_weight > 0.0f)
+    return delta_area * density_map->getDensity(inst);
+  return 0.0f;
+}
+
 // ═══════════════════════════════════════════════════════════
 // MoveOption
 // ═══════════════════════════════════════════════════════════
@@ -216,16 +230,13 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
 
   auto start_eval = std::chrono::high_resolution_clock::now();
 
-  // Precompute density at this cell's location (shared across candidates).
-  float local_density = 0.0f;
   float ori_area = ori_cell->area();
-  if (ctx.density_map && ctx.density_weight > 0.0f) {
-    local_density = ctx.density_map->getDensity(db_inst);
-  }
 
   // Pass 1: evaluate all candidates, store (cost, slack) pairs
   std::vector<float> vec_cost_slack(candidates.size() * 2,
                                     std::numeric_limits<float>::max());
+  // Per-candidate cost breakdown for diagnostics: (d_term, l_term, a_term).
+  std::vector<float> vec_terms(candidates.size() * 3, 0.0f);
   float slack_before = 0.0f;
 
   for (size_t i = 0; i < candidates.size(); i++) {
@@ -257,12 +268,16 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     if (!legal_after && cand != ori_cell)
       continue;
 
-    // Density penalty: Dd = (cand_area - ori_area) * Φ(x,y)
-    float density_cost = (cand->area() - ori_area) * local_density;
+    float density_cost = ctx.getDensityCost(db_inst, cand->area() - ori_area);
     float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost);
     float slack = local_sta_->localSlackAroundRef(pt_graph);
     vec_cost_slack[i * 2] = cost;
     vec_cost_slack[i * 2 + 1] = slack;
+    vec_terms[i * 3 + 0] =
+        ctx.PT_tradeoff * delay_lm_sum / ctx.average_delay;
+    vec_terms[i * 3 + 1] = leakage / ctx.average_leakage;
+    vec_terms[i * 3 + 2] =
+        ctx.density_weight * density_cost / ctx.average_area;
 
     if (cand == ori_cell)
       slack_before = slack;
@@ -276,12 +291,53 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   }
   auto start_post = std::chrono::high_resolution_clock::now();
 
-  // Pass 2: pick best (with slack margin check)
+  // Pass 2: pick best (with slack margin check).  Track winner idx.
+  size_t best_idx = candidates.size();
   for (size_t i = 0; i < candidates.size(); i++) {
     float cost = vec_cost_slack[i * 2];
     float slack = vec_cost_slack[i * 2 + 1];
+    MoveOption::Type old_type = result.type;
+    float old_cost = result.cost;
     result.updateIfBetter(MoveOption::RESIZE_ONLY, cost, slack,
                           slack_before, slack_margin_, candidates[i], nullptr);
+    if (result.cost != old_cost || result.type != old_type)
+      best_idx = i;
+  }
+
+  // --- Diagnostic: record best-swap decision by bin violation state ---
+  if (ctx.runtime_map && ctx.density_map && ctx.density_map->hasLambda()
+      && result.target_cell) {
+    bool violated = ctx.density_map->isViolated(db_inst);
+    float delta_area = result.target_cell->area() - ori_area;
+    const char *prefix = violated ? "viol_" : "free_";
+    if (delta_area > 0)
+      (*ctx.runtime_map)[std::string(prefix) + "upsize"] += 1.0;
+    else if (delta_area < 0)
+      (*ctx.runtime_map)[std::string(prefix) + "downsize"] += 1.0;
+    else
+      (*ctx.runtime_map)[std::string(prefix) + "nochange"] += 1.0;
+
+    // Record the 3 cost terms of the winner (finite only).
+    if (best_idx < candidates.size()) {
+      float d = vec_terms[best_idx * 3 + 0];
+      float l = vec_terms[best_idx * 3 + 1];
+      float a = vec_terms[best_idx * 3 + 2];
+      if (std::isfinite(d)) {
+        (*ctx.runtime_map)[std::string(prefix) + "best_d"] += d;
+        (*ctx.runtime_map)[std::string(prefix) + "best_l"] += l;
+        (*ctx.runtime_map)[std::string(prefix) + "best_a"] += a;
+        (*ctx.runtime_map)[std::string(prefix) + "best_n"] += 1.0;
+      }
+    }
+
+    if (delta_area != 0.0f) {
+      float lambda = ctx.density_map->getLambda(db_inst);
+      float dens_term =
+          ctx.density_weight * lambda * delta_area / ctx.average_area;
+      (*ctx.runtime_map)[std::string(prefix) + "lambda_sum"] += lambda;
+      (*ctx.runtime_map)[std::string(prefix) + "dens_term_sum"] += dens_term;
+      (*ctx.runtime_map)[std::string(prefix) + "swap_count"] += 1.0;
+    }
   }
 
   // --- Update pruning state (FULL or REORDER: evaluated full neighborhood) ---
@@ -387,12 +443,7 @@ ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
 
   auto start_eval = std::chrono::high_resolution_clock::now();
 
-  // Precompute density at this cell's location (shared across candidates).
-  float local_density = 0.0f;
   float ori_area = ori_cell->area();
-  if (ctx.density_map && ctx.density_weight > 0.0f) {
-    local_density = ctx.density_map->getDensity(db_inst);
-  }
 
   // Pass 1: evaluate all candidates, store (cost, slack) pairs
   std::vector<float> vec_cost_slack(candidates.size() * 2,
@@ -428,7 +479,7 @@ ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
     if (!legal_after && cand != ori_cell)
       continue;
 
-    float density_cost = (cand->area() - ori_area) * local_density;
+    float density_cost = ctx.getDensityCost(db_inst, cand->area() - ori_area);
     float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost);
     float slack = local_sta_->localSlackAroundRef(pt_graph);
     vec_cost_slack[i * 2] = cost;
@@ -551,14 +602,8 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
 
   auto start_eval = std::chrono::high_resolution_clock::now();
 
-  // Precompute density at this cell's location.
-  float local_density = 0.0f;
   float ori_area = ori_cell->area();
-  if (ctx.density_map && ctx.density_weight > 0.0f) {
-    odb::dbInst *db_inst = db_sta_->getDbNetwork()->staToDb(inst);
-    if (db_inst)
-      local_density = ctx.density_map->getDensity(db_inst);
-  }
+  odb::dbInst *db_inst = db_sta_->getDbNetwork()->staToDb(inst);
 
   // Build O(1) leakage lookup
   std::unordered_map<sta::LibertyCell*, float> leakage_cache;
@@ -603,7 +648,7 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
         && cand != ori_cell)
       continue;
 
-    float density_cost = (cand->area() - ori_area) * local_density;
+    float density_cost = ctx.getDensityCost(db_inst, cand->area() - ori_area);
     float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost);
     float slack = local_sta_->localSlackAroundRef(pt_graph);
     cand_results[i] = {cost, slack};
@@ -1597,6 +1642,57 @@ ParallelVisitor::printRuntimeProfile() const
     if (unaccounted > 0.001) {
       printf("    %-30s: %8.4fs  (%5.1f%%)\n", "(other/overhead)", unaccounted,
              unaccounted / equiv_time * 100.0);
+    }
+  }
+  // --- Per-bin swap decision diagnostics (violated vs free bins) ---
+  double viol_up = safe_get("viol_upsize");
+  double viol_down = safe_get("viol_downsize");
+  double viol_noc = safe_get("viol_nochange");
+  double free_up = safe_get("free_upsize");
+  double free_down = safe_get("free_downsize");
+  double free_noc = safe_get("free_nochange");
+  double viol_total = viol_up + viol_down + viol_noc;
+  double free_total = free_up + free_down + free_noc;
+  if (viol_total + free_total > 0) {
+    printf("\n  --- swap decisions by bin state ---\n");
+    if (viol_total > 0) {
+      printf("    violated bins:  up=%-6.0f down=%-6.0f noch=%-6.0f  total=%.0f "
+             "(up%%=%.1f dn%%=%.1f)\n",
+             viol_up, viol_down, viol_noc, viol_total,
+             viol_up / viol_total * 100.0, viol_down / viol_total * 100.0);
+    }
+    if (free_total > 0) {
+      printf("    free     bins:  up=%-6.0f down=%-6.0f noch=%-6.0f  total=%.0f "
+             "(up%%=%.1f dn%%=%.1f)\n",
+             free_up, free_down, free_noc, free_total,
+             free_up / free_total * 100.0, free_down / free_total * 100.0);
+    }
+    double viol_sc = safe_get("viol_swap_count");
+    double free_sc = safe_get("free_swap_count");
+    if (viol_sc > 0) {
+      printf("    violated swaps: avg_lambda=%.4e  avg_dens_term=%.4e\n",
+             safe_get("viol_lambda_sum") / viol_sc,
+             safe_get("viol_dens_term_sum") / viol_sc);
+    }
+    if (free_sc > 0) {
+      printf("    free     swaps: avg_lambda=%.4e  avg_dens_term=%.4e\n",
+             safe_get("free_lambda_sum") / free_sc,
+             safe_get("free_dens_term_sum") / free_sc);
+    }
+    // Best-swap cost breakdown (3 terms) by bin state.
+    double viol_bn = safe_get("viol_best_n");
+    double free_bn = safe_get("free_best_n");
+    if (viol_bn > 0) {
+      printf("    viol best terms: d=%.4e  l=%.4e  a=%.4e  (n=%.0f)\n",
+             safe_get("viol_best_d") / viol_bn,
+             safe_get("viol_best_l") / viol_bn,
+             safe_get("viol_best_a") / viol_bn, viol_bn);
+    }
+    if (free_bn > 0) {
+      printf("    free best terms: d=%.4e  l=%.4e  a=%.4e  (n=%.0f)\n",
+             safe_get("free_best_d") / free_bn,
+             safe_get("free_best_l") / free_bn,
+             safe_get("free_best_a") / free_bn, free_bn);
     }
   }
 }

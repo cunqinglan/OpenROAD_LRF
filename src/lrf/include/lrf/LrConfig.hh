@@ -83,6 +83,7 @@ struct LrConfig {
   // ── Optimization weights ──
   float PT_tradeoff = 100.0f;
   float density_weight = 0.0f;      // 0 = disabled
+  float density_headroom = 1.05f;   // per-bin λ: threshold = max_density × headroom
   bool  ratcons = false;
 
   // ── LR solver ──

@@ -595,7 +595,7 @@ Timing::runLr(int mode, size_t iterations, size_t max_resize_num,
               const char *lr_helper_method, float top_ratio,
               bool initialize, const char *checkpoint_dir,
               bool debug, size_t buffering_start_iter,
-              float timing_margin) {
+              float timing_margin, float density_headroom) {
   lrf::LrConfig cfg;
   cfg.mode = static_cast<lrf::LrMode>(mode);
   cfg.iterations = iterations;
@@ -603,6 +603,7 @@ Timing::runLr(int mode, size_t iterations, size_t max_resize_num,
   cfg.num_no_improve_tolerance = num_no_improve_tolerance;
   cfg.PT_tradeoff = PT_tradeoff;
   cfg.density_weight = density_weight;
+  cfg.density_headroom = density_headroom;
   cfg.ratcons = ratcons;
   cfg.lr_helper_method = lr_helper_method;
   cfg.top_ratio = top_ratio;

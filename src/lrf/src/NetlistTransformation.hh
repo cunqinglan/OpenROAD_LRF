@@ -70,6 +70,11 @@ struct EvalContext {
 
   float swapCost(float delay_lm_sum, float power,
                  float density_cost = 0.0f) const;
+
+  // Compute density penalty for a cell swap.
+  // Uses per-bin λ when available, otherwise falls back to
+  // density_weight × Φ(x,y) × Δarea.
+  float getDensityCost(odb::dbInst *inst, float delta_area) const;
 };
 
 // ═══════════════════════════════════════════════════════════

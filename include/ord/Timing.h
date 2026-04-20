@@ -129,7 +129,8 @@ class Timing
              const char *checkpoint_dir = "",
              bool debug = false,
              size_t buffering_start_iter = 5,
-             float timing_margin = 0.01f);
+             float timing_margin = 0.01f,
+             float density_headroom = 1.05f);
 
   // Test: level-parallel initializer (standalone, does not start LR).
   void testParallelInitializer(bool minimize_leakage = true);

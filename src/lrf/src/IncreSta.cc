@@ -21,7 +21,9 @@
 #include "TestRebuffer.hh"
 #include "rsz/Resizer.hh"
 #include "ParallelLibData.hh"
+#include "PlacementDensityMap.hh"
 #include "LrSizer.hh"
+#include "db_sta/dbNetwork.hh"
 
 #include <unordered_map>
 #include <chrono>
@@ -267,6 +269,12 @@ IncreSta::lmUpdate()
       : lr_helper_->KKTProjection(sta_);
     if (kkt_satisfied)
       projected_ = true;
+  }
+
+  // Update per-bin density Lagrange multipliers.
+  if (density_map_ && density_map_->hasLambda()) {
+    density_map_->rebuild(sta_->getDbNetwork()->block());
+    density_map_->updateLambda();
   }
 }
 
@@ -702,10 +710,35 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
   // Pass density map to EvalContext if set.
   if (density_map_) {
     visitor->evalContext().density_map = density_map_;
-    visitor->evalContext().density_weight = density_weight_;
+    // Per-bin lambda: density_weight acts as 1.0 (λ already encodes weight).
+    visitor->evalContext().density_weight =
+        density_map_->hasLambda() ? 1.0f : density_weight_;
     visitor->evalContext().average_area = average_area_;
   }
   visitor->evalContext().debug = debug_;
+
+  // One-shot diagnostic: print cost normalizers for calibration.
+  {
+    const auto &ctx = visitor->evalContext();
+    printf("[COST_NORMALIZERS] PT=%.1f avg_delay=%.6e avg_leak=%.6e "
+           "avg_area=%.4f dw=%.2f hasLambda=%d\n",
+           ctx.PT_tradeoff, ctx.average_delay, ctx.average_leakage,
+           ctx.average_area, ctx.density_weight,
+           ctx.density_map ? ctx.density_map->hasLambda() : 0);
+    if (ctx.density_map && ctx.density_map->hasLambda()) {
+      // Sample a few bins' lambda values.
+      float max_lam = 0, min_lam = 1e30f, sum_lam = 0;
+      int cnt = ctx.density_map->binCntX() * ctx.density_map->binCntY();
+      for (int b = 0; b < cnt; b++) {
+        // Access via public interface not ideal, but threshold is exposed.
+        // Just report threshold and stats.
+      }
+      printf("[DENSITY_LAMBDA] threshold=%.4f k=%d bins=%dx%d\n",
+             ctx.density_map->threshold(), ctx.density_map->getK(),
+             ctx.density_map->binCntX(), ctx.density_map->binCntY());
+    }
+    fflush(stdout);
+  }
 
   local_sta_->taskArranger()->setProgressTag("LRF resize");
   local_sta_->runResize(resizer, visitor);
@@ -1141,7 +1174,8 @@ IncreSta::parallelResizeByArrayWithPrecheck(
   visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &inst_info_map_);
   if (density_map_) {
     visitor->evalContext().density_map = density_map_;
-    visitor->evalContext().density_weight = density_weight_;
+    visitor->evalContext().density_weight =
+        density_map_->hasLambda() ? 1.0f : density_weight_;
     visitor->evalContext().average_area = average_area_;
   }
   visitor->evalContext().debug = debug_;
@@ -1187,7 +1221,8 @@ IncreSta::parallelResizeByArrayWithPrecheck(
     cp_visitor->init(avg_delay, avg_power, wns_after, PT_tradeoff, &inst_info_map_);
     if (density_map_) {
       cp_visitor->evalContext().density_map = density_map_;
-      cp_visitor->evalContext().density_weight = density_weight_;
+      cp_visitor->evalContext().density_weight =
+          density_map_->hasLambda() ? 1.0f : density_weight_;
       cp_visitor->evalContext().average_area = average_area_;
     }
     cp_visitor->evalContext().debug = debug_;

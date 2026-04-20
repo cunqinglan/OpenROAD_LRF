@@ -182,6 +182,11 @@ public:
   // drivers whose output port cap is unchanged after cell swap.
   bool virtualReplaceCellSelective(PtGraph *pt_graph, sta::LibertyCell *new_cell);
 
+  // Pop and delete the most recently-created PtGraph from local_graphs_.
+  // Public so probes/tests that call makePtGraph can release without
+  // a double-free on LocalSta destruction.
+  void graphPop();
+
 protected:
   const Pin *findNetParasiticDrvrPin(sta::Net *net) const;
   void collectLocalFanouts(Pin *drvr_pin, InstanceSet &local_instances);
@@ -374,7 +379,6 @@ protected:
   float delayLmSum(PtGraph *pt_graph);
   float delayLmSum(sta::Instance *inst, PtGraph *pt_graph);
   float refgateDelayLmSum(PtGraph *pt_graph);
-  void graphPop();
   void setSta(dbSta *sta) { sta_ = sta; }
   // initAndGetLocalTimingCost, increAndGetLocalTimingCost, localSlackAroundRef
   // moved to public section above

@@ -27,6 +27,7 @@
 #include "TaskArranger.hh"
 #include "sta/TimingRole.hh"
 #include "sta/PowerClass.hh"
+#include "power/Power.hh"
 #include "sta/PathAnalysisPt.hh"
 #include "sta/Delay.hh"
 #include "est/EstimateParasitics.h"
@@ -728,7 +729,8 @@ static void
 setupDensityMap(PlacementDensityMap &density_map,
                 sta::dbSta *sta, odb::dbBlock *block,
                 IncreSta *incre_sta,
-                float density_weight)
+                float density_weight,
+                float density_headroom = 1.05f)
 {
   density_map.build(block);
   double total_area = 0.0;
@@ -745,6 +747,139 @@ setupDensityMap(PlacementDensityMap &density_map,
   printf("DensityMap: %dx%d bins, avg_area=%.4f, weight=%.2f\n",
          density_map.binCntX(), density_map.binCntY(), avg_area, density_weight);
   fflush(stdout);
+
+  // Initialize per-bin Lagrange multipliers for density constraint.
+  if (density_weight > 0.0f) {
+    density_map.initLambda(density_headroom);
+  }
+}
+
+////////////////////////////////////////////////////////////////
+// probeCostBreakdown — post-iteration sampling of cost terms
+////////////////////////////////////////////////////////////////
+
+static void
+probeCostBreakdown(const char *label,
+                   lrf::IncreSta *incre_sta,
+                   sta::dbSta *sta,
+                   odb::dbBlock *block,
+                   lrf::PlacementDensityMap &density_map,
+                   float PT_tradeoff,
+                   float avg_delay,
+                   float avg_leakage,
+                   float avg_area,
+                   int n_samples = 5)
+{
+  if (!density_map.hasLambda())
+    return;
+
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+  sta::ArcDelayCalc *adc = sta->arcDelayCalc();
+  sta::dbNetwork *network = sta->getDbNetwork();
+
+  // Partition instances by bin violation state, with lambda for ranking.
+  std::vector<std::pair<float, odb::dbInst*>> viol_insts, free_insts;
+  for (odb::dbInst *inst : block->getInsts()) {
+    if (!inst->isPlaced()) continue;
+    sta::Instance *si = network->dbToSta(inst);
+    if (!si) continue;
+    if (!network->libertyCell(si)) continue;
+    float lam = density_map.getLambda(inst);
+    if (density_map.isViolated(inst))
+      viol_insts.push_back({lam, inst});
+    else
+      free_insts.push_back({lam, inst});
+  }
+  // Sort violated by lambda descending → sample the extreme bins first.
+  std::sort(viol_insts.begin(), viol_insts.end(),
+            [](const auto &a, const auto &b) { return a.first > b.first; });
+
+  printf("[PROBE %s] violated=%zu free=%zu\n", label,
+         viol_insts.size(), free_insts.size());
+  fflush(stdout);
+
+  auto probe_one = [&](odb::dbInst *inst, bool is_viol) {
+    sta::Instance *si = network->dbToSta(inst);
+    sta::LibertyCell *ori_cell = network->libertyCell(si);
+    if (!ori_cell) return;
+
+    lrf::PtGraph *pg = local_sta->makePtGraph(si, true);
+    if (!pg) return;
+
+    // Baseline: ori_cell delay_lm_sum and leakage
+    auto cost_ori = local_sta->increAndGetLocalTimingCost(pg, adc, ori_cell);
+    float dlm_ori = cost_ori.delay_lm_sum;
+    sta::Corner *corner = sta->corners()->findCorner("default");
+    auto get_leak = [&](sta::LibertyCell *c) {
+      return sta->power()->leakagePower(si, c, corner);
+    };
+    float leak_ori = get_leak(ori_cell);
+
+    float density = density_map.getDensity(inst);
+    float lambda = density_map.getLambda(inst);
+
+    // Find adjacent candidates: one just bigger, one just smaller by area.
+    sta::LibertyCellSeq *equiv = sta->equivCells(ori_cell);
+    sta::LibertyCell *up_cell = nullptr, *dn_cell = nullptr;
+    if (equiv) {
+      float ori_area_val = ori_cell->area();
+      float up_min_area = std::numeric_limits<float>::max();
+      float dn_max_area = 0.0f;
+      for (size_t k = 0; k < equiv->size(); k++) {
+        sta::LibertyCell *c = (*equiv)[k];
+        if (!c || c == ori_cell) continue;
+        float a = c->area();
+        if (a > ori_area_val && a < up_min_area) {
+          up_min_area = a; up_cell = c;
+        }
+        if (a < ori_area_val && a > dn_max_area) {
+          dn_max_area = a; dn_cell = c;
+        }
+      }
+    }
+
+    auto eval_delta = [&](sta::LibertyCell *c, const char *tag) {
+      if (!c) return;
+      auto cost_c = local_sta->increAndGetLocalTimingCost(pg, adc, c);
+      float dlm_c = cost_c.delay_lm_sum;
+      float leak_c = get_leak(c);
+      float delta_area = c->area() - ori_cell->area();
+
+      float d_delta = PT_tradeoff * (dlm_c - dlm_ori) / avg_delay;
+      float l_delta = (leak_c - leak_ori) / avg_leakage;
+      float a_delta = lambda * delta_area / avg_area;
+      printf("    -> %s cell=%s Δa=%+.4f | "
+             "Δd=%+.3e  Δl=%+.3e  Δa=%+.3e\n",
+             tag, c->name(), delta_area, d_delta, l_delta, a_delta);
+    };
+
+    printf("  [%s %s] %s cell=%s dens=%.3f λ=%.4e | "
+           "dlm_ori=%.3e leak_ori=%.3e\n",
+           label, is_viol ? "V" : "F",
+           inst->getName().c_str(), ori_cell->name(),
+           density, lambda, dlm_ori, leak_ori);
+    eval_delta(up_cell, "UP  ");
+    eval_delta(dn_cell, "DOWN");
+    // Restore PtGraph to ori state (so next instance starts clean).
+    local_sta->increAndGetLocalTimingCost(pg, adc, ori_cell);
+    fflush(stdout);
+
+    // pg was push_back'd to local_graphs_ by makePtGraph; pop+delete to
+    // keep the pool consistent and avoid a shutdown double-free.
+    local_sta->graphPop();
+  };
+
+  // Violated: top N by lambda (already sorted desc).
+  int N = std::min(n_samples, (int)viol_insts.size());
+  for (int i = 0; i < N; i++) {
+    probe_one(viol_insts[i].second, true);
+  }
+  // Free: evenly-spaced sampling.
+  N = std::min(n_samples, (int)free_insts.size());
+  for (int i = 0; i < N; i++) {
+    size_t idx = (free_insts.size() / N) * i;
+    probe_one(free_insts[idx].second, false);
+  }
 }
 
 ////////////////////////////////////////////////////////////////
@@ -883,7 +1018,8 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
                             bool initialize,
                             float density_weight,
                             std::string checkpoint_dir,
-                            float timing_margin)
+                            float timing_margin,
+                            float density_headroom)
 {
   printf("----- Testing Parallel LR Resize By Array (New Framework, timing_margin=%.4f) -----\n",
          timing_margin);
@@ -918,14 +1054,14 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
 
   // Build placement density map for density-aware swap cost.
   PlacementDensityMap density_map;
-  setupDensityMap(density_map, sta, block, incre_sta, density_weight);
+  setupDensityMap(density_map, sta, block, incre_sta, density_weight, density_headroom);
 
   float top_ratio = 0.3f;
 
   // ECO controller — uses best experimentally-verified strategy.
   EcoConfig eco_cfg = EcoConfig::make(EcoStrategy::HALVE_ON_CONSECUTIVE);
   eco_cfg.max_eco_reverts = num_no_improve_tolerance;
-  eco_cfg.warmup_iters = 0;  // no warmup in normal flow; Phase1 handles convergence
+  eco_cfg.warmup_iters = 3;  // accept first 3 iters unconditionally (LR needs time to converge)
   EcoController eco(eco_cfg, incre_sta, sta, block, resizer);
 
   // Enable incremental parasitic tracking via ODB callbacks.
@@ -934,8 +1070,18 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   est_parasitics->setDbCbkOwner(block);
 
   for (size_t i = 0; i < iterations; ++i) {
-    incre_sta->lmUpdate();
+    incre_sta->lmUpdate();  // also calls density_map.rebuild + updateLambda
     sta->findRequireds();
+
+    // Post-lmUpdate probe: sample instances for cost-term breakdown.
+    if (density_map.hasLambda()) {
+      char probe_label[32];
+      snprintf(probe_label, sizeof(probe_label), "iter=%zu", i+1);
+      probeCostBreakdown(probe_label, incre_sta, sta, block, density_map,
+                         PT_tradeoff, avg_delay, avg_leakage,
+                         incre_sta->averageArea(), 5);
+    }
+
     auto start = std::chrono::high_resolution_clock::now();
 
     if (eco.usePrecheck()) {
@@ -969,6 +1115,44 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     printf("Total Negative Slack: %f\n", tns * 1e12);
     printf("Total Leakage Power: %f\n", leakage * 1e10);
 
+    // Density lambda statistics (per iteration).
+    if (density_map.hasLambda()) {
+      int n_bins = density_map.binCntX() * density_map.binCntY();
+      float max_lam = 0, min_lam = 1e30f, sum_lam = 0;
+      float max_dens = 0;
+      int violated = 0;
+      for (int by = 0; by < density_map.binCntY(); by++) {
+        for (int bx = 0; bx < density_map.binCntX(); bx++) {
+          int x = static_cast<int>(bx * density_map.binSizeX());
+          int y = static_cast<int>(by * density_map.binSizeY());
+          float lam = density_map.getLambda(x, y);
+          float dens = density_map.getDensity(x, y);
+          max_lam = std::max(max_lam, lam);
+          min_lam = std::min(min_lam, lam);
+          sum_lam += lam;
+          max_dens = std::max(max_dens, dens);
+          if (dens > density_map.threshold()) violated++;
+        }
+      }
+      // Compute total area for reference.
+      double total_area = 0;
+      int inst_cnt = 0;
+      for (odb::dbInst *inst : block->getInsts()) {
+        if (!inst->isPlaced()) continue;
+        sta::Instance *si = sta->getDbNetwork()->dbToSta(inst);
+        if (!si) continue;
+        sta::LibertyCell *lc = sta->network()->libertyCell(si);
+        if (lc) { total_area += lc->area(); inst_cnt++; }
+      }
+      float avg_area_now = inst_cnt > 0 ? total_area / inst_cnt : 1.0f;
+      printf("[DENSITY_STATS] bins=%d violated=%d threshold=%.4f "
+             "max_dens=%.4f lambda(min/avg/max)=%.6f/%.6f/%.6f "
+             "avg_area=%.4f\n",
+             n_bins, violated, density_map.threshold(), max_dens,
+             min_lam, sum_lam / n_bins, max_lam, avg_area_now);
+      fflush(stdout);
+    }
+
     {
       char label[32];
       snprintf(label, sizeof(label), "Iter %zu", i+1);
@@ -987,7 +1171,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     IterationHelper::Metrics cur;
     cur.wns_ps = wns * 1e12;
     cur.tns_ps = tns * 1e12;
-    cur.leakage = leakage * 1e-10;  // back to raw watts
+    cur.leakage = leakage;  // Watts (matches helper.snapshot convention)
     cur.runtime_s = std::chrono::duration<double>(end - start).count();
 
     EcoDecision decision = eco.decide(i, cur, best);
@@ -1220,7 +1404,8 @@ TestLrf::runLr(sta::dbSta* sta, rsz::Resizer *resizer,
           cfg.num_no_improve_tolerance, cfg.ratcons,
           cfg.PT_tradeoff, cfg.lr_helper_method,
           cfg.initialize, cfg.density_weight,
-          cfg.checkpoint_dir, cfg.timing_margin);
+          cfg.checkpoint_dir, cfg.timing_margin,
+          cfg.density_headroom);
       break;
     case LrMode::RESIZE_BUFFER:
       testParallelLrResizeByArrayWithBuffering(
@@ -1229,7 +1414,7 @@ TestLrf::runLr(sta::dbSta* sta, rsz::Resizer *resizer,
           cfg.num_no_improve_tolerance, cfg.ratcons,
           cfg.PT_tradeoff, cfg.lr_helper_method,
           cfg.initialize, cfg.density_weight, cfg.debug,
-          cfg.buffering_start_iter);
+          cfg.buffering_start_iter, cfg.density_headroom);
       break;
     case LrMode::PRECHECK:
       testParallelLrResizeByArrayWithPrecheck(
@@ -1260,7 +1445,8 @@ TestLrf::runLr(sta::dbSta* sta, rsz::Resizer *resizer,
           cfg.max_resize_num, cfg.iterations,
           cfg.num_no_improve_tolerance, cfg.ratcons,
           cfg.PT_tradeoff, cfg.lr_helper_method,
-          cfg.initialize, cfg.density_weight, cfg.debug);
+          cfg.initialize, cfg.density_weight, cfg.debug,
+          cfg.density_headroom);
       break;
   }
 }
@@ -1279,7 +1465,8 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
                             bool initialize,
                             float density_weight,
                             bool debug,
-                            size_t buffering_start_iter)
+                            size_t buffering_start_iter,
+                            float density_headroom)
 {
   printf("----- Testing Parallel LR Resize+Buffering (revert-halve ECO, buffering_start_iter=%zu) -----\n",
          buffering_start_iter);
@@ -1315,7 +1502,7 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
 
   // Build placement density map for density-aware swap cost.
   PlacementDensityMap density_map;
-  setupDensityMap(density_map, sta, block, incre_sta, density_weight);
+  setupDensityMap(density_map, sta, block, incre_sta, density_weight, density_headroom);
 
   // Resize ECO controller
   EcoConfig eco_cfg = EcoConfig::make(EcoStrategy::HALVE_ON_CONSECUTIVE);
@@ -1444,7 +1631,8 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
                             bool initialize,
                             float density_weight,
                             bool debug,
-                            size_t buffering_start_iter)
+                            size_t buffering_start_iter,
+                            float density_headroom)
 {
   printf("----- Testing Parallel LR Resize + SDP Buffering (revert-halve ECO, "
          "buffering_start_iter=%zu, minimize_leakage=false) -----\n",
@@ -1480,7 +1668,7 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
   local_sta->initParallel();
 
   PlacementDensityMap density_map;
-  setupDensityMap(density_map, sta, block, incre_sta, density_weight);
+  setupDensityMap(density_map, sta, block, incre_sta, density_weight, density_headroom);
 
   // Resize ECO controller
   EcoConfig eco_cfg = EcoConfig::make(EcoStrategy::HALVE_ON_CONSECUTIVE);
@@ -1608,7 +1796,8 @@ TestLrf::testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,
                             std::string lr_helper_method,
                             bool initialize,
                             float density_weight,
-                            bool debug)
+                            bool debug,
+                            float density_headroom)
 {
   printf("----- Testing Parallel LR Resize + RSZ Buffering (revert-halve ECO) -----\n");
 
@@ -1643,7 +1832,7 @@ TestLrf::testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,
 
   // Build placement density map for density-aware swap cost.
   PlacementDensityMap density_map;
-  setupDensityMap(density_map, sta, block, incre_sta, density_weight);
+  setupDensityMap(density_map, sta, block, incre_sta, density_weight, density_headroom);
 
   // ECO controller
   EcoConfig eco_cfg = EcoConfig::make(EcoStrategy::HALVE_ON_CONSECUTIVE);

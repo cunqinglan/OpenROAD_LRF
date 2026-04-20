@@ -129,7 +129,8 @@ public:
                             bool initialize = false,
                             float density_weight = 0.0f,
                             std::string checkpoint_dir = "",
-                            float timing_margin = 0.01f);
+                            float timing_margin = 0.01f,
+                            float density_headroom = 1.05f);
 
   void testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
                             rsz::Resizer *resizer,
@@ -144,7 +145,8 @@ public:
                             bool initialize = false,
                             float density_weight = 0.0f,
                             bool debug = false,
-                            size_t buffering_start_iter = 5);
+                            size_t buffering_start_iter = 5,
+                            float density_headroom = 1.05f);
 
   // Resize iterations + RSZ-style rebuffering phases
   void testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,
@@ -159,7 +161,8 @@ public:
                             std::string lr_helper_method = "LRHelper",
                             bool initialize = false,
                             float density_weight = 0.0f,
-                            bool debug = false);
+                            bool debug = false,
+                            float density_headroom = 1.05f);
 
   // Resize iterations + LRF slack-DP rebuffering phases (uses
   // BufferSdpOperator → prepareSlackDpBnet → bufferForTimingSlackDp +
@@ -178,7 +181,8 @@ public:
                             bool initialize = false,
                             float density_weight = 0.0f,
                             bool debug = false,
-                            size_t buffering_start_iter = 5);
+                            size_t buffering_start_iter = 5,
+                            float density_headroom = 1.05f);
 
   // Print all liberty cells information grouped by unique equiv cell groups.
   void printAllCellsInfo(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
