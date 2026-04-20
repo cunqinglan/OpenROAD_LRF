@@ -286,7 +286,9 @@ public:
                              float PT_tradeoff = 10.0,
                              std::string lr_helper_method = "RapidLRHelper",
                              float halve_factor = 0.5f,
-                             bool use_precheck = true);
+                             bool use_precheck = true,
+                             std::string checkpoint_dir = "",
+                             bool skip_phase1 = false);
 
   // Sensitivity screening + rsz-style rebuffering (repair_timing algorithm).
   void testBufferingRsz(sta::dbSta* sta,

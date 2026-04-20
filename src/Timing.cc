@@ -704,7 +704,8 @@ Timing::testParallelResizeByArrayWithSdpBuffering(size_t max_resize_num, size_t 
 
 void
 Timing::testEcoResizeNoHalve(size_t iterations, float PT_tradeoff,
-  const char *lr_helper_method, float halve_factor, bool use_precheck) {
+  const char *lr_helper_method, float halve_factor, bool use_precheck,
+  const char *checkpoint_dir, bool skip_phase1) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
   printf("Starting testEcoResizeNoHalve with %zu threads, halve_factor=%.2f, precheck=%s\n",
          thread_num, halve_factor, use_precheck ? "yes" : "no");
@@ -715,7 +716,7 @@ Timing::testEcoResizeNoHalve(size_t iterations, float PT_tradeoff,
   lrf::TestLrf test_lrf;
   test_lrf.testEcoResizeNoHalve(sta, resizer, design_->getBlock(),
     thread_num, iterations, PT_tradeoff, lr_helper_method, halve_factor,
-    use_precheck);
+    use_precheck, checkpoint_dir ? checkpoint_dir : "", skip_phase1);
 }
 
 void

@@ -1045,7 +1045,9 @@ TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
                                float PT_tradeoff,
                                std::string lr_helper_method,
                                float halve_factor,
-                               bool use_precheck)
+                               bool use_precheck,
+                               std::string checkpoint_dir,
+                               bool skip_phase1)
 {
   printf("----- ECO Resize (halve_factor=%.2f, precheck=%s) -----\n",
          halve_factor, use_precheck ? "yes" : "no");
@@ -1059,6 +1061,14 @@ TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
   lr_helper->setRatcons(true);
   incre_sta->setMaxResizeNum(20000000);
 
+  // Load LM from checkpoint if in skip_phase1 mode
+  if (skip_phase1 && !checkpoint_dir.empty()) {
+    std::string lm_path = checkpoint_dir + "/checkpoint.lm";
+    std::string design_name = block->getName();
+    int frame_id = incre_sta->loadLmFromFile(lm_path, design_name);
+    printf("[ECO] Loaded LM from %s (frame_id=%d)\n", lm_path.c_str(), frame_id);
+  }
+
   odb::dbDatabase::beginEco(block);
   IterationHelper helper(sta, block, local_sta, resizer);
   IterationHelper::Metrics best = helper.snapshot();
@@ -1071,8 +1081,19 @@ TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
   size_t accept_count = 0;
   size_t total_revert_count = 0;
   size_t consecutive_reverts = 0;  // resets on accept
-  bool in_eco = false;
+  bool in_eco = skip_phase1;  // start directly in ECO mode
   float top_ratio = 0.3f;
+
+  if (in_eco) {
+    // Starting from eco_start checkpoint — compute init_ratio
+    int change_count = incre_sta->lastChangeCount();
+    TaskArranger *ta = local_sta->taskArranger();
+    int total = static_cast<int>(ta->vertexCount());
+    float init_ratio = (total > 0)
+        ? static_cast<float>(change_count) * 1.5f / total : 0.3f;
+    incre_sta->setAdaptiveTopRatio(init_ratio);
+    printf("skip_phase1: starting in ECO mode, init ratio=%.4f\n", init_ratio);
+  }
 
   for (size_t i = 0; i < iterations; ++i) {
     incre_sta->lmUpdate();
@@ -1121,8 +1142,8 @@ TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
       helper.recordRow(i+1, in_eco ? "eco" : "phase1", cur, best, "accept");
       printf("Decision: accept (consecutive_reverts reset to 0)\n");
 
-    // ── Warmup accept (first 3 iterations) ──
-    } else if (i < 3) {
+    // ── Warmup accept (first 3 iterations, skipped in skip_phase1 mode) ──
+    } else if (i < 3 && !skip_phase1) {
       best = cur;
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::beginEco(block);
@@ -1141,6 +1162,22 @@ TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
             ? static_cast<float>(change_count) * 1.5f / total : 0.3f;
         incre_sta->setAdaptiveTopRatio(init_ratio);
         printf("First regression → ECO mode, init ratio=%.4f\n", init_ratio);
+
+        // Save checkpoint at ECO entry if requested, then stop.
+        if (!checkpoint_dir.empty()) {
+          // Undo the failed iteration — save the best state before the revert
+          odb::dbDatabase::endEco(block);
+          odb::dbDatabase::undoEco(block);
+          local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+          sta->delaysInvalid();
+          sta->updateTiming(true);
+          saveCheckpoint(checkpoint_dir, sta, block, incre_sta);
+          printf("[ECO CHECKPOINT] Saved at ECO entry (best WNS=%.3f ps). Stopping.\n",
+                 best.wns_ps);
+          fflush(stdout);
+          delete incre_sta;
+          return;
+        }
       } else if (consecutive_reverts > 0) {
         // Consecutive revert (previous was also revert) → halve
         float new_ratio = incre_sta->adaptiveTopRatio() * halve_factor;
