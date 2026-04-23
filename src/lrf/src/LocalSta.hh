@@ -127,6 +127,10 @@ public:
   bool checkFanoutLoadSlew(PtGraph *pt_graph, VertexId drvr_id,
                            sta::DcalcAnalysisPt *dcalc_ap,
                            float slew_limit_scale = 0.95f);
+  // Sum (load_slew - limit)_+ across all wire-fanout loads of drvr.
+  float fanoutLoadSlewViolation(PtGraph *pt_graph, VertexId drvr_id,
+                                sta::DcalcAnalysisPt *dcalc_ap,
+                                float slew_limit_scale = 0.95f);
   sta::LibertyPort *findTargetPort(const PtVertex &ptv,
                                    sta::LibertyCell *to_lib_cell) const;
   float getPinSlew(sta::Pin *pin, const sta::Corner *corner,
@@ -148,6 +152,28 @@ public:
                            const sta::MinMax *min_max,
                            PtGraph *pt_graph,
                            float slew_limit_scale = 0.95f);
+
+  // ERC relaxation: instead of boolean legal/illegal, return summed
+  // violation magnitude (max(0, value - limit)) split by type.
+  // slew/cap_limit_scale multiply the library slew/cap limits: a scale of
+  // 0.85 flags violations once the value exceeds 85% of the limit, giving
+  // 15% physical headroom that survives post-GR RC shift. Tighter scale
+  // → earlier penalization → more conservative sizing.
+  // slew is in seconds, cap is in farads. Caller normalizes to taste.
+  struct ViolationSum { float slew = 0.0f; float cap = 0.0f; };
+  ViolationSum violationSumBeforeSwap(sta::Instance *inst,
+                                      sta::LibertyCell *to_lib_cell,
+                                      const sta::Corner *corner,
+                                      const sta::MinMax *min_max,
+                                      PtGraph *pt_graph,
+                                      float cap_limit_scale = 1.0f);
+  ViolationSum violationSumAfterSwap(sta::Instance *inst,
+                                     sta::LibertyCell *to_lib_cell,
+                                     const sta::Corner *corner,
+                                     const sta::MinMax *min_max,
+                                     PtGraph *pt_graph,
+                                     float slew_limit_scale = 1.0f,
+                                     float cap_limit_scale = 1.0f);
 
   // Violation check functions - public interfaces
   void checkSlew(const sta::Pin *pin,

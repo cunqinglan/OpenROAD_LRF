@@ -177,7 +177,8 @@ class Timing
                                               float PT_tradeoff = 100.0,
                                               const char *lr_helper_method = "LRHelper",
                                               bool initialize = false,
-                                              float density_weight = 0.0f);
+                                              float density_weight = 0.0f,
+                                              float timing_margin = 0.01f);
   void testCombinedResizeBuffering(size_t max_resize_num,
                                              size_t iterations,
                                              size_t num_no_improve_tolerance,

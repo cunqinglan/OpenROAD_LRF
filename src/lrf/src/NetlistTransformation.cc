@@ -25,11 +25,14 @@ namespace lrf {
 
 float
 EvalContext::swapCost(float delay_lm_sum, float power,
-                      float density_cost) const
+                      float density_cost,
+                      float slew_violation, float cap_violation) const
 {
   return PT_tradeoff * delay_lm_sum / average_delay
        + power / average_leakage
-       + density_weight * density_cost / average_area;
+       + density_weight * density_cost / average_area
+       + erc_violation_weight * (slew_violation / average_slew
+                              + cap_violation  / average_cap);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -232,34 +235,32 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     sta::LibertyCell *cand = candidates[i];
 
     auto t_lc0 = std::chrono::high_resolution_clock::now();
-    bool legal_before = local_sta_->legalCheckBeforeSwap(
+    LocalSta::ViolationSum v_before = local_sta_->violationSumBeforeSwap(
         inst, cand, nullptr, nullptr, pt_graph);
     if (ctx.runtime_map) {
       auto t_lc1 = std::chrono::high_resolution_clock::now();
       (*ctx.runtime_map)["legalCheckBeforeSwap"] +=
           std::chrono::duration<double>(t_lc1 - t_lc0).count();
     }
-    if (!legal_before && cand != ori_cell)
-      continue;
 
     float leakage = lookupLeakage(inst, cand);
     float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
         pt_graph, ctx.arc_delay_calc, cand, ctx.runtime_map).delay_lm_sum;
 
     auto t_lc2 = std::chrono::high_resolution_clock::now();
-    bool legal_after = local_sta_->legalCheckAfterSwap(
+    LocalSta::ViolationSum v_after = local_sta_->violationSumAfterSwap(
         inst, cand, nullptr, nullptr, pt_graph);
     if (ctx.runtime_map) {
       auto t_lc3 = std::chrono::high_resolution_clock::now();
       (*ctx.runtime_map)["legalCheckAfterSwap"] +=
           std::chrono::duration<double>(t_lc3 - t_lc2).count();
     }
-    if (!legal_after && cand != ori_cell)
-      continue;
 
     // Density penalty: Dd = (cand_area - ori_area) * Φ(x,y)
     float density_cost = (cand->area() - ori_area) * local_density;
-    float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost);
+    float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost,
+                              v_before.slew + v_after.slew,
+                              v_before.cap  + v_after.cap);
     float slack = local_sta_->localSlackAroundRef(pt_graph);
     vec_cost_slack[i * 2] = cost;
     vec_cost_slack[i * 2 + 1] = slack;
@@ -403,33 +404,31 @@ ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
     sta::LibertyCell *cand = candidates[i];
 
     auto t_lc0 = std::chrono::high_resolution_clock::now();
-    bool legal_before = local_sta_->legalCheckBeforeSwap(
+    LocalSta::ViolationSum v_before = local_sta_->violationSumBeforeSwap(
         inst, cand, nullptr, nullptr, pt_graph);
     if (ctx.runtime_map) {
       auto t_lc1 = std::chrono::high_resolution_clock::now();
       (*ctx.runtime_map)["legalCheckBeforeSwap"] +=
           std::chrono::duration<double>(t_lc1 - t_lc0).count();
     }
-    if (!legal_before && cand != ori_cell)
-      continue;
 
     float leakage = lookupLeakage(inst, cand);
     float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
         pt_graph, ctx.arc_delay_calc, cand, ctx.runtime_map).delay_lm_sum;
 
     auto t_lc2 = std::chrono::high_resolution_clock::now();
-    bool legal_after = local_sta_->legalCheckAfterSwap(
+    LocalSta::ViolationSum v_after = local_sta_->violationSumAfterSwap(
         inst, cand, nullptr, nullptr, pt_graph);
     if (ctx.runtime_map) {
       auto t_lc3 = std::chrono::high_resolution_clock::now();
       (*ctx.runtime_map)["legalCheckAfterSwap"] +=
           std::chrono::duration<double>(t_lc3 - t_lc2).count();
     }
-    if (!legal_after && cand != ori_cell)
-      continue;
 
     float density_cost = (cand->area() - ori_area) * local_density;
-    float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost);
+    float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost,
+                              v_before.slew + v_after.slew,
+                              v_before.cap  + v_after.cap);
     float slack = local_sta_->localSlackAroundRef(pt_graph);
     vec_cost_slack[i * 2] = cost;
     vec_cost_slack[i * 2 + 1] = slack;
@@ -587,9 +586,8 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   for (size_t i = 0; i < candidates.size(); i++) {
     sta::LibertyCell *cand = candidates[i];
 
-    if (!local_sta_->legalCheckBeforeSwap(inst, cand, nullptr, nullptr, pt_graph)
-        && cand != ori_cell)
-      continue;
+    LocalSta::ViolationSum v_before = local_sta_->violationSumBeforeSwap(
+        inst, cand, nullptr, nullptr, pt_graph);
 
     float leakage = 0.0f;
     auto lk_it = leakage_cache.find(cand);
@@ -599,12 +597,13 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
         pt_graph, ctx.arc_delay_calc, cand, ctx.runtime_map).delay_lm_sum;
 
-    if (!local_sta_->legalCheckAfterSwap(inst, cand, nullptr, nullptr, pt_graph)
-        && cand != ori_cell)
-      continue;
+    LocalSta::ViolationSum v_after = local_sta_->violationSumAfterSwap(
+        inst, cand, nullptr, nullptr, pt_graph);
 
     float density_cost = (cand->area() - ori_area) * local_density;
-    float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost);
+    float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost,
+                              v_before.slew + v_after.slew,
+                              v_before.cap  + v_after.cap);
     float slack = local_sta_->localSlackAroundRef(pt_graph);
     cand_results[i] = {cost, slack};
 

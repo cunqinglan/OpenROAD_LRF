@@ -57,6 +57,15 @@ public:
   float maxInputSlew(const Pin* input_pin, const Corner* corner) const;
   float averageDelayOnCritPath();
   float averageLeakage();
+  // Average output-pin slew and load cap across all leaf-instance driver
+  // pins. Used as normalizers for ERC violation penalty in EvalContext::swapCost.
+  // Returns ~1e-10 / ~1e-15 for empty designs to avoid div-by-zero.
+  float averageOutSlew();
+  float averageLoadCap();
+  // Recompute and cache avg_out_slew_ / avg_load_cap_ for ERC penalty normalization.
+  void updateErcNormalizers();
+  float avgOutSlew() const { return avg_out_slew_; }
+  float avgLoadCap() const { return avg_load_cap_; }
   // Fast total leakage using pre-computed inst_info_map_ (avoids sta->power()).
   float totalLeakageFast();
 
@@ -172,6 +181,9 @@ protected:
   const PlacementDensityMap *density_map_ = nullptr;
   float density_weight_ = 0.0f;
   float average_area_ = 1.0f;
+  // ERC penalty normalizers — computed lazily via updateErcNormalizers()
+  float avg_out_slew_ = 1e-10f;
+  float avg_load_cap_ = 1e-15f;
   bool buffer_only_mode_ = false;
   float bakoglu_k_ = 2.5f;
   bool debug_ = false;

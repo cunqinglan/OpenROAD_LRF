@@ -24,8 +24,6 @@ RapidLrHelper::RapidLrHelper(sta::dbSta *sta) : LRHelper(sta)
 
 float
 RapidLrHelper::getMultiplier(Slack arc_slack) {
-  // Here we use a simple heuristic based on criticality
-  int k = arc_slack < 0.0 ? critical_arc_k_ : non_critical_arc_k_;
   // Only consider the first clock now
   float clock_period = 0.0f;
   for (Clock *clock : *sdc_->clocks()) {
@@ -40,17 +38,29 @@ RapidLrHelper::getMultiplier(Slack arc_slack) {
     fflush(stdout);
     throw std::runtime_error("RapidLrHelper::updateArcLms: found zero clock period");
   }
-  // Inflate effective clock period by timing_margin_ (ratio).
-  // E.g. margin=0.05 → T_eff = 1.05*T.  Positive-slack paths' LMs
-  // decrease slower (optimizer keeps fighting to maintain headroom);
-  // violating paths' LMs increase slightly slower but the net effect
-  // is that ALL paths carry higher LMs → more timing headroom survives
-  // post-GR degradation.
+  // Shift both the effective period and the slack by timing_margin_ ratio.
+  //   T_eff     = T * (1 + m)
+  //   slack_eff = arc_slack + T * m
+  // This preserves the identity  T_eff - slack_eff == T - arc_slack
+  // (= real path delay), so the scaling base is
+  //   (T_eff - slack_eff) / T_eff = path_delay / T_eff
+  // Semantics by sign of timing_margin_:
+  //   m < 0  : T_eff shrinks  → scaling grows → higher LM on every arc
+  //            (treat clock as tighter; adds headroom that survives
+  //            post-GR RC degradation — recommended for GRT robustness).
+  //   m > 0  : T_eff grows    → scaling shrinks → lower LM on every arc
+  //            (treat clock as looser; gentler optimizer pressure).
+  // k branch uses slack_eff so paths that are safe under real T but
+  // critical under T_eff get the critical exponent.
+  // Guard: slack_eff >= T_eff  ⇔  arc_slack >= T, so a path whose delay
+  // already uses up the full nominal period returns 0.
   float T_eff = clock_period * (1.0f + timing_margin_);
-  if (arc_slack >= T_eff) {
+  float slack_eff = arc_slack + timing_margin_ * clock_period;
+  int k = slack_eff < 0.0 ? critical_arc_k_ : non_critical_arc_k_;
+  if (slack_eff >= T_eff) {
     return 0.0f;
   }
-  float scaling_factor = std::pow((T_eff - arc_slack) / T_eff, k);
+  float scaling_factor = std::pow((T_eff - slack_eff) / T_eff, k);
   return scaling_factor;
 }
 

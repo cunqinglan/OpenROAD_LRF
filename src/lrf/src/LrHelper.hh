@@ -90,7 +90,7 @@ protected:
   VertexSeq sorted_lm_vertices_;
   bool levelized_valid_;
   bool RATCONS_ = false;
-  float timing_margin_ = 0.01f;  // ratio; T_eff = T*(1+margin). Positive = slightly looser (best on sweep).
+  float timing_margin_ = 0.01f;  // ratio; T_eff = T*(1+margin). Negative = tighter (higher LM, GRT-robust); positive = looser.
   LmHistory lm_history_;
 
   // vertex_to_sorted_idx_[vertex_id] -> index in sorted_lm_vertices_

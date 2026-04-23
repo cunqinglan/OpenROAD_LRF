@@ -68,8 +68,18 @@ struct EvalContext {
   // (5% tolerance). Set from wns / clock_period in caller to match visitor.
   float slack_margin = 1.0f;
 
+  // ERC relaxation: slew and cap violations (from LocalSta::ViolationSum)
+  // are normalized by the design-wide averages and weighted by
+  // erc_violation_weight. Splitting lets each metric contribute in its
+  // own natural unit — a small cap overage (in fF) and a small slew
+  // overage (in ps) end up comparable after dividing by avg_cap / avg_slew.
+  float average_slew = 1e-10f;   // seconds; populated from IncreSta::averageOutSlew()
+  float average_cap  = 1e-15f;   // farads;  populated from IncreSta::averageLoadCap()
+  float erc_violation_weight = 0.0f;
   float swapCost(float delay_lm_sum, float power,
-                 float density_cost = 0.0f) const;
+                 float density_cost = 0.0f,
+                 float slew_violation = 0.0f,
+                 float cap_violation = 0.0f) const;
 };
 
 // ═══════════════════════════════════════════════════════════

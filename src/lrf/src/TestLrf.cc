@@ -1444,11 +1444,12 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
                             bool initialize,
                             float density_weight,
                             bool debug,
-                            size_t buffering_start_iter)
+                            size_t buffering_start_iter,
+                            float timing_margin)
 {
   printf("----- Testing Parallel LR Resize + SDP Buffering (revert-halve ECO, "
-         "buffering_start_iter=%zu, minimize_leakage=false) -----\n",
-         buffering_start_iter);
+         "buffering_start_iter=%zu, timing_margin=%.4f, minimize_leakage=false) -----\n",
+         buffering_start_iter, timing_margin);
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
@@ -1467,6 +1468,7 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
   incre_sta->makeLRHelper(lr_helper_method);
   lrf::LRHelper *lr_helper = incre_sta->lrHelper();
   lr_helper->setRatcons(ratcons);
+  lr_helper->setTimingMargin(timing_margin);
 
   incre_sta->setMaxResizeNum(max_resize_num);
 

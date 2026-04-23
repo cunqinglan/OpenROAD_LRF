@@ -357,6 +357,72 @@ IncreSta::averageLeakage()
 }
 
 float
+IncreSta::averageOutSlew()
+{
+  sta::Corner *corner = sta_->corners()->findCorner("default");
+  sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
+  double sum = 0.0;
+  int cnt = 0;
+  sta::LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
+  while (inst_iter->hasNext()) {
+    sta::Instance *inst = inst_iter->next();
+    sta::InstancePinIterator *pin_iter = network_->pinIterator(inst);
+    while (pin_iter->hasNext()) {
+      sta::Pin *pin = pin_iter->next();
+      if (!network_->direction(pin)->isAnyOutput())
+        continue;
+      sta::Vertex *vtx = sta_->graph()->pinDrvrVertex(pin);
+      if (!vtx)
+        continue;
+      float s = 0.0f;
+      for (const RiseFall *rf : RiseFall::range()) {
+        float sl = sta_->graph()->slew(vtx, rf, dcalc_ap->index());
+        if (sl > s) s = sl;
+      }
+      sum += s;
+      cnt++;
+    }
+    delete pin_iter;
+  }
+  delete inst_iter;
+  return cnt > 0 ? static_cast<float>(sum / cnt) : 1e-10f;
+}
+
+float
+IncreSta::averageLoadCap()
+{
+  sta::Corner *corner = sta_->corners()->findCorner("default");
+  sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
+  double sum = 0.0;
+  int cnt = 0;
+  sta::LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
+  while (inst_iter->hasNext()) {
+    sta::Instance *inst = inst_iter->next();
+    sta::InstancePinIterator *pin_iter = network_->pinIterator(inst);
+    while (pin_iter->hasNext()) {
+      sta::Pin *pin = pin_iter->next();
+      if (!network_->direction(pin)->isAnyOutput())
+        continue;
+      float lc = sta_->graphDelayCalc()->loadCap(pin, dcalc_ap);
+      sum += lc;
+      cnt++;
+    }
+    delete pin_iter;
+  }
+  delete inst_iter;
+  return cnt > 0 ? static_cast<float>(sum / cnt) : 1e-15f;
+}
+
+void
+IncreSta::updateErcNormalizers()
+{
+  avg_out_slew_ = averageOutSlew();
+  avg_load_cap_ = averageLoadCap();
+  printf("ERC normalizers: avg_slew=%.3e s, avg_cap=%.3e F\n",
+         avg_out_slew_, avg_load_cap_);
+}
+
+float
 IncreSta::totalLeakageFast()
 {
   float total_leakage = 0.0f;
@@ -686,6 +752,7 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
   if (!swap_cell_leakage_presaved_)
     preSaveLibCellLeakage();
   makeEquivCellArray();
+  updateErcNormalizers();
 
   auto start_resize = std::chrono::high_resolution_clock::now();
 
@@ -705,6 +772,9 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
     visitor->evalContext().density_weight = density_weight_;
     visitor->evalContext().average_area = average_area_;
   }
+  // ERC penalty normalizers (cached by updateErcNormalizers()).
+  visitor->evalContext().average_slew = avg_out_slew_;
+  visitor->evalContext().average_cap = avg_load_cap_;
   visitor->evalContext().debug = debug_;
 
   local_sta_->taskArranger()->setProgressTag("LRF resize");
@@ -1026,6 +1096,7 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
     makeEquivCellArray();
   if (!swap_cell_leakage_presaved_)
     preSaveLibCellLeakage();
+  updateErcNormalizers();
 
   Slack wns = sta_->worstSlack(MinMax::max());
   TaskArranger *task_arranger = local_sta_->taskArranger();
@@ -1190,6 +1261,8 @@ IncreSta::parallelResizeByArrayWithPrecheck(
       cp_visitor->evalContext().density_weight = density_weight_;
       cp_visitor->evalContext().average_area = average_area_;
     }
+    cp_visitor->evalContext().average_slew = avg_out_slew_;
+    cp_visitor->evalContext().average_cap = avg_load_cap_;
     cp_visitor->evalContext().debug = debug_;
     std::chrono::high_resolution_clock::time_point start_cps =
         std::chrono::high_resolution_clock::now();
@@ -1416,6 +1489,7 @@ IncreSta::parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
   if (!swap_cell_leakage_presaved_)
     preSaveLibCellLeakage();
   makeEquivCellArray();
+  updateErcNormalizers();
 
   // Screen buffering candidates by sensitivity, top buffer_top_ratio fraction
   // of total instances (design-size scaled).

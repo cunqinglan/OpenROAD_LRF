@@ -178,7 +178,8 @@ public:
                             bool initialize = false,
                             float density_weight = 0.0f,
                             bool debug = false,
-                            size_t buffering_start_iter = 5);
+                            size_t buffering_start_iter = 5,
+                            float timing_margin = 0.01f);
 
   // Print all liberty cells information grouped by unique equiv cell groups.
   void printAllCellsInfo(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
