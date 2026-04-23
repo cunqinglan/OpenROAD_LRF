@@ -19,6 +19,20 @@
 
 namespace lrf {
 
+namespace {
+// Large constant weight applied to local slack degradation when ranking
+// resize candidates. Chosen per the LRS cost formulation: effectively
+// prohibits any candidate whose local slack drops below the original.
+constexpr float kLocalSlackDegradationWeight = 1.0e6f;
+
+inline float
+effectiveCost(float cost, float slack, float slack_before)
+{
+  return cost
+       + kLocalSlackDegradationWeight * std::max(0.0f, slack_before - slack);
+}
+}  // namespace
+
 // ═══════════════════════════════════════════════════════════
 // EvalContext
 // ═══════════════════════════════════════════════════════════
@@ -38,13 +52,13 @@ EvalContext::swapCost(float delay_lm_sum, float power,
 
 void
 MoveOption::updateIfBetter(Type t, float c, float s,
-                           float slack_before, float slack_margin,
+                           float slack_before, float /*slack_margin*/,
                            sta::LibertyCell *cell,
                            rsz::BufferedNetPtr bnet)
 {
-  if (s < slack_before * slack_margin)
-    return;
-  if (c < cost) {
+  const float eff_new = effectiveCost(c, s, slack_before);
+  const float eff_cur = effectiveCost(cost, slack, slack_before);
+  if (eff_new < eff_cur) {
     type = t;
     cost = c;
     slack = s;
@@ -290,9 +304,9 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     for (size_t i = 0; i < candidates.size(); i++) {
       float cost = vec_cost_slack[i * 2];
       float slack = vec_cost_slack[i * 2 + 1];
-      if (cost < std::numeric_limits<float>::max()
-          && slack >= slack_before * slack_margin_) {
-        cost_cells.push_back({cost, candidates[i]});
+      if (cost < std::numeric_limits<float>::max()) {
+        cost_cells.push_back(
+            {effectiveCost(cost, slack, slack_before), candidates[i]});
       }
     }
     std::sort(cost_cells.begin(), cost_cells.end());
@@ -445,39 +459,40 @@ ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
     (*ctx.runtime_map)["equiv_cell_count"] += candidates.size();
   }
 
-  // Pass 2: collect top-N (with slack margin check), sorted ascending by cost
+  // Pass 2: collect top-N, sorted ascending by effective (weighted) cost.
+  // Slack-degradation penalty subsumes the former hard slack-margin gate.
   struct CandEntry {
-    float cost;
+    float eff_cost;
+    float raw_cost;
     sta::LibertyCell *cell;
   };
   std::vector<CandEntry> valid;
-  float ori_cost = std::numeric_limits<float>::max();
+  float ori_eff_cost = std::numeric_limits<float>::max();
 
   for (size_t i = 0; i < candidates.size(); i++) {
     float cost = vec_cost_slack[i * 2];
     float slack = vec_cost_slack[i * 2 + 1];
-    if (candidates[i] == ori_cell) {
-      ori_cost = cost;
-      continue;
-    }
     if (cost >= std::numeric_limits<float>::max())
       continue;
-    if (slack < slack_before * slack_margin_)
+    float eff = effectiveCost(cost, slack, slack_before);
+    if (candidates[i] == ori_cell) {
+      ori_eff_cost = eff;
       continue;
-    valid.push_back({cost, candidates[i]});
+    }
+    valid.push_back({eff, cost, candidates[i]});
   }
 
   std::sort(valid.begin(), valid.end(),
             [](const CandEntry &a, const CandEntry &b) {
-              return a.cost < b.cost;
+              return a.eff_cost < b.eff_cost;
             });
 
   int count = std::min(n, static_cast<int>(valid.size()));
   for (int i = 0; i < count; i++) {
-    if (valid[i].cost < ori_cost) {
+    if (valid[i].eff_cost < ori_eff_cost) {
       MoveOption mo;
       mo.type = MoveOption::RESIZE_ONLY;
-      mo.cost = valid[i].cost;
+      mo.cost = valid[i].raw_cost;
       mo.target_cell = valid[i].cell;
       results.push_back(mo);
     }
@@ -624,20 +639,23 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   if (ori_cost == std::numeric_limits<float>::max())
     return result;
 
-  // Pass 2: find best cost with correct ori_slack for slack protection
-  float best_cost = ori_cost;
+  // Pass 2: find minimum effective cost = LRS_cost + W · max(0, ori_slack - s).
+  // Slack-degradation penalty replaces the former hard slack-margin gate.
+  const float ori_eff_cost = effectiveCost(ori_cost, ori_slack, ori_slack);
+  float best_eff_cost = ori_eff_cost;
   for (size_t i = 0; i < candidates.size(); i++) {
     if (candidates[i] == ori_cell)
       continue;
     const CandResult &r = cand_results[i];
     if (r.cost == std::numeric_limits<float>::max())
       continue;  // was skipped (illegal)
-    if (r.cost < best_cost && r.slack >= ori_slack * slack_margin_)
-      best_cost = r.cost;
+    float eff = effectiveCost(r.cost, r.slack, ori_slack);
+    if (eff < best_eff_cost)
+      best_eff_cost = eff;
   }
 
-  if (best_cost < ori_cost) {
-    result.cost = ori_cost - best_cost;
+  if (best_eff_cost < ori_eff_cost) {
+    result.cost = ori_eff_cost - best_eff_cost;
   }
   return result;
 }
