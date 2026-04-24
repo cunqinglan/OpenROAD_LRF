@@ -933,9 +933,12 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   est_parasitics->setIncrementalParasiticsEnabled(true);
   est_parasitics->setDbCbkOwner(block);
 
+  // Initial LM setup (once before the loop). Subsequent iters' LM state is
+  // maintained by EcoController::execute* at the end of the previous iter.
+  sta->findRequireds();
+  incre_sta->lmUpdate();
+
   for (size_t i = 0; i < iterations; ++i) {
-    incre_sta->lmUpdate();
-    sta->findRequireds();
     auto start = std::chrono::high_resolution_clock::now();
 
     if (eco.usePrecheck()) {
@@ -1047,10 +1050,14 @@ TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
                                float halve_factor,
                                bool use_precheck,
                                std::string checkpoint_dir,
-                               bool skip_phase1)
+                               bool skip_phase1,
+                               bool lm_update_before_revert,
+                               int revert_lm_k,
+                               bool skip_lm_update_after_revert)
 {
-  printf("----- ECO Resize (halve_factor=%.2f, precheck=%s) -----\n",
-         halve_factor, use_precheck ? "yes" : "no");
+  printf("----- ECO Resize (halve_factor=%.2f, precheck=%s, lm_update_before_revert=%s) -----\n",
+         halve_factor, use_precheck ? "yes" : "no",
+         lm_update_before_revert ? "yes" : "no");
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
@@ -1095,8 +1102,16 @@ TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
     printf("skip_phase1: starting in ECO mode, init ratio=%.4f\n", init_ratio);
   }
 
+  bool prev_was_revert = false;
   for (size_t i = 0; i < iterations; ++i) {
-    incre_sta->lmUpdate();
+    // Skip iter-start lmUpdate if previous iter was a revert and the flag
+    // is set — preserves the LM that was updated from the failed state
+    // before reverting (no-op if no revert occurred yet).
+    if (!(skip_lm_update_after_revert && prev_was_revert)) {
+      incre_sta->lmUpdate();
+    } else {
+      printf("skip_lm_after_revert: skipping iter-start lmUpdate\n");
+    }
     sta->findRequireds();
 
     auto start = std::chrono::high_resolution_clock::now();
@@ -1139,6 +1154,7 @@ TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
       odb::dbDatabase::beginEco(block);
       accept_count++;
       consecutive_reverts = 0;  // reset — don't halve on next revert
+      prev_was_revert = false;
       helper.recordRow(i+1, in_eco ? "eco" : "phase1", cur, best, "accept");
       printf("Decision: accept (consecutive_reverts reset to 0)\n");
 
@@ -1147,6 +1163,7 @@ TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
       best = cur;
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::beginEco(block);
+      prev_was_revert = false;
       helper.recordRow(i+1, "phase1", cur, best, "accept(warmup)");
       printf("Decision: accept(warmup, iter %zu < 3)\n", i+1);
 
@@ -1189,8 +1206,16 @@ TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
                incre_sta->adaptiveTopRatio());
       }
 
-      // lmUpdate on the worse state before reverting
-      incre_sta->lmUpdate();
+      // lmUpdate on the worse state before reverting (gated by flag).
+      // If revert_lm_k > 0, use ecoLmUpdate(k) with a unified k coefficient
+      // across all arcs; otherwise use default critical/non-critical k.
+      if (lm_update_before_revert) {
+        if (revert_lm_k > 0) {
+          incre_sta->ecoLmUpdate(revert_lm_k);
+        } else {
+          incre_sta->lmUpdate();
+        }
+      }
 
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
@@ -1201,6 +1226,7 @@ TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
 
       consecutive_reverts++;
       total_revert_count++;
+      prev_was_revert = true;  // mark for next-iter lmUpdate gating
       char decision[64];
       snprintf(decision, sizeof(decision), "revert(consec=%zu)", consecutive_reverts);
       helper.recordRow(i+1, "eco", cur, best, decision);
@@ -1366,10 +1392,13 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
   buffer_eco_cfg.max_eco_reverts = std::numeric_limits<size_t>::max();
   EcoController buffer_eco(buffer_eco_cfg, incre_sta, sta, block, resizer);
 
+  // Initial LM setup (once before the loop). LM state is thereafter
+  // maintained by EcoController::execute* at the end of each iter.
+  sta->findRequireds();
+  incre_sta->lmUpdate();
+
   for (size_t i = 0; i < iterations; ++i) {
     // ── Resize phase ──
-    incre_sta->lmUpdate();
-    sta->findRequireds();
     auto start = std::chrono::high_resolution_clock::now();
     if (eco.usePrecheck()) {
       float ratio = incre_sta->adaptiveTopRatio();
@@ -1531,10 +1560,13 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
   buffer_eco_cfg.max_eco_reverts = std::numeric_limits<size_t>::max();
   EcoController buffer_eco(buffer_eco_cfg, incre_sta, sta, block, resizer);
 
+  // Initial LM setup (once before the loop). LM state is thereafter
+  // maintained by EcoController::execute* at the end of each iter.
+  sta->findRequireds();
+  incre_sta->lmUpdate();
+
   for (size_t i = 0; i < iterations; ++i) {
     // ── Resize phase ──
-    incre_sta->lmUpdate();
-    sta->findRequireds();
     auto start = std::chrono::high_resolution_clock::now();
     if (eco.usePrecheck()) {
       float ratio = incre_sta->adaptiveTopRatio();
@@ -1687,10 +1719,12 @@ TestLrf::testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,
   eco_cfg.max_eco_reverts = num_no_improve_tolerance;
   EcoController eco(eco_cfg, incre_sta, sta, block, resizer);
 
+  // Initial LM setup (once before the loop).
+  sta->findRequireds();
+  incre_sta->lmUpdate();
+
   for (size_t i = 0; i < iterations; ++i) {
     // ── Resize phase ──
-    incre_sta->lmUpdate();
-    sta->findRequireds();
     printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
     auto start = std::chrono::high_resolution_clock::now();
     incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);

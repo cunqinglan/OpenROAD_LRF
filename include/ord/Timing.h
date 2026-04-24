@@ -214,7 +214,10 @@ class Timing
                             float halve_factor = 0.5f,
                             bool use_precheck = true,
                             const char *checkpoint_dir = "",
-                            bool skip_phase1 = false);
+                            bool skip_phase1 = false,
+                            bool lm_update_before_revert = true,
+                            int revert_lm_k = 0,
+                            bool skip_lm_update_after_revert = false);
   void testPrecedingResizeCheck(float PT_tradeoff = 100.0,
                                 float top_ratio = 0.3);
   void testParallelKKTProjection(const char *lr_helper_method = "RapidLRHelper");

@@ -116,6 +116,14 @@ public:
   bool isPowerMode() const { return power_mode_; }
   bool isTimingMode() const { return !power_mode_; }
 
+  // Access/override the k coefficients (for ECO-specific LM updates).
+  int criticalArcK() const { return critical_arc_k_; }
+  int nonCriticalArcK() const { return non_critical_arc_k_; }
+  void setArcK(int critical_k, int non_critical_k) {
+    critical_arc_k_ = critical_k;
+    non_critical_arc_k_ = non_critical_k;
+  }
+
 protected:
   virtual void updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, 
                     DcalcAnalysisPt const *dcalc_ap) override;

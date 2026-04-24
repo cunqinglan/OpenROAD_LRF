@@ -31,6 +31,19 @@ struct EcoConfig {
   size_t max_eco_reverts = 6;         // terminate after N consecutive reverts
   bool use_precheck = true;           // ECO phase uses precheck (vs full resize)
   bool lm_update_before_revert = true;// run lmUpdate on worse state before revert
+  // If >0, use RapidLrHelper::ecoLmUpdate(k) (unified k across all arcs) on
+  // revert instead of the default lmUpdate() split (critical=4, non_critical=1).
+  // k=1 wins buf WNS on ac97_top (+0.92 ps) and fpu (+34.8 ps) vs default
+  // in §8 of ECO_halve_effect.md.
+  // Experimental §8 variant (wins placement-based buf WNS but loses under
+  // MLCAD/ICCAD GRT official eval — regresses fpu -19 ps, partition_m -23 ps,
+  // partition_p Score +97). Default reverted to 0 (split critical=4,nc=1).
+  int revert_lm_k = 0;
+  // After executing a revert (undoEco to best state), call lmUpdate on the
+  // restored best state. True matches the original iter-start behavior.
+  // Experimental false variant preserves failure-learning LM but regresses
+  // under GRT eval; kept false only in custom configs.
+  bool lm_update_after_revert = true;
   double max_runtime_seconds = 10800.0; // Hard wall-clock limit for LR loop (0=no limit, default 3h)
 
   // Preset configurations from experimental results (ECO_halve_effect.md).
@@ -44,6 +57,7 @@ struct EcoConfig {
         cfg.halve_factor = 0.5f;
         cfg.use_precheck = true;
         cfg.lm_update_before_revert = true;
+        cfg.revert_lm_k = 1;  // EXPERIMENT: pre-revert k=1, keep post-revert default
         cfg.warmup_iters = 6;
         cfg.max_eco_reverts = 6;
         break;

@@ -270,6 +270,22 @@ IncreSta::lmUpdate()
   }
 }
 
+void
+IncreSta::ecoLmUpdate(int k)
+{
+  // Only RapidLrHelper has critical/non_critical k coefficients.
+  auto *rapid = dynamic_cast<RapidLrHelper *>(lr_helper_);
+  if (!rapid) {
+    lmUpdate();
+    return;
+  }
+  int saved_c = rapid->criticalArcK();
+  int saved_nc = rapid->nonCriticalArcK();
+  rapid->setArcK(k, k);
+  lmUpdate();
+  rapid->setArcK(saved_c, saved_nc);
+}
+
 bool
 IncreSta::saveLmToFile(const std::string &path, const std::string &design_name)
 {

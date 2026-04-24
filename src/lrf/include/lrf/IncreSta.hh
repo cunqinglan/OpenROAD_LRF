@@ -50,6 +50,10 @@ public:
 
   // KKT projection and LM update
   void lmUpdate();
+  // Like lmUpdate() but temporarily sets both critical_arc_k_ and
+  // non_critical_arc_k_ to `k` for a unified arc multiplier exponent.
+  // Only affects RapidLrHelper; no-op on other helpers.
+  void ecoLmUpdate(int k);
 
   // Check violations
   bool checkCapViolated(Pin *pin, const Corner *corner, const MinMax *min_max);

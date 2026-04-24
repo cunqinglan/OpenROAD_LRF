@@ -148,20 +148,39 @@ EcoController::executeAccept()
 {
   odb::dbDatabase::endEco(block_);
   odb::dbDatabase::beginEco(block_);
+  // Accept always refreshes LM on the accepted state so the next iter's
+  // resize sees a LM consistent with the new netlist.
+  sta_->findRequireds();
+  incre_sta_->lmUpdate();
 }
 
 void
 EcoController::executeRevert()
 {
-  if (config_.lm_update_before_revert)
-    incre_sta_->lmUpdate();
+  // (1) Pre-revert: optionally update LM on the failed (worse) state so LR
+  // "learns from failure". Uses ecoLmUpdate(k) if revert_lm_k > 0.
+  if (config_.lm_update_before_revert) {
+    if (config_.revert_lm_k > 0)
+      incre_sta_->ecoLmUpdate(config_.revert_lm_k);
+    else
+      incre_sta_->lmUpdate();
+  }
 
+  // (2) Actual revert: undo ECO back to best, resync parasitics & timing.
   odb::dbDatabase::endEco(block_);
   odb::dbDatabase::undoEco(block_);
   local_sta_->updateGlobalParasiticsAndSync(resizer_->getEstimateParasitics());
   sta_->delaysInvalid();
   sta_->updateTiming(true);
   odb::dbDatabase::beginEco(block_);
+
+  // (3) Post-revert: optionally refresh LM on the restored best state.
+  // When false (default), we keep the LM computed in step (1) which carries
+  // the "learned from failure" signal into the next iter's resize.
+  if (config_.lm_update_after_revert) {
+    sta_->findRequireds();
+    incre_sta_->lmUpdate();
+  }
 }
 
 bool
@@ -199,9 +218,13 @@ EcoController::runIteration(size_t iter,
                             float avg_delay, float avg_leakage,
                             float PT_tradeoff)
 {
-  // ① lmUpdate + findRequireds
-  incre_sta_->lmUpdate();
-  sta_->findRequireds();
+  // ① Initial LM setup (only on first iter). Subsequent iters' LM state is
+  // maintained by executeAccept / executeRevert at the end of the previous
+  // iter, so no per-iter iter-start lmUpdate is needed.
+  if (iter == 0) {
+    sta_->findRequireds();
+    incre_sta_->lmUpdate();
+  }
 
   // ② Resize
   auto start = std::chrono::high_resolution_clock::now();

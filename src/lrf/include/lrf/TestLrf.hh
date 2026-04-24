@@ -288,7 +288,10 @@ public:
                              float halve_factor = 0.5f,
                              bool use_precheck = true,
                              std::string checkpoint_dir = "",
-                             bool skip_phase1 = false);
+                             bool skip_phase1 = false,
+                             bool lm_update_before_revert = true,
+                             int revert_lm_k = 0,
+                             bool skip_lm_update_after_revert = false);
 
   // Sensitivity screening + rsz-style rebuffering (repair_timing algorithm).
   void testBufferingRsz(sta::dbSta* sta,
