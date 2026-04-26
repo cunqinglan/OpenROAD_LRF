@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <string>
 #include <vector>
 
 #include "sta/Clock.hh"
@@ -85,6 +86,16 @@ class Timing
 
   void makeEquivCells();
   std::vector<odb::dbMaster*> equivCells(odb::dbMaster* master);
+
+  /////////////////////////////////////////////////////////////
+  // ML / diagnostic feature dump
+  /////////////////////////////////////////////////////////////
+  // After globalRoute(save_guides=true) + estimate_parasitics, write four
+  // CSVs to <prefix>_{nets,segments,sinks,congestion}.csv with per-net,
+  // per-segment, per-sink, and per-GCell data. Direct C++ access to
+  // grt::GlobalRouter::getRoutes(), sta::Parasitics::piModel/findElmore,
+  // sta::Search::vertexSlew, and dbGCellGrid — avoids SWIG limitations.
+  void dumpDiagBundle(const std::string& prefix);
 
   /////////////////////////////////////////////////////////////
   // Functions for LR sizing
