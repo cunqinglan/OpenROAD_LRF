@@ -242,6 +242,12 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
       (*ctx.runtime_map)["legalCheckBeforeSwap"] +=
           std::chrono::duration<double>(t_lc1 - t_lc0).count();
     }
+    // Hard-reject mode: weight=0 falls back to the original legal check
+    // (skip any candidate that violates, except the original cell).
+    if (ctx.erc_violation_weight == 0.0f
+        && (v_before.slew > 0.0f || v_before.cap > 0.0f)
+        && cand != ori_cell)
+      continue;
 
     float leakage = lookupLeakage(inst, cand);
     float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
@@ -255,6 +261,10 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
       (*ctx.runtime_map)["legalCheckAfterSwap"] +=
           std::chrono::duration<double>(t_lc3 - t_lc2).count();
     }
+    if (ctx.erc_violation_weight == 0.0f
+        && (v_after.slew > 0.0f || v_after.cap > 0.0f)
+        && cand != ori_cell)
+      continue;
 
     // Density penalty: Dd = (cand_area - ori_area) * Φ(x,y)
     float density_cost = (cand->area() - ori_area) * local_density;
@@ -411,6 +421,10 @@ ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
       (*ctx.runtime_map)["legalCheckBeforeSwap"] +=
           std::chrono::duration<double>(t_lc1 - t_lc0).count();
     }
+    if (ctx.erc_violation_weight == 0.0f
+        && (v_before.slew > 0.0f || v_before.cap > 0.0f)
+        && cand != ori_cell)
+      continue;
 
     float leakage = lookupLeakage(inst, cand);
     float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
@@ -424,6 +438,10 @@ ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
       (*ctx.runtime_map)["legalCheckAfterSwap"] +=
           std::chrono::duration<double>(t_lc3 - t_lc2).count();
     }
+    if (ctx.erc_violation_weight == 0.0f
+        && (v_after.slew > 0.0f || v_after.cap > 0.0f)
+        && cand != ori_cell)
+      continue;
 
     float density_cost = (cand->area() - ori_area) * local_density;
     float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost,
@@ -588,6 +606,10 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
 
     LocalSta::ViolationSum v_before = local_sta_->violationSumBeforeSwap(
         inst, cand, nullptr, nullptr, pt_graph);
+    if (ctx.erc_violation_weight == 0.0f
+        && (v_before.slew > 0.0f || v_before.cap > 0.0f)
+        && cand != ori_cell)
+      continue;
 
     float leakage = 0.0f;
     auto lk_it = leakage_cache.find(cand);
@@ -599,6 +621,10 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
 
     LocalSta::ViolationSum v_after = local_sta_->violationSumAfterSwap(
         inst, cand, nullptr, nullptr, pt_graph);
+    if (ctx.erc_violation_weight == 0.0f
+        && (v_after.slew > 0.0f || v_after.cap > 0.0f)
+        && cand != ori_cell)
+      continue;
 
     float density_cost = (cand->area() - ori_area) * local_density;
     float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost,
