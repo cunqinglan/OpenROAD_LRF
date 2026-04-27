@@ -28,10 +28,10 @@ struct EcoConfig {
   EcoStrategy strategy = EcoStrategy::HALVE_ON_CONSECUTIVE;
   float halve_factor = 0.5f;          // ratio *= halve_factor on revert
   size_t warmup_iters = 3;            // first N iters unconditionally accept
-  size_t max_eco_reverts = 6;         // terminate after N consecutive reverts
+  size_t max_eco_reverts = 3;         // terminate after N consecutive reverts
   bool use_precheck = true;           // ECO phase uses precheck (vs full resize)
   bool lm_update_before_revert = true;// run lmUpdate on worse state before revert
-  double max_runtime_seconds = 10800.0; // Hard wall-clock limit for LR loop (0=no limit, default 3h)
+  double max_runtime_seconds = 7200.0; // Hard wall-clock limit for LR loop (0=no limit, default 2h)
 
   // Preset configurations from experimental results (ECO_halve_effect.md).
   static EcoConfig make(EcoStrategy preset) {

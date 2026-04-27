@@ -717,6 +717,25 @@ Timing::testParallelResizeByArrayWithSdpBuffering(size_t max_resize_num, size_t 
 }
 
 void
+Timing::testInitResizeThenSdpBuffering(size_t max_resize_num, size_t iterations,
+  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
+  const char *lr_helper_method, bool initialize, float density_weight,
+  float timing_margin) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testInitResizeThenSdpBuffering with %zu threads, timing_margin=%.4f\n",
+         thread_num, timing_margin);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testInitResizeThenSdpBuffering(sta, resizer, design_->getBlock(),
+    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
+    PT_tradeoff, lr_helper_method, initialize, density_weight,
+    /*debug=*/false, /*buffering_start_iter=*/5, timing_margin);
+}
+
+void
 Timing::testEcoResizeNoHalve(size_t iterations, float PT_tradeoff,
   const char *lr_helper_method, float halve_factor, bool use_precheck) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();

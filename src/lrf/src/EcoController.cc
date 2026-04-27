@@ -1,5 +1,7 @@
 #include "EcoController.hh"
 
+#include <limits>
+
 #include "db_sta/dbSta.hh"
 #include "rsz/Resizer.hh"
 #include "lrf/IncreSta.hh"
@@ -39,6 +41,11 @@ EcoController::decide(size_t iter,
       return EcoDecision::TERMINATE;
     }
   }
+
+  // Leakage plateau in power mode: terminate if avg per-iter reduction
+  // over the last 3 power-mode iters falls below 1%.
+  if (detectLeakagePlateau(iter, cur))
+    return EcoDecision::TERMINATE;
 
   double cur_wns = cur.wns_ps / 1e12;
   double best_wns = best.wns_ps / 1e12;
@@ -289,6 +296,57 @@ EcoController::printSummary() const
 {
   printf("ECO summary: %zu accepts, %zu reverts (strategy=%s, halve=%.2f)\n",
          total_accepts_, total_reverts_, strategyStr(), config_.halve_factor);
+}
+
+// Queries IncreSta's global rolling history (single source of truth).
+// History is populated externally via incre_sta_->recordMetrics() at
+// snapshot time, so this controller is a pure consumer.
+bool
+EcoController::detectLeakagePlateau(size_t iter,
+                                    const IterationHelper::Metrics &)
+{
+  if (incre_sta_ && incre_sta_->isLeakagePlateau()) {
+    printf("ECO: global leakage plateau in power mode "
+           "(3-iter avg reduction < 1%%), terminating at iter %zu.\n",
+           iter + 1);
+    fflush(stdout);
+    return true;
+  }
+  return false;
+}
+
+// ─── BufferEcoController ─────────────────────────────────────────────
+//
+// Encapsulates the standard buffering-ECO config (NO_HALVE, no warmup,
+// no lm-update-before-revert, effectively unlimited reverts) and forces
+// any TERMINATE decision back to REVERT so a buffering pass never tears
+// down the outer LR loop.
+
+static EcoConfig
+makeBufferEcoConfig()
+{
+  EcoConfig cfg = EcoConfig::make(EcoStrategy::NO_HALVE);
+  cfg.lm_update_before_revert = false;
+  cfg.warmup_iters = 0;
+  cfg.max_eco_reverts = std::numeric_limits<size_t>::max();
+  return cfg;
+}
+
+BufferEcoController::BufferEcoController(IncreSta *incre_sta,
+                                         sta::dbSta *sta,
+                                         odb::dbBlock *block,
+                                         rsz::Resizer *resizer)
+  : EcoController(makeBufferEcoConfig(), incre_sta, sta, block, resizer)
+{
+}
+
+EcoDecision
+BufferEcoController::decide(size_t iter,
+                            const IterationHelper::Metrics &cur,
+                            const IterationHelper::Metrics &best)
+{
+  EcoDecision d = EcoController::decide(iter, cur, best);
+  return d == EcoDecision::TERMINATE ? EcoDecision::REVERT : d;
 }
 
 }  // namespace lrf
