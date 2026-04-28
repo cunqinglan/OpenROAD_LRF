@@ -28,10 +28,10 @@ struct EcoConfig {
   EcoStrategy strategy = EcoStrategy::HALVE_ON_CONSECUTIVE;
   float halve_factor = 0.5f;          // ratio *= halve_factor on revert
   size_t warmup_iters = 3;            // first N iters unconditionally accept
-  size_t max_eco_reverts = 6;         // terminate after N consecutive reverts
+  size_t max_eco_reverts = 3;         // terminate after N consecutive reverts
   bool use_precheck = true;           // ECO phase uses precheck (vs full resize)
   bool lm_update_before_revert = true;// run lmUpdate on worse state before revert
-  double max_runtime_seconds = 10800.0; // Hard wall-clock limit for LR loop (0=no limit, default 3h)
+  double max_runtime_seconds = 7200.0; // Hard wall-clock limit for LR loop (0=no limit, default 2h)
 
   // Preset configurations from experimental results (ECO_halve_effect.md).
   static EcoConfig make(EcoStrategy preset) {
@@ -117,6 +117,15 @@ struct LrConfig {
   // keep headroom that survives post-GR degradation.
   // Default 0 = no headroom.  Typical: 20e-12 .. 50e-12 (20–50 ps).
   float timing_margin = 0.01f;
+
+  // ── ERC handling ──
+  // Selects how slew/cap violations are handled in EvalContext::swapCost.
+  //   weight  > 0 : soft penalty (normalized into swapCost).
+  //   weight == 0 : ignored (silently allow violations).
+  //   weight  < 0 : hard reject (skip candidate). Default -1.0f matches
+  //                 pre-eb01407 legalCheck behavior. See
+  //                 NetlistTransformation.hh::EvalContext for details.
+  float erc_violation_weight = -1.0f;
 
   // ── Initialization ──
   bool initialize = false;           // Run Sharma 3-step init before LR

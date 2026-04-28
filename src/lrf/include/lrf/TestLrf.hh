@@ -181,6 +181,32 @@ public:
                             size_t buffering_start_iter = 5,
                             float timing_margin = 0.01f);
 
+  // Two-phase flow:
+  //   (A) init + pure resize (NO_HALVE ECO; full resize, no precheck);
+  //       terminates on first non-improvement past warmup, or when total
+  //       iters reach `iterations`.
+  //   (B) precheck-resize (every iter) + LRF slack-DP rebuffering, runs
+  //       on the remaining iter budget with HALVE_ON_CONSECUTIVE ECO.
+  // `iterations` is the shared total iter cap (phase A + phase B). Both
+  // phases share IncreSta/LRHelper/best snapshot; ECO transaction is
+  // opened once before A and closed once after B.
+  void testInitResizeThenSdpBuffering(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons = false,
+                            float PT_tradeoff = 100.0,
+                            std::string lr_helper_method = "LRHelper",
+                            bool initialize = false,
+                            float density_weight = 0.0f,
+                            bool debug = false,
+                            size_t buffering_start_iter = 5,
+                            float timing_margin = 0.01f,
+                            float erc_violation_weight = -1.0f);
+
   // Print all liberty cells information grouped by unique equiv cell groups.
   void printAllCellsInfo(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
 

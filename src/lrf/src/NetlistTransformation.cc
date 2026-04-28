@@ -28,11 +28,19 @@ EvalContext::swapCost(float delay_lm_sum, float power,
                       float density_cost,
                       float slew_violation, float cap_violation) const
 {
-  return PT_tradeoff * delay_lm_sum / average_delay
-       + power / average_leakage
-       + density_weight * density_cost / average_area
-       + erc_violation_weight * (slew_violation / average_slew
-                              + cap_violation  / average_cap);
+  float cost = PT_tradeoff * delay_lm_sum / average_delay
+             + power / average_leakage
+             + density_weight * density_cost / average_area;
+  // Only add the soft ERC penalty when weight > 0. Weight == 0 disables
+  // the term mathematically; weight < 0 would otherwise produce a NEGATIVE
+  // cost contribution and reward violation, so we explicitly skip it —
+  // the negative-weight semantics is "hard reject in caller", handled at
+  // each evaluate() call site. See NetlistTransformation.hh comment block.
+  if (erc_violation_weight > 0.0f) {
+    cost += erc_violation_weight * (slew_violation / average_slew
+                                  + cap_violation  / average_cap);
+  }
+  return cost;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -236,17 +244,17 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
 
     auto t_lc0 = std::chrono::high_resolution_clock::now();
     LocalSta::ViolationSum v_before = local_sta_->violationSumBeforeSwap(
-        inst, cand, nullptr, nullptr, pt_graph);
+        inst, cand, nullptr, nullptr, pt_graph, ctx.erc_cap_limit_scale);
     if (ctx.runtime_map) {
       auto t_lc1 = std::chrono::high_resolution_clock::now();
       (*ctx.runtime_map)["legalCheckBeforeSwap"] +=
           std::chrono::duration<double>(t_lc1 - t_lc0).count();
     }
-    // Hard-reject mode: weight=0 falls back to the original legal check
-    // (skip any candidate that violates, except the original cell).
-    if (ctx.erc_violation_weight == 0.0f
-        && (v_before.slew > 0.0f || v_before.cap > 0.0f)
-        && cand != ori_cell)
+    // Hard-reject mode (erc_violation_weight < 0): skip any candidate that
+    // already violates slew/cap at v_before — never spend delay calc on it.
+    // Always preserve cand == ori_cell so the no-op slack reference survives.
+    if (ctx.erc_violation_weight < 0.0f && cand != ori_cell
+        && (v_before.slew > 0.0f || v_before.cap > 0.0f))
       continue;
 
     float leakage = lookupLeakage(inst, cand);
@@ -255,15 +263,15 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
 
     auto t_lc2 = std::chrono::high_resolution_clock::now();
     LocalSta::ViolationSum v_after = local_sta_->violationSumAfterSwap(
-        inst, cand, nullptr, nullptr, pt_graph);
+        inst, cand, nullptr, nullptr, pt_graph,
+        ctx.erc_slew_limit_scale, ctx.erc_cap_limit_scale);
     if (ctx.runtime_map) {
       auto t_lc3 = std::chrono::high_resolution_clock::now();
       (*ctx.runtime_map)["legalCheckAfterSwap"] +=
           std::chrono::duration<double>(t_lc3 - t_lc2).count();
     }
-    if (ctx.erc_violation_weight == 0.0f
-        && (v_after.slew > 0.0f || v_after.cap > 0.0f)
-        && cand != ori_cell)
+    if (ctx.erc_violation_weight < 0.0f && cand != ori_cell
+        && (v_after.slew > 0.0f || v_after.cap > 0.0f))
       continue;
 
     // Density penalty: Dd = (cand_area - ori_area) * Φ(x,y)
@@ -415,15 +423,14 @@ ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
 
     auto t_lc0 = std::chrono::high_resolution_clock::now();
     LocalSta::ViolationSum v_before = local_sta_->violationSumBeforeSwap(
-        inst, cand, nullptr, nullptr, pt_graph);
+        inst, cand, nullptr, nullptr, pt_graph, ctx.erc_cap_limit_scale);
     if (ctx.runtime_map) {
       auto t_lc1 = std::chrono::high_resolution_clock::now();
       (*ctx.runtime_map)["legalCheckBeforeSwap"] +=
           std::chrono::duration<double>(t_lc1 - t_lc0).count();
     }
-    if (ctx.erc_violation_weight == 0.0f
-        && (v_before.slew > 0.0f || v_before.cap > 0.0f)
-        && cand != ori_cell)
+    if (ctx.erc_violation_weight < 0.0f && cand != ori_cell
+        && (v_before.slew > 0.0f || v_before.cap > 0.0f))
       continue;
 
     float leakage = lookupLeakage(inst, cand);
@@ -432,15 +439,15 @@ ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
 
     auto t_lc2 = std::chrono::high_resolution_clock::now();
     LocalSta::ViolationSum v_after = local_sta_->violationSumAfterSwap(
-        inst, cand, nullptr, nullptr, pt_graph);
+        inst, cand, nullptr, nullptr, pt_graph,
+        ctx.erc_slew_limit_scale, ctx.erc_cap_limit_scale);
     if (ctx.runtime_map) {
       auto t_lc3 = std::chrono::high_resolution_clock::now();
       (*ctx.runtime_map)["legalCheckAfterSwap"] +=
           std::chrono::duration<double>(t_lc3 - t_lc2).count();
     }
-    if (ctx.erc_violation_weight == 0.0f
-        && (v_after.slew > 0.0f || v_after.cap > 0.0f)
-        && cand != ori_cell)
+    if (ctx.erc_violation_weight < 0.0f && cand != ori_cell
+        && (v_after.slew > 0.0f || v_after.cap > 0.0f))
       continue;
 
     float density_cost = (cand->area() - ori_area) * local_density;
@@ -605,10 +612,9 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     sta::LibertyCell *cand = candidates[i];
 
     LocalSta::ViolationSum v_before = local_sta_->violationSumBeforeSwap(
-        inst, cand, nullptr, nullptr, pt_graph);
-    if (ctx.erc_violation_weight == 0.0f
-        && (v_before.slew > 0.0f || v_before.cap > 0.0f)
-        && cand != ori_cell)
+        inst, cand, nullptr, nullptr, pt_graph, ctx.erc_cap_limit_scale);
+    if (ctx.erc_violation_weight < 0.0f && cand != ori_cell
+        && (v_before.slew > 0.0f || v_before.cap > 0.0f))
       continue;
 
     float leakage = 0.0f;
@@ -620,10 +626,10 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
         pt_graph, ctx.arc_delay_calc, cand, ctx.runtime_map).delay_lm_sum;
 
     LocalSta::ViolationSum v_after = local_sta_->violationSumAfterSwap(
-        inst, cand, nullptr, nullptr, pt_graph);
-    if (ctx.erc_violation_weight == 0.0f
-        && (v_after.slew > 0.0f || v_after.cap > 0.0f)
-        && cand != ori_cell)
+        inst, cand, nullptr, nullptr, pt_graph,
+        ctx.erc_slew_limit_scale, ctx.erc_cap_limit_scale);
+    if (ctx.erc_violation_weight < 0.0f && cand != ori_cell
+        && (v_after.slew > 0.0f || v_after.cap > 0.0f))
       continue;
 
     float density_cost = (cand->area() - ori_area) * local_density;
@@ -1576,6 +1582,13 @@ ParallelVisitor::copy() const
   v->eval_ctx_.density_map = eval_ctx_.density_map;
   v->eval_ctx_.density_weight = eval_ctx_.density_weight;
   v->eval_ctx_.average_area = eval_ctx_.average_area;
+  v->eval_ctx_.average_slew = eval_ctx_.average_slew;
+  v->eval_ctx_.average_cap = eval_ctx_.average_cap;
+  v->eval_ctx_.erc_violation_weight = eval_ctx_.erc_violation_weight;
+  v->eval_ctx_.erc_slew_limit_scale = eval_ctx_.erc_slew_limit_scale;
+  v->eval_ctx_.erc_cap_limit_scale = eval_ctx_.erc_cap_limit_scale;
+  v->eval_ctx_.slack_margin = eval_ctx_.slack_margin;
+  v->eval_ctx_.debug = eval_ctx_.debug;
   v->task_arranger_ = task_arranger_;
   v->precheck_results_ = precheck_results_;
 
