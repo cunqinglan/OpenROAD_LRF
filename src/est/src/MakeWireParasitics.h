@@ -53,6 +53,11 @@ class MakeWireParasitics
                           grt::GRoute& route,
                           sta::SpefWriter* spef_writer);
   void estimateParasitics(odb::dbNet* net, grt::GRoute& route);
+  // LR-ISTA variant: keep the per-net ParasiticNetwork after reduction so
+  // downstream consumers (point-to-point delay queries) can still walk it.
+  void estimateParasiticsNoDelete(odb::dbNet* net,
+                                  grt::GRoute& route,
+                                  sta::SpefWriter* spef_writer);
 
   void clearParasitics();
 

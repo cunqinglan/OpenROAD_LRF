@@ -174,6 +174,10 @@ class EstimateParasitics : public sta::dbStaState
   // Functions to estimate RC from global routing results
   void estimateGlobalRouteRC(sta::SpefWriter* spef_writer = nullptr);
   void estimateGlobalRouteRC(odb::dbNet* db_net);
+  // LR-ISTA variant: per-net GRT extraction that keeps the ParasiticNetwork
+  // after reduction (mirrors estimateWireParasiticNoDeleteNetwork for the
+  // GRT/DRT parasitics_src_ case).
+  void estimateGlobalRouteRCNoDeleteNetwork(odb::dbNet* db_net);
   void estimateGlobalRouteParasitics(odb::dbNet* net, grt::GRoute& route);
   void clearParasitics();
 

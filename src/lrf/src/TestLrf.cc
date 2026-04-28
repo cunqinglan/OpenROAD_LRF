@@ -22,6 +22,7 @@
 #include "PtGraph.hh"
 #include "NetlistTransformation.hh"
 #include "LrRebuffer.hh"
+#include "LrParasiticsGuard.hh"
 #include "TestRebuffer.hh"
 #include "sta/DispatchQueue.hh"
 #include "TaskArranger.hh"
@@ -928,10 +929,14 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   eco_cfg.warmup_iters = 0;  // no warmup in normal flow; Phase1 handles convergence
   EcoController eco(eco_cfg, incre_sta, sta, block, resizer);
 
-  // Enable incremental parasitic tracking via ODB callbacks.
+  // Enable incremental parasitic tracking via ODB callbacks (and set up
+  // IncrementalGRoute when parasitics_src is GRT/DRT). The guard lives in an
+  // explicit scope so its dtor (removeDbCbkOwner + delete IncrementalGRT)
+  // runs BEFORE the final-revert block — undoEco() emits a flood of ODB
+  // callbacks that would otherwise pollute parasitics_invalid_.
   est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
-  est_parasitics->setIncrementalParasiticsEnabled(true);
-  est_parasitics->setDbCbkOwner(block);
+  {
+  LrParasiticsGuard parasitics_guard(est_parasitics);
 
   for (size_t i = 0; i < iterations; ++i) {
     incre_sta->lmUpdate();
@@ -1003,9 +1008,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     if (decision == EcoDecision::TERMINATE)
       break;
   }
-  // Disable incremental parasitic tracking.
-  est_parasitics->removeDbCbkOwner();
-  est_parasitics->setIncrementalParasiticsEnabled(false);
+  }  // parasitics_guard goes out of scope here — must be before endEco/undoEco.
 
   // Final check: revert to best if current is worse
   IterationHelper::Metrics final_m = helper.snapshot();

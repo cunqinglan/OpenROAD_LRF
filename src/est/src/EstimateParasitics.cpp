@@ -566,6 +566,22 @@ void EstimateParasitics::estimateGlobalRouteRC(odb::dbNet* db_net)
   }
 }
 
+void EstimateParasitics::estimateGlobalRouteRCNoDeleteNetwork(
+    odb::dbNet* db_net)
+{
+  MakeWireParasitics builder(
+      logger_, this, sta_, db_->getTech(), block_, global_router_);
+  auto& routes = global_router_->getRoutes();
+  auto iter = routes.find(db_net);
+  if (iter == routes.end()) {
+    return;
+  }
+  grt::GRoute& route = iter->second;
+  if (!route.empty()) {
+    builder.estimateParasiticsNoDelete(db_net, route, nullptr);
+  }
+}
+
 void EstimateParasitics::estimateGlobalRouteParasitics(odb::dbNet* net,
                                                        grt::GRoute& route)
 {
@@ -1327,35 +1343,58 @@ IncrementalParasiticsGuard::~IncrementalParasiticsGuard()
 /////////////////////////////////////////////
 // API for LR ISTA
 /////////////////////////////////////////////
-void 
+void
 EstimateParasitics::updateWireParasiticsNoDeleteNetwork()
 {
   initBlock();
-  if (!wire_signal_cap_.empty()) {
-    sta_->ensureClkNetwork();
-    // Make separate parasitics for each corner, same for min/max.
-    sta_->setParasiticAnalysisPts(true);
-    sta::LibertyLibrary* default_lib = network_->defaultLibertyLibrary();
-    // Call clearNetDrvrPinMap only without full blown ConcreteNetwork::clear()
-    // This is because netlist changes may invalidate cached net driver pin data
-    network_->Network::clear();
-    network_->setDefaultLibertyLibrary(default_lib);
+  sta_->ensureClkNetwork();
+  // Make separate parasitics for each corner, same for min/max.
+  sta_->setParasiticAnalysisPts(true);
+  sta::LibertyLibrary* default_lib = network_->defaultLibertyLibrary();
+  // Call clearNetDrvrPinMap only without full blown ConcreteNetwork::clear()
+  // This is because netlist changes may invalidate cached net driver pin data
+  network_->Network::clear();
+  network_->setDefaultLibertyLibrary(default_lib);
 
-    sortClkAndSignalLayers();
+  odb::dbSet<odb::dbNet> nets = block_->getNets();
 
-    odb::dbSet<odb::dbNet> nets = block_->getNets();
-    for (auto db_net : nets) {
-      sta::Net *cur_net = db_network_->dbToSta(db_net);
-      estimateWireParasiticNoDeleteNetwork(cur_net);
+  switch (parasitics_src_) {
+    case ParasiticsSrc::placement: {
+      if (wire_signal_cap_.empty()) return;
+      sortClkAndSignalLayers();
+      for (auto db_net : nets) {
+        sta::Net *cur_net = db_network_->dbToSta(db_net);
+        estimateWireParasiticNoDeleteNetwork(cur_net);
+      }
+      break;
     }
-    parasitics_src_ = ParasiticsSrc::placement;
-    parasitics_invalid_.clear();
-
-    for (auto db_net : nets) {
-      sta::Net *net = db_network_->dbToSta(db_net);
-      checkIfParasiticsNetworkExists(net);
+    case ParasiticsSrc::global_routing:
+    case ParasiticsSrc::detailed_routing: {
+      if (incr_groute_) incr_groute_->updateRoutes(false);
+      for (auto db_net : nets) {
+        if (!db_net->isSpecial())
+          estimateGlobalRouteRCNoDeleteNetwork(db_net);
+      }
+      break;
     }
+    case ParasiticsSrc::none:
+      return;
   }
+
+  parasitics_invalid_.clear();
+
+  for (auto db_net : nets) {
+    sta::Net *net = db_network_->dbToSta(db_net);
+    checkIfParasiticsNetworkExists(net);
+  }
+
+  const char* src_tag =
+      (parasitics_src_ == ParasiticsSrc::global_routing) ? "GRT"
+    : (parasitics_src_ == ParasiticsSrc::detailed_routing) ? "DRT"
+    : "PLACEMENT";
+  printf("[INCR_PARASITIC] full src=%s nets=%u\n",
+         src_tag, block_->getNets().size());
+  fflush(stdout);
 }
 
 void
@@ -1365,22 +1404,44 @@ EstimateParasitics::updateWireParasiticsNoDeleteNetworkIncremental()
     return;
 
   initBlock();
-  if (wire_signal_cap_.empty())
-    return;
 
   sta_->setParasiticAnalysisPts(true);
   sta::LibertyLibrary* default_lib = network_->defaultLibertyLibrary();
   network_->Network::clear();
   network_->setDefaultLibertyLibrary(default_lib);
-  sortClkAndSignalLayers();
 
   size_t count = parasitics_invalid_.size();
-  for (const sta::Net* net : parasitics_invalid_) {
-    estimateWireParasiticNoDeleteNetwork(net);
+
+  switch (parasitics_src_) {
+    case ParasiticsSrc::placement: {
+      if (wire_signal_cap_.empty()) return;
+      sortClkAndSignalLayers();
+      for (const sta::Net* net : parasitics_invalid_) {
+        estimateWireParasiticNoDeleteNetwork(net);
+      }
+      break;
+    }
+    case ParasiticsSrc::global_routing:
+    case ParasiticsSrc::detailed_routing: {
+      if (incr_groute_) incr_groute_->updateRoutes(false);
+      for (const sta::Net* net : parasitics_invalid_) {
+        odb::dbNet* db_net = db_network_->staToDb(net);
+        if (db_net && !db_net->isSpecial())
+          estimateGlobalRouteRCNoDeleteNetwork(db_net);
+      }
+      break;
+    }
+    case ParasiticsSrc::none:
+      return;
   }
+
   parasitics_invalid_.clear();
-  printf("[INCR_PARASITIC] updated %zu dirty nets (of %u total)\n",
-         count, block_->getNets().size());
+  const char* src_tag =
+      (parasitics_src_ == ParasiticsSrc::global_routing) ? "GRT"
+    : (parasitics_src_ == ParasiticsSrc::detailed_routing) ? "DRT"
+    : "PLACEMENT";
+  printf("[INCR_PARASITIC] src=%s updated %zu dirty nets (of %u total)\n",
+         src_tag, count, block_->getNets().size());
   fflush(stdout);
 }
 
@@ -1533,64 +1594,89 @@ void
 EstimateParasitics::updateWireParasiticsNoDeleteNetworkParallel()
 {
   initBlock();
-  if (!wire_signal_cap_.empty()) {
-    sta_->ensureClkNetwork();
-    sta_->setParasiticAnalysisPts(true);
-    sta::LibertyLibrary* default_lib = network_->defaultLibertyLibrary();
-    network_->Network::clear();
-    network_->setDefaultLibertyLibrary(default_lib);
+  sta_->ensureClkNetwork();
+  sta_->setParasiticAnalysisPts(true);
+  sta::LibertyLibrary* default_lib = network_->defaultLibertyLibrary();
+  network_->Network::clear();
+  network_->setDefaultLibertyLibrary(default_lib);
 
-    sortClkAndSignalLayers();
+  odb::dbSet<odb::dbNet> nets = block_->getNets();
 
-    // Collect nets into a vector for indexed parallel access.
-    odb::dbSet<odb::dbNet> nets = block_->getNets();
-    std::vector<odb::dbNet*> net_vec(nets.begin(), nets.end());
+  switch (parasitics_src_) {
+    case ParasiticsSrc::placement: {
+      if (wire_signal_cap_.empty()) return;
+      sortClkAndSignalLayers();
 
-    // Pre-populate driver pin cache sequentially.
-    // network_->drivers() lazily caches into net_drvr_pin_map_ which
-    // is not thread-safe for concurrent first-access.
-    for (auto* db_net : net_vec) {
-      sta::Net *net = db_network_->dbToSta(db_net);
-      network_->drivers(net);
-    }
+      // Collect nets into a vector for indexed parallel access.
+      std::vector<odb::dbNet*> net_vec(nets.begin(), nets.end());
 
-    // Parallel net estimation using std::thread.
-    int num_threads = std::max(1u, sta_->threadCount());
-    size_t total = net_vec.size();
-
-    auto worker = [&](size_t start, size_t end) {
-      for (size_t i = start; i < end; i++) {
-        sta::Net *net = db_network_->dbToSta(net_vec[i]);
-        estimateWireParasiticNoDeleteNetworkParallel(net);
+      // Pre-populate driver pin cache sequentially.
+      // network_->drivers() lazily caches into net_drvr_pin_map_ which
+      // is not thread-safe for concurrent first-access.
+      for (auto* db_net : net_vec) {
+        sta::Net *net = db_network_->dbToSta(db_net);
+        network_->drivers(net);
       }
-    };
 
-    if (num_threads <= 1 || total < 100) {
-      // Fall back to sequential for small designs or single thread.
-      worker(0, total);
-    } else {
-      std::vector<std::thread> threads;
-      size_t chunk = (total + num_threads - 1) / num_threads;
-      for (int t = 0; t < num_threads; t++) {
-        size_t start = t * chunk;
-        size_t end = std::min(start + chunk, total);
-        if (start < end) {
-          threads.emplace_back(worker, start, end);
+      // Parallel net estimation using std::thread.
+      int num_threads = std::max(1u, sta_->threadCount());
+      size_t total = net_vec.size();
+
+      auto worker = [&](size_t start, size_t end) {
+        for (size_t i = start; i < end; i++) {
+          sta::Net *net = db_network_->dbToSta(net_vec[i]);
+          estimateWireParasiticNoDeleteNetworkParallel(net);
+        }
+      };
+
+      if (num_threads <= 1 || total < 100) {
+        // Fall back to sequential for small designs or single thread.
+        worker(0, total);
+      } else {
+        std::vector<std::thread> threads;
+        size_t chunk = (total + num_threads - 1) / num_threads;
+        for (int t = 0; t < num_threads; t++) {
+          size_t start = t * chunk;
+          size_t end = std::min(start + chunk, total);
+          if (start < end) {
+            threads.emplace_back(worker, start, end);
+          }
+        }
+        for (auto &th : threads) {
+          th.join();
         }
       }
-      for (auto &th : threads) {
-        th.join();
+      break;
+    }
+    case ParasiticsSrc::global_routing:
+    case ParasiticsSrc::detailed_routing: {
+      // GRT extraction is not thread-safe (shared MakeWireParasitics builder
+      // and global_router_ route map). Run serially for now.
+      if (incr_groute_) incr_groute_->updateRoutes(false);
+      for (auto db_net : nets) {
+        if (!db_net->isSpecial())
+          estimateGlobalRouteRCNoDeleteNetwork(db_net);
       }
+      break;
     }
-
-    parasitics_src_ = ParasiticsSrc::placement;
-    parasitics_invalid_.clear();
-
-    for (auto db_net : nets) {
-      sta::Net *net = db_network_->dbToSta(db_net);
-      checkIfParasiticsNetworkExists(net);
-    }
+    case ParasiticsSrc::none:
+      return;
   }
+
+  parasitics_invalid_.clear();
+
+  for (auto db_net : nets) {
+    sta::Net *net = db_network_->dbToSta(db_net);
+    checkIfParasiticsNetworkExists(net);
+  }
+
+  const char* src_tag =
+      (parasitics_src_ == ParasiticsSrc::global_routing) ? "GRT"
+    : (parasitics_src_ == ParasiticsSrc::detailed_routing) ? "DRT"
+    : "PLACEMENT";
+  printf("[INCR_PARASITIC] parallel src=%s nets=%u\n",
+         src_tag, block_->getNets().size());
+  fflush(stdout);
 }
 
 void

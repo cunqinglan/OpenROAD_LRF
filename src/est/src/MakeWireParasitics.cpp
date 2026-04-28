@@ -99,6 +99,53 @@ void MakeWireParasitics::estimateParasitics(odb::dbNet* net,
   parasitics_->deleteParasiticNetworks(sta_net);
 }
 
+void MakeWireParasitics::estimateParasiticsNoDelete(odb::dbNet* net,
+                                                    grt::GRoute& route,
+                                                    sta::SpefWriter* spef_writer)
+{
+  debugPrint(logger_, EST, "est_rc", 1, "net {}", net->getConstName());
+  if (logger_->debugCheck(EST, "est_rc", 2)) {
+    for (grt::GSegment& segment : route) {
+      logger_->report(
+          "({:.2f}, {:.2f}) {:2d} -> ({:.2f}, {:.2f}) {:2d} l={:.2f}",
+          block_->dbuToMicrons(segment.init_x),
+          block_->dbuToMicrons(segment.init_y),
+          segment.init_layer,
+          block_->dbuToMicrons(segment.final_x),
+          block_->dbuToMicrons(segment.final_y),
+          segment.final_layer,
+          block_->dbuToMicrons(segment.length()));
+    }
+  }
+
+  sta::Net* sta_net = network_->dbToSta(net);
+  std::vector<grt::PinGridLocation> pin_grid_locs
+      = global_router_->getPinGridPositions(net);
+
+  for (sta::Corner* corner : *sta_->corners()) {
+    NodeRoutePtMap node_map;
+
+    sta::ParasiticAnalysisPt* analysis_point
+        = corner->findParasiticAnalysisPt(min_max_);
+    sta::Parasitic* parasitic
+        = parasitics_->makeParasiticNetwork(sta_net, false, analysis_point);
+    makeRouteParasitics(
+        net, route, sta_net, corner, analysis_point, parasitic, node_map);
+    makeParasiticsToPins(
+        net, pin_grid_locs, node_map, corner, analysis_point, parasitic);
+
+    if (spef_writer) {
+      spef_writer->writeNet(corner, sta_net, parasitic);
+    }
+
+    arc_delay_calc_->reduceParasitic(
+        parasitic, sta_net, corner, sta::MinMaxAll::all());
+  }
+  // Deliberately skip parasitics_->deleteParasiticNetworks(sta_net): the
+  // LR-ISTA path (updateWireParasiticsNoDeleteNetwork*) needs the per-net
+  // network preserved across iterations.
+}
+
 void MakeWireParasitics::estimateParasitics(odb::dbNet* net, grt::GRoute& route)
 {
   debugPrint(logger_, EST, "est_rc", 1, "net {}", net->getConstName());
