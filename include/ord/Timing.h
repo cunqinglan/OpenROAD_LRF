@@ -192,6 +192,8 @@ class Timing
                                               float timing_margin = 0.01f);
   // Two-phase: init+resize → precheck-resize+SDP-buffering. See
   // TestLrf::testInitResizeThenSdpBuffering for details.
+  // erc_violation_weight: <0 hard reject, ==0 ignore, >0 soft penalty
+  //   (default -1.0 = legacy hard-reject behavior).
   void testInitResizeThenSdpBuffering(size_t max_resize_num,
                                       size_t iterations,
                                       size_t num_no_improve_tolerance,
@@ -200,7 +202,8 @@ class Timing
                                       const char *lr_helper_method = "LRHelper",
                                       bool initialize = false,
                                       float density_weight = 0.0f,
-                                      float timing_margin = 0.01f);
+                                      float timing_margin = 0.01f,
+                                      float erc_violation_weight = -1.0f);
   void testCombinedResizeBuffering(size_t max_resize_num,
                                              size_t iterations,
                                              size_t num_no_improve_tolerance,

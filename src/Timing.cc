@@ -720,10 +720,11 @@ void
 Timing::testInitResizeThenSdpBuffering(size_t max_resize_num, size_t iterations,
   size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
   const char *lr_helper_method, bool initialize, float density_weight,
-  float timing_margin) {
+  float timing_margin, float erc_violation_weight) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  printf("Starting testInitResizeThenSdpBuffering with %zu threads, timing_margin=%.4f\n",
-         thread_num, timing_margin);
+  printf("Starting testInitResizeThenSdpBuffering with %zu threads, "
+         "timing_margin=%.4f, erc_violation_weight=%.3g\n",
+         thread_num, timing_margin, erc_violation_weight);
   fflush(stdout);
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
@@ -732,7 +733,8 @@ Timing::testInitResizeThenSdpBuffering(size_t max_resize_num, size_t iterations,
   test_lrf.testInitResizeThenSdpBuffering(sta, resizer, design_->getBlock(),
     thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
     PT_tradeoff, lr_helper_method, initialize, density_weight,
-    /*debug=*/false, /*buffering_start_iter=*/5, timing_margin);
+    /*debug=*/false, /*buffering_start_iter=*/5, timing_margin,
+    erc_violation_weight);
 }
 
 void

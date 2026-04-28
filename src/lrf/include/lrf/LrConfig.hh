@@ -118,6 +118,15 @@ struct LrConfig {
   // Default 0 = no headroom.  Typical: 20e-12 .. 50e-12 (20–50 ps).
   float timing_margin = 0.01f;
 
+  // ── ERC handling ──
+  // Selects how slew/cap violations are handled in EvalContext::swapCost.
+  //   weight  > 0 : soft penalty (normalized into swapCost).
+  //   weight == 0 : ignored (silently allow violations).
+  //   weight  < 0 : hard reject (skip candidate). Default -1.0f matches
+  //                 pre-eb01407 legalCheck behavior. See
+  //                 NetlistTransformation.hh::EvalContext for details.
+  float erc_violation_weight = -1.0f;
+
   // ── Initialization ──
   bool initialize = false;           // Run Sharma 3-step init before LR
 

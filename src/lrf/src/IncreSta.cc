@@ -840,7 +840,8 @@ IncreSta::setMaxResizeNum(size_t max_resize_num)
 
 void
 IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
-                                  float avg_power, float PT_tradeoff)
+                                  float avg_power, float PT_tradeoff,
+                                  float erc_violation_weight)
 {
   auto start_total = std::chrono::high_resolution_clock::now();
 
@@ -875,6 +876,7 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
   // ERC penalty normalizers (cached by updateErcNormalizers()).
   visitor->evalContext().average_slew = avg_out_slew_;
   visitor->evalContext().average_cap = avg_load_cap_;
+  visitor->evalContext().erc_violation_weight = erc_violation_weight;
   visitor->evalContext().debug = debug_;
 
   local_sta_->taskArranger()->setProgressTag("LRF resize");
@@ -907,6 +909,10 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
     cp_resize_op->setPruningControl(&pruning_control_);
     cp_visitor->setOperator(std::move(cp_resize_op));
     cp_visitor->init(avg_delay, avg_power, wns_after, PT_tradeoff, &inst_info_map_);
+    cp_visitor->evalContext().average_slew = avg_out_slew_;
+    cp_visitor->evalContext().average_cap = avg_load_cap_;
+    cp_visitor->evalContext().erc_violation_weight = erc_violation_weight;
+    cp_visitor->evalContext().debug = debug_;
     std::chrono::high_resolution_clock::time_point start_cps =
         std::chrono::high_resolution_clock::now();
     LrSizer lr_sizer(sta_, lr_helper_, cp_visitor);
@@ -991,7 +997,7 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
 
 void
 IncreSta::parallelBufferingSdp(rsz::Resizer *resizer, float PT_tradeoff,
-                                float top_ratio)
+                                float top_ratio, float erc_violation_weight)
 {
   printf("IncreSta::parallelBufferingSdp start (LRF slack-DP rebuffering)\n");
   auto start_total = std::chrono::high_resolution_clock::now();
@@ -1023,6 +1029,9 @@ IncreSta::parallelBufferingSdp(rsz::Resizer *resizer, float PT_tradeoff,
       sta_, local_sta_, resizer, &visitor->evalContext());
   visitor->setOperator(std::move(buffer_op));
   visitor->init(avg_delay, avg_leakage, wns, PT_tradeoff, nullptr);
+  visitor->evalContext().average_slew = avg_out_slew_;
+  visitor->evalContext().average_cap = avg_load_cap_;
+  visitor->evalContext().erc_violation_weight = erc_violation_weight;
   visitor->evalContext().debug = debug_;
 
   for (size_t vid : selected)
@@ -1272,7 +1281,7 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
 void
 IncreSta::parallelResizeByArrayWithPrecheck(
     rsz::Resizer *resizer, float avg_delay, float avg_power,
-    float PT_tradeoff, float top_ratio)
+    float PT_tradeoff, float top_ratio, float erc_violation_weight)
 {
   auto start_total = std::chrono::high_resolution_clock::now();
 
@@ -1315,6 +1324,9 @@ IncreSta::parallelResizeByArrayWithPrecheck(
     visitor->evalContext().density_weight = density_weight_;
     visitor->evalContext().average_area = average_area_;
   }
+  visitor->evalContext().average_slew = avg_out_slew_;
+  visitor->evalContext().average_cap = avg_load_cap_;
+  visitor->evalContext().erc_violation_weight = erc_violation_weight;
   visitor->evalContext().debug = debug_;
 
   local_sta_->taskArranger()->setProgressTag("LRF precheck");
@@ -1363,6 +1375,7 @@ IncreSta::parallelResizeByArrayWithPrecheck(
     }
     cp_visitor->evalContext().average_slew = avg_out_slew_;
     cp_visitor->evalContext().average_cap = avg_load_cap_;
+    cp_visitor->evalContext().erc_violation_weight = erc_violation_weight;
     cp_visitor->evalContext().debug = debug_;
     std::chrono::high_resolution_clock::time_point start_cps =
         std::chrono::high_resolution_clock::now();

@@ -171,6 +171,20 @@ EcoController::executeRevert()
   odb::dbDatabase::beginEco(block_);
 }
 
+void
+EcoController::executeTerminate()
+{
+  if (config_.lm_update_before_revert)
+    incre_sta_->lmUpdate();
+
+  odb::dbDatabase::endEco(block_);
+  odb::dbDatabase::undoEco(block_);
+  local_sta_->updateGlobalParasiticsAndSync(resizer_->getEstimateParasitics());
+  sta_->delaysInvalid();
+  sta_->updateTiming(true);
+  local_sta_->taskArranger()->markDirty();
+}
+
 bool
 EcoController::execute(EcoDecision decision,
                        IterationHelper::Metrics &best,
@@ -193,7 +207,9 @@ EcoController::execute(EcoDecision decision,
       executeRevert();
       break;
     case EcoDecision::TERMINATE:
-      executeRevert();
+      // Same rollback as REVERT but does NOT reopen the ECO frame; callers
+      // exit the loop and must not run a redundant final endEco/undoEco.
+      executeTerminate();
       break;
   }
   return first_revert;
@@ -254,8 +270,10 @@ EcoController::runIteration(size_t iter,
       break;
     case EcoDecision::REVERT:
     case EcoDecision::REVERT_WARMUP:
-    case EcoDecision::TERMINATE:
       executeRevert();
+      break;
+    case EcoDecision::TERMINATE:
+      executeTerminate();
       break;
   }
 

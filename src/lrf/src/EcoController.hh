@@ -89,6 +89,10 @@ public:
   // ── ECO execution ──
   void executeAccept();
   void executeRevert();
+  // Like executeRevert but does NOT reopen the ECO frame. Use when no further
+  // iterations will run (TERMINATE), so the caller does not need a trailing
+  // endEco/undoEco cleanup.
+  void executeTerminate();
 
   // Whether ECO phase should use precheck (vs full resize)
   bool usePrecheck() const { return in_eco_ && config_.use_precheck; }

@@ -1582,6 +1582,13 @@ ParallelVisitor::copy() const
   v->eval_ctx_.density_map = eval_ctx_.density_map;
   v->eval_ctx_.density_weight = eval_ctx_.density_weight;
   v->eval_ctx_.average_area = eval_ctx_.average_area;
+  v->eval_ctx_.average_slew = eval_ctx_.average_slew;
+  v->eval_ctx_.average_cap = eval_ctx_.average_cap;
+  v->eval_ctx_.erc_violation_weight = eval_ctx_.erc_violation_weight;
+  v->eval_ctx_.erc_slew_limit_scale = eval_ctx_.erc_slew_limit_scale;
+  v->eval_ctx_.erc_cap_limit_scale = eval_ctx_.erc_cap_limit_scale;
+  v->eval_ctx_.slack_margin = eval_ctx_.slack_margin;
+  v->eval_ctx_.debug = eval_ctx_.debug;
   v->task_arranger_ = task_arranger_;
   v->precheck_results_ = precheck_results_;
 
