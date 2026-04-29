@@ -7,6 +7,7 @@
 #include "sta/PathExpanded.hh"
 #include "sta/Search.hh"
 #include "sta/EquivCells.hh"
+#include "sta/Sdc.hh"
 #include "power/Power.hh"
 #include "sta/DcalcAnalysisPt.hh"
 #include "sta/PathAnalysisPt.hh"
@@ -241,12 +242,111 @@ IncreSta::isPowerOptimizationMode() const
 }
 
 void
+IncreSta::recordMetrics(double wns_ps, double tns_ps, double leakage)
+{
+  // wns/tns rolling 4 (used by isTnsPlateau over a 3-iter span).
+  wns_history_.push_back(wns_ps);
+  tns_history_.push_back(tns_ps);
+  while (wns_history_.size() > 4) wns_history_.pop_front();
+  while (tns_history_.size() > 4) tns_history_.pop_front();
+
+  // leakage is *unbounded* — power_mode_iters_ acts as the index back to the
+  // pre-power baseline (leakage_history_[size-1-power_mode_iters_]). Memory
+  // is O(total LR iters), trivially small.
+  leakage_history_.push_back(leakage);
+
+  // power_mode_iters_ tracks iters since first entering power mode.
+  // Power mode is sticky, so no entry flag needed.
+  if (isPowerOptimizationMode()) ++power_mode_iters_;
+}
+
+double
+IncreSta::tnsImprovementRate() const
+{
+  if (tns_history_.size() < 4) return 0.0;
+  const double front = std::min(tns_history_.front(), 0.0);
+  const double back  = std::min(tns_history_.back(),  0.0);
+  if (front >= 0.0) return 0.0;            // already met → rate ill-defined
+  return std::max(back - front, 0.0) / -front;     // +ve = TNS less negative
+}
+
+double
+IncreSta::leakageReductionRate() const
+{
+  // Index back power_mode_iters_ steps from the latest sample to find the
+  // pre-power baseline. Requires the baseline to still be in the deque
+  // (it is, since leakage_history_ is unbounded).
+  if (power_mode_iters_ == 0) return 0.0;
+  const size_t n = leakage_history_.size();
+  if (n <= power_mode_iters_) return 0.0;            // no pre-power sample
+  const double baseline = leakage_history_[n - 1 - power_mode_iters_];
+  if (baseline <= 0.0) return 0.0;
+  const double cur = leakage_history_.back();
+  return (baseline - cur) / baseline / static_cast<double>(power_mode_iters_);
+}
+
+bool
+IncreSta::isTnsPlateau(double threshold) const
+{
+  if (tns_history_.size() < 4) return false;
+  if (tns_history_.front() >= 0.0) return true;  // already met → treat as plateau
+  return tnsImprovementRate() < threshold;
+}
+
+bool
+IncreSta::isLeakagePlateau(double threshold) const
+{
+  if (!isPowerOptimizationMode()) return false;
+  if (power_mode_iters_ < 3)      return false;   // need ≥3 post-entry samples
+  return leakageReductionRate() < threshold;
+}
+
+void
 IncreSta::lmUpdate()
 {
   sta::Slack wns = sta_->worstSlack(sta::MinMax::max());
-  if (wns >= 0.0) {
-    lr_helper_->setMode("power");
-    printf("All timing constraints are met (WNS %e), switching to power optimization mode\n", wns);
+  sta::Slack tns = sta_->totalNegativeSlack(sta::MinMax::max());
+
+  // Power-mode entry: any ONE of the following is sufficient.
+  //   (a) |WNS| < 1%  of T_eff  (worst violation small)
+  //   (b) |TNS| < 10% of T_eff  (total violation small)
+  //   (c) TNS plateau over the rolling history (improvement rate < 10%)
+  // T_eff = clock_period * (1 + timing_margin), matching RapidLrHelper.
+  // History is fed externally via recordMetrics() at snapshot time.
+  if (lr_helper_ && lr_helper_->mode() != "power") {
+    float clock_period = 0.0f;
+    for (Clock *clock : *sdc_->clocks()) {
+      float period = clock->period();
+      if (period > clock_period) {
+        clock_period = period;
+        break;
+      }
+    }
+    if (clock_period > 0.0f) {
+      const float t_eff = clock_period * (1.0f + lr_helper_->timingMargin());
+      const bool wns_ok     = wns > -0.01 * t_eff;
+      const bool tns_ok     = tns > -0.10 * t_eff;
+      const bool plateau_ok = isTnsPlateau(0.10);
+      if (wns_ok || tns_ok || plateau_ok) {
+        lr_helper_->setMode("power");
+        printf("Switching to power mode "
+               "(WNS=%.3f ps, TNS=%.3f ps, T_eff=%.3f ps; "
+               "wns_ok=%d tns_ok=%d plateau_ok=%d, TNS rate=%.4f)\n",
+               wns * 1e12, tns * 1e12, t_eff * 1e12,
+               wns_ok, tns_ok, plateau_ok, tnsImprovementRate());
+        fflush(stdout);
+      }
+      // Sticky CPS gate — only the timing-clean (a)/(b) thresholds latch
+      // it on; (c) plateau alone is not enough. Once enabled, stays on
+      // for the rest of the run.
+      if (!cps_enabled_ && (wns_ok || tns_ok)) {
+        cps_enabled_ = true;
+        printf("CPS enabled (WNS=%.3f ps, TNS=%.3f ps cleared "
+               "(a)/(b) threshold; T_eff=%.3f ps)\n",
+               wns * 1e12, tns * 1e12, t_eff * 1e12);
+        fflush(stdout);
+      }
+    }
   }
 
   const bool use_parallel = (thread_count_ > 1 && dispatch_queue_);
@@ -740,7 +840,8 @@ IncreSta::setMaxResizeNum(size_t max_resize_num)
 
 void
 IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
-                                  float avg_power, float PT_tradeoff)
+                                  float avg_power, float PT_tradeoff,
+                                  float erc_violation_weight)
 {
   auto start_total = std::chrono::high_resolution_clock::now();
 
@@ -775,6 +876,7 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
   // ERC penalty normalizers (cached by updateErcNormalizers()).
   visitor->evalContext().average_slew = avg_out_slew_;
   visitor->evalContext().average_cap = avg_load_cap_;
+  visitor->evalContext().erc_violation_weight = erc_violation_weight;
   visitor->evalContext().debug = debug_;
 
   local_sta_->taskArranger()->setProgressTag("LRF resize");
@@ -799,7 +901,7 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
          pruning_control_.iteration, pruning_control_.enabled, pruning_control_.K);
   fflush(stdout);
 
-  if (isPowerOptimizationMode()) {
+  if (cps_enabled_) {
     ParallelVisitor *cp_visitor = new ParallelVisitor(sta_, local_sta_, resizer);
     std::unique_ptr<ResizeOperator> cp_resize_op =
         std::make_unique<ResizeOperator>(sta_, local_sta_);
@@ -807,6 +909,10 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
     cp_resize_op->setPruningControl(&pruning_control_);
     cp_visitor->setOperator(std::move(cp_resize_op));
     cp_visitor->init(avg_delay, avg_power, wns_after, PT_tradeoff, &inst_info_map_);
+    cp_visitor->evalContext().average_slew = avg_out_slew_;
+    cp_visitor->evalContext().average_cap = avg_load_cap_;
+    cp_visitor->evalContext().erc_violation_weight = erc_violation_weight;
+    cp_visitor->evalContext().debug = debug_;
     std::chrono::high_resolution_clock::time_point start_cps =
         std::chrono::high_resolution_clock::now();
     LrSizer lr_sizer(sta_, lr_helper_, cp_visitor);
@@ -891,7 +997,7 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
 
 void
 IncreSta::parallelBufferingSdp(rsz::Resizer *resizer, float PT_tradeoff,
-                                float top_ratio)
+                                float top_ratio, float erc_violation_weight)
 {
   printf("IncreSta::parallelBufferingSdp start (LRF slack-DP rebuffering)\n");
   auto start_total = std::chrono::high_resolution_clock::now();
@@ -923,6 +1029,9 @@ IncreSta::parallelBufferingSdp(rsz::Resizer *resizer, float PT_tradeoff,
       sta_, local_sta_, resizer, &visitor->evalContext());
   visitor->setOperator(std::move(buffer_op));
   visitor->init(avg_delay, avg_leakage, wns, PT_tradeoff, nullptr);
+  visitor->evalContext().average_slew = avg_out_slew_;
+  visitor->evalContext().average_cap = avg_load_cap_;
+  visitor->evalContext().erc_violation_weight = erc_violation_weight;
   visitor->evalContext().debug = debug_;
 
   for (size_t vid : selected)
@@ -1172,7 +1281,7 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
 void
 IncreSta::parallelResizeByArrayWithPrecheck(
     rsz::Resizer *resizer, float avg_delay, float avg_power,
-    float PT_tradeoff, float top_ratio)
+    float PT_tradeoff, float top_ratio, float erc_violation_weight)
 {
   auto start_total = std::chrono::high_resolution_clock::now();
 
@@ -1215,6 +1324,9 @@ IncreSta::parallelResizeByArrayWithPrecheck(
     visitor->evalContext().density_weight = density_weight_;
     visitor->evalContext().average_area = average_area_;
   }
+  visitor->evalContext().average_slew = avg_out_slew_;
+  visitor->evalContext().average_cap = avg_load_cap_;
+  visitor->evalContext().erc_violation_weight = erc_violation_weight;
   visitor->evalContext().debug = debug_;
 
   local_sta_->taskArranger()->setProgressTag("LRF precheck");
@@ -1248,7 +1360,7 @@ IncreSta::parallelResizeByArrayWithPrecheck(
     fflush(stdout);
   }
 
-  if (isPowerOptimizationMode()) {
+  if (cps_enabled_) {
     ParallelVisitor *cp_visitor = new ParallelVisitor(sta_, local_sta_, resizer);
     std::unique_ptr<ResizeOperator> cp_resize_op =
         std::make_unique<ResizeOperator>(sta_, local_sta_);
@@ -1263,6 +1375,7 @@ IncreSta::parallelResizeByArrayWithPrecheck(
     }
     cp_visitor->evalContext().average_slew = avg_out_slew_;
     cp_visitor->evalContext().average_cap = avg_load_cap_;
+    cp_visitor->evalContext().erc_violation_weight = erc_violation_weight;
     cp_visitor->evalContext().debug = debug_;
     std::chrono::high_resolution_clock::time_point start_cps =
         std::chrono::high_resolution_clock::now();
@@ -1553,7 +1666,7 @@ IncreSta::parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
   printf("After parallelResizeAndBuffering, TNS: %e, WNS: %e\n",
          tns_after, wns_after);
 
-  if (isPowerOptimizationMode()) {
+  if (cps_enabled_) {
     ParallelVisitor *cp_visitor = new ParallelVisitor(sta_, local_sta_, resizer);
     std::unique_ptr<ResizeOperator> cp_resize_op =
         std::make_unique<ResizeOperator>(sta_, local_sta_);

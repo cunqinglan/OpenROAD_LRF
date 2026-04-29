@@ -41,6 +41,7 @@ public:
                 sta::dbSta *sta,
                 odb::dbBlock *block,
                 rsz::Resizer *resizer);
+  virtual ~EcoController() = default;
 
   // ── Main entry: run one ECO iteration ──
   // Performs: lmUpdate → resize → evaluate → decide → execute.
@@ -68,9 +69,19 @@ public:
   void printSummary() const;
 
   // ── Decision logic ──
-  EcoDecision decide(size_t iter,
-                     const IterationHelper::Metrics &cur,
-                     const IterationHelper::Metrics &best);
+  virtual EcoDecision decide(size_t iter,
+                             const IterationHelper::Metrics &cur,
+                             const IterationHelper::Metrics &best);
+
+protected:
+  // Track leakage history and signal termination if avg per-iter reduction
+  // over the last 3 power-mode iters drops below 1%. Default: implements the
+  // check. Override to a no-op for ECOs that don't optimize leakage
+  // (e.g. buffering) — the override should not accumulate state either.
+  virtual bool detectLeakagePlateau(size_t iter,
+                                    const IterationHelper::Metrics &cur);
+
+public:
 
   // ── Ratio management ──
   float updateRatio(EcoDecision decision);
@@ -78,6 +89,10 @@ public:
   // ── ECO execution ──
   void executeAccept();
   void executeRevert();
+  // Like executeRevert but does NOT reopen the ECO frame. Use when no further
+  // iterations will run (TERMINATE), so the caller does not need a trailing
+  // endEco/undoEco cleanup.
+  void executeTerminate();
 
   // Whether ECO phase should use precheck (vs full resize)
   bool usePrecheck() const { return in_eco_ && config_.use_precheck; }
@@ -100,6 +115,30 @@ private:
   float top_ratio_ = 0.3f;
   std::chrono::steady_clock::time_point wall_start_
       = std::chrono::steady_clock::now();
+};
+
+// Buffering-specific ECO. Encapsulates the standard buffer-ECO config
+// (NO_HALVE strategy, no warmup, no lm-update-before-revert, effectively
+// unlimited revert tolerance) and overrides decide() so the buffering
+// pass never terminates the outer LR loop and never triggers the
+// leakage-plateau check (buffering optimizes timing, not leakage).
+class BufferEcoController : public EcoController {
+public:
+  BufferEcoController(IncreSta *incre_sta,
+                      sta::dbSta *sta,
+                      odb::dbBlock *block,
+                      rsz::Resizer *resizer);
+
+  EcoDecision decide(size_t iter,
+                     const IterationHelper::Metrics &cur,
+                     const IterationHelper::Metrics &best) override;
+
+protected:
+  // Buffering ECO doesn't optimize leakage; skip plateau check entirely
+  // (no state accumulation either).
+  bool detectLeakagePlateau(size_t,
+                            const IterationHelper::Metrics &) override
+  { return false; }
 };
 
 }  // namespace lrf

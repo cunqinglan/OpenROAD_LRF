@@ -73,47 +73,62 @@ public:
 
   void visit(Vertex* vertex) override
   {
-    const Pin* pin = vertex->pin();
-    if (network_->isTopLevelPort(pin)) return;
-    if (!network_->direction(pin)->isOutput()) return;
-
-    sta::Instance* inst = network_->instance(pin);
+    const Pin* rep_pin = vertex->pin();
+    if (network_->isTopLevelPort(rep_pin)) return;
+    sta::Instance* inst = network_->instance(rep_pin);
     LibertyCell* cell = network_->libertyCell(inst);
     if (!cell || cell->hasSequentials()) return;
 
-    sta::LibertyPort* drvr_port = network_->libertyPort(pin);
-    if (!drvr_port) return;
+    // Collect all output pins of this instance with their load_cap, cap_limit,
+    // slew_limit. Aggregate violation across all outputs.
+    struct OutInfo {
+      sta::LibertyPort* port;
+      float load_cap;
+      float cap_limit;   // sta::INF if none
+      float slew_limit;  // sta::INF if none
+    };
+    std::vector<OutInfo> outs;
+    bool any_cap_viol = false;
+    bool any_slew_viol = false;
 
-    float load_cap = graph_delay_calc_->loadCap(pin, dcalc_ap_);
+    sta::InstancePinIterator* pit = network_->pinIterator(inst);
+    while (pit->hasNext()) {
+      Pin* p = pit->next();
+      if (!network_->direction(p)->isOutput()) continue;
+      sta::LibertyPort* lp = network_->libertyPort(p);
+      if (!lp) continue;
 
-    // Get maxcap limit.
-    float cap_limit = sta::INF;
-    {
-      float cl; bool ex;
-      drvr_port->capacitanceLimit(MinMax::max(), cl, ex);
-      if (!ex && default_lib_)
-        default_lib_->defaultMaxCapacitance(cl, ex);
-      if (ex) cap_limit = cl * (1.0f - init_->cap_margin_ / 100.0f);
+      OutInfo oi;
+      oi.port = lp;
+      oi.load_cap = graph_delay_calc_->loadCap(p, dcalc_ap_);
+
+      oi.cap_limit = sta::INF;
+      {
+        float cl; bool ex;
+        lp->capacitanceLimit(MinMax::max(), cl, ex);
+        if (!ex && default_lib_) default_lib_->defaultMaxCapacitance(cl, ex);
+        if (ex) oi.cap_limit = cl * (1.0f - init_->cap_margin_ / 100.0f);
+      }
+
+      oi.slew_limit = sta::INF;
+      {
+        float sl; bool ex;
+        lp->slewLimit(MinMax::max(), sl, ex);
+        if (!ex && default_lib_) default_lib_->defaultMaxSlew(sl, ex);
+        if (ex) oi.slew_limit = sl * (1.0f - init_->slew_margin_ / 100.0f);
+      }
+
+      if (oi.load_cap > oi.cap_limit) any_cap_viol = true;
+      if (oi.slew_limit < sta::INF) {
+        float est = init_->estimateMaxSlew(lp, oi.load_cap, dcalc_ap_, inst);
+        if (est > oi.slew_limit) any_slew_viol = true;
+      }
+      outs.push_back(oi);
     }
+    delete pit;
 
-    // Get slew limit.
-    float slew_limit = sta::INF;
-    {
-      float sl; bool ex;
-      drvr_port->slewLimit(MinMax::max(), sl, ex);
-      if (!ex && default_lib_) default_lib_->defaultMaxSlew(sl, ex);
-      if (ex) slew_limit = sl * (1.0f - init_->slew_margin_ / 100.0f);
-    }
-
-    bool cap_viol = (load_cap > cap_limit);
-    bool slew_viol = false;
-    if (slew_limit < sta::INF) {
-      float est_slew = init_->estimateMaxSlew(
-          drvr_port, load_cap, dcalc_ap_, inst);
-      if (est_slew > slew_limit) slew_viol = true;
-    }
-
-    if (!cap_viol && !slew_viol) return;
+    if (outs.empty()) return;
+    if (!any_cap_viol && !any_slew_viol) return;
     viol_count_++;
 
     LibertyCellSeq* equivs = sta_->equivCells(cell);
@@ -122,43 +137,38 @@ public:
       return;
     }
 
-    // Same strategy as RepairDesign::repairDriverSlew:
-    // evaluate all candidates, rank by (violation, area).
+    // Evaluate each candidate by summing violations across all output ports.
+    // Candidates missing any output port are skipped.
     using SizeCandidate = std::pair<float, LibertyCell*>;
     std::vector<SizeCandidate> sizes;
-    const char* port_name = drvr_port->name();
 
     for (LibertyCell* ec : *equivs) {
-      if (ec->area() <= cell->area() && ec != cell) continue;
       if (ec == cell) continue;
-      sta::LibertyPort* ep = ec->findLibertyPort(port_name);
-      if (!ep) continue;
+      if (ec->area() <= cell->area()) continue;
       float violation = 0.0f;
-      // Check cap
-      float cl; bool ex;
-      ep->capacitanceLimit(MinMax::max(), cl, ex);
-      if (!ex && default_lib_)
-        default_lib_->defaultMaxCapacitance(cl, ex);
-      if (ex && load_cap > cl)
-        violation += (load_cap - cl);
-      // Check slew
-      if (slew_limit < sta::INF) {
-        float est = init_->estimateMaxSlew(ep, load_cap, dcalc_ap_, inst);
-        if (est > slew_limit)
-          violation += (est - slew_limit);
+      bool missing_port = false;
+      for (const OutInfo& oi : outs) {
+        sta::LibertyPort* ep = ec->findLibertyPort(oi.port->name());
+        if (!ep) { missing_port = true; break; }
+        float cl; bool ex;
+        ep->capacitanceLimit(MinMax::max(), cl, ex);
+        if (!ex && default_lib_) default_lib_->defaultMaxCapacitance(cl, ex);
+        if (ex && oi.load_cap > cl) violation += (oi.load_cap - cl);
+        if (oi.slew_limit < sta::INF) {
+          float est = init_->estimateMaxSlew(ep, oi.load_cap, dcalc_ap_, inst);
+          if (est > oi.slew_limit) violation += (est - oi.slew_limit);
+        }
       }
+      if (missing_port) continue;
       sizes.emplace_back(violation, ec);
     }
 
     if (sizes.empty()) {
-      if (cap_viol)
-        unfixed_cap_exceeded_++;
-      else
-        unfixed_slew_exceeded_++;
+      if (any_cap_viol) unfixed_cap_exceeded_++;
+      else unfixed_slew_exceeded_++;
       return;
     }
 
-    // Sort by (violation, area): prefer no-violation + smallest area.
     std::sort(sizes.begin(), sizes.end(),
               [](const SizeCandidate& a, const SizeCandidate& b) {
                 if (a.first == 0 && b.first == 0)
@@ -168,20 +178,16 @@ public:
 
     LibertyCell* best = sizes.front().second;
     if (best == cell) {
-      if (cap_viol)
-        unfixed_cap_exceeded_++;
-      else
-        unfixed_slew_exceeded_++;
+      if (any_cap_viol) unfixed_cap_exceeded_++;
+      else unfixed_slew_exceeded_++;
       return;
     }
 
-    // replaceCell under lock; parasitic/delay update deferred to levelFinished.
     {
       std::lock_guard<std::mutex> lock(modify_mutex_);
       sta_->replaceCell(inst, best);
     }
     upsize_count_++;
-    // Track the level of modified vertices for findDelays.
     Level lv = vertex->level();
     Level cur = current_level_.load();
     while (lv > cur && !current_level_.compare_exchange_weak(cur, lv));
@@ -254,33 +260,52 @@ public:
 
   void visit(Vertex* vertex) override
   {
-    const Pin* pin = vertex->pin();
-    if (network_->isTopLevelPort(pin)) return;
-    if (!vertex->isDriver(network_)) return;
-
-    sta::LibertyPort* port = network_->libertyPort(pin);
-    if (!port) return;
-
-    float limit = 0.0f;
-    bool exists = false;
-    port->slewLimit(MinMax::max(), limit, exists);
-    if (!exists) limit = default_max_slew_;
-    limit *= (1.0f - init_->slew_margin_ / 100.0f);
-
-    float worst = 0.0f;
-    for (auto rf : RiseFall::range()) {
-      float s = graph_->slew(vertex, rf, dcalc_ap_->index());
-      worst = std::max(worst, s);
-    }
-    if (worst <= limit) return;
-
-    sta::Instance* inst = network_->instance(pin);
+    const Pin* rep_pin = vertex->pin();
+    if (network_->isTopLevelPort(rep_pin)) return;
+    sta::Instance* inst = network_->instance(rep_pin);
     LibertyCell* cur_cell = network_->libertyCell(inst);
     if (!cur_cell || cur_cell->hasSequentials()) return;
-    sta::LibertyPort* drvr_port = network_->libertyPort(pin);
-    if (!drvr_port) return;
 
-    float load_cap = graph_delay_calc_->loadCap(pin, dcalc_ap_);
+    // Collect all output pins of this instance with their slew limit and
+    // actual worst slew. Aggregate across outputs.
+    struct OutInfo {
+      sta::LibertyPort* port;
+      float load_cap;
+      float slew_limit;
+    };
+    std::vector<OutInfo> outs;
+    bool any_viol = false;
+
+    sta::InstancePinIterator* pit = network_->pinIterator(inst);
+    while (pit->hasNext()) {
+      Pin* p = pit->next();
+      if (!network_->direction(p)->isOutput()) continue;
+      sta::LibertyPort* lp = network_->libertyPort(p);
+      if (!lp) continue;
+      Vertex* vout = graph_->pinDrvrVertex(p);
+      if (!vout) continue;
+
+      float limit = 0.0f; bool exists = false;
+      lp->slewLimit(MinMax::max(), limit, exists);
+      if (!exists) limit = default_max_slew_;
+      limit *= (1.0f - init_->slew_margin_ / 100.0f);
+
+      float worst = 0.0f;
+      for (auto rf : RiseFall::range()) {
+        float s = graph_->slew(vout, rf, dcalc_ap_->index());
+        worst = std::max(worst, s);
+      }
+      if (worst > limit) any_viol = true;
+
+      OutInfo oi;
+      oi.port = lp;
+      oi.load_cap = graph_delay_calc_->loadCap(p, dcalc_ap_);
+      oi.slew_limit = limit;
+      outs.push_back(oi);
+    }
+    delete pit;
+
+    if (outs.empty() || !any_viol) return;
 
     LibertyCellSeq* equivs = sta_->equivCells(cur_cell);
     if (!equivs) {
@@ -288,19 +313,23 @@ public:
       return;
     }
 
-    // Same strategy as RepairDesign::repairDriverSlew:
-    // evaluate all candidates, rank by (violation, area).
+    // Evaluate each candidate by summing slew violation across all outputs.
+    // Candidates missing any output port are skipped.
     using SizeCandidate = std::pair<float, LibertyCell*>;
     std::vector<SizeCandidate> sizes;
-    const char* port_name = drvr_port->name();
 
     for (LibertyCell* ec : *equivs) {
       if (ec == cur_cell) continue;
       if (ec->area() < cur_cell->area()) continue;
-      sta::LibertyPort* ep = ec->findLibertyPort(port_name);
-      if (!ep) continue;
-      float est = init_->estimateMaxSlew(ep, load_cap, dcalc_ap_, inst);
-      float violation = (est > limit) ? (est - limit) : 0.0f;
+      float violation = 0.0f;
+      bool missing_port = false;
+      for (const OutInfo& oi : outs) {
+        sta::LibertyPort* ep = ec->findLibertyPort(oi.port->name());
+        if (!ep) { missing_port = true; break; }
+        float est = init_->estimateMaxSlew(ep, oi.load_cap, dcalc_ap_, inst);
+        if (est > oi.slew_limit) violation += (est - oi.slew_limit);
+      }
+      if (missing_port) continue;
       sizes.emplace_back(violation, ec);
     }
 
@@ -309,7 +338,6 @@ public:
       return;
     }
 
-    // Sort by (violation, area): prefer no-violation + smallest area.
     std::sort(sizes.begin(), sizes.end(),
               [](const SizeCandidate& a, const SizeCandidate& b) {
                 if (a.first == 0 && b.first == 0)
@@ -664,16 +692,22 @@ ParallelInitializer::fixLoadViolationsParallel()
   sta::BfsBkwdIterator bfs(sta::BfsIndex::other, search_pred, sta_);
   bfs.ensureSize();
 
-  // Enqueue all combinational driver vertices.
-  sta::VertexIterator viter(graph_);
-  while (viter.hasNext()) {
-    Vertex* v = viter.next();
-    if (!v->isDriver(network_)) continue;
-    const Pin* pin = v->pin();
-    if (network_->isTopLevelPort(pin)) continue;
-    LibertyCell* cell = network_->libertyCell(network_->instance(pin));
+  // Enqueue one representative output driver vertex per instance so each
+  // instance is visited exactly once per level (avoids multi-output races).
+  for (odb::dbInst* db_inst : block_->getInsts()) {
+    sta::Instance* inst = db_network_->dbToSta(db_inst);
+    LibertyCell* cell = db_network_->libertyCell(inst);
     if (!cell || cell->hasSequentials()) continue;
-    bfs.enqueue(v);
+    sta::InstancePinIterator* pit = network_->pinIterator(inst);
+    Vertex* rep = nullptr;
+    while (pit->hasNext()) {
+      Pin* p = pit->next();
+      if (!network_->direction(p)->isOutput()) continue;
+      rep = graph_->pinDrvrVertex(p);
+      if (rep) break;
+    }
+    delete pit;
+    if (rep) bfs.enqueue(rep);
   }
 
   FixLoadVisitor visitor(this, sta_, db_network_, graph_, graph_delay_calc_,
@@ -725,13 +759,22 @@ ParallelInitializer::fixSlewViolationsParallel()
     sta::BfsFwdIterator bfs(sta::BfsIndex::other, search_pred, sta_);
     bfs.ensureSize();
 
-    sta::VertexIterator viter(graph_);
-    while (viter.hasNext()) {
-      Vertex* v = viter.next();
-      if (!v->isDriver(network_)) continue;
-      const Pin* pin = v->pin();
-      if (network_->isTopLevelPort(pin)) continue;
-      bfs.enqueue(v);
+    // Enqueue one representative output driver vertex per instance.
+    for (odb::dbInst* db_inst : block_->getInsts()) {
+      if (!db_inst->getMaster()->isCoreAutoPlaceable()) continue;
+      sta::Instance* inst = db_network_->dbToSta(db_inst);
+      LibertyCell* cell = db_network_->libertyCell(inst);
+      if (!cell || cell->hasSequentials()) continue;
+      sta::InstancePinIterator* pit = network_->pinIterator(inst);
+      Vertex* rep = nullptr;
+      while (pit->hasNext()) {
+        Pin* p = pit->next();
+        if (!network_->direction(p)->isOutput()) continue;
+        rep = graph_->pinDrvrVertex(p);
+        if (rep) break;
+      }
+      delete pit;
+      if (rep) bfs.enqueue(rep);
     }
 
     FixSlewVisitor visitor(this, sta_, db_network_, graph_, graph_delay_calc_,

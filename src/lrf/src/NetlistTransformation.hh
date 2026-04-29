@@ -68,14 +68,30 @@ struct EvalContext {
   // (5% tolerance). Set from wns / clock_period in caller to match visitor.
   float slack_margin = 1.0f;
 
-  // ERC relaxation: slew and cap violations (from LocalSta::ViolationSum)
-  // are normalized by the design-wide averages and weighted by
-  // erc_violation_weight. Splitting lets each metric contribute in its
-  // own natural unit — a small cap overage (in fF) and a small slew
-  // overage (in ps) end up comparable after dividing by avg_cap / avg_slew.
+  // ERC handling — three modes selected by erc_violation_weight:
+  //   weight  > 0 : soft penalty.  slew/cap violations (LocalSta::ViolationSum)
+  //                 are normalized by design-wide averages and added to
+  //                 swapCost. Lets LR trade ERC for leakage/timing.
+  //   weight == 0 : ERC ignored in cost (no penalty, no rejection).
+  //   weight  < 0 : hard reject (legacy legalCheck behavior). Any candidate
+  //                 with v_before.slew>0 || v_before.cap>0 is skipped before
+  //                 the delay calc; same for v_after. cand == ori_cell is
+  //                 always preserved (we never skip the no-op cell).
+  // Default -1.0f matches the pre-eb01407 legalCheck behavior — leaving it
+  // at 0.0f silently permits any ERC violation, which on dense designs
+  // (ariane / NV_NVDLA_partition_c) can blow up to thousands of ns / fF.
   float average_slew = 1e-10f;   // seconds; populated from IncreSta::averageOutSlew()
   float average_cap  = 1e-15f;   // farads;  populated from IncreSta::averageLoadCap()
-  float erc_violation_weight = 0.0f;
+  float erc_violation_weight = -1.0f;
+  // Headroom multipliers for the slew/cap limits used by violationSum*Swap
+  // (and therefore the hard-reject gate when erc_violation_weight < 0, and
+  // the soft penalty term when > 0). 1.0 = use lib limit as-is; 0.95 = 5%
+  // tighter (penalize/reject earlier, leave physical margin for post-GR
+  // RC shift). Default 0.95 matches the pre-eb01407 legalCheckAfterSwap
+  // headroom, restored after the eb01407 refactor inadvertently dropped it
+  // back to 1.0. Same units as the underlying lib limit.
+  float erc_slew_limit_scale = 0.95f;
+  float erc_cap_limit_scale  = 0.95f;
   float swapCost(float delay_lm_sum, float power,
                  float density_cost = 0.0f,
                  float slew_violation = 0.0f,

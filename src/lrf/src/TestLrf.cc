@@ -912,6 +912,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   odb::dbDatabase::beginEco(block);
   IterationHelper helper(sta, block, local_sta, resizer);
   IterationHelper::Metrics best = helper.snapshot();
+  incre_sta->recordMetrics(best.wns_ps, best.tns_ps, best.leakage);
   printf("Initial WNS: %.3f ps, TNS: %.3f ps\n", best.wns_ps, best.tns_ps);
   float avg_delay = incre_sta->averageDelayOnCritPath();
   float avg_leakage = incre_sta->averageLeakage();
@@ -938,6 +939,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   {
   LrParasiticsGuard parasitics_guard(est_parasitics);
 
+  EcoDecision decision = EcoDecision::ACCEPT;
   for (size_t i = 0; i < iterations; ++i) {
     incre_sta->lmUpdate();
     sta->findRequireds();
@@ -995,7 +997,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     cur.leakage = leakage * 1e-10;  // back to raw watts
     cur.runtime_s = std::chrono::duration<double>(end - start).count();
 
-    EcoDecision decision = eco.decide(i, cur, best);
+    decision = eco.decide(i, cur, best);
     float new_ratio = eco.updateRatio(decision);
     incre_sta->setAdaptiveTopRatio(new_ratio);
     eco.execute(decision, best, cur);
@@ -1010,19 +1012,22 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   }
   }  // parasitics_guard goes out of scope here — must be before endEco/undoEco.
 
-  // Final check: revert to best if current is worse
-  IterationHelper::Metrics final_m = helper.snapshot();
-  if (final_m.wns_ps > best.wns_ps) {
-    odb::dbDatabase::endEco(block);
-    printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
-  } else {
-    odb::dbDatabase::endEco(block);
-    odb::dbDatabase::undoEco(block);
-    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
-    sta->delaysInvalid();
-    sta->updateTiming(true);
-    local_sta->taskArranger()->markDirty();
-    printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+  // Final accept/revert (skipped on TERMINATE: executeTerminate already
+  // rolled back to `best` and closed the ECO frame).
+  if (decision != EcoDecision::TERMINATE) {
+    IterationHelper::Metrics final_m = helper.snapshot();
+    if (final_m.wns_ps > best.wns_ps) {
+      odb::dbDatabase::endEco(block);
+      printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
+    } else {
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
+      local_sta->taskArranger()->markDirty();
+      printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+    }
   }
 
   printf("==============================\n");
@@ -1065,6 +1070,7 @@ TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
   odb::dbDatabase::beginEco(block);
   IterationHelper helper(sta, block, local_sta, resizer);
   IterationHelper::Metrics best = helper.snapshot();
+  incre_sta->recordMetrics(best.wns_ps, best.tns_ps, best.leakage);
   printf("Initial WNS: %.3f ps, TNS: %.3f ps\n", best.wns_ps, best.tns_ps);
 
   float avg_delay = incre_sta->averageDelayOnCritPath();
@@ -1107,6 +1113,7 @@ TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
     sta->updateTiming(true);
 
     IterationHelper::Metrics cur = helper.snapshot(runtime);
+    incre_sta->recordMetrics(cur.wns_ps, cur.tns_ps, cur.leakage);
     printf("WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW (%.1fs)\n",
            cur.wns_ps, cur.tns_ps, cur.leakage * 1e10, runtime);
 
@@ -1310,6 +1317,7 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
   odb::dbDatabase::beginEco(block);
   IterationHelper helper(sta, block, local_sta, resizer);
   IterationHelper::Metrics best = helper.snapshot();
+  incre_sta->recordMetrics(best.wns_ps, best.tns_ps, best.leakage);
   printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
 
   float avg_delay = incre_sta->averageDelayOnCritPath();
@@ -1325,13 +1333,11 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
   eco_cfg.max_eco_reverts = num_no_improve_tolerance;
   EcoController eco(eco_cfg, incre_sta, sta, block, resizer);
 
-  // Buffering ECO controller: accept/revert only, no halving, no lmUpdate-before-revert.
-  EcoConfig buffer_eco_cfg = EcoConfig::make(EcoStrategy::NO_HALVE);
-  buffer_eco_cfg.lm_update_before_revert = false;
-  buffer_eco_cfg.warmup_iters = 0;
-  buffer_eco_cfg.max_eco_reverts = std::numeric_limits<size_t>::max();
-  EcoController buffer_eco(buffer_eco_cfg, incre_sta, sta, block, resizer);
+  // Buffering ECO: accept/revert only, never TERMINATEs the outer loop,
+  // no leakage-plateau check (buffering optimizes timing, not leakage).
+  BufferEcoController buffer_eco(incre_sta, sta, block, resizer);
 
+  EcoDecision decision = EcoDecision::ACCEPT;
   for (size_t i = 0; i < iterations; ++i) {
     // ── Resize phase ──
     incre_sta->lmUpdate();
@@ -1355,12 +1361,13 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
     sta->updateTiming(true);
 
     IterationHelper::Metrics cur = helper.snapshot(runtime);
+    incre_sta->recordMetrics(cur.wns_ps, cur.tns_ps, cur.leakage);
     printf("After resize: WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW (%.1fs)\n",
            cur.wns_ps, cur.tns_ps, cur.leakage * 1e10, runtime);
     fflush(stdout);
 
     // ── Resize ECO decision ──
-    EcoDecision decision = eco.decide(i, cur, best);
+    decision = eco.decide(i, cur, best);
     float new_ratio = eco.updateRatio(decision);
     incre_sta->setAdaptiveTopRatio(new_ratio);
     eco.execute(decision, best, cur);
@@ -1404,8 +1411,6 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
 
       // Buffering ECO: accept/revert only (no halve, no lmUpdate-before-revert).
       EcoDecision buf_decision = buffer_eco.decide(i, buf_cur, best);
-      if (buf_decision == EcoDecision::TERMINATE)
-        buf_decision = EcoDecision::REVERT;
       buffer_eco.execute(buf_decision, best, buf_cur);
       helper.recordRow(i+1, "buffer", buf_cur, best,
                        buffer_eco.decisionStr(buf_decision));
@@ -1414,19 +1419,22 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
     }
   }
 
-  // Final check
-  IterationHelper::Metrics final_m = helper.snapshot();
-  if (final_m.wns_ps > best.wns_ps) {
-    odb::dbDatabase::endEco(block);
-    printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
-  } else {
-    odb::dbDatabase::endEco(block);
-    odb::dbDatabase::undoEco(block);
-    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
-    sta->delaysInvalid();
-    sta->updateTiming(true);
-    local_sta->taskArranger()->markDirty();
-    printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+  // Final accept/revert (skipped on TERMINATE: executeTerminate already
+  // rolled back to `best` and closed the ECO frame).
+  if (decision != EcoDecision::TERMINATE) {
+    IterationHelper::Metrics final_m = helper.snapshot();
+    if (final_m.wns_ps > best.wns_ps) {
+      odb::dbDatabase::endEco(block);
+      printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
+    } else {
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
+      local_sta->taskArranger()->markDirty();
+      printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+    }
   }
 
   helper.printSummary(best);
@@ -1478,6 +1486,7 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
   odb::dbDatabase::beginEco(block);
   IterationHelper helper(sta, block, local_sta, resizer);
   IterationHelper::Metrics best = helper.snapshot();
+  incre_sta->recordMetrics(best.wns_ps, best.tns_ps, best.leakage);
   printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
 
   float avg_delay = incre_sta->averageDelayOnCritPath();
@@ -1492,13 +1501,11 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
   eco_cfg.max_eco_reverts = num_no_improve_tolerance;
   EcoController eco(eco_cfg, incre_sta, sta, block, resizer);
 
-  // Buffering ECO controller: accept/revert only, no halving, no lmUpdate-before-revert.
-  EcoConfig buffer_eco_cfg = EcoConfig::make(EcoStrategy::NO_HALVE);
-  buffer_eco_cfg.lm_update_before_revert = false;
-  buffer_eco_cfg.warmup_iters = 0;
-  buffer_eco_cfg.max_eco_reverts = std::numeric_limits<size_t>::max();
-  EcoController buffer_eco(buffer_eco_cfg, incre_sta, sta, block, resizer);
+  // Buffering ECO: accept/revert only, never TERMINATEs the outer loop,
+  // no leakage-plateau check (buffering optimizes timing, not leakage).
+  BufferEcoController buffer_eco(incre_sta, sta, block, resizer);
 
+  EcoDecision decision = EcoDecision::ACCEPT;
   for (size_t i = 0; i < iterations; ++i) {
     // ── Resize phase ──
     incre_sta->lmUpdate();
@@ -1522,12 +1529,13 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
     sta->updateTiming(true);
 
     IterationHelper::Metrics cur = helper.snapshot(runtime);
+    incre_sta->recordMetrics(cur.wns_ps, cur.tns_ps, cur.leakage);
     printf("After resize: WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW (%.1fs)\n",
            cur.wns_ps, cur.tns_ps, cur.leakage * 1e10, runtime);
     fflush(stdout);
 
     // ── Resize ECO decision ──
-    EcoDecision decision = eco.decide(i, cur, best);
+    decision = eco.decide(i, cur, best);
     float new_ratio = eco.updateRatio(decision);
     incre_sta->setAdaptiveTopRatio(new_ratio);
     eco.execute(decision, best, cur);
@@ -1572,8 +1580,6 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
 
       // Buffering ECO: accept/revert only (no halve, no lmUpdate-before-revert).
       EcoDecision buf_decision = buffer_eco.decide(i, buf_cur, best);
-      if (buf_decision == EcoDecision::TERMINATE)
-        buf_decision = EcoDecision::REVERT;
       buffer_eco.execute(buf_decision, best, buf_cur);
       helper.recordRow(i+1, "buffer", buf_cur, best,
                        buffer_eco.decisionStr(buf_decision));
@@ -1582,18 +1588,270 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
     }
   }
 
-  IterationHelper::Metrics final_m = helper.snapshot();
-  if (final_m.wns_ps > best.wns_ps) {
-    odb::dbDatabase::endEco(block);
-    printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
-  } else {
-    odb::dbDatabase::endEco(block);
-    odb::dbDatabase::undoEco(block);
+  // Final accept/revert (skipped on TERMINATE: executeTerminate already
+  // rolled back to `best` and closed the ECO frame).
+  if (decision != EcoDecision::TERMINATE) {
+    IterationHelper::Metrics final_m = helper.snapshot();
+    if (final_m.wns_ps > best.wns_ps) {
+      odb::dbDatabase::endEco(block);
+      printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
+    } else {
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
+      local_sta->taskArranger()->markDirty();
+      printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+    }
+  }
+
+  helper.printSummary(best);
+  delete incre_sta;
+}
+
+// Two-phase flow: (A) init + pure resize until ECO TERMINATE,
+// (B) precheck-resize + LRF slack-DP rebuffering on top of phase-A's best state.
+// Both phases share IncreSta/LRHelper/best; ECO transaction spans both.
+void
+TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons,
+                            float PT_tradeoff,
+                            std::string lr_helper_method,
+                            bool initialize,
+                            float density_weight,
+                            bool debug,
+                            size_t buffering_start_iter,
+                            float timing_margin,
+                            float erc_violation_weight)
+{
+  printf("----- Testing Init Resize -> SDP Buffering "
+         "(iterations=%zu, tol=%zu, "
+         "buffering_start_iter=%zu, timing_margin=%.4f, "
+         "erc_violation_weight=%.3g) -----\n",
+         iterations, num_no_improve_tolerance,
+         buffering_start_iter, timing_margin, erc_violation_weight);
+
+  sta->findRequireds();
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+  incre_sta->setDebug(debug);
+
+  if (initialize) {
+    runInitialization(sta, incre_sta, resizer, block, thread_num, true);
+    incre_sta->localSta()->updateGlobalParasiticsAndSync(
+        resizer->getEstimateParasitics());
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+  }
+
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+
+  incre_sta->makeLRHelper(lr_helper_method);
+  lrf::LRHelper *lr_helper = incre_sta->lrHelper();
+  lr_helper->setRatcons(ratcons);
+  lr_helper->setTimingMargin(timing_margin);
+
+  incre_sta->setMaxResizeNum(max_resize_num);
+
+  odb::dbDatabase::beginEco(block);
+  IterationHelper helper(sta, block, local_sta, resizer);
+  IterationHelper::Metrics best = helper.snapshot();
+  incre_sta->recordMetrics(best.wns_ps, best.tns_ps, best.leakage);
+  printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
+
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+  local_sta->initParallel();
+
+  PlacementDensityMap density_map;
+  setupDensityMap(density_map, sta, block, incre_sta, density_weight);
+
+  // ═══════════════════════════════════════════════════════════
+  // Phase A: pure resize until ECO TERMINATE.
+  //   Strategy = NO_HALVE (full resize every iter, ratio untouched,
+  //                         use_precheck=false); terminate after
+  //                         num_no_improve_tolerance consecutive reverts.
+  // ═══════════════════════════════════════════════════════════
+  // Single ECO controller spans both phases. HALVE_ON_CONSECUTIVE so that the
+  // first regression in phase A computes a sensible init_ratio (used by
+  // phase B's forced precheck path); warmup_iters lets phase A absorb early
+  // double-regress as REVERT_WARMUP. Phase A breaks on the first REVERT;
+  // phase B continues with the same controller (in_eco_, ratio, counters).
+  printf("===== Phase A: pure resize (cap=%zu) =====\n", iterations);
+  EcoConfig eco_cfg = EcoConfig::make(EcoStrategy::HALVE_ON_CONSECUTIVE);
+  // EcoController checks `consecutive_reverts_ > max_eco_reverts`. Phase A's
+  // break-trigger REVERT brings consecutive_reverts_ to 1, so phase B inherits
+  // N reverts of headroom: the (N+1)-th total revert TERMINATEs. (N=0 is the
+  // strictest setting — phase A's first REVERT already TERMINATEs.)
+  eco_cfg.max_eco_reverts = num_no_improve_tolerance;
+  eco_cfg.warmup_iters = 3;
+  EcoController eco(eco_cfg, incre_sta, sta, block, resizer);
+
+  size_t i = 0;
+  EcoDecision decision = EcoDecision::ACCEPT;
+  for (; i < iterations; ++i) {
+    incre_sta->lmUpdate();
+    sta->findRequireds();
+    auto start = std::chrono::high_resolution_clock::now();
+    printf("----- Phase A: LR ResizeByArray Iteration %zu -----\n", i+1);
+    incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff,
+                                     erc_violation_weight);
+    auto end = std::chrono::high_resolution_clock::now();
+    double runtime = std::chrono::duration<double>(end - start).count();
+
     local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
     sta->delaysInvalid();
     sta->updateTiming(true);
-    local_sta->taskArranger()->markDirty();
-    printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+
+    IterationHelper::Metrics cur = helper.snapshot(runtime);
+    incre_sta->recordMetrics(cur.wns_ps, cur.tns_ps, cur.leakage);
+    printf("Phase A after resize: WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW (%.1fs)\n",
+           cur.wns_ps, cur.tns_ps, cur.leakage * 1e10, runtime);
+    fflush(stdout);
+
+    decision = eco.decide(i, cur, best);
+    float new_ratio = eco.updateRatio(decision);
+    incre_sta->setAdaptiveTopRatio(new_ratio);
+    eco.execute(decision, best, cur);
+
+    helper.recordRow(i+1, eco.inEco() ? "A-eco" : "A-resize", cur, best,
+                     eco.decisionStr(decision));
+    printf("Phase A Decision: %s\n", eco.decisionStr(decision));
+    fflush(stdout);
+
+    // Phase A "until ECO triggers" semantic: any REVERT (or TERMINATE)
+    // ends phase A. ACCEPT and REVERT_WARMUP keep phase A alive.
+    if (decision == EcoDecision::REVERT || decision == EcoDecision::TERMINATE)
+      break;
+  }
+  printf("===== Phase A done. Best: WNS=%.3f ps, TNS=%.3f ps =====\n",
+         best.wns_ps, best.tns_ps);
+
+  // TERMINATE means executeTerminate already left the netlist at `best` with
+  // the ECO frame closed; init_ratio is also unset, so the forced-precheck
+  // path in phase B would crash with top_ratio = -1.0. Skip phase B entirely.
+  if (decision == EcoDecision::TERMINATE) {
+    printf("Phase A terminated; skipping Phase B.\n");
+    eco.printSummary();
+    helper.printSummary(best);
+    delete incre_sta;
+    return;
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Phase B: precheck-resize (every iter) + SDP buffering.
+  // Continues with the same `eco` (in_eco_=true, ratio set to init_ratio
+  // by phase A's break-triggering REVERT, counters carried over).
+  // ═══════════════════════════════════════════════════════════
+  printf("===== Phase B: precheck resize + SDP buffering =====\n");
+
+  // Buffering ECO: accept/revert only, never TERMINATEs the outer loop,
+  // no leakage-plateau check (buffering optimizes timing, not leakage).
+  BufferEcoController buffer_eco(incre_sta, sta, block, resizer);
+
+  // Step past phase A's terminating iter so phase B doesn't reuse the
+  // index (entering phase B's body implies phase A broke at i=k; the
+  // body for i=k already ran in phase A, including its execute(REVERT)).
+  // No-op when phase A exited naturally (i is already == iterations).
+  for (++i; i < iterations; ++i) {
+    // ── Resize phase (always precheck) ──
+    incre_sta->lmUpdate();
+    sta->findRequireds();
+    auto start = std::chrono::high_resolution_clock::now();
+    float ratio = incre_sta->adaptiveTopRatio();
+    printf("----- Phase B: LR ResizeByArrayWithPrecheck Iteration %zu (ratio=%.4f) -----\n",
+           i+1, ratio);
+    incre_sta->parallelResizeByArrayWithPrecheck(
+        resizer, avg_delay, avg_leakage, PT_tradeoff, ratio,
+        erc_violation_weight);
+    auto end = std::chrono::high_resolution_clock::now();
+    double runtime = std::chrono::duration<double>(end - start).count();
+
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+
+    IterationHelper::Metrics cur = helper.snapshot(runtime);
+    incre_sta->recordMetrics(cur.wns_ps, cur.tns_ps, cur.leakage);
+    printf("Phase B after resize: WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW (%.1fs)\n",
+           cur.wns_ps, cur.tns_ps, cur.leakage * 1e10, runtime);
+    fflush(stdout);
+
+    decision = eco.decide(i, cur, best);
+    float new_ratio = eco.updateRatio(decision);
+    incre_sta->setAdaptiveTopRatio(new_ratio);
+    eco.execute(decision, best, cur);
+
+    helper.recordRow(i+1, eco.inEco() ? "B-eco" : "B-resize", cur, best,
+                     eco.decisionStr(decision));
+    printf("Phase B Decision: %s\n", eco.decisionStr(decision));
+    fflush(stdout);
+
+    if (decision == EcoDecision::TERMINATE)
+      break;
+
+    // ── SDP Buffering phase ──
+    sta::Slack wns_after_resize = sta->worstSlack(sta::MinMax::max());
+    if (wns_after_resize < 0 && (i + 1) >= buffering_start_iter) {
+      incre_sta->lmUpdate();
+      printf("----- SDP Buffering pass (iter %zu) -----\n", i+1);
+      double wns_before = wns_after_resize * 1e12;
+      double tns_before = sta->totalNegativeSlack(sta::MinMax::max()) * 1e12;
+      sta->findRequireds();
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+
+      auto buf_start = std::chrono::high_resolution_clock::now();
+      incre_sta->parallelBufferingSdp(resizer, PT_tradeoff, /*top_ratio=*/0.01f,
+                                      erc_violation_weight);
+      auto buf_end = std::chrono::high_resolution_clock::now();
+      double buf_runtime = std::chrono::duration<double>(buf_end - buf_start).count();
+
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
+
+      IterationHelper::Metrics buf_cur = helper.snapshot(buf_runtime);
+      double wns_delta = buf_cur.wns_ps - wns_before;
+      double tns_delta = buf_cur.tns_ps - tns_before;
+      printf("SDP Buffering diff: WNS %.3f -> %.3f ps (delta=%+.3f), "
+             "TNS %.3f -> %.3f ps (delta=%+.3f), Leakage %.3f uW (%.1fs)\n",
+             wns_before, buf_cur.wns_ps, wns_delta,
+             tns_before, buf_cur.tns_ps, tns_delta,
+             buf_cur.leakage * 1e10, buf_runtime);
+      fflush(stdout);
+
+      EcoDecision buf_decision = buffer_eco.decide(i, buf_cur, best);
+      buffer_eco.execute(buf_decision, best, buf_cur);
+      helper.recordRow(i+1, "buffer", buf_cur, best,
+                       buffer_eco.decisionStr(buf_decision));
+      printf("SDP Buffering: %s\n", buffer_eco.decisionStr(buf_decision));
+      fflush(stdout);
+    }
+  }
+  eco.printSummary();
+
+  // ── Final accept/revert (skipped on TERMINATE: executeTerminate already
+  //    rolled back to `best` and closed the ECO frame). ──
+  if (decision != EcoDecision::TERMINATE) {
+    IterationHelper::Metrics final_m = helper.snapshot();
+    if (final_m.wns_ps > best.wns_ps) {
+      odb::dbDatabase::endEco(block);
+      printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
+    } else {
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
+      local_sta->taskArranger()->markDirty();
+      printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+    }
   }
 
   helper.printSummary(best);
@@ -1640,6 +1898,7 @@ TestLrf::testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,
   odb::dbDatabase::beginEco(block);
   IterationHelper helper(sta, block, local_sta, resizer);
   IterationHelper::Metrics best = helper.snapshot();
+  incre_sta->recordMetrics(best.wns_ps, best.tns_ps, best.leakage);
   printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
 
   float avg_delay = incre_sta->averageDelayOnCritPath();
@@ -1655,6 +1914,7 @@ TestLrf::testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,
   eco_cfg.max_eco_reverts = num_no_improve_tolerance;
   EcoController eco(eco_cfg, incre_sta, sta, block, resizer);
 
+  EcoDecision decision = EcoDecision::ACCEPT;
   for (size_t i = 0; i < iterations; ++i) {
     // ── Resize phase ──
     incre_sta->lmUpdate();
@@ -1670,12 +1930,13 @@ TestLrf::testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,
     sta->updateTiming(true);
 
     IterationHelper::Metrics cur = helper.snapshot(runtime);
+    incre_sta->recordMetrics(cur.wns_ps, cur.tns_ps, cur.leakage);
     printf("After resize: WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW (%.1fs)\n",
            cur.wns_ps, cur.tns_ps, cur.leakage * 1e10, runtime);
     fflush(stdout);
 
     // ── ECO decision ──
-    EcoDecision decision = eco.decide(i, cur, best);
+    decision = eco.decide(i, cur, best);
     float new_ratio = eco.updateRatio(decision);
     incre_sta->setAdaptiveTopRatio(new_ratio);
     eco.execute(decision, best, cur);
@@ -1748,19 +2009,22 @@ TestLrf::testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,
     }
   }
 
-  // Final check
-  IterationHelper::Metrics final_m = helper.snapshot();
-  if (final_m.wns_ps > best.wns_ps) {
-    odb::dbDatabase::endEco(block);
-    printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
-  } else {
-    odb::dbDatabase::endEco(block);
-    odb::dbDatabase::undoEco(block);
-    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
-    sta->delaysInvalid();
-    sta->updateTiming(true);
-    local_sta->taskArranger()->markDirty();
-    printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+  // Final accept/revert (skipped on TERMINATE: executeTerminate already
+  // rolled back to `best` and closed the ECO frame).
+  if (decision != EcoDecision::TERMINATE) {
+    IterationHelper::Metrics final_m = helper.snapshot();
+    if (final_m.wns_ps > best.wns_ps) {
+      odb::dbDatabase::endEco(block);
+      printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
+    } else {
+      odb::dbDatabase::endEco(block);
+      odb::dbDatabase::undoEco(block);
+      local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+      sta->delaysInvalid();
+      sta->updateTiming(true);
+      local_sta->taskArranger()->markDirty();
+      printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+    }
   }
 
   helper.printSummary(best);
@@ -1804,6 +2068,7 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
   odb::dbDatabase::beginEco(block);
   IterationHelper helper(sta, block, local_sta, resizer);
   IterationHelper::Metrics best = helper.snapshot();
+  incre_sta->recordMetrics(best.wns_ps, best.tns_ps, best.leakage);
   printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
 
   float avg_delay = incre_sta->averageDelayOnCritPath();
@@ -1847,6 +2112,7 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
     sta->updateTiming(true);
 
     IterationHelper::Metrics cur = helper.snapshot(runtime);
+    incre_sta->recordMetrics(cur.wns_ps, cur.tns_ps, cur.leakage);
     printf("WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW\n",
            cur.wns_ps, cur.tns_ps, cur.leakage * 1e10);
     fflush(stdout);
@@ -1971,6 +2237,7 @@ TestLrf::testBufferOnly(sta::dbSta* sta,
   odb::dbDatabase::beginEco(block);
   IterationHelper helper(sta, block, local_sta, resizer);
   IterationHelper::Metrics best = helper.snapshot();
+  incre_sta->recordMetrics(best.wns_ps, best.tns_ps, best.leakage);
   printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
 
   float avg_delay = incre_sta->averageDelayOnCritPath();
@@ -1994,6 +2261,7 @@ TestLrf::testBufferOnly(sta::dbSta* sta,
     sta->updateTiming(true);
 
     IterationHelper::Metrics cur = helper.snapshot(runtime);
+    incre_sta->recordMetrics(cur.wns_ps, cur.tns_ps, cur.leakage);
     printf("WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW\n",
            cur.wns_ps, cur.tns_ps, cur.leakage * 1e10);
     fflush(stdout);

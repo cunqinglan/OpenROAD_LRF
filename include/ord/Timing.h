@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <string>
 #include <vector>
 
 #include "sta/Clock.hh"
@@ -85,6 +86,16 @@ class Timing
 
   void makeEquivCells();
   std::vector<odb::dbMaster*> equivCells(odb::dbMaster* master);
+
+  /////////////////////////////////////////////////////////////
+  // ML / diagnostic feature dump
+  /////////////////////////////////////////////////////////////
+  // After globalRoute(save_guides=true) + estimate_parasitics, write four
+  // CSVs to <prefix>_{nets,segments,sinks,congestion}.csv with per-net,
+  // per-segment, per-sink, and per-GCell data. Direct C++ access to
+  // grt::GlobalRouter::getRoutes(), sta::Parasitics::piModel/findElmore,
+  // sta::Search::vertexSlew, and dbGCellGrid — avoids SWIG limitations.
+  void dumpDiagBundle(const std::string& prefix);
 
   /////////////////////////////////////////////////////////////
   // Functions for LR sizing
@@ -179,6 +190,20 @@ class Timing
                                               bool initialize = false,
                                               float density_weight = 0.0f,
                                               float timing_margin = 0.01f);
+  // Two-phase: init+resize → precheck-resize+SDP-buffering. See
+  // TestLrf::testInitResizeThenSdpBuffering for details.
+  // erc_violation_weight: <0 hard reject, ==0 ignore, >0 soft penalty
+  //   (default -1.0 = legacy hard-reject behavior).
+  void testInitResizeThenSdpBuffering(size_t max_resize_num,
+                                      size_t iterations,
+                                      size_t num_no_improve_tolerance,
+                                      bool ratcons = false,
+                                      float PT_tradeoff = 100.0,
+                                      const char *lr_helper_method = "LRHelper",
+                                      bool initialize = false,
+                                      float density_weight = 0.0f,
+                                      float timing_margin = 0.01f,
+                                      float erc_violation_weight = -1.0f);
   void testCombinedResizeBuffering(size_t max_resize_num,
                                              size_t iterations,
                                              size_t num_no_improve_tolerance,
