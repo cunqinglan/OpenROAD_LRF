@@ -16,6 +16,7 @@
 
 #include "grt/GRoute.h"
 #include "grt/GlobalRouter.h"
+#include "grt/Rudy.h"
 #include "sta/Network.hh"
 #include "sta/Parasitics.hh"
 #include "sta/ParasiticsClass.hh"
@@ -1330,6 +1331,368 @@ void Timing::dumpDiagBundle(const std::string& prefix)
         "{}_segments.csv ({} rows), {}_sinks.csv ({} rows), "
         "{}_congestion.csv",
         prefix, n_nets, prefix, n_segs, prefix, n_sinks, prefix);
+  }
+}
+
+////////////////////////////////////////////////////////////////
+// dumpFeatureBundle — per-net feature CSV for ML cap_ratio prediction.
+//
+// Caller controls parasitic state (estimate_parasitics -placement OR
+// -global_routing) before each call. Static features (geometry, layers,
+// macro distance, RUDY) are placement-independent — emitted both times for
+// easy join. Dynamic features (cap, drvr_slew, max_sink_slew, viol flags)
+// reflect the current parasitic state.
+//
+// Skip rules:
+//   - special / POWER / GROUND / CLOCK nets
+//   - multi-driver nets (n_drvr != 1)
+//   - fanout > max_fanout (these get GRT-skipped via -skip_large_fanout_nets)
+//   - net names matching pre-CTS clock pattern (defensive: clk/clock/rst/
+//     reset/scan even if sigType==SIGNAL)
+////////////////////////////////////////////////////////////////
+namespace {
+
+// Defensive pre-CTS clock/reset/scan detector — net names like
+// `clk_i`, `nvdla_core_clk`, `bit_clk_pad_i`, `rst_i`, `scan_*`.
+inline bool looksLikeClockOrReset(const std::string& name)
+{
+  // Lowercase scan; stop at first hit.
+  auto find_ci = [&](const char* needle) -> bool {
+    const size_t nl = std::strlen(needle);
+    for (size_t i = 0; i + nl <= name.size(); ++i) {
+      bool ok = true;
+      for (size_t k = 0; k < nl; ++k) {
+        char c = name[i + k];
+        if (c >= 'A' && c <= 'Z') c = c - 'A' + 'a';
+        if (c != needle[k]) { ok = false; break; }
+      }
+      if (!ok) continue;
+      // Boundary check: previous char and next char should be non-alnum
+      // (so "clkgate_in" doesn't match "clk").
+      char prev = (i == 0) ? '/' : name[i - 1];
+      char next = (i + nl >= name.size()) ? '/' : name[i + nl];
+      auto is_word = [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+               || (c >= '0' && c <= '9') || c == '_';
+      };
+      // We require the BEFORE boundary to be non-word (so the keyword starts
+      // a token), but allow the AFTER to be anything (digits/underscore/end).
+      if (!is_word(prev)) return true;
+    }
+    return false;
+  };
+  return find_ci("clk") || find_ci("clock") || find_ci("rst")
+      || find_ci("reset") || find_ci("scan");
+}
+
+// Routing levels touched by an iterm's pin geometry (1-based, M1=1).
+inline std::set<int> itermPinLayers(odb::dbITerm* it)
+{
+  std::set<int> ls;
+  odb::dbMTerm* mt = it->getMTerm();
+  if (mt == nullptr) return ls;
+  for (odb::dbMPin* mp : mt->getMPins()) {
+    for (odb::dbBox* box : mp->getGeometry()) {
+      odb::dbTechLayer* tl = box->getTechLayer();
+      if (tl == nullptr) continue;
+      int lvl = tl->getRoutingLevel();
+      if (lvl > 0) ls.insert(lvl);
+    }
+  }
+  return ls;
+}
+
+}  // namespace
+
+void Timing::dumpFeatureBundle(const std::string& prefix, int max_fanout)
+{
+  sta::dbSta* sta = getSta();
+  sta::dbNetwork* network = sta->getDbNetwork();
+  odb::dbBlock* block = network->block();
+  if (block == nullptr) return;
+
+  sta::Parasitics* parasitics = sta->parasitics();
+  sta::Graph* graph = sta->graph();
+  sta::Corner* corner = sta->corners()->findCorner(0);
+  const sta::ParasiticAnalysisPt* ap
+      = corner ? corner->findParasiticAnalysisPt(sta::MinMax::max()) : nullptr;
+  const sta::MinMax* mm_max = sta::MinMax::max();
+
+  // ── Pre-compute design-level state (cheap; once per call) ──
+
+  // (a) macro rectangles
+  std::vector<odb::Rect> macros;
+  for (odb::dbInst* inst : block->getInsts()) {
+    if (!inst->isPlaced()) continue;
+    odb::dbMaster* m = inst->getMaster();
+    if (m == nullptr || !m->getType().isBlock()) continue;
+    odb::dbBox* bb = inst->getBBox();
+    macros.emplace_back(bb->xMin(), bb->yMin(), bb->xMax(), bb->yMax());
+  }
+
+  // (b) RUDY — uses GRT internal implementation. Constructor will
+  //     auto-initFastRoute if GRT not yet initialized. Robust to "no GRT
+  //     run yet" — perfect for placement-stage feature extraction.
+  grt::GlobalRouter* grouter = OpenRoad::openRoad()->getGlobalRouter();
+  grt::Rudy* rudy = nullptr;
+  int rudy_tcx = 0, rudy_tcy = 0;
+  int rudy_tile_size = 1;
+  int rudy_origin_x = 0, rudy_origin_y = 0;
+  if (grouter != nullptr) {
+    try {
+      rudy = grouter->getRudy();
+      if (rudy != nullptr) {
+        rudy->calculateRudy();
+        auto gs = rudy->getGridSize();
+        rudy_tcx = gs.first;
+        rudy_tcy = gs.second;
+        rudy_tile_size = std::max(rudy->getTileSize(), 1);
+        odb::Rect die = block->getDieArea();
+        rudy_origin_x = die.xMin();
+        rudy_origin_y = die.yMin();
+      }
+    } catch (...) {
+      rudy = nullptr;
+    }
+  }
+
+  auto rudyTileIdx = [&](int x, int y, int& tx, int& ty) -> bool {
+    if (rudy == nullptr) return false;
+    tx = (x - rudy_origin_x) / rudy_tile_size;
+    ty = (y - rudy_origin_y) / rudy_tile_size;
+    if (tx < 0) tx = 0; if (tx >= rudy_tcx) tx = rudy_tcx - 1;
+    if (ty < 0) ty = 0; if (ty >= rudy_tcy) ty = rudy_tcy - 1;
+    return true;
+  };
+
+  std::ofstream csv(prefix + "_features.csv");
+  csv << "net,fanout,hpwl_dbu,bbox_w_dbu,bbox_h_dbu,bbox_aspect_ratio,"
+         "driver_pin_layer,min_sink_pin_layer,max_sink_pin_layer,"
+         "layer_span_count,"
+         "macro_dist_dbu,bbox_overlaps_macro,"
+         "rudy_avg,rudy_max,rudy_at_drvr,"
+         "cap_F,drvr_max_cap_F,"
+         "pi_c2_rise_F,pi_rpi_rise_Ohm,pi_c1_rise_F,"
+         "pi_c2_fall_F,pi_rpi_fall_Ohm,pi_c1_fall_F,"
+         "drvr_slew_rise_s,drvr_slew_fall_s,"
+         "max_sink_slew_rise_s,max_sink_slew_fall_s,"
+         "slew_viol,cap_viol\n";
+
+  size_t n_emit = 0;
+
+  for (odb::dbNet* db_net : block->getNets()) {
+    if (db_net->isSpecial()) continue;
+    odb::dbSigType st = db_net->getSigType();
+    if (st == odb::dbSigType::POWER || st == odb::dbSigType::GROUND
+        || st == odb::dbSigType::CLOCK)
+      continue;
+    if (looksLikeClockOrReset(db_net->getName())) continue;
+
+    // ── Pass 1: driver, fanout, bbox ──
+    odb::dbITerm* drvr = nullptr;
+    int n_drvr = 0;
+    int n_sinks = 0;
+    int xmin = std::numeric_limits<int>::max();
+    int xmax = std::numeric_limits<int>::min();
+    int ymin = std::numeric_limits<int>::max();
+    int ymax = std::numeric_limits<int>::min();
+    bool has_xy = false;
+    for (odb::dbITerm* it : db_net->getITerms()) {
+      if (it->isOutputSignal()) {
+        if (drvr == nullptr) drvr = it;
+        ++n_drvr;
+      } else {
+        ++n_sinks;
+      }
+      int x = 0, y = 0;
+      if (it->getAvgXY(&x, &y)) {
+        if (x < xmin) xmin = x; if (x > xmax) xmax = x;
+        if (y < ymin) ymin = y; if (y > ymax) ymax = y;
+        has_xy = true;
+      }
+    }
+    int n_bterms = 0;
+    for (odb::dbBTerm* bt : db_net->getBTerms()) {
+      ++n_bterms;
+      int x = 0, y = 0;
+      if (bt->getFirstPinLocation(x, y)) {
+        if (x < xmin) xmin = x; if (x > xmax) xmax = x;
+        if (y < ymin) ymin = y; if (y > ymax) ymax = y;
+        has_xy = true;
+      }
+    }
+
+    if (n_drvr != 1 || drvr == nullptr || !has_xy) continue;
+    int fanout = n_sinks + n_bterms;
+    if (fanout < 1 || fanout > max_fanout) continue;
+
+    // ── Geometry ──
+    int bbox_w = xmax - xmin;
+    int bbox_h = ymax - ymin;
+    int hpwl = bbox_w + bbox_h;
+    double aspect = 1000.0;  // clip per plan §Open Q 2
+    int bw_min = std::min(bbox_w, bbox_h);
+    int bw_max = std::max(bbox_w, bbox_h);
+    if (bw_min > 0) aspect = double(bw_max) / double(bw_min);
+
+    // ── Pin layers ──
+    auto drvr_layers = itermPinLayers(drvr);
+    int driver_pin_layer = drvr_layers.empty() ? 0 : *drvr_layers.begin();
+    std::set<int> sink_layers;
+    for (odb::dbITerm* it : db_net->getITerms()) {
+      if (it == drvr) continue;
+      auto sl = itermPinLayers(it);
+      sink_layers.insert(sl.begin(), sl.end());
+    }
+    int min_sink_layer = sink_layers.empty() ? 0 : *sink_layers.begin();
+    int max_sink_layer = sink_layers.empty() ? 0 : *sink_layers.rbegin();
+    std::set<int> all_layers = drvr_layers;
+    all_layers.insert(sink_layers.begin(), sink_layers.end());
+    int layer_span = static_cast<int>(all_layers.size());
+
+    // ── Macro distance (Manhattan, dbu) ──
+    int macro_dist = -1;
+    int overlaps = 0;
+    for (const odb::Rect& m : macros) {
+      int dx = std::max({m.xMin() - xmax, xmin - m.xMax(), 0});
+      int dy = std::max({m.yMin() - ymax, ymin - m.yMax(), 0});
+      int d = dx + dy;
+      if (d == 0) { overlaps = 1; macro_dist = 0; break; }
+      if (macro_dist < 0 || d < macro_dist) macro_dist = d;
+    }
+
+    // ── RUDY ──
+    float rudy_avg = 0.0f, rudy_max = 0.0f, rudy_at_drvr = 0.0f;
+    if (rudy != nullptr) {
+      int tx0, ty0, tx1, ty1;
+      rudyTileIdx(xmin, ymin, tx0, ty0);
+      rudyTileIdx(xmax, ymax, tx1, ty1);
+      if (tx1 < tx0) std::swap(tx0, tx1);
+      if (ty1 < ty0) std::swap(ty0, ty1);
+      double sum = 0.0;
+      int cnt = 0;
+      for (int tx = tx0; tx <= tx1; ++tx) {
+        for (int ty = ty0; ty <= ty1; ++ty) {
+          float v = rudy->getTile(tx, ty).getRudy();
+          sum += v;
+          if (v > rudy_max) rudy_max = v;
+          ++cnt;
+        }
+      }
+      rudy_avg = (cnt > 0) ? static_cast<float>(sum / cnt) : 0.0f;
+
+      int dx_pin = 0, dy_pin = 0, dtx, dty;
+      if (drvr->getAvgXY(&dx_pin, &dy_pin)
+          && rudyTileIdx(dx_pin, dy_pin, dtx, dty)) {
+        rudy_at_drvr = rudy->getTile(dtx, dty).getRudy();
+      }
+    }
+
+    // ── Electrical (depends on currently-active parasitic state) ──
+    sta::Pin* drvr_pin = network->dbToSta(drvr);
+    odb::dbMTerm* drvr_mterm = drvr->getMTerm();
+
+    float cap_F = std::numeric_limits<float>::quiet_NaN();
+    cap_F = getNetCap(db_net, corner, MinMax::Max);
+
+    float drvr_max_cap = std::numeric_limits<float>::quiet_NaN();
+    if (drvr_mterm != nullptr) {
+      drvr_max_cap = getMaxCapLimit(drvr_mterm);
+    }
+
+    // π model: per RiseFall, decompose into (C2 near-source, Rpi, C1 far).
+    // Captures R/C distribution that cap_F alone loses — needed to predict
+    // sink delay/slew, not just net cap.
+    float c2_rise = std::numeric_limits<float>::quiet_NaN();
+    float rpi_rise = std::numeric_limits<float>::quiet_NaN();
+    float c1_rise = std::numeric_limits<float>::quiet_NaN();
+    float c2_fall = std::numeric_limits<float>::quiet_NaN();
+    float rpi_fall = std::numeric_limits<float>::quiet_NaN();
+    float c1_fall = std::numeric_limits<float>::quiet_NaN();
+    if (drvr_pin != nullptr && ap != nullptr && parasitics != nullptr) {
+      sta::Parasitic* pi_r
+          = parasitics->findPiElmore(drvr_pin, sta::RiseFall::rise(), ap);
+      sta::Parasitic* pi_f
+          = parasitics->findPiElmore(drvr_pin, sta::RiseFall::fall(), ap);
+      if (pi_r && parasitics->isPiModel(pi_r)) {
+        parasitics->piModel(pi_r, c2_rise, rpi_rise, c1_rise);
+      }
+      if (pi_f && parasitics->isPiModel(pi_f)) {
+        parasitics->piModel(pi_f, c2_fall, rpi_fall, c1_fall);
+      }
+    }
+
+    float drvr_slew_rise = std::numeric_limits<float>::quiet_NaN();
+    float drvr_slew_fall = std::numeric_limits<float>::quiet_NaN();
+    if (drvr_pin != nullptr) {
+      sta::Vertex* dv = graph->pinDrvrVertex(drvr_pin);
+      if (dv != nullptr) {
+        drvr_slew_rise = sta->vertexSlew(dv, sta::RiseFall::rise(), mm_max);
+        drvr_slew_fall = sta->vertexSlew(dv, sta::RiseFall::fall(), mm_max);
+      }
+    }
+
+    // Sink slews + slew violation across all signal sinks.
+    float max_sink_slew_rise = drvr_slew_rise;
+    float max_sink_slew_fall = drvr_slew_fall;
+    int slew_viol = 0;
+    for (odb::dbITerm* it : db_net->getITerms()) {
+      if (it == drvr || it->isOutputSignal()) continue;
+      sta::Pin* sink_pin = network->dbToSta(it);
+      odb::dbMTerm* sink_mt = it->getMTerm();
+      float sink_limit = (sink_mt != nullptr) ? getMaxSlewLimit(sink_mt)
+                                              : std::numeric_limits<float>::quiet_NaN();
+      if (sink_pin != nullptr) {
+        sta::Vertex* sv = graph->pinLoadVertex(sink_pin);
+        if (sv != nullptr) {
+          float sr = sta->vertexSlew(sv, sta::RiseFall::rise(), mm_max);
+          float sf = sta->vertexSlew(sv, sta::RiseFall::fall(), mm_max);
+          if (std::isfinite(sr)) {
+            if (sr > max_sink_slew_rise) max_sink_slew_rise = sr;
+            if (std::isfinite(sink_limit) && sr > sink_limit) slew_viol = 1;
+          }
+          if (std::isfinite(sf)) {
+            if (sf > max_sink_slew_fall) max_sink_slew_fall = sf;
+            if (std::isfinite(sink_limit) && sf > sink_limit) slew_viol = 1;
+          }
+        }
+      }
+    }
+
+    int cap_viol = (std::isfinite(drvr_max_cap) && std::isfinite(cap_F)
+                    && cap_F > drvr_max_cap) ? 1 : 0;
+
+    // ── Emit row ──
+    csv << db_net->getName() << ',' << fanout << ','
+        << hpwl << ',' << bbox_w << ',' << bbox_h << ',';
+    csv << aspect << ',';
+    csv << driver_pin_layer << ',' << min_sink_layer << ','
+        << max_sink_layer << ',' << layer_span << ',';
+    csv << macro_dist << ',' << overlaps << ',';
+    writeFloat(csv, rudy_avg);     csv << ',';
+    writeFloat(csv, rudy_max);     csv << ',';
+    writeFloat(csv, rudy_at_drvr); csv << ',';
+    writeFloat(csv, cap_F);        csv << ',';
+    writeFloat(csv, drvr_max_cap); csv << ',';
+    writeFloat(csv, c2_rise);  csv << ',';
+    writeFloat(csv, rpi_rise); csv << ',';
+    writeFloat(csv, c1_rise);  csv << ',';
+    writeFloat(csv, c2_fall);  csv << ',';
+    writeFloat(csv, rpi_fall); csv << ',';
+    writeFloat(csv, c1_fall);  csv << ',';
+    writeFloat(csv, drvr_slew_rise); csv << ',';
+    writeFloat(csv, drvr_slew_fall); csv << ',';
+    writeFloat(csv, max_sink_slew_rise); csv << ',';
+    writeFloat(csv, max_sink_slew_fall); csv << ',';
+    csv << slew_viol << ',' << cap_viol << '\n';
+    ++n_emit;
+  }
+
+  utl::Logger* logger = OpenRoad::openRoad()->getLogger();
+  if (logger) {
+    logger->report("[dumpFeatureBundle] wrote {}_features.csv ({} nets, "
+                   "{} macros, RUDY {}x{})",
+                   prefix, n_emit, macros.size(), rudy_tcx, rudy_tcy);
   }
 }
 

@@ -97,6 +97,14 @@ class Timing
   // sta::Search::vertexSlew, and dbGCellGrid — avoids SWIG limitations.
   void dumpDiagBundle(const std::string& prefix);
 
+  // Per-net feature CSV for ML cap_ratio prediction. Snapshots the **current**
+  // parasitic state (caller controls via `estimate_parasitics -placement` or
+  // `-global_routing` before each call). Geometric/layer/macro/RUDY features
+  // are placement-independent — emitted both times for symmetry, easy join.
+  // Skips: special, CLOCK, fanout > max_fanout, multi-driver, pre-CTS clock
+  // by name. Output: <prefix>_features.csv.
+  void dumpFeatureBundle(const std::string& prefix, int max_fanout = 200);
+
   /////////////////////////////////////////////////////////////
   // Functions for LR sizing
   /////////////////////////////////////////////////////////////
