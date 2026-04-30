@@ -77,3 +77,5 @@ test/lrf
 # LRF test directory (untracked, shared across branches)
 test/lrf/
 test/lrf_bak/
+test/ispd26/
+*.md
