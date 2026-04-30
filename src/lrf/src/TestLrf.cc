@@ -936,10 +936,12 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   // runs BEFORE the final-revert block — undoEco() emits a flood of ODB
   // callbacks that would otherwise pollute parasitics_invalid_.
   est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+  // Hoisted out of the parasitics_guard scope below — read by the
+  // post-loop final-accept/revert block at the bottom of this function.
+  EcoDecision decision = EcoDecision::ACCEPT;
   {
   LrParasiticsGuard parasitics_guard(est_parasitics);
 
-  EcoDecision decision = EcoDecision::ACCEPT;
   for (size_t i = 0; i < iterations; ++i) {
     incre_sta->lmUpdate();
     sta->findRequireds();
