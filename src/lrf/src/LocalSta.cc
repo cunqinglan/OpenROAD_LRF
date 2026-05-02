@@ -908,6 +908,12 @@ LocalSta::findDriverDelays1(PtVertex &drvr_pt_vertex,
     if (pt_edge.isSiblingSkipped())
       continue;
 
+    // Precheck mode: skip SiblingEdge gateDelay; sibling LM contribution
+    // is recovered via PtGraph::siblingDeltaDelayLmSum() at cost time.
+    if (pt_graph->isPrecheckMode()
+        && pt_edge.type() == PtEdgeType::SiblingEdge)
+      continue;
+
     // PtGraph edges already passed searchThru at construction time.
     // Avoid dereferencing pt_edge.edge() here because the underlying
     // sta::Edge* may have been invalidated by a concurrent replaceCell.

@@ -167,7 +167,7 @@ EcoController::executeRevert()
   odb::dbDatabase::undoEco(block_);
   local_sta_->updateGlobalParasiticsAndSync(resizer_->getEstimateParasitics());
   sta_->delaysInvalid();
-  sta_->updateTiming(true);
+  sta_->updateTiming(false);
   odb::dbDatabase::beginEco(block_);
 }
 
@@ -181,7 +181,7 @@ EcoController::executeTerminate()
   odb::dbDatabase::undoEco(block_);
   local_sta_->updateGlobalParasiticsAndSync(resizer_->getEstimateParasitics());
   sta_->delaysInvalid();
-  sta_->updateTiming(true);
+  sta_->updateTiming(false);
   local_sta_->taskArranger()->markDirty();
 }
 
@@ -248,7 +248,7 @@ EcoController::runIteration(size_t iter,
   // ③ Sync parasitics + timing
   local_sta_->updateGlobalParasiticsAndSync(resizer_->getEstimateParasitics());
   sta_->delaysInvalid();
-  sta_->updateTiming(true);
+  sta_->updateTiming(false);
 
   // ④ Snapshot metrics
   IterationHelper::Metrics cur = helper.snapshot(runtime);

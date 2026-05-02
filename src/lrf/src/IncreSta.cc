@@ -228,6 +228,18 @@ IncreSta::checkeTopoOrder(InstanceSeq &) {
 }
 
 void
+IncreSta::initDelayDiff()
+{
+  sta::Graph *graph = sta_->graph();
+  if (!graph || graph->enableDiff()) return;   // already initialized
+  graph->setEnableDiff(true);
+  // Force a full re-eval: clears the incremental queue and re-seeds roots,
+  // so the next findDelays revisits every arc and writes delay_diffs_.
+  sta_->delaysInvalid();
+  sta_->findDelays();
+}
+
+void
 IncreSta::delayLmSum(Instance *inst, const MinMax *minmax, float &delay_lambda_sum)
 {
   init();
@@ -1200,6 +1212,7 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
   auto start_total = std::chrono::high_resolution_clock::now();
 
   // Ensure prerequisites
+  initDelayDiff();        // populate sta::Edge.delay_diffs_ on first call
   local_sta_->initParallel();
   if (!equiv_cell_array_built_)
     makeEquivCellArray();

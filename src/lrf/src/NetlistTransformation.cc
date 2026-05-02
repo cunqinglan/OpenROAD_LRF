@@ -607,6 +607,10 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   float ori_cost = std::numeric_limits<float>::max();
   float ori_slack = 0.0f;
 
+  // Precheck mode: skip SiblingEdge gateDelay; sibling LM contribution
+  // recovered inside delayLmSum via finite-diff (delay_diffs_).
+  PrecheckModeGuard guard(pt_graph);
+
   // Pass 1: evaluate all candidates, record (cost, slack)
   for (size_t i = 0; i < candidates.size(); i++) {
     sta::LibertyCell *cand = candidates[i];

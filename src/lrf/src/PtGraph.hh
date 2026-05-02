@@ -171,6 +171,13 @@ public:
   void setRefGate(sta::LibertyCell *lib_cell) { ref_lib_cell_ = lib_cell; }
   sta::LibertyCell *refGate() const { return ref_lib_cell_; }
   sta::Instance *refInstance() const { return ref_inst_; }
+
+  // Precheck mode: skip SiblingEdge gateDelay in findDriverDelays1.
+  // Sibling LM contribution is recovered separately via
+  // siblingDeltaDelayLmSum(): Σ delay_diff × Δin_slew × arc_lm.
+  bool isPrecheckMode() const { return precheck_mode_; }
+  void setPrecheckMode(bool v) { precheck_mode_ = v; }
+  float siblingDeltaDelayLmSum(sta::DcalcAnalysisPt *dcalc_ap = nullptr);
   void setDcalcAnalysisPt(sta::DcalcAnalysisPt *dcalc_ap) { dcalc_ap_ = dcalc_ap; }
   sta::DcalcAnalysisPt *dcalcAnalysisPt() const { return dcalc_ap_; }
 
@@ -203,6 +210,7 @@ protected:
   size_t slew_rf_count_{};
   sta::Instance *ref_inst_ = nullptr;
   sta::LibertyCell *ref_lib_cell_ = nullptr;
+  bool precheck_mode_ = false;
   sta::DcalcAnalysisPt *dcalc_ap_ = nullptr;
 
   // PtGraph-local PiElmore parasitics storage.
@@ -407,5 +415,19 @@ private:
 };
 
 const char *ptVertexTypeName(PtVertexType type);
+
+// RAII guard: turn precheck mode on for the scope, restore on exit.
+class PrecheckModeGuard {
+public:
+  explicit PrecheckModeGuard(PtGraph *pg) : pg_(pg), prev_(pg->isPrecheckMode()) {
+    pg_->setPrecheckMode(true);
+  }
+  ~PrecheckModeGuard() { pg_->setPrecheckMode(prev_); }
+  PrecheckModeGuard(const PrecheckModeGuard &) = delete;
+  PrecheckModeGuard &operator=(const PrecheckModeGuard &) = delete;
+private:
+  PtGraph *pg_;
+  bool prev_;
+};
 
 } // namespace lrf

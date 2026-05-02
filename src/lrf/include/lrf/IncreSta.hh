@@ -48,6 +48,12 @@ public:
   void resetSortedInstances() { sorted_instances_.clear(); }
   void delayLmSum(Instance *inst, const MinMax *minmax, float &delay_lambda_sum);
 
+  // Enable per-arc ∂delay/∂in_slew computation in STA dcalc, then force a
+  // full graph refresh so delay_diffs_ are populated for every edge.
+  // Call once at LR start before precheck. After this, every subsequent
+  // STA gateDelay pays a paired perturbed call (≈ 2× dcalc cost).
+  void initDelayDiff();
+
   // float averageDelayOnCriPath();
 
   // KKT projection and LM update
