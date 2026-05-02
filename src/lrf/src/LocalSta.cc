@@ -1554,9 +1554,15 @@ LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph,
   auto t1 = t0b;
   findLocalDelays(pt_graph, arc_delay_calc);
   auto t2 = std::chrono::high_resolution_clock::now();
-  findLocalArrivals(pt_graph);
-  auto t3 = std::chrono::high_resolution_clock::now();
-  findLocalRequireds(pt_graph);
+  auto t3 = t2;
+  // Precheck cost only uses delay_lm_sum; slack from localSlackAroundRef
+  // is read-only against pre-existing paths and is identical across
+  // candidates anyway. Skip arrival/required propagation entirely.
+  if (!pt_graph->isPrecheckMode()) {
+    findLocalArrivals(pt_graph);
+    t3 = std::chrono::high_resolution_clock::now();
+    findLocalRequireds(pt_graph);
+  }
   auto t4 = std::chrono::high_resolution_clock::now();
   const Corner *corner = corners_->findCorner("default");
   DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
