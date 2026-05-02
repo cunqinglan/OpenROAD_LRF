@@ -92,10 +92,26 @@ struct EvalContext {
   // back to 1.0. Same units as the underlying lib limit.
   float erc_slew_limit_scale = 0.95f;
   float erc_cap_limit_scale  = 0.95f;
+
+  // Penalty coefficient for local-slack degradation, folded into swap cost.
+  // total = LRS_cost + slack_deg_penalty * max(0, slack_before - slack_after).
+  // Replaces the multiplicative slack_margin gate previously enforced inside
+  // MoveOption::updateIfBetter — when this is nonzero, the slack constraint
+  // is converted into a soft cost term so updateIfBetter can rank purely
+  // by cost.
+  float slack_deg_penalty = 1.0e6f;
+
   float swapCost(float delay_lm_sum, float power,
                  float density_cost = 0.0f,
                  float slew_violation = 0.0f,
                  float cap_violation = 0.0f) const;
+
+  // Apply the slack-degradation soft penalty on top of an LRS cost.
+  // slack_before/after are LocalSta::localSlackAroundRef() values (≤0,
+  // sum of negative slacks). deg = slack_before - slack_after > 0 means
+  // candidate degraded local slack vs. ori cell.
+  float applySlackPenalty(float lrs_cost, float slack_before,
+                          float slack_after) const;
 };
 
 // ═══════════════════════════════════════════════════════════

@@ -43,18 +43,30 @@ EvalContext::swapCost(float delay_lm_sum, float power,
   return cost;
 }
 
+float
+EvalContext::applySlackPenalty(float lrs_cost, float slack_before,
+                               float slack_after) const
+{
+  if (lrs_cost >= std::numeric_limits<float>::max())
+    return lrs_cost;
+  float deg = slack_before - slack_after;  // >0 means degraded
+  if (deg > 0.0f)
+    return lrs_cost + slack_deg_penalty * deg;
+  return lrs_cost;
+}
+
 // ═══════════════════════════════════════════════════════════
 // MoveOption
 // ═══════════════════════════════════════════════════════════
 
 void
 MoveOption::updateIfBetter(Type t, float c, float s,
-                           float slack_before, float slack_margin,
+                           float /*slack_before*/, float /*slack_margin*/,
                            sta::LibertyCell *cell,
                            rsz::BufferedNetPtr bnet)
 {
-  if (s < slack_before * slack_margin)
-    return;
+  // Slack constraint is now folded into the cost as a soft penalty
+  // (EvalContext::applySlackPenalty), so cost-only comparison suffices.
   if (c < cost) {
     type = t;
     cost = c;
@@ -295,9 +307,11 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   }
   auto start_post = std::chrono::high_resolution_clock::now();
 
-  // Pass 2: pick best (with slack margin check)
+  // Pass 2: pick best (slack-degradation penalty folded into cost)
   for (size_t i = 0; i < candidates.size(); i++) {
-    float cost = vec_cost_slack[i * 2];
+    float cost = ctx.applySlackPenalty(vec_cost_slack[i * 2],
+                                       slack_before,
+                                       vec_cost_slack[i * 2 + 1]);
     float slack = vec_cost_slack[i * 2 + 1];
     result.updateIfBetter(MoveOption::RESIZE_ONLY, cost, slack,
                           slack_before, slack_margin_, candidates[i], nullptr);
@@ -307,10 +321,10 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   if (pruning_control_ && mode != EvalMode::PRUNED) {
     std::vector<std::pair<float, sta::LibertyCell*>> cost_cells;
     for (size_t i = 0; i < candidates.size(); i++) {
-      float cost = vec_cost_slack[i * 2];
+      float lrs_cost = vec_cost_slack[i * 2];
       float slack = vec_cost_slack[i * 2 + 1];
-      if (cost < std::numeric_limits<float>::max()
-          && slack >= slack_before * slack_margin_) {
+      if (lrs_cost < std::numeric_limits<float>::max()) {
+        float cost = ctx.applySlackPenalty(lrs_cost, slack_before, slack);
         cost_cells.push_back({cost, candidates[i]});
       }
     }
@@ -469,7 +483,7 @@ ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
     (*ctx.runtime_map)["equiv_cell_count"] += candidates.size();
   }
 
-  // Pass 2: collect top-N (with slack margin check), sorted ascending by cost
+  // Pass 2: collect top-N (slack penalty folded into cost), sorted ascending
   struct CandEntry {
     float cost;
     sta::LibertyCell *cell;
@@ -478,16 +492,15 @@ ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
   float ori_cost = std::numeric_limits<float>::max();
 
   for (size_t i = 0; i < candidates.size(); i++) {
-    float cost = vec_cost_slack[i * 2];
+    float lrs_cost = vec_cost_slack[i * 2];
     float slack = vec_cost_slack[i * 2 + 1];
     if (candidates[i] == ori_cell) {
-      ori_cost = cost;
+      ori_cost = lrs_cost;  // slack_before == slack_after, no penalty
       continue;
     }
-    if (cost >= std::numeric_limits<float>::max())
+    if (lrs_cost >= std::numeric_limits<float>::max())
       continue;
-    if (slack < slack_before * slack_margin_)
-      continue;
+    float cost = ctx.applySlackPenalty(lrs_cost, slack_before, slack);
     valid.push_back({cost, candidates[i]});
   }
 
@@ -655,7 +668,7 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   if (ori_cost == std::numeric_limits<float>::max())
     return result;
 
-  // Pass 2: find best cost with correct ori_slack for slack protection
+  // Pass 2: slack-degradation penalty folded into cost; pure cost compare.
   float best_cost = ori_cost;
   for (size_t i = 0; i < candidates.size(); i++) {
     if (candidates[i] == ori_cell)
@@ -663,8 +676,9 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     const CandResult &r = cand_results[i];
     if (r.cost == std::numeric_limits<float>::max())
       continue;  // was skipped (illegal)
-    if (r.cost < best_cost && r.slack >= ori_slack * slack_margin_)
-      best_cost = r.cost;
+    float penalized = ctx.applySlackPenalty(r.cost, ori_slack, r.slack);
+    if (penalized < best_cost)
+      best_cost = penalized;
   }
 
   if (best_cost < ori_cost) {
