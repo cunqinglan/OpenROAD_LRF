@@ -42,19 +42,25 @@ EcoController::decide(size_t iter,
     }
   }
 
-  // Leakage plateau in power mode: terminate if avg per-iter reduction
-  // over the last 3 power-mode iters falls below 1%.
-  if (detectLeakagePlateau(iter, cur))
-    return EcoDecision::TERMINATE;
-
   double cur_wns = cur.wns_ps / 1e12;
   double best_wns = best.wns_ps / 1e12;
 
   // Track whether we've ever reached positive WNS (timing met).
-  // Once met, any regression back to WNS < 0 triggers immediate termination
-  // to protect the achieved timing closure.
   if (best_wns >= 0.0)
     reached_positive_wns_ = true;
+
+  bool improved = (cur_wns > best_wns && cur_wns < 0)
+      || (cur_wns >= 0.0 && (cur_wns > best_wns || cur.leakage < best.leakage));
+
+  // A strict improvement always wins — never let plateau / closure-protection
+  // discard an iteration that genuinely advanced the best metrics.
+  if (improved) {
+    consecutive_reverts_ = 0;
+    total_accepts_++;
+    return EcoDecision::ACCEPT;
+  }
+
+  // Closure protection: once timing met, any regression back to WNS<0 ends.
   if (reached_positive_wns_ && cur_wns < 0.0) {
     printf("ECO: WNS regressed below 0 (%.3f ps) after reaching timing closure, "
            "terminating at iter %zu.\n", cur.wns_ps, iter + 1);
@@ -62,14 +68,11 @@ EcoController::decide(size_t iter,
     return EcoDecision::TERMINATE;
   }
 
-  bool improved = (cur_wns > best_wns && cur_wns < 0)
-      || (cur_wns >= 0.0 && (cur_wns > best_wns || cur.leakage < best.leakage));
-
-  if (improved) {
-    consecutive_reverts_ = 0;
-    total_accepts_++;
-    return EcoDecision::ACCEPT;
-  }
+  // Leakage plateau in power mode: terminate if avg per-iter reduction
+  // over the last 3 power-mode iters falls below 1%. Only checked on
+  // non-improving iters so a strict timing/leakage gain is never discarded.
+  if (detectLeakagePlateau(iter, cur))
+    return EcoDecision::TERMINATE;
 
   // Not improved.
   if (iter < config_.warmup_iters) {
@@ -137,6 +140,21 @@ EcoController::updateRatio(EcoDecision decision)
     float new_ratio = current_ratio * config_.halve_factor;
     printf("Halve ratio → %.4f\n", new_ratio);
     return new_ratio;
+  }
+
+  if (config_.strategy == EcoStrategy::ADAPTIVE_FROM_CHANGE) {
+    // ACCEPT or first REVERT → recompute from realized change count.
+    // Consecutive REVERT → halve current ratio as safety net.
+    int change = incre_sta_->lastChangeCount();
+    int total  = static_cast<int>(local_sta_->taskArranger()->vertexCount());
+    float r = (total > 0)
+        ? std::max(static_cast<float>(change) * config_.adaptive_multiplier
+                       / static_cast<float>(total),
+                   config_.adaptive_floor)
+        : current_ratio;
+    printf("Adaptive ratio → %.4f (change=%d/%d × %.2f)\n",
+           r, change, total, config_.adaptive_multiplier);
+    return r;
   }
 
   // HALVE_ON_CONSECUTIVE
@@ -305,6 +323,7 @@ EcoController::strategyStr() const
     case EcoStrategy::HALVE_ALWAYS:         return "halve_always";
     case EcoStrategy::HALVE_ON_CONSECUTIVE: return "halve_on_consecutive";
     case EcoStrategy::NO_HALVE:             return "no_halve";
+    case EcoStrategy::ADAPTIVE_FROM_CHANGE: return "adaptive_from_change";
   }
   return "unknown";
 }
