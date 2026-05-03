@@ -62,9 +62,58 @@ struct EvalContext {
                                   // (v76 probe showed worst is strictly better: avoids
                                   // sum-metric's false positives on high-fanout nets
                                   // where per-sink delta averages out the worst-sink harm)
+  // Slack margin for bufferForTiming gate — multiplicative, same semantics as
+  // ParallelVisitor's slack_margin_. For negative orig_slack, margin > 1.0
+  // means "allow slack to degrade by (margin-1)×|orig_slack|". Typical: 1.05
+  // (5% tolerance). Set from wns / clock_period in caller to match visitor.
+  float slack_margin = 1.0f;
+
+  // ERC handling — three modes selected by erc_violation_weight:
+  //   weight  > 0 : soft penalty.  slew/cap violations (LocalSta::ViolationSum)
+  //                 are normalized by design-wide averages and added to
+  //                 swapCost. Lets LR trade ERC for leakage/timing.
+  //   weight == 0 : ERC ignored in cost (no penalty, no rejection).
+  //   weight  < 0 : hard reject (legacy legalCheck behavior). Any candidate
+  //                 with v_before.slew>0 || v_before.cap>0 is skipped before
+  //                 the delay calc; same for v_after. cand == ori_cell is
+  //                 always preserved (we never skip the no-op cell).
+  // Default 1e6f = heavy soft penalty (close to but not as strict as hard
+  // reject). Set < 0 to opt back into pre-eb01407 hard-reject legalCheck
+  // behavior; set 0.0f to silently permit any ERC violation (which on dense
+  // designs like ariane / NV_NVDLA_partition_c can blow up to thousands
+  // of ns / fF).
+  float average_slew = 1e-10f;   // seconds; populated from IncreSta::averageOutSlew()
+  float average_cap  = 1e-15f;   // farads;  populated from IncreSta::averageLoadCap()
+  float erc_violation_weight = 1e6f;
+  // Headroom multipliers for the slew/cap limits used by violationSum*Swap
+  // (and therefore the hard-reject gate when erc_violation_weight < 0, and
+  // the soft penalty term when > 0). 1.0 = use lib limit as-is; 0.95 = 5%
+  // tighter (penalize/reject earlier, leave physical margin for post-GR
+  // RC shift). Default 0.95 matches the pre-eb01407 legalCheckAfterSwap
+  // headroom, restored after the eb01407 refactor inadvertently dropped it
+  // back to 1.0. Same units as the underlying lib limit.
+  float erc_slew_limit_scale = 0.95f;
+  float erc_cap_limit_scale  = 0.95f;
+
+  // Penalty coefficient for local-slack degradation, folded into swap cost.
+  // total = LRS_cost + slack_deg_penalty * max(0, slack_before - slack_after).
+  // Replaces the multiplicative slack_margin gate previously enforced inside
+  // MoveOption::updateIfBetter — when this is nonzero, the slack constraint
+  // is converted into a soft cost term so updateIfBetter can rank purely
+  // by cost.
+  float slack_deg_penalty = 1.0e6f;
 
   float swapCost(float delay_lm_sum, float power,
-                 float density_cost = 0.0f) const;
+                 float density_cost = 0.0f,
+                 float slew_violation = 0.0f,
+                 float cap_violation = 0.0f) const;
+
+  // Apply the slack-degradation soft penalty on top of an LRS cost.
+  // slack_before/after are LocalSta::localSlackAroundRef() values (≤0,
+  // sum of negative slacks). deg = slack_before - slack_after > 0 means
+  // candidate degraded local slack vs. ori cell.
+  float applySlackPenalty(float lrs_cost, float slack_before,
+                          float slack_after) const;
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -232,6 +281,34 @@ public:
   void setEvalContext(EvalContext *ctx) override;
 
 private:
+  sta::dbSta *db_sta_;
+  LocalSta *local_sta_;
+  rsz::Resizer *resizer_;
+  std::unique_ptr<LrRebuffer> rebuffer_;
+};
+
+// ─── BufferSdpOperator ──────────────────────────────────
+// LRF slack-DP rebuffering. Strict mirror of BufferOperator (cost-DP):
+// pin selection via thread-local pt_graph RefOutput vertices; requires
+// exactly 1 driver per instance; uses PtGraphLevel=Full (inherited default)
+// because prepareSlackDpBnet's evaluateOption runs increAndGetLocalTimingCost.
+// Only difference from BufferOperator: invokes prepareSlackDpBnet instead
+// of rebufferPin.
+class BufferSdpOperator : public LrOperator {
+public:
+  BufferSdpOperator(sta::dbSta *db_sta, LocalSta *local_sta,
+                    rsz::Resizer *resizer, EvalContext *ctx);
+  MoveOption evaluate(PtGraph *pt_graph, sta::Instance *inst,
+                      EvalContext &ctx) override;
+  void apply(const MoveOption &move, PtGraph *pt_graph,
+             std::map<std::string, double> &runtime_map) override;
+  std::unique_ptr<LrOperator> copy() const override;
+  void setEvalContext(EvalContext *ctx) override;
+
+  LrRebuffer *rebuffer() { return rebuffer_.get(); }
+  rsz::Resizer *resizer() { return resizer_; }
+
+protected:
   sta::dbSta *db_sta_;
   LocalSta *local_sta_;
   rsz::Resizer *resizer_;

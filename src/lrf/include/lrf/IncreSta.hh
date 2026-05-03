@@ -1,5 +1,7 @@
 #pragma once
 
+#include <deque>
+
 #include "db_sta/dbSta.hh"
 #include "sta/Sta.hh"
 #include "lrf/LrfClass.hh"
@@ -46,6 +48,12 @@ public:
   void resetSortedInstances() { sorted_instances_.clear(); }
   void delayLmSum(Instance *inst, const MinMax *minmax, float &delay_lambda_sum);
 
+  // Enable per-arc ∂delay/∂in_slew computation in STA dcalc, then force a
+  // full graph refresh so delay_diffs_ are populated for every edge.
+  // Call once at LR start before precheck. After this, every subsequent
+  // STA gateDelay pays a paired perturbed call (≈ 2× dcalc cost).
+  void initDelayDiff();
+
   // float averageDelayOnCriPath();
 
   // KKT projection and LM update
@@ -57,6 +65,15 @@ public:
   float maxInputSlew(const Pin* input_pin, const Corner* corner) const;
   float averageDelayOnCritPath();
   float averageLeakage();
+  // Average output-pin slew and load cap across all leaf-instance driver
+  // pins. Used as normalizers for ERC violation penalty in EvalContext::swapCost.
+  // Returns ~1e-10 / ~1e-15 for empty designs to avoid div-by-zero.
+  float averageOutSlew();
+  float averageLoadCap();
+  // Recompute and cache avg_out_slew_ / avg_load_cap_ for ERC penalty normalization.
+  void updateErcNormalizers();
+  float avgOutSlew() const { return avg_out_slew_; }
+  float avgLoadCap() const { return avg_load_cap_; }
   // Fast total leakage using pre-computed inst_info_map_ (avoids sta->power()).
   float totalLeakageFast();
 
@@ -64,8 +81,14 @@ public:
   void setLocalStaParasiticsEst(est::EstimateParasitics *estimate_parasitics);
                            
   // APIs for gate swapping
+  // erc_violation_weight: forwarded to ParallelVisitor's EvalContext.
+  //   <0 hard reject, ==0 ignore, >0 soft penalty (default -1.0 matches
+  //   EvalContext default → existing callers unaffected).
+  // erc_limit_scale: multiplier on lib slew/cap limits (default 0.95 =
+  //   5% headroom; matches EvalContext default).
   void parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float avg_power,
-                      float PT_tradeoff);
+                      float PT_tradeoff, float erc_violation_weight = -1.0f,
+                      float erc_limit_scale = 0.95f);
   void setMaxResizeNum(size_t max_resize_num);
   void setBufferOnlyMode(bool mode) { buffer_only_mode_ = mode; }
   void setBakogluK(float k) { bakoglu_k_ = k; }
@@ -78,6 +101,13 @@ public:
   // instead of LRF LrRebuffer.
   void parallelBufferingRsz(rsz::Resizer *resizer, float PT_tradeoff,
                              int top_n = 100);
+  // LRF slack-DP rebuffering — uses BufferSdpOperator which invokes
+  // LrRebuffer::prepareSlackDpBnet (bufferForTimingSlackDp + recoverLrCost).
+  // Mirrors parallelBuffering (cost-DP) signature; only operator differs.
+  void parallelBufferingSdp(rsz::Resizer *resizer, float PT_tradeoff,
+                             float top_ratio = 0.01f,
+                             float erc_violation_weight = -1.0f,
+                             float erc_limit_scale = 0.95f);
   void probeRszBnet(rsz::Resizer *resizer, float PT_tradeoff = 10.0f,
                     int top_n = 100);
 
@@ -105,7 +135,9 @@ public:
   // Resize with precheck: precedingResizeCheck + parallelResizeByArray.
   void parallelResizeByArrayWithPrecheck(rsz::Resizer *resizer, float avg_delay,
                                            float avg_power, float PT_tradeoff,
-                                           float top_ratio = 0.3);
+                                           float top_ratio = 0.3,
+                                           float erc_violation_weight = -1.0f,
+                                           float erc_limit_scale = 0.95f);
 
   // Adaptive instance-level filtering control.
   // Call activateInstanceFilter() when timing regression is detected.
@@ -144,6 +176,29 @@ public:
   // APIs for Adaptive optimization
   bool isPowerOptimizationMode() const;
 
+  // ── Iteration metric history ───────────────────────────────────
+  // Single push entry. Caller invokes once per "iteration completion"
+  // (typically right after IterationHelper::snapshot()). Buffering
+  // passes / final post-loop snapshots should NOT push, so the rolling
+  // window stays one-sample-per-LR-iter.
+  void recordMetrics(double wns_ps, double tns_ps, double leakage);
+
+  // Power-mode entry plateau predicate (consumed by lmUpdate).
+  // True when ≥ 4 samples and 3-iter-span TNS improvement (front→back,
+  // relative to |front|) is below `threshold`. Default 0.10 = 10%.
+  bool isTnsPlateau(double threshold = 0.10) const;
+
+  // Power-mode termination plateau predicate (consumed by EcoController).
+  // True when in power mode AND ≥ 3 recordMetrics calls since entering power
+  // mode AND avg per-iter reduction (vs the frozen pre-power-mode baseline)
+  // is below `threshold`. Default 0.01 = 1% per iter.
+  bool isLeakagePlateau(double threshold = 0.01) const;
+
+  // Diagnostics / future-flexibility accessors. Return 0 if window not full.
+  size_t historyDepth() const { return tns_history_.size(); }
+  double tnsImprovementRate() const;     // (back - front) / |front|, +ve = better
+  double leakageReductionRate() const;   // avg/iter vs power-mode-entry baseline
+
 protected:
   void makeLocalSta();
   void checkeTopoOrder(InstanceSeq &);
@@ -167,9 +222,33 @@ protected:
   const PlacementDensityMap *density_map_ = nullptr;
   float density_weight_ = 0.0f;
   float average_area_ = 1.0f;
+  // ERC penalty normalizers — computed lazily via updateErcNormalizers()
+  float avg_out_slew_ = 1e-10f;
+  float avg_load_cap_ = 1e-15f;
   bool buffer_only_mode_ = false;
   float bakoglu_k_ = 2.5f;
   bool debug_ = false;
+  // Per-iteration metric history (one entry per recordMetrics() call).
+  // Rolling window of 4. Pushed by callers right after snapshot(); used by
+  // isTnsPlateau / isLeakagePlateau / future predicates.
+  std::deque<double> wns_history_;
+  std::deque<double> tns_history_;
+  std::deque<double> leakage_history_;
+
+  // Counts recordMetrics() calls since the helper first entered power mode.
+  // Power mode is sticky, so this monotonically advances once started.
+  // Used as both:
+  //   (1) a guard for isLeakagePlateau (need ≥ 3 post-entry samples), and
+  //   (2) an index offset back into leakage_history_ to recover the pre-power
+  //       baseline (leakage_history_[size-1-power_mode_iters_]).
+  size_t power_mode_iters_ = 0;
+
+  // Sticky gate for criticalPathSizing — set true the first lmUpdate() in
+  // which |WNS| < 1% × T_eff OR |TNS| < 10% × T_eff (the (a)/(b) entry
+  // criteria for power mode; we deliberately exclude the (c) plateau path).
+  // Once true, stays true for the rest of the run. Designs whose timing
+  // never gets close enough to the (a)/(b) thresholds skip CPS entirely.
+  bool cps_enabled_ = false;
 
 };
 

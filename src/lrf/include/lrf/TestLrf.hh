@@ -96,6 +96,7 @@ private:
   LocalSta *local_sta_;
   rsz::Resizer *resizer_;
   std::vector<std::string> rows_;
+  Metrics last_cur_;      // cur from previous recordRow; used to compute dWNS/dTNS (delta-vs-prev-iter, not delta-vs-best)
 };
 
 class  TestLrf
@@ -127,7 +128,8 @@ public:
                             std::string lr_helper_method = "LRHelper",
                             bool initialize = false,
                             float density_weight = 0.0f,
-                            std::string checkpoint_dir = "");
+                            std::string checkpoint_dir = "",
+                            float timing_margin = 0.01f);
 
   void testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
                             rsz::Resizer *resizer,
@@ -159,6 +161,53 @@ public:
                             float density_weight = 0.0f,
                             bool debug = false);
 
+  // Resize iterations + LRF slack-DP rebuffering phases (uses
+  // BufferSdpOperator → prepareSlackDpBnet → bufferForTimingSlackDp +
+  // recoverLrCost). Mirrors testParallelLrResizeByArrayWithBuffering but
+  // swaps the buffering-phase operator.
+  void testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons = false,
+                            float PT_tradeoff = 100.0,
+                            std::string lr_helper_method = "LRHelper",
+                            bool initialize = false,
+                            float density_weight = 0.0f,
+                            bool debug = false,
+                            size_t buffering_start_iter = 5,
+                            float timing_margin = 0.01f);
+
+  // Two-phase flow:
+  //   (A) init + pure resize (NO_HALVE ECO; full resize, no precheck);
+  //       terminates on first non-improvement past warmup, or when total
+  //       iters reach `iterations`.
+  //   (B) precheck-resize (every iter) + LRF slack-DP rebuffering, runs
+  //       on the remaining iter budget with HALVE_ON_CONSECUTIVE ECO.
+  // `iterations` is the shared total iter cap (phase A + phase B). Both
+  // phases share IncreSta/LRHelper/best snapshot; ECO transaction is
+  // opened once before A and closed once after B.
+  void testInitResizeThenSdpBuffering(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            size_t num_no_improve_tolerance,
+                            bool ratcons = false,
+                            float PT_tradeoff = 100.0,
+                            std::string lr_helper_method = "LRHelper",
+                            bool initialize = false,
+                            float density_weight = 0.0f,
+                            bool debug = false,
+                            size_t buffering_start_iter = 5,
+                            float timing_margin = 0.01f,
+                            float erc_violation_weight = -1.0f,
+                            float erc_limit_scale = 0.95f);
+
   // Print all liberty cells information grouped by unique equiv cell groups.
   void printAllCellsInfo(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
 
@@ -184,6 +233,18 @@ public:
                       std::string lr_helper_method = "RapidLRHelper",
                       float bakoglu_k = 2.5f,
                       bool debug = false);
+
+  // Minimal single-pass buffer operator comparison entry.
+  // LM warmup → one parallelBuffering (use_sdp=false) or parallelBufferingSdp
+  // (use_sdp=true) call → report WNS/TNS/leakage delta. No resize, no ECO.
+  void testSingleBufferPass(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            bool use_sdp = false,
+                            float PT_tradeoff = 10.0f,
+                            std::string lr_helper_method = "RapidLRHelper",
+                            size_t lm_warmup_rounds = 5);
 
   // Resize by array with precheck (ParallelVisitor + ResizePrecheckOperator)
   void testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
@@ -284,6 +345,12 @@ public:
                        odb::dbBlock *block, size_t thread_num,
                        const char *pin_name);
 
+  // Batch variant: select top-N buffering candidates by sensitivity and run
+  // probeAllOptions on each (RSZ vs SDP vs LRF 3-way comparison per pin).
+  void probeAllOptionsBySensitivity(sta::dbSta* sta, rsz::Resizer *resizer,
+                                    odb::dbBlock *block, size_t thread_num,
+                                    int top_n);
+
   // ── Unified entry point ──
   // Single function that dispatches by LrConfig::mode.
   // Replaces testParallelLrResizeByArray, WithBuffering, WithPrecheck, etc.
@@ -295,7 +362,8 @@ public:
   // Called internally by testParallelLrResize* when initialize=true.
   void runInitialization(sta::dbSta* sta, IncreSta* incre_sta,
                          rsz::Resizer *resizer, odb::dbBlock *block,
-                         size_t thread_num);
+                         size_t thread_num,
+                         bool minimize_leakage = true);
 
   // Test: level-parallel initializer (standalone, does not start LR).
   void testParallelInitializer(sta::dbSta* sta,

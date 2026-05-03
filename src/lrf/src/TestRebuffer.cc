@@ -324,6 +324,85 @@ TestRebuffer::probeRszBnetWithLocalEval(const sta::Pin *drvr_pin,
 // Purpose: identify discrepancy between local PtGraph slack prediction and
 // actual global STA result after buffer insertion, per option.
 // ────────────────────────────────────────────────────────────────────────
+
+// ────────────────────────────────────────────────────────────────────────
+// propagateLmAndCostOnRszBnet:
+//   Post-order walk on an arbitrary bnet (typically produced by RSZ's
+//   Rebuffer::bufferForTiming, which never populates LM vectors nor
+//   bufferCost). At every internal node we set `lms` and `bufferCost` using
+//   exactly the formulas LrRebuffer DP uses at wire / buffer / junction
+//   sites (see LrRebuffer::addWire, propagateLmsThroughBuffer,
+//   mergeLmVectors, computeBufferAddedCost). After this call, the bnet's
+//   root has the full LRF analytical bufferCost of the RSZ-generated
+//   topology — directly comparable to LRF DP Pareto options' bufferCost.
+//
+//   Prerequisite: leaves (load nodes) must already have lms set by
+//   `annotateLoadLMs(drvr_pt_vertex, bnet)` before calling this function.
+// ────────────────────────────────────────────────────────────────────────
+void
+TestRebuffer::propagateLmAndCostOnRszBnet(const rsz::BufferedNetPtr& node)
+{
+  using BT = rsz::BufferedNetType;
+  switch (node->type()) {
+    case BT::load:
+      // lms already set by annotateLoadLMs. Set bufferCost = 0 baseline.
+      node->setBufferCost(0.0f);
+      node->setLeakage(0.0f);
+      break;
+
+    case BT::wire:
+    case BT::via: {
+      propagateLmAndCostOnRszBnet(node->ref());
+      // Wire preserves LM (no fanout split / merge).
+      node->setLms(node->ref()->lms());
+      // wire_delay = (wl * layer_res) * (wl * layer_cap / 2 + child_cap).
+      double layer_res, layer_cap;
+      node->wireRC(corner_, resizer_, estimate_parasitics_,
+                   layer_res, layer_cap);
+      double wl = resizer_->dbuToMeters(node->length());
+      double wire_delay = (wl * layer_res)
+                        * (wl * layer_cap / 2 + node->ref()->cap());
+      float wire_delta = computeBufferAddedCost(wire_delay, 0.0f,
+                                                 node->ref());
+      node->setBufferCost(node->ref()->bufferCost() + wire_delta);
+      node->setLeakage(node->ref()->leakage());
+      break;
+    }
+
+    case BT::buffer: {
+      propagateLmAndCostOnRszBnet(node->ref());
+      // Buffer: LM propagates unchanged through buffer output → input (per
+      // LrRebuffer::propagateLmsThroughBuffer model).
+      node->setLms(node->ref()->lms());
+      // Buffer delay driving downstream effective cap.
+      float buf_delay = computeBufferGateDelay(
+          node->bufferCell(), node->ref()->cap()).toSeconds();
+      float buf_leak = local_sta_->cellAvgLeakage(node->bufferCell());
+      float buf_delta = computeBufferAddedCost(buf_delay, buf_leak,
+                                                node->ref());
+      node->setBufferCost(node->ref()->bufferCost() + buf_delta);
+      node->setLeakage(node->ref()->leakage() + buf_leak);
+      break;
+    }
+
+    case BT::junction: {
+      propagateLmAndCostOnRszBnet(node->ref());
+      propagateLmAndCostOnRszBnet(node->ref2());
+      auto merged = mergeLmVectors(node->ref()->lms(),
+                                   node->ref2()->lms());
+      node->setLms(std::move(merged));
+      node->setBufferCost(node->ref()->bufferCost()
+                          + node->ref2()->bufferCost());
+      node->setLeakage(node->ref()->leakage()
+                       + node->ref2()->leakage());
+      break;
+    }
+
+    default:
+      break;
+  }
+}
+
 void
 TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
                                odb::dbBlock *block,
@@ -455,8 +534,7 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
 
   // Run 3 iterations; last_top_opts_ saved on final iteration
   for (int i = 0; i < 3; i++) {
-    bnet = bufferForTiming(vid, bnet, true, /*last_iteration=*/(i == 2));
-    if (!bnet) break;
+    bnet = bufferForTimingLrf(vid, bnet, true, /*last_iteration=*/(i == 2));
   }
 
   eval_ctx_->use_sum_threshold = saved_sum_thresh;
@@ -481,12 +559,87 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
         annotateLoadSlacks(rb, drvr_vertex);
         for (int i = 0; i < 3; i++) {
           rb = Rebuffer::bufferForTiming(rb, true);
-          if (!rb) break;
+        }
+        // Match real RSZ flow: 5 rounds of recoverArea after bufferForTiming
+        // (see Rebuffer.cc:2321). Without this, probe's RSZ bnet is
+        // over-buffered vs real repair_timing output.
+        if (rb) {
+          sta::Delay drvr_gate_delay;
+          std::tie(drvr_gate_delay, std::ignore, std::ignore) = drvrPinTiming(rb);
+          // Simplified relaxation: small fraction of driver gate delay.
+          sta::Delay relaxation = std::max(drvr_gate_delay, 0.0f) * 0.01f;
+          rsz::FixedDelay target = slackAtDriverPin(rb)
+                                 - rsz::FixedDelay(relaxation, resizer_);
+          for (int i = 0; i < 5 && rb; i++) {
+            rb = recoverArea(rb, target, (float)(i + 1) / 5.0f);
+          }
         }
       }
       rsz_bnet = rb;
+      // Annotate RSZ bnet with LRF LMs + propagate bufferCost so we can
+      // compare it directly against LRF DP Pareto options on the same
+      // analytical metric.
+      if (rsz_bnet) {
+        PtVertex *drvr_pv_rsz = nullptr;
+        for (size_t i = 0; i < pg_rsz->vertexCount(); i++) {
+          PtVertex &pv = pg_rsz->ptVertex(i);
+          if (pv.vertex() && pv.type() == PtVertexType::RefOutput
+              && pv.vertex()->pin() == drvr_pin) {
+            drvr_pv_rsz = &pv;
+            break;
+          }
+        }
+        if (drvr_pv_rsz) {
+          local_sta_->increAndGetLocalTimingCost(pg_rsz, arc_delay_calc_, nullptr);
+          annotateLoadLMs(*drvr_pv_rsz, rsz_bnet);
+          propagateLmAndCostOnRszBnet(rsz_bnet);
+          printf("    [RSZ-LRF-COST] propagated: bufs=%d cap=%.3f fF "
+                 "bufferCost=%.3e leakage=%.3e\n",
+                 bufferNum(rsz_bnet), rsz_bnet->cap() * 1e15,
+                 rsz_bnet->bufferCost(), rsz_bnet->leakage());
+        }
+      }
     }
   }
+
+  // ── Step 1.5: Generate LRF slack-DP bnet (new pathway) ──
+  // Uses a fresh PtGraph + setPin so it doesn't conflict with the cost-DP
+  // state that produced last_top_opts_. Result is evaluated through the
+  // same evalOneOption pipeline below as RSZ + each Lk candidate.
+  rsz::BufferedNetPtr slack_dp_bnet = nullptr;
+  {
+    PtGraph *pg_sdp = local_sta_->makePtGraph(inst, true);
+    if (pg_sdp) {
+      eval_ctx_->pt_graph = pg_sdp;
+      // Locate driver's VertexId via pt_graph (mirrors BufferOperator's
+      // drvr_infos pattern — capture vid, not PtVertex&).
+      sta::Vertex *drvr_vtx = graph_->pinDrvrVertex(drvr_pin);
+      PtVertex *drvr_pv_sdp = drvr_vtx ? pg_sdp->ptVertex(drvr_vtx) : nullptr;
+      if (drvr_pv_sdp) {
+        sta::VertexId sdp_vid = drvr_pv_sdp->objectIdx();
+        bool ok = prepareSlackDpBnet(drvr_pin,
+                                      sdp_vid,
+                                      /*bft_iter=*/3,
+                                      /*recover_iter=*/5);
+        if (ok) {
+          slack_dp_bnet = best_bnet_;
+          printf("    [LRF-SDP] generated bnet: bufs=%d cap=%.3f fF "
+                 "bufferCost=%.3e leakage=%.3e\n",
+                 bufferNum(slack_dp_bnet),
+                 slack_dp_bnet->cap() * 1e15,
+                 slack_dp_bnet->bufferCost(),
+                 slack_dp_bnet->leakage());
+        } else {
+          printf("    [LRF-SDP] prepareSlackDpBnet failed\n");
+        }
+      } else {
+        printf("    [LRF-SDP] no PtVertex for drvr_pin in SDP pt_graph\n");
+      }
+      cleanupVirtualBuffer();
+    }
+  }
+  // Restore probe's primary PtGraph for cost-DP eval below.
+  eval_ctx_->pt_graph = pg;
 
   // ── Step 2: Evaluate each bnet option (RSZ + all LRF candidates) ──
   // For each option we measure:
@@ -499,6 +652,41 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
   //           gbl_dTNS   = TNS(after) - TNS(baseline)
   //           (uses exportBufferTree + estimate_parasitics + full STA update)
   // Per-sink global slack is printed to identify which sinks improve/degrade.
+  // Helper: retroactively compute LRF-style analytical bufferCost on an
+  // arbitrary bnet (e.g., RSZ's bnet which doesn't populate bufferCost).
+  // Walks the bnet tree bottom-up, summing wire_delay×LM + buffer_delay×LM
+  // + leakage at each buffer/wire node, mirroring LrRebuffer::addWire +
+  // insertBufferOptions cost accumulation.
+  std::function<float(const rsz::BufferedNetPtr&)> retroBnetCost =
+      [&](const rsz::BufferedNetPtr &node) -> float {
+    using BT = rsz::BufferedNetType;
+    switch (node->type()) {
+      case BT::load: return 0.0f;
+      case BT::wire: case BT::via: {
+        float child_cost = retroBnetCost(node->ref());
+        // wire_delay×LM contribution
+        double layer_res, layer_cap;
+        node->wireRC(corner_, resizer_, estimate_parasitics_, layer_res, layer_cap);
+        double wl = resizer_->dbuToMeters(node->length());
+        double wd = (wl * layer_res) * (wl * layer_cap / 2 + node->ref()->cap());
+        float wire_delta = computeBufferAddedCost(wd, 0.0f, node->ref());
+        return child_cost + wire_delta;
+      }
+      case BT::buffer: {
+        float child_cost = retroBnetCost(node->ref());
+        float buf_delay = computeBufferGateDelay(
+            node->bufferCell(), node->ref()->cap()).toSeconds();
+        float buf_leak = local_sta_->cellAvgLeakage(node->bufferCell());
+        float buf_delta = computeBufferAddedCost(buf_delay, buf_leak, node->ref());
+        return child_cost + buf_delta;
+      }
+      case BT::junction: {
+        return retroBnetCost(node->ref()) + retroBnetCost(node->ref2());
+      }
+      default: return 0.0f;
+    }
+  };
+
   printf("\n    %-4s %4s | %10s %12s | %10s %12s %8s %10s | %11s %11s %11s %11s\n",
          "#", "bufs", "lcl_dWorst", "lcl_dSum", "gbl_dWSink", "gbl_dSSink", "gbl_dWNS", "gbl_dTNS",
          "bnetCost", "dlyLmSum", "leakage", "swapCost");
@@ -547,11 +735,28 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
           swap_after = eval_ctx_->swapCost(dlm_after, opt->leakage());
           lw = local_sta_->localWorstSlackOnSinks(pg_l);
           ls = local_sta_->localSlackOnSinks(pg_l);
+          // Decompose (v80: bufferCost now stored in normalized swapCost units).
+          // analytical = retroBnetCost (normalized, includes all leakage)
+          //            + PT_tradeoff * cell_delay_lm / avg_delay
+          // real       = swapCost(dlm_after, opt->leakage())   (both normalized)
+          // gap        = real - analytical = residual of analytical proxy
+          sta::Slew max_slew_probe = 0;
+          float cell_dlm = cellDelayLmSum(v, opt, max_slew_probe);
+          float cell_dlm_norm = eval_ctx_->PT_tradeoff * cell_dlm
+                                    / eval_ctx_->average_delay;
+          float retro_cost = retroBnetCost(opt);
+          float analytical = retro_cost + cell_dlm_norm;
+          float real_total = swap_after;
+          float gap = real_total - analytical;
           printf("      [%s] LR cost:  dlyLmSum nobuf=%.3e → after=%.3e (Δ=%+.3e) | "
-                 "swapCost nobuf=%.3e → after=%.3e (Δ=%+.3e) | bnetCost=%.3e\n",
+                 "swapCost nobuf=%.3e → after=%.3e (Δ=%+.3e)\n",
                  label, dlm_nobuf, dlm_after, dlm_after - dlm_nobuf,
-                 swap_nobuf, swap_after, swap_after - swap_nobuf,
-                 opt->bufferCost());
+                 swap_nobuf, swap_after, swap_after - swap_nobuf);
+          printf("      [%s] decompose: retroBnetCost=%.3e + cellDlyLm_norm=%.3e = "
+                 "analytical=%.3e vs real=%.3e gap=%+.3e (%.1f%%)\n",
+                 label, retro_cost, cell_dlm_norm,
+                 analytical, real_total,
+                 gap, analytical > 0 ? gap / analytical * 100 : 0.0);
 
           // Collect synthetic Pi for all RefOutput vertices (driver + virtual buffer outputs)
           // and print per-sink local arrival after buffer
@@ -726,6 +931,13 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
     evalOneOption("RSZ", rsz_bnet);
   } else {
     printf("    RSZ    0 |        -            - |        -            -        -          -\n");
+  }
+
+  // Evaluate LRF slack-DP bnet (new pathway)
+  if (slack_dp_bnet) {
+    evalOneOption("SDP", slack_dp_bnet);
+  } else {
+    printf("    SDP    - |        -            - |        -            -        -          -  (no slack-DP bnet)\n");
   }
 
   // Evaluate all LRF options

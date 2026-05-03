@@ -20,7 +20,9 @@ enum class LrMode {
 enum class EcoStrategy {
   HALVE_ALWAYS,          // Original: halve ratio on every revert
   HALVE_ON_CONSECUTIVE,  // Only halve on consecutive reverts; accept resets
-  NO_HALVE               // Never halve, full resize every ECO iter
+  NO_HALVE,              // Never halve, full resize every ECO iter
+  ADAPTIVE_FROM_CHANGE   // ratio = lastChange × adaptive_multiplier / total;
+                         // halve on consecutive revert as safety net
 };
 
 // ECO configuration — controls revert/accept/halve behavior.
@@ -28,9 +30,13 @@ struct EcoConfig {
   EcoStrategy strategy = EcoStrategy::HALVE_ON_CONSECUTIVE;
   float halve_factor = 0.5f;          // ratio *= halve_factor on revert
   size_t warmup_iters = 3;            // first N iters unconditionally accept
-  size_t max_eco_reverts = 6;         // terminate after N consecutive reverts
+  size_t max_eco_reverts = 3;         // terminate after N consecutive reverts
   bool use_precheck = true;           // ECO phase uses precheck (vs full resize)
   bool lm_update_before_revert = true;// run lmUpdate on worse state before revert
+  double max_runtime_seconds = 7200.0; // Hard wall-clock limit for LR loop (0=no limit, default 2h)
+  // ADAPTIVE_FROM_CHANGE only: ratio = lastChange × adaptive_multiplier / total
+  float adaptive_multiplier = 1.2f;
+  float adaptive_floor      = 0.02f;  // ratio floor when adaptive shrinks toward 0
 
   // Preset configurations from experimental results (ECO_halve_effect.md).
   static EcoConfig make(EcoStrategy preset) {
@@ -62,6 +68,18 @@ struct EcoConfig {
         cfg.lm_update_before_revert = true;
         cfg.warmup_iters = 6;
         cfg.max_eco_reverts = 6;
+        break;
+      case EcoStrategy::ADAPTIVE_FROM_CHANGE:
+        // Ratio = last_change_count × adaptive_multiplier / total. Tracks
+        // realized resize budget. Halve_factor kicks in only on consecutive
+        // REVERTs (safety net to escape "same N every iter" stall).
+        cfg.adaptive_multiplier = 0.9f;
+        cfg.adaptive_floor      = 0.02f;
+        cfg.halve_factor        = 0.5f;
+        cfg.use_precheck        = true;
+        cfg.lm_update_before_revert = true;
+        cfg.warmup_iters        = 6;
+        cfg.max_eco_reverts     = 6;
         break;
     }
     return cfg;
@@ -98,6 +116,45 @@ struct LrConfig {
   float bakoglu_k = 2.5f;    // Bakoglu gate coefficient (lower = more nets eligible for buffering)
   size_t buffering_start_iter = 5;  // 1-indexed iter from which Buffering pass is allowed
                                     // (default 5 preserves original "i > 3" gating)
+
+  // ── Legal check margin ──
+  // Fraction of the library slew limit reserved as headroom in LocalSta's
+  // legalCheck* (applied in getLegalSlewLimit() via limit * (1 - margin)).
+  // Purpose: the optimizer picks cells that have enough slew slack to survive
+  // the placement-RC → global_routing-RC change introduced by DPL+GRT, so we
+  // don't ship post-GRT slew violations the contest eval would flag.
+  // Default 0.10 = 10% headroom. Set to 0.0 to disable.
+  float slew_margin = 0.10f;
+
+  // ── LR Helper timing margin ──
+  // Absolute slack headroom (seconds) subtracted from arc_slack inside
+  // RapidLrHelper::getMultiplier *before* the critical/non-critical k
+  // selection.  Paths with 0 < slack < timing_margin are treated as
+  // violating (k=critical_arc_k_), making the optimizer fight harder to
+  // keep headroom that survives post-GR degradation.
+  // Default 0 = no headroom.  Typical: 20e-12 .. 50e-12 (20–50 ps).
+  float timing_margin = 0.01f;
+
+  // ── ERC handling ──
+  // Selects how slew/cap violations are handled in EvalContext::swapCost.
+  //   weight  > 0 : soft penalty (normalized into swapCost). Default 1e6
+  //                 ≈ heavy penalty (close to but not as strict as hard reject).
+  //   weight == 0 : ignored (silently allow violations).
+  //   weight  < 0 : hard reject (skip candidate). Pre-eb01407 legalCheck
+  //                 behavior; opt in explicitly if needed.
+  float erc_violation_weight = 1e6f;
+
+  // Multiplier on the lib slew/cap limits used by EvalContext's ERC gating
+  // (applied to both slew and cap). 1.0 = use lib limit as-is. 0.95 = 5%
+  // tighter (default — matches pre-eb01407 legalCheckAfterSwap headroom).
+  // 0.85 = 15% headroom. Smaller value penalizes/rejects earlier, leaving
+  // physical margin for post-GR RC shift. See
+  // NetlistTransformation.hh::EvalContext::erc_{slew,cap}_limit_scale.
+  // NOTE: The active path is param-passed (testInitResizeThenSdpBuffering's
+  // erc_limit_scale arg → IncreSta methods → EvalContext); this LrConfig
+  // field is a documentation anchor and reserved for future LrConfig-driven
+  // call sites.
+  float erc_limit_scale = 0.95f;
 
   // ── Initialization ──
   bool initialize = false;           // Run Sharma 3-step init before LR

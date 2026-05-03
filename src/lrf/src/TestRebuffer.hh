@@ -36,6 +36,15 @@ public:
   // For each option: local worst/sum delta + global worst_sink/sum_sink/WNS/TNS delta
   void probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
                        odb::dbBlock *block, const GlobalBaseline &baseline);
+
+  // Post-order walk over an arbitrary bnet (typically produced by RSZ's
+  // Rebuffer::bufferForTiming which never sets LMs / bufferCost) and fill in
+  // LM vectors + bufferCost on every internal node using exactly the same
+  // formulas LRF DP uses at wire/buffer/junction sites. Leaves must already
+  // have LM set by annotateLoadLMs before calling this. After this call,
+  // `bnet->bufferCost()` reads back the full LRF analytical cost of the
+  // RSZ-generated topology — directly comparable to LRF DP Pareto options.
+  void propagateLmAndCostOnRszBnet(const rsz::BufferedNetPtr& node);
 };
 
 }  // namespace lrf

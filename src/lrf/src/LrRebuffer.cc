@@ -10,6 +10,7 @@
 #include "PtPiElmore.hh"
 #include "rsz/Resizer.hh"
 #include "LocalSta.hh"
+#include "LocalSearch.hh"
 #include "LocalReduceParasitic.hh"
 #include "sta/FuncExpr.hh"
 #include "sta/Fuzzy.hh"
@@ -27,6 +28,64 @@ static float bufferCin(const sta::LibertyCell *cell)
   sta::LibertyPort *a, *y;
   cell->bufferPorts(a, y);
   return a->capacitance();
+}
+
+// ── Static helpers re-implemented from Rebuffer.cc (kept file-static there) ──
+// Used by LrRebuffer's slack-DP variant; cleaner than friending Rebuffer.
+
+static rsz::BufferedNetPtr stripWireOnBnet(rsz::BufferedNetPtr ptr)
+{
+  while (ptr->type() == rsz::BufferedNetType::wire
+         || ptr->type() == rsz::BufferedNetType::via) {
+    ptr = ptr->ref();
+  }
+  return ptr;
+}
+
+static rsz::BufferedNetPtr stripWiresAndBuffersOnBnet(rsz::BufferedNetPtr ptr)
+{
+  while (ptr->type() == rsz::BufferedNetType::wire
+         || ptr->type() == rsz::BufferedNetType::buffer
+         || ptr->type() == rsz::BufferedNetType::via) {
+    ptr = ptr->ref();
+  }
+  return ptr;
+}
+
+static const sta::RiseFallBoth*
+combinedTransition(const sta::RiseFallBoth* a, const sta::RiseFallBoth* b)
+{
+  if (a == b) return a;
+  if (a == nullptr) return b;
+  if (b == nullptr) return a;
+  return sta::RiseFallBoth::riseFall();
+}
+
+static rsz::BufferedNetPtr createBnetJunctionLrf(
+    rsz::Resizer* resizer,
+    const rsz::BufferedNetPtr& p,
+    const rsz::BufferedNetPtr& q,
+    odb::Point location)
+{
+  rsz::BufferedNetPtr junc = std::make_shared<rsz::BufferedNet>(
+      rsz::BufferedNetType::junction, location, p, q, resizer);
+  junc->setSlackTransition(
+      combinedTransition(p->slackTransition(), q->slackTransition()));
+  junc->setSlack(std::min(p->slack(), q->slack()));
+  return junc;
+}
+
+static std::optional<int> findWireLayerLrf(rsz::BufferedNetPtr node)
+{
+  while (node->type() != rsz::BufferedNetType::wire
+         && node->type() != rsz::BufferedNetType::load
+         && node->type() != rsz::BufferedNetType::junction) {
+    node = node->ref();
+  }
+  if (node->type() == rsz::BufferedNetType::wire) {
+    return {node->layer()};
+  }
+  return {};
 }
 
 } // namespace
@@ -67,6 +126,801 @@ LrRebuffer::LrRebuffer(rsz::Resizer *resizer, LocalSta *local_sta,
     eval_ctx_(eval_ctx)
 {
   arc_delay_calc_ = eval_ctx_->arc_delay_calc;
+}
+
+void
+LrRebuffer::annotateLoadSlacksSlackDp(BnetPtr& tree, sta::VertexId drvr_vid)
+{
+  // Step 1: cache driver arrival per rise/fall for the target dcalc_ap.
+  // Replaces Rebuffer::arrival_paths_ (single-thread, shared-STA based) with
+  // thread-local state derived from local_sta_ + the known PtGraph dap.
+  sta::DcalcAnalysisPt *target_dcalc_ap = eval_ctx_->pt_graph->dcalcAnalysisPt();
+  sta::Arrival drvr_arrival[sta::RiseFall::index_count] = {0, 0};
+  PtVertex &drvr_pv = eval_ctx_->pt_graph->ptVertex(drvr_vid);
+  PtVertexPathIterator drvr_iter(drvr_pv, local_sta_);
+  while (drvr_iter.hasNext()) {
+    sta::Path *p = drvr_iter.next();
+    if (p->dcalcAnalysisPt(local_sta_) == target_dcalc_ap) {
+      int rf_idx = p->transition(local_sta_)->index();
+      drvr_arrival[rf_idx] = p->arrival();
+    }
+  }
+
+  // Step 2: per-sink slack via LOCAL worst-slack path lookup. No shared-STA
+  // calls (no sta_->vertexSlack / findRequired) — safe in parallel visit.
+  visitTree(
+    [&](auto& recurse, int level, const BnetPtr& node) -> int {
+      switch (node->type()) {
+        case BnetType::wire:
+        case BnetType::via:
+        case BnetType::buffer:
+          return recurse(node->ref());
+        case BnetType::junction:
+          return recurse(node->ref()) + recurse(node->ref2());
+        case BnetType::load: {
+          const sta::Pin *load_pin = node->loadPin();
+          sta::Vertex *sv = graph_->pinLoadVertex(load_pin);
+          PtVertex *load_pv = sv ? eval_ctx_->pt_graph->ptVertex(sv) : nullptr;
+          sta::Path *req_path = load_pv
+              ? local_sta_->ptVertexWorstSlackPath(*load_pv, target_dcalc_ap)
+              : nullptr;
+          if (req_path == nullptr) {
+            node->setSlackTransition(nullptr);
+            node->setSlack(FixedDelay::INF);
+          } else {
+            const sta::RiseFall *rf = req_path->transition(local_sta_);
+            sta::Delay d = req_path->required() - drvr_arrival[rf->index()];
+            node->setSlack(FixedDelay(d, resizer_));
+            node->setSlackTransition(rf->asRiseFallBoth());
+          }
+          return 1;
+        }
+        default:
+          return 0;
+      }
+    },
+    tree);
+}
+
+// ============================================================================
+// Slack-based DP variant — self-contained copy of Rebuffer::bufferForTiming /
+// insertBufferOptions / attemptTopologyRewrite. Replaces every bufferDelay()
+// call with computeBufferGateDelay() to avoid arrival_paths_ dependency.
+// Slack values come from annotateLoadSlacksFast.
+// ============================================================================
+
+BnetPtr
+LrRebuffer::attemptTopologyRewriteSlackDp(const BnetPtr& node,
+                                            const BnetPtr& left,
+                                            const BnetPtr& right,
+                                            float best_cap)
+{
+  FixedDelay junc_slack = std::min(left->slack(), right->slack());
+
+  BnetPtr crit1, aux1;
+  if (left->slack() < right->slack()) {
+    crit1 = stripWireOnBnet(left);
+    aux1 = stripWireOnBnet(right);
+  } else {
+    crit1 = stripWireOnBnet(right);
+    aux1 = stripWireOnBnet(left);
+  }
+  if (crit1->type() == BnetType::junction) {
+    BnetPtr crit2 = crit1->ref(), aux2 = crit1->ref2();
+    if (crit2->slack() > aux2->slack()) {
+      std::swap(crit2, aux2);
+    }
+    aux2 = stripWireOnBnet(aux2);
+    if (aux1->type() == BnetType::buffer || aux2->type() == BnetType::buffer) {
+      aux1 = stripWiresAndBuffersOnBnet(aux1);
+      aux2 = stripWiresAndBuffersOnBnet(aux2);
+      crit2 = stripWiresAndBuffersOnBnet(crit2);
+
+      const BnetPtr in1 = addWire(aux1, node->location(), -1);
+      const BnetPtr in2 = addWire(aux2, node->location(), -1);
+      // Create inner junction, merge LMs from its two children, then wrap
+      // in a wire. Without merging, junc1->lms() stays empty and the buffer
+      // created below (with propagateLmsThroughBuffer(buf, junc1)) would
+      // inherit empty LMs → downstream virtual edges warn "no lm values".
+      BnetPtr junc_inner
+          = createBnetJunctionLrf(resizer_, in1, in2, node->location());
+      {
+        auto merged_lms = mergeLmVectors(in1->lms(), in2->lms());
+        if (!merged_lms.empty())
+          junc_inner->setLms(std::move(merged_lms));
+      }
+      const BnetPtr junc1
+          = addWire(junc_inner, node->location(), -1);
+      const BnetPtr in3 = addWire(crit2, node->location(), -1);
+
+      for (rsz::Rebuffer::BufferSize size : buffer_sizes_) {
+        sta::LibertyPort *in, *out;
+        size.cell->bufferPorts(in, out);
+
+        if (fuzzyGreaterEqual(in->capacitance() + in3->cap(), best_cap)
+            || fuzzyGreaterEqual(in->capacitance() + in3->cap(),
+                                 left->cap() + right->cap())
+            || junc1->slack() - size.intrinsic_delay < junc_slack) {
+          break;
+        }
+
+        const FixedDelay buffer_delay = computeBufferGateDelay(
+            size.cell, junc1->cap() + out->capacitance());
+        const FixedDelay buffer_slack = junc1->slack() - buffer_delay;
+
+        if (buffer_slack >= junc_slack && bufferSizeCanDriveLoad(size, junc1)) {
+          BnetPtr buffer = std::make_shared<rsz::BufferedNet>(
+              BnetType::buffer, node->location(), size.cell, junc1,
+              corner_, resizer_, estimate_parasitics_);
+          buffer->setSlack(buffer_slack);
+          buffer->setSlackTransition(junc1->slackTransition());
+          buffer->setDelay(buffer_delay);
+          propagateLmsThroughBuffer(buffer, junc1);
+          return createBnetJunctionLrf(resizer_, buffer, in3, node->location());
+        }
+      }
+    }
+  }
+  return {};
+}
+
+void
+LrRebuffer::insertBufferOptionsSlackDp(BnetSeq& opts,
+                                        int level,
+                                        int next_segment_wl,
+                                        bool lrcost_oriented,
+                                        FixedDelay slack_threshold,
+                                        rsz::BufferedNet* exemplar)
+{
+  if (opts.empty()) return;
+
+  rsz::Rebuffer::BufferSize& strong_driver = buffer_sizes_.back();
+
+  BnetMetrics assured_envelope
+      = lrcost_oriented ? exemplar->metrics().withSlack(slack_threshold)
+                        : BnetMetrics{};
+  bool assured_satisfied = !lrcost_oriented;
+
+  float best_lrcost = INF;
+  FixedDelay best_slack = -FixedDelay::INF;
+
+  // both `opts` and `buffer_sizes_` are ordered by ascending input cap
+  BnetSeq new_opts;
+  new_opts.reserve(opts.size() * 2);
+  auto opts_iter = opts.begin();
+
+  auto pass_through = [&](float threshold_cap) {
+    for (; opts_iter != opts.end() && (*opts_iter)->cap() <= threshold_cap;
+         opts_iter++) {
+      BnetPtr& opt = *opts_iter;
+      bool keep = lrcost_oriented
+                      ? (fuzzyLess(opt->bufferCost(), best_lrcost)
+                         && opt->slack() >= slack_threshold)
+                      : (opt->slack() > best_slack);
+      if (!bufferSizeCanDriveLoad(strong_driver, opt, next_segment_wl)) {
+        keep = false;
+      }
+      if (keep) {
+        new_opts.push_back(opt);
+        if (!assured_satisfied && opt->fitsEnvelope(assured_envelope)) {
+          assured_satisfied = true;
+        }
+        best_slack = opt->slack();
+        best_lrcost = opt->bufferCost();
+      }
+    }
+  };
+
+  for (rsz::Rebuffer::BufferSize buffer_size : buffer_sizes_) {
+    sta::LibertyCell* buffer_cell = buffer_size.cell;
+    sta::LibertyPort *in, *out;
+    buffer_cell->bufferPorts(in, out);
+    pass_through(in->capacitance());
+
+    BnetPtr load_opt;
+    FixedDelay load_opt_buffer_delay = FixedDelay::ZERO;
+    float load_opt_buf_added_cost = 0.0f;
+    auto it = (new_opts.empty() && opts_iter == opts.end()
+               && opts_iter > opts.begin())
+                  ? (opts_iter - 1)
+                  : opts_iter;
+    for (; it != opts.end(); it++) {
+      BnetPtr& opt = *it;
+
+      // Estimate buffer cost contribution using intrinsic delay (cheap
+      // pre-filter — same pattern as base class area_oriented).
+      float buf_leak = local_sta_->cellAvgLeakage(buffer_cell);
+      float estim_added = computeBufferAddedCost(
+          buffer_size.intrinsic_delay.toSeconds(), buf_leak, opt);
+      bool initial_pass = lrcost_oriented
+          ? (opt->slack() - buffer_size.intrinsic_delay >= slack_threshold
+             && fuzzyLess(opt->bufferCost() + estim_added, best_lrcost))
+          : ((opt->slack() - buffer_size.intrinsic_delay) > best_slack);
+
+      if (initial_pass && bufferSizeCanDriveLoad(buffer_size, opt)) {
+        // Precise delay calculation
+        const FixedDelay buffer_delay = computeBufferGateDelay(
+            buffer_cell, opt->cap() + out->capacitance());
+        const FixedDelay slack = opt->slack() - buffer_delay;
+        float precise_added = computeBufferAddedCost(
+            buffer_delay.toSeconds(), buf_leak, opt);
+        float precise_total = opt->bufferCost() + precise_added;
+
+        bool precise_pass = lrcost_oriented
+            ? (slack >= slack_threshold
+               && fuzzyLess(precise_total, best_lrcost))
+            : (slack > best_slack);
+
+        if (precise_pass) {
+          load_opt = opt;
+          load_opt_buffer_delay = buffer_delay;
+          load_opt_buf_added_cost = precise_added;
+          best_slack = slack;
+          best_lrcost = precise_total;
+        }
+      }
+    }
+
+    if (load_opt) {
+      BnetPtr z = std::make_shared<rsz::BufferedNet>(
+          BnetType::buffer, load_opt->location(), buffer_cell, load_opt,
+          corner_, resizer_, estimate_parasitics_);
+      z->setSlack(best_slack);
+      z->setSlackTransition(load_opt->slackTransition());
+      z->setDelay(load_opt_buffer_delay);
+      // Annotate bufferCost so downstream Pareto pruning + selection works.
+      z->setBufferCost(load_opt->bufferCost() + load_opt_buf_added_cost);
+      z->setLeakage(load_opt->leakage()
+                    + local_sta_->cellAvgLeakage(buffer_cell));
+      // Propagate LMs through buffer so downstream virtual buffer edges
+      // have arc_lms_ populated (delayLmSum would otherwise warn
+      // "pt_edge N has no lm values" and skip this edge).
+      propagateLmsThroughBuffer(z, load_opt);
+      if (!assured_satisfied && z->fitsEnvelope(assured_envelope)) {
+        assured_satisfied = true;
+      }
+      new_opts.push_back(std::move(z));
+    }
+  }
+  pass_through(INF);
+
+  // Assured-envelope fallback: mirrors base class behaviour. If no kept
+  // option fits the exemplar's envelope, try every original option with
+  // the exemplar's cell, then any option that fits envelope as last resort.
+  if (!assured_satisfied) {
+    if (exemplar && exemplar->type() == BnetType::buffer) {
+      sta::LibertyCell* buffer_cell = exemplar->bufferCell();
+      sta::LibertyPort *in, *out;
+      buffer_cell->bufferPorts(in, out);
+
+      float best_lrcost_local = INF;
+      BnetPtr best_option;
+      float best_added_cost = 0.0f;
+      FixedDelay best_buf_delay = FixedDelay::ZERO;
+      for (const BnetPtr& load_opt : opts) {
+        if (load_opt->bufferCost() >= best_lrcost_local) continue;
+        const FixedDelay buffer_delay = computeBufferGateDelay(
+            buffer_cell, load_opt->cap() + out->capacitance());
+        float buf_leak = local_sta_->cellAvgLeakage(buffer_cell);
+        float added = computeBufferAddedCost(
+            buffer_delay.toSeconds(), buf_leak, load_opt);
+
+        if (bufferSizeCanDriveLoad(*buffer_sizes_index_.at(buffer_cell),
+                                   load_opt)
+            && load_opt->slack() - buffer_delay >= slack_threshold) {
+          BnetPtr z = std::make_shared<rsz::BufferedNet>(
+              BnetType::buffer, load_opt->location(), buffer_cell,
+              load_opt, corner_, resizer_, estimate_parasitics_);
+          z->setSlack(load_opt->slack() - buffer_delay);
+          z->setSlackTransition(load_opt->slackTransition());
+          z->setDelay(buffer_delay);
+          z->setBufferCost(load_opt->bufferCost() + added);
+          z->setLeakage(load_opt->leakage() + buf_leak);
+          propagateLmsThroughBuffer(z, load_opt);
+          if (z->fitsEnvelope(assured_envelope)) {
+            best_lrcost_local = load_opt->bufferCost();
+            best_option = z;
+            best_added_cost = added;
+            best_buf_delay = buffer_delay;
+          }
+        }
+      }
+      if (best_option) {
+        insertAssuredOption(new_opts, best_option, level);
+        assured_satisfied = true;
+      }
+    } else {
+      for (const BnetPtr& opt : opts) {
+        if (opt->fitsEnvelope(assured_envelope)) {
+          insertAssuredOption(new_opts, opt, level);
+          assured_satisfied = true;
+          break;
+        }
+      }
+    }
+    if (!assured_satisfied) {
+      printf("LrRebuffer::insertBufferOptionsSlackDp: pin %s assured fallback "
+             "failed (lr-cost recovery cannot reproduce solution at "
+             "slack_threshold=%.3e)\n",
+             network_->name(pin_), slack_threshold.toSeconds());
+    }
+  }
+
+  new_opts.swap(opts);
+}
+
+BnetPtr
+LrRebuffer::bufferForTimingSlackDp(VertexId drvr_vertex_id,
+                                    const BnetPtr& tree,
+                                    bool allow_topology_rewrite)
+{
+  BnetSeq top_opts = visitTree(
+    [&](auto& recurse, int level, const BnetPtr& node) -> BnetSeq {
+      switch (node->type()) {
+        case BnetType::via:
+        case BnetType::buffer:
+        case BnetType::wire: {
+          int layer = -1;
+          if (auto wire_layer = findWireLayerLrf(node)) {
+            layer = wire_layer.value();
+          }
+          BnetSeq opts = recurse(stripWiresAndBuffersOnBnet(node->ref()));
+          odb::Point location
+              = stripWiresAndBuffersOnBnet(node->ref())->location();
+
+          const int full_wl
+              = odb::Point::manhattanDistance(node->location(), location);
+          if (full_wl > wire_length_step_ / 2) {
+            insertBufferOptionsSlackDp(
+                opts, level, std::min(full_wl, wire_length_step_));
+          } else {
+            BnetSeq opts1 = opts;
+            for (BnetPtr& opt : opts1) {
+              opt = addWire(opt, node->location(), layer, level);
+            }
+            insertBufferOptionsSlackDp(opts1, level, 0);
+            if (opts1.empty()) {
+              opts1 = opts;
+              insertBufferOptionsSlackDp(opts1, level, full_wl);
+              for (BnetPtr& opt : opts1) {
+                opt = addWire(opt, node->location(), layer, level);
+              }
+              insertBufferOptionsSlackDp(opts1, level, 0);
+            }
+            if (opts1.empty()) {
+              printf("LrRebuffer::bufferForTimingSlackDp: pin %s wire step "
+                     "options empty\n", network_->name(pin_));
+            }
+            return opts1;
+          }
+
+          int round = 0;
+          while (location != node->location()) {
+            const int step = wire_length_step_;
+            int dx = node->location().x() - location.x();
+            int dy = node->location().y() - location.y();
+
+            if (abs(dx) + abs(dy) >= step) {
+              const float ratio
+                  = (float) abs(dx) / (float) (abs(dx) + abs(dy));
+              const int dx_abs = std::min((int)(ratio * step), step);
+              const int dy_abs = step - dx_abs;
+              dx = dx > 0 ? dx_abs : -dx_abs;
+              dy = dy > 0 ? dy_abs : -dy_abs;
+            }
+            location.addX(dx);
+            location.addY(dy);
+
+            const int remaining_wl
+                = odb::Point::manhattanDistance(node->location(), location);
+
+            for (BnetPtr& opt : opts) {
+              opt = addWire(opt, location, layer, level);
+            }
+            insertBufferOptionsSlackDp(
+                opts, level, std::min(remaining_wl, step));
+
+            if (opts.empty()) {
+              printf("LrRebuffer::bufferForTimingSlackDp: pin %s wire step "
+                     "options empty round %d\n", network_->name(pin_), round);
+            }
+            round++;
+          }
+          return opts;
+        }
+
+        case BnetType::junction: {
+          const BnetSeq& opts_left = recurse(node->ref());
+          const BnetSeq& opts_right = recurse(node->ref2());
+
+          BnetSeq opts;
+          opts.reserve(std::max(opts_left.size(), opts_right.size()));
+          float best_cap = INF;
+
+          auto li = opts_left.rbegin(), lend = opts_left.rend();
+          auto ri = opts_right.rbegin(), rend = opts_right.rend();
+
+          while (li != lend && ri != rend) {
+            while (li + 1 != lend
+                   && (*(li + 1))->slack() >= (*ri)->slack()) li++;
+            while (ri + 1 != rend
+                   && (*(ri + 1))->slack() >= (*li)->slack()) ri++;
+
+            bool rewrote = false;
+            BnetPtr junc;
+            if (allow_topology_rewrite) {
+              junc = attemptTopologyRewriteSlackDp(node, *li, *ri, best_cap);
+              if (junc) {
+                rewrote = true;
+                // Topology-rewrite returns a junction wrapping (buffer, in3).
+                // Merge LMs from the two original children so downstream
+                // virtual edges inherit non-empty arc_lms_.
+                auto merged_lms = mergeLmVectors((*li)->lms(), (*ri)->lms());
+                if (!merged_lms.empty())
+                  junc->setLms(std::move(merged_lms));
+              }
+            }
+            if (!rewrote) {
+              junc = createBnetJunctionLrf(resizer_, *li, *ri, node->location());
+              // Propagate LMs through junction (merge of children) so that
+              // downstream insertBufferOptionsSlackDp can transitively pass
+              // them to newly-created buffer nodes (otherwise delayLmSum
+              // warns "pt_edge has no lm values" for virtual edges).
+              auto merged_lms = mergeLmVectors((*li)->lms(), (*ri)->lms());
+              if (!merged_lms.empty())
+                junc->setLms(std::move(merged_lms));
+            }
+
+            if (junc->fanout() <= fanout_limit_) {
+              best_cap = junc->cap();
+              opts.push_back(std::move(junc));
+            }
+
+            while (true) {
+              FixedDelay next_li_slack = (li + 1 != lend)
+                                             ? (*(li + 1))->slack()
+                                             : -FixedDelay::INF;
+              FixedDelay next_ri_slack = (ri + 1 != rend)
+                                             ? (*(ri + 1))->slack()
+                                             : -FixedDelay::INF;
+              if (next_li_slack > next_ri_slack) li++;
+              else                               ri++;
+
+              if (li == lend || ri == rend
+                  || (*li)->cap() + (*ri)->cap() < best_cap) {
+                break;
+              }
+            }
+          }
+          std::ranges::reverse(opts);
+          return opts;
+        }
+
+        case BnetType::load:
+          return {node};
+
+        default:
+          printf("LrRebuffer::bufferForTimingSlackDp: unhandled BnetType\n");
+          return {};
+      }
+    },
+    tree);
+
+  if (top_opts.empty()) {
+    printf("LrRebuffer::bufferForTimingSlackDp: pin %s no options produced\n",
+           network_->name(pin_));
+    return nullptr;
+  }
+
+  // Final selection via LrRebuffer::evaluateOption — runs precise local STA
+  // (virtual buffer + synthetic Pi + increAndGetLocalTimingCost), enforces
+  // ERC (slew + drvr cap high water mark) and slack guard, returns swapCost
+  // in normalized units. Same machinery used by the cost-DP path's last
+  // iteration, so behaviour and gating thresholds are identical.
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
+  local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
+  float original_slack = eval_ctx_->use_sum_threshold
+      ? local_sta_->localSlackOnSinks(pt_graph)
+      : local_sta_->localWorstSlackOnSinks(pt_graph);
+
+  float best_cost = INF;
+  BnetPtr best_option = nullptr;
+  for (const BnetPtr& p : top_opts) {
+    LMValue cost = evaluateOption(drvr_vertex_id, p, original_slack);
+    if (cost < best_cost) {
+      best_cost = cost;
+      best_option = p;
+    }
+  }
+  // Fallback: if every option was rejected by ERC / slack gate, return the
+  // max-slack candidate so the caller still has something to apply (or
+  // explicitly skip this pin via best_option == nullptr check).
+  if (best_option == nullptr && !top_opts.empty()) {
+    FixedDelay best_slack = -FixedDelay::INF;
+    for (const BnetPtr& p : top_opts) {
+      if (p->slackTransition() == nullptr || p->slack() > best_slack) {
+        best_slack = p->slack();
+        best_option = p;
+      }
+    }
+  }
+  return best_option;
+}
+
+// ============================================================================
+// Recover LR cost — full port of Rebuffer::recoverArea.
+//
+// Identical structure to recoverArea: drvr pin slack correction, top-down
+// arrival delay spread, bottom-up DP enumeration with assured-envelope
+// guard, final selection by objective among slack-satisfying options.
+//
+// ONE substitution: the optimization objective is bufferCost (delay×LM +
+// leakage, normalized to swapCost units via computeBufferAddedCost) instead
+// of cell area. Every other piece of the recoverArea machinery is preserved:
+//   - alpha-blended slack threshold via FixedDelay::lerp
+//   - assured envelope tracking + insertAssuredOption fallback
+//   - junction full N×M cross product + Pareto pruning
+//   - wire/buffer step via insertBufferOptionsSlackDp(lrcost_oriented=true)
+// ============================================================================
+
+// Bottom-up walk that populates bufferCost on every node of the tree.
+// Mirrors the per-node cost accumulation done during cost-DP enumeration:
+//   load     : bufferCost = 0
+//   wire/via : child.bufferCost + wire_delay × Σ LM (this node carries below)
+//   buffer   : child.bufferCost + buf_delay × Σ LM + leakage
+//   junction : left.bufferCost + right.bufferCost
+// Caller must have annotated load LMs (annotateLoadLMs) on the bnet first.
+void
+LrRebuffer::computeAndAnnotateBufferCost(const BnetPtr& root)
+{
+  visitTree(
+    [&](auto& recurse, int level, const BnetPtr& node) -> int {
+      switch (node->type()) {
+        case BnetType::load:
+          node->setBufferCost(0.0f);
+          return 1;
+        case BnetType::via: {
+          recurse(node->ref());
+          node->setBufferCost(node->ref()->bufferCost());
+          node->setLeakage(node->ref()->leakage());
+          return 1;
+        }
+        case BnetType::wire: {
+          recurse(node->ref());
+          double layer_res = 0, layer_cap = 0;
+          node->wireRC(corner_, resizer_, estimate_parasitics_,
+                       layer_res, layer_cap);
+          double wl = resizer_->dbuToMeters(node->length());
+          double wd = (wl * layer_res)
+                      * (wl * layer_cap / 2 + node->ref()->cap());
+          float wire_delta = computeBufferAddedCost(wd, 0.0f, node->ref());
+          node->setBufferCost(node->ref()->bufferCost() + wire_delta);
+          node->setLeakage(node->ref()->leakage());
+          return 1;
+        }
+        case BnetType::buffer: {
+          recurse(node->ref());
+          float buf_leak = local_sta_->cellAvgLeakage(node->bufferCell());
+          FixedDelay buf_dly = computeBufferGateDelay(
+              node->bufferCell(), node->ref()->cap());
+          float buf_delta = computeBufferAddedCost(
+              buf_dly.toSeconds(), buf_leak, node->ref());
+          node->setBufferCost(node->ref()->bufferCost() + buf_delta);
+          node->setLeakage(node->ref()->leakage() + buf_leak);
+          return 1;
+        }
+        case BnetType::junction: {
+          recurse(node->ref());
+          recurse(node->ref2());
+          node->setBufferCost(node->ref()->bufferCost()
+                              + node->ref2()->bufferCost());
+          node->setLeakage(node->ref()->leakage()
+                           + node->ref2()->leakage());
+          return 1;
+        }
+      }
+      return 0;
+    }, root);
+}
+
+BnetPtr
+LrRebuffer::recoverLrCost(VertexId drvr_vertex_id,
+                           const BnetPtr& root, FixedDelay slack_target,
+                           float alpha)
+{
+  // ── Step 0: ensure bufferCost annotated on every node ──
+  computeAndAnnotateBufferCost(root);
+
+  // ── Step 1: drvr pin slack correction (LRF context — no arrival_paths_) ──
+  // The original recoverArea calls drvrPinTiming which reads arrival_paths_.
+  // In LRF context that's not populated; we use 0 as the correction. The
+  // correction is a constant additive term to bnet->slack() across all
+  // options and so does not affect ranking — only shifts the absolute slack
+  // value used in slack_target comparisons.
+  sta::Delay slack_correction = 0;
+
+  if (!root->slackTransition()) {
+    slack_correction = 0;
+    slack_target = -FixedDelay::INF;
+  }
+
+  // ── Step 2: top-down spread of arrival delay through tree ──
+  visitTree(
+    [](auto& recurse, int level, const BnetPtr& node, FixedDelay arrival)
+        -> int {
+      node->setArrivalDelay(arrival);
+      switch (node->type()) {
+        case BnetType::via:
+        case BnetType::wire:
+        case BnetType::buffer:
+          recurse(node->ref(), arrival + node->delay());
+          break;
+        case BnetType::junction:
+          recurse(node->ref(), arrival);
+          recurse(node->ref2(), arrival);
+          break;
+        case BnetType::load:
+          break;
+      }
+      return 0;
+    },
+    root,
+    -FixedDelay(slack_correction, resizer_));
+
+  // ── Step 3: bottom-up DP enumeration (LR-cost-oriented) ──
+  BnetSeq top_opts = visitTree(
+    [&](auto& recurse, int level, const BnetPtr& node, int upstream_wl)
+        -> BnetSeq {
+      switch (node->type()) {
+        case BnetType::buffer:
+        case BnetType::wire: {
+          const BnetPtr& inner
+              = (node->type() == BnetType::buffer) ? node->ref() : node;
+
+          BnetSeq opts;
+          if (inner->type() == BnetType::wire) {
+            opts = recurse(inner->ref(), inner->length());
+            for (BnetPtr& opt : opts) {
+              opt = addWire(opt, inner->location(), inner->layer(), level);
+            }
+          } else {
+            opts = recurse(inner, 0);
+          }
+
+          FixedDelay threshold = FixedDelay::lerp(
+              node->slack(), slack_target + node->arrivalDelay(), alpha);
+          insertBufferOptionsSlackDp(opts,
+                                     level,
+                                     /*next_segment_wl=*/upstream_wl,
+                                     /*lrcost_oriented=*/true,
+                                     threshold,
+                                     /*exemplar=*/node.get());
+          return opts;
+        }
+        case BnetType::junction: {
+          const BnetSeq& left_opts = recurse(node->ref(), upstream_wl);
+          const BnetSeq& right_opts = recurse(node->ref2(), upstream_wl);
+
+          FixedDelay threshold = FixedDelay::lerp(
+              node->slack(), slack_target + node->arrivalDelay(), alpha);
+          BnetMetrics assured_envelope = node->metrics().withSlack(threshold);
+          BnetPtr assured_fallback;
+
+          BnetSeq opts;
+          opts.reserve(left_opts.size() * right_opts.size());
+          for (const BnetPtr& left : left_opts) {
+            for (const BnetPtr& right : right_opts) {
+              BnetPtr junc = createBnetJunctionLrf(
+                  resizer_, left, right, node->location());
+              // Annotate junction's bufferCost (sum of children).
+              junc->setBufferCost(left->bufferCost() + right->bufferCost());
+              junc->setLeakage(left->leakage() + right->leakage());
+              // Propagate merged LMs (non-SDP path does this via mergeLmVectors;
+              // without it, downstream virtual buffer edges get empty arc_lms_).
+              auto merged_lms = mergeLmVectors(left->lms(), right->lms());
+              if (!merged_lms.empty())
+                junc->setLms(std::move(merged_lms));
+              if (!assured_fallback && junc->fitsEnvelope(assured_envelope)) {
+                assured_fallback = junc;
+              }
+              if (junc->fanout() <= fanout_limit_) {
+                opts.push_back(std::move(junc));
+              }
+            }
+          }
+
+          // Pareto pruning on (bufferCost, cap) — variant of
+          // pruneCapVsAreaOptions with bufferCost replacing area.
+          std::ranges::sort(
+              opts,
+              [](const BnetPtr& a, const BnetPtr& b) {
+                return std::make_tuple(a->bufferCost(), a->cap())
+                       < std::make_tuple(b->bufferCost(), b->cap());
+              });
+          if (!opts.empty()) {
+            float lowest_cap_seen = opts[0]->cap();
+            size_t si = 1;
+            for (size_t pi = si; pi < opts.size(); pi++) {
+              const BnetPtr& p = opts[pi];
+              float cap = p->cap();
+              if (fuzzyLess(cap, lowest_cap_seen)) {
+                opts[si++] = p;
+                lowest_cap_seen = cap;
+              }
+            }
+            opts.resize(si);
+            std::ranges::reverse(opts);
+          }
+
+          // Ensure assured-envelope fallback exists.
+          bool assured_found = false;
+          for (const BnetPtr& opt : opts) {
+            if (opt->fitsEnvelope(assured_envelope)) {
+              assured_found = true;
+              break;
+            }
+          }
+          if (!assured_found && assured_fallback) {
+            insertAssuredOption(opts, assured_fallback, level);
+          }
+          return opts;
+        }
+        case BnetType::load: {
+          return {node};
+        }
+        default:
+          return {};
+      }
+    },
+    root,
+    0);
+
+  // ── Step 4: precise selection via LrRebuffer::evaluateOption ──
+  // evaluateOption runs ERC + slack guard + virtual-buffer local STA, and
+  // returns swapCost in normalized units. Slack baseline is measured directly
+  // from PtGraph (pre-recovery state, including any buffering done by an
+  // earlier slack-DP pass) — same source as bufferForTimingSlackDp uses, no
+  // dependency on the user-supplied slack_target as a gate value.
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
+  local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
+  float baseline_slack = eval_ctx_->use_sum_threshold
+      ? local_sta_->localSlackOnSinks(pt_graph)
+      : local_sta_->localWorstSlackOnSinks(pt_graph);
+
+  float best_cost = INF;
+  BnetPtr best_eval_option = nullptr;
+  for (const BnetPtr& p : top_opts) {
+    LMValue cost = evaluateOption(drvr_vertex_id, p, baseline_slack);
+    if (cost < best_cost) {
+      best_cost = cost;
+      best_eval_option = p;
+    }
+  }
+  if (best_eval_option) return best_eval_option;
+
+  // Fallback when ERC / slack gate rejects everything: pick min bufferCost
+  // among analytically slack-meeting options; if none meet slack, max slack.
+  FixedDelay best_slack = -FixedDelay::INF;
+  float best_lrcost = std::numeric_limits<float>::max();
+  BnetPtr best_lrcost_option = nullptr, best_slack_option = nullptr;
+  for (const BnetPtr& p : top_opts) {
+    FixedDelay slack = p->slack() + FixedDelay(slack_correction, resizer_);
+    if (best_slack_option == nullptr
+        || p->slackTransition() == nullptr
+        || slack > best_slack) {
+      best_slack = slack;
+      best_slack_option = p;
+    }
+    if ((slack >= slack_target || p->slackTransition() == nullptr)
+        && (best_lrcost_option == nullptr
+            || fuzzyLess(p->bufferCost(), best_lrcost))) {
+      best_lrcost = p->bufferCost();
+      best_lrcost_option = p;
+    }
+  }
+  if (best_lrcost_option) return best_lrcost_option;
+  if (best_slack_option) return best_slack_option;
+  return nullptr;
 }
 
 void
@@ -487,7 +1341,7 @@ LrRebuffer::rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex)
     auto t_iter_start = std::chrono::steady_clock::now();
     for (int i = 0; i < 3; ++i) { // Example loop, replace with actual iteration logic
       bool last_iteration = (i == 2);
-      bnet = bufferForTiming(drvr_vid, bnet, allow_topology_rewrite, /*last_iteration=*/last_iteration);
+      bnet = bufferForTimingLrf(drvr_vid, bnet, allow_topology_rewrite, /*last_iteration=*/last_iteration);
     }
     auto t_iter_end = std::chrono::steady_clock::now();
     (*eval_ctx_->runtime_map)["rebuffer_precise"]
@@ -558,9 +1412,9 @@ LrRebuffer::evaluateBufferOnCandidate(sta::VertexId drvr_vid,
   // PtGraph should already reflect the resize candidate via
   // increAndGetLocalTimingCost before calling this.
   const bool allow_topology_rewrite = true;
-  BufferedNetPtr result = bufferForTiming(drvr_vid, prepared_bnet,
-                                         allow_topology_rewrite,
-                                         /*last_iteration=*/true);
+  BufferedNetPtr result = bufferForTimingLrf(drvr_vid, prepared_bnet,
+                                             allow_topology_rewrite,
+                                             /*last_iteration=*/true);
   if (result) {
     best_bnet_ = result;
     // best_cost_ is set inside bufferForTiming → evaluateOption
@@ -638,7 +1492,7 @@ static BufferedNetPtr createBnetJunction(rsz::Resizer* resizer,
 
 // Find buffering choices with best delay LM sum and leakage
 BnetPtr
-LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
+LrRebuffer::bufferForTimingLrf(VertexId drvr_vertex_id,
                             const BnetPtr &tree,
                             bool allow_topology_rewrite,
                             bool last_iteration)
@@ -738,17 +1592,19 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
             const BnetSeq& opts_left = recurse(node->ref());
             const BnetSeq& opts_right = recurse(node->ref2());
 
-            BnetSeq opts;
-            opts.reserve(std::max(opts_left.size(), opts_right.size()));
-            float best_cap = INF;
-
-            auto li = opts_left.rbegin(), lend = opts_left.rend();
-            auto ri = opts_right.rbegin(), rend = opts_right.rend();
+            // Full O(N×M) enumeration: for cost-sum DP, every (L_i, R_j)
+            // contributes a candidate (cap = L.cap + R.cap, cost = L.cost +
+            // R.cost). The original slack-style diagonal walk only visits
+            // ~N+M pairs and misses non-diagonal (L_i, R_j) combinations
+            // that may dominate on the (cap, cost) Pareto front.
+            BnetSeq raw;
+            raw.reserve(opts_left.size() * opts_right.size());
 
             if (prune_debug_) {
-              printf("[DBG-PRUNE-JNC] lvl=%d node_loc=(%d,%d) left_n=%zu right_n=%zu\n",
+              printf("[DBG-PRUNE-JNC] lvl=%d node_loc=(%d,%d) left_n=%zu right_n=%zu (full N×M=%zu)\n",
                      level, node->location().x(), node->location().y(),
-                     opts_left.size(), opts_right.size());
+                     opts_left.size(), opts_right.size(),
+                     opts_left.size() * opts_right.size());
               for (size_t j = 0; j < opts_left.size(); j++) {
                 printf("[DBG-PRUNE-JNC]   L[%zu] bufs=%d cap=%.3f cost=%.3e\n",
                        j, bufferNum(opts_left[j]),
@@ -763,108 +1619,86 @@ LrRebuffer::bufferForTiming(VertexId drvr_vertex_id,
               }
             }
 
-            while (li != lend && ri != rend) {
-              // Use buffer cost instead of slack for comparison
-              // Smaller buffer cost is better
-              while (li + 1 != lend && (*(li + 1))->bufferCost() <= (*ri)->bufferCost()) {
-                li++;
-              }
-              while (ri + 1 != rend && (*(ri + 1))->bufferCost() <= (*li)->bufferCost()) {
-                ri++;
-              }
+            for (size_t i = 0; i < opts_left.size(); i++) {
+              for (size_t j = 0; j < opts_right.size(); j++) {
+                const BnetPtr& l = opts_left[i];
+                const BnetPtr& r = opts_right[j];
 
-              bool rewrote = false;
-              BnetPtr junc;
+                bool rewrote = false;
+                BnetPtr junc;
 
-              if (allow_topology_rewrite) {
-                junc = attemptTopologyRewrite(node, *li, *ri, best_cap);
-                if (junc) {
-                  rewrote = true;
-                  // The rewritten junction's sub-nodes already have correct
-                  // bufferCost set by attemptTopologyRewrite. Compute
-                  // junction cost from its actual children (buffer + direct).
-                  float junc_cost = junc->ref()->bufferCost()
-                                  + junc->ref2()->bufferCost();
+                if (allow_topology_rewrite) {
+                  junc = attemptTopologyRewrite(node, l, r, INF);
+                  if (junc) {
+                    rewrote = true;
+                    float junc_cost = junc->ref()->bufferCost()
+                                    + junc->ref2()->bufferCost();
+                    junc->setBufferCost(junc_cost);
+                    junc->setLeakage(junc->ref()->leakage()
+                                     + junc->ref2()->leakage());
+                    auto merged_lms = mergeLmVectors(junc->ref()->lms(),
+                                                     junc->ref2()->lms());
+                    junc->setLms(std::move(merged_lms));
+                  }
+                }
+
+                if (!rewrote) {
+                  junc = createBnetJunction(resizer_, l, r, node->location());
+                  float junc_cost = l->bufferCost() + r->bufferCost();
                   junc->setBufferCost(junc_cost);
-                  junc->setLeakage(junc->ref()->leakage() + junc->ref2()->leakage());
-                  // Merge LMs from the rewritten children
-                  auto merged_lms = mergeLmVectors(junc->ref()->lms(),
-                                                   junc->ref2()->lms());
+                  junc->setLeakage(l->leakage() + r->leakage());
+                  auto merged_lms = mergeLmVectors(l->lms(), r->lms());
                   junc->setLms(std::move(merged_lms));
                 }
-              }
 
-              if (!rewrote) {
-                junc = createBnetJunction(resizer_, *li, *ri, node->location());
-
-                // Calculate junction's buffer cost = sum of both branches
-                float junc_cost = (*li)->bufferCost() + (*ri)->bufferCost();
-                junc->setBufferCost(junc_cost);
-                junc->setLeakage((*li)->leakage() + (*ri)->leakage());
-
-                // Merge LMs from both branches
-                const auto& left_lms = (*li)->lms();
-                const auto& right_lms = (*ri)->lms();
-                auto merged_lms = mergeLmVectors(left_lms, right_lms);
-                junc->setLms(std::move(merged_lms));
-              }
-
-              bool within_fanout = (junc->fanout() <= fanout_limit_);
-              if (prune_debug_) {
-                printf("[DBG-PRUNE-JNC]   PAIR li[bufs=%d cap=%.3f cost=%.3e] "
-                       "ri[bufs=%d cap=%.3f cost=%.3e] → junc[bufs=%d cap=%.3f "
-                       "cost=%.3e fanout=%.0f] %s%s best_cap=%.3f\n",
-                       bufferNum(*li), (*li)->cap() * 1e15, (*li)->bufferCost(),
-                       bufferNum(*ri), (*ri)->cap() * 1e15, (*ri)->bufferCost(),
-                       bufferNum(junc), junc->cap() * 1e15, junc->bufferCost(),
-                       junc->fanout(),
-                       rewrote ? "REWROTE " : "",
-                       within_fanout ? "KEEP" : "PRUNE(fanout>limit)",
-                       best_cap * 1e15);
-              }
-              if (within_fanout) {
-                best_cap = junc->cap();
-                opts.push_back(std::move(junc));
-              }
-
-              while (true) {
-                // Increment either li or ri, whichever leads to smaller buffer cost increase
-                // Smaller buffer cost is better, so we want the next one with smaller cost
-                float next_li_cost = (li + 1 != lend)
-                                           ? (*(li + 1))->bufferCost()
-                                           : INF;
-                float next_ri_cost = (ri + 1 != rend)
-                                           ? (*(ri + 1))->bufferCost()
-                                           : INF;
-
-                if (next_li_cost < next_ri_cost) {
-                  li++;
-                } else {
-                  ri++;
+                bool within_fanout = (junc->fanout() <= fanout_limit_);
+                if (prune_debug_) {
+                  printf("[DBG-PRUNE-JNC]   PAIR L[%zu]+R[%zu] → junc[bufs=%d "
+                         "cap=%.3f cost=%.3e fanout=%.0f] %s%s\n",
+                         i, j, bufferNum(junc), junc->cap() * 1e15,
+                         junc->bufferCost(), junc->fanout(),
+                         rewrote ? "REWROTE " : "",
+                         within_fanout ? "KEEP" : "PRUNE(fanout>limit)");
                 }
-
-                bool l_end = (li == lend);
-                bool r_end = (ri == rend);
-                bool cap_break = false;
-                if (!l_end && !r_end) {
-                  cap_break = ((*li)->cap() + (*ri)->cap() < best_cap);
-                }
-                if (l_end || r_end || cap_break) {
-                  if (prune_debug_) {
-                    const char *why = l_end ? "left_exhausted"
-                                     : r_end ? "right_exhausted"
-                                     : "cap_l+cap_r<best_cap";
-                    printf("[DBG-PRUNE-JNC]   BREAK reason=%s best_cap=%.3f "
-                           "next_li=%s next_ri=%s\n",
-                           why, best_cap * 1e15,
-                           l_end ? "END" : "alive",
-                           r_end ? "END" : "alive");
-                  }
-                  break;
+                if (within_fanout) {
+                  raw.push_back(std::move(junc));
                 }
               }
             }
-            std::ranges::reverse(opts);
+
+            // Pareto pruning on (cap, cost): both minimized.
+            // Sort by ascending cap; an option survives iff its cost is
+            // strictly less than the min cost among lower-cap options.
+            // Result: ascending cap, descending cost.
+            std::sort(raw.begin(), raw.end(),
+                      [](const BnetPtr& a, const BnetPtr& b) {
+                        if (a->cap() != b->cap())
+                          return a->cap() < b->cap();
+                        return a->bufferCost() < b->bufferCost();
+                      });
+            BnetSeq opts;
+            opts.reserve(raw.size());
+            // Sweep from smallest cap to largest cap, keeping options whose
+            // cost is strictly lower than running min. Iterating low→high
+            // cap, options with lower cap are seen first; subsequent (higher
+            // cap) options survive only if they offer a strictly better
+            // cost — i.e. they're not dominated by any lower-cap option.
+            float min_cost = INF;
+            for (const BnetPtr& opt : raw) {
+              if (opt->bufferCost() < min_cost) {
+                min_cost = opt->bufferCost();
+                opts.push_back(opt);
+              }
+            }
+            if (prune_debug_) {
+              printf("[DBG-PRUNE-JNC]   Pareto: raw=%zu kept=%zu\n",
+                     raw.size(), opts.size());
+              for (size_t k = 0; k < opts.size(); k++) {
+                printf("[DBG-PRUNE-JNC]     P[%zu] bufs=%d cap=%.3f cost=%.3e\n",
+                       k, bufferNum(opts[k]), opts[k]->cap() * 1e15,
+                       opts[k]->bufferCost());
+              }
+            }
             return opts;
           }
 
@@ -1019,14 +1853,18 @@ LrRebuffer::evaluateOptionCoarse(VertexId pt_vertex_id, const BnetPtr& option)
   if (hasViolation(option, max_slew)) {
     return INF;
   }
-  float delay_part = option->bufferCost() + cell_delay_lm_sum;
-  float leakage_part = option->leakage();
-  float cost = eval_ctx_->swapCost(delay_part, leakage_part);
+  // bufferCost is now stored in normalized swapCost-compatible units
+  // (PT × delay_lm / avg_delay + leakage / avg_leakage). Add the driver
+  // cell's delay contribution with the same normalization. option->leakage()
+  // is already folded into bufferCost by computeBufferAddedCost.
+  float cell_normalized = eval_ctx_->PT_tradeoff * cell_delay_lm_sum
+                              / eval_ctx_->average_delay;
+  float cost = option->bufferCost() + cell_normalized;
   if (eval_ctx_->debug) {
     printf("[DBG-COARSE] pin=%s buffers=%d bufferCost=%.3e cellDelayLmSum=%.3e "
-           "delay_part=%.3e leakage=%.3e cost=%.3e avg_delay=%.3e avg_leak=%.3e\n",
+           "cell_norm=%.3e cost=%.3e avg_delay=%.3e avg_leak=%.3e\n",
            network_->name(pin_), option->bufferCount(), option->bufferCost(),
-           cell_delay_lm_sum, delay_part, leakage_part, cost,
+           cell_delay_lm_sum, cell_normalized, cost,
            eval_ctx_->average_delay, eval_ctx_->average_leakage);
   }
   return cost;
@@ -1061,7 +1899,10 @@ LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
       : local_sta_->localWorstSlackOnSinks(pt_graph);
   last_slack_after_ = slack_after;
 
-  float thresh = original_slack;
+  // Multiplicative slack margin (same semantics as ParallelVisitor's
+  // slack_margin_): for negative slack, margin > 1.0 relaxes the gate by
+  // (margin-1)*|slack|. Default 1.0 = strict equality with original behavior.
+  float thresh = original_slack * eval_ctx_->slack_margin;
   if (slack_after >= thresh) {
     total_cost = eval_ctx_->swapCost(delay_lm_sum, option->leakage());
   } else if (option->bufferCount() > 0 && eval_ctx_->debug) {
@@ -1373,9 +2214,17 @@ LrRebuffer::computeBufferAddedCost(float buffer_delay_seconds,
       else fall_lm = load_lms[lm_index];
     }
   }
-  // Part 2: Combine delay_LM_sum and leakage as total cost
-  // Simple sum: cost = delay_LM_sum + leakage
-  float total_cost = buffer_delta_delay_lm + buffer_leakage;
+  // Part 2: Normalized LR cost — matches swapCost() semantics so that
+  // bufferCost (used in Pareto pruning) and swapCost (used in final
+  // evaluation) share the same units. Without this normalization,
+  // raw leakage (~1e-8 W for large buffers) overwhelms raw delay×LM
+  // (~3e-10 s·LM), biasing DP toward small-cell / low-leakage options
+  // that have large delay — which matches the v79 probe finding that
+  // RSZ's large-buffer bnet scored 20× worse in analytical bufferCost
+  // than LRF's small-buffer options, but 16% better in real swapCost.
+  float total_cost = eval_ctx_->PT_tradeoff * buffer_delta_delay_lm
+                         / eval_ctx_->average_delay
+                   + buffer_leakage / eval_ctx_->average_leakage;
 
   if (prune_debug_) {
     float vec_sum = 0.0f;
@@ -2099,10 +2948,7 @@ LrRebuffer::buildVirtualBuffer(VertexId drvr_vertex_id,
             buf_cell, out_port, true, false, PtVertexType::VirtualOutput);
         info.vertex_ids.push_back(buf_out_id);
 
-        // Levels: midpoint between driver and downstream
-        float drvr_level = pt_graph->ptVertex(current_drvr_id).level();
-        pt_graph->ptVertex(buf_in_id).setLevel(drvr_level + 0.25f);
-        pt_graph->ptVertex(buf_out_id).setLevel(drvr_level + 0.5f);
+        // Levels: set by fixupVirtualLevels after the full tree walk.
 
         // Proxy vertex for tag_bldr init
         pt_graph->ptVertex(buf_in_id).setProxyVertex(drvr_vertex);
@@ -2201,7 +3047,68 @@ LrRebuffer::buildVirtualBuffer(VertexId drvr_vertex_id,
   };
 
   walk(option, drvr_vertex_id, 0.0f);
+
+  // Bottom-up pass: set virtual vertex levels so topo sort is correct.
+  if (!info.failed && !info.vertex_ids.empty()) {
+    float drvr_level = pt_graph->ptVertex(drvr_vertex_id).level();
+    size_t vi = 0;
+    fixupVirtualLevels(option, drvr_level, info, vi);
+  }
+
   return info;
+}
+
+float
+LrRebuffer::fixupVirtualLevels(const rsz::BufferedNetPtr& node,
+                                float drvr_level,
+                                VirtualBufferInfo &info,
+                                size_t &vi)
+{
+  using BnetType = rsz::BufferedNetType;
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
+
+  switch (node->type()) {
+    case BnetType::load: {
+      const sta::Pin *load_pin = node->loadPin();
+      sta::Vertex *load_vertex = graph_->pinLoadVertex(load_pin);
+      if (load_vertex)
+        return static_cast<float>(load_vertex->level());
+      return drvr_level + 1.0f;  // fallback
+    }
+
+    case BnetType::wire:
+    case BnetType::via:
+      return fixupVirtualLevels(node->ref(), drvr_level, info, vi);
+
+    case BnetType::junction: {
+      float l1 = fixupVirtualLevels(node->ref(), drvr_level, info, vi);
+      float l2 = fixupVirtualLevels(node->ref2(), drvr_level, info, vi);
+      return std::min(l1, l2);
+    }
+
+    case BnetType::buffer: {
+      // Consume the two vertex IDs (same order as walk: buf_in, buf_out)
+      if (vi + 1 >= info.vertex_ids.size())
+        return drvr_level + 1.0f;
+      VertexId buf_in_id  = info.vertex_ids[vi++];
+      VertexId buf_out_id = info.vertex_ids[vi++];
+
+      // Recurse first to get downstream level
+      float downstream_level = fixupVirtualLevels(node->ref(), drvr_level, info, vi);
+
+      // Interpolate: buf_in at 1/4, buf_out at 3/4 between drvr and downstream
+      float buf_in_level  = drvr_level * 0.75f + downstream_level * 0.25f;
+      float buf_out_level = drvr_level * 0.25f + downstream_level * 0.75f;
+      pt_graph->ptVertex(buf_in_id).setLevel(buf_in_level);
+      pt_graph->ptVertex(buf_out_id).setLevel(buf_out_level);
+
+      // Return buf_in level (closest to driver) for upstream computation
+      return buf_in_level;
+    }
+
+    default:
+      return drvr_level + 1.0f;
+  }
 }
 
 // Info collected per leaf node when building a synthetic parasitic network.
@@ -2772,7 +3679,9 @@ static FixedDelay rszCriticalPathDelay(const BufferedNetPtr &root)
 }
 
 bool
-LrRebuffer::prepareRszBnet(const sta::Pin *drvr_pin, int bft_iter)
+LrRebuffer::prepareRszBnet(const sta::Pin *drvr_pin,
+                            sta::VertexId drvr_vid,
+                            int bft_iter)
 {
   best_bnet_ = nullptr;
 
@@ -2797,52 +3706,129 @@ LrRebuffer::prepareRszBnet(const sta::Pin *drvr_pin, int bft_iter)
     return false;
 
   setPin(const_cast<sta::Pin*>(drvr_pin));
-  BufferedNetPtr bnet = resizer_->makeBufferedNet(drvr_pin, corner_);
+  drvr_pin_ = drvr_pin;
+
+  BnetPtr bnet = resizer_->makeBufferedNet(drvr_pin, corner_);
   if (!bnet) {
     printf("prepareRszBnet: Warning: unable to create buffered net for pin %s\n",
            network_->name(drvr_pin));
     return false;
   }
 
-  annotateLoadSlacks(bnet, drvr_vertex);
+  // Parallel-safe slack + LM annotation (no arrival_paths_ dependency).
+  annotateLoadSlacksSlackDp(bnet, drvr_vid);
+  annotateLoadLMs(eval_ctx_->pt_graph->ptVertex(drvr_vid), bnet);
 
   const bool allow_topology_rewrite
       = (estimate_parasitics_->getParasiticsSrc()
          == est::ParasiticsSrc::placement);
 
-  // bft_iter rounds of bufferForTiming (3 = same as rsz::Rebuffer::rebufferPin).
+  // Phase 1: parallel-safe slack-DP (replaces Rebuffer::bufferForTiming which
+  // reads arrival_paths_ / bufferDelay from shared STA).
   for (int i = 0; i < bft_iter; i++) {
-    bnet = Rebuffer::bufferForTiming(bnet, allow_topology_rewrite);
+    bnet = bufferForTimingSlackDp(drvr_vid, bnet, allow_topology_rewrite);
     if (!bnet) {
-      printf("prepareRszBnet: Warning: bufferForTiming failed for pin %s "
+      printf("prepareRszBnet: Warning: bufferForTimingSlackDp failed for pin %s "
              "after %d rounds\n", network_->name(drvr_pin), i + 1);
-      break;
+      return false;
     }
   }
 
-  if (!bnet)
+  // No Phase 2 recovery — pure slack-DP result (RSZ ablation baseline).
+  // recoverArea is not parallel-safe (reads arrival_paths_).
+
+  best_bnet_ = bnet;
+
+  // Rebuild virtual buffer and refresh local timing (same as prepareSlackDpBnet).
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
+  best_vinfo_ = buildVirtualBuffer(drvr_vid, best_bnet_);
+  if (!best_vinfo_.failed) {
+    pt_graph->topoSortVertices();
+    buildSyntheticParasitics(drvr_vid, best_bnet_, best_vinfo_);
+    local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
+  }
+  return true;
+}
+
+bool
+LrRebuffer::prepareSlackDpBnet(const sta::Pin *drvr_pin,
+                                sta::VertexId drvr_vid,
+                                int bft_iter,
+                                int recover_iter)
+{
+  best_bnet_ = nullptr;
+  static constexpr int rebuffer_max_fanout = 20;
+
+  if (network_->isTopLevelPort(drvr_pin)) return false;
+  sta::Vertex *drvr_vertex = graph_->pinDrvrVertex(drvr_pin);
+  int fo = Rebuffer::fanout(drvr_vertex);
+  if (fo <= 1 || fo >= rebuffer_max_fanout) return false;
+  if (!resizer_->okToBufferNet(drvr_pin)) return false;
+
+  sta::Net *net = network_->net(drvr_pin);
+  drvr_port_ = network_->libertyPort(drvr_pin);
+  if (!net || !drvr_port_ || hasTopLevelOutputPort(net)) return false;
+
+  setPin(const_cast<sta::Pin*>(drvr_pin));
+  drvr_pin_ = drvr_pin;
+
+  BnetPtr bnet = resizer_->makeBufferedNet(drvr_pin, corner_);
+  if (!bnet) {
+    printf("prepareSlackDpBnet: makeBufferedNet failed for pin %s\n",
+           network_->name(drvr_pin));
     return false;
+  }
 
-  // Area recovery (same as rsz::Rebuffer::rebufferPin).
-  sta::Delay drvr_gate_delay;
-  std::tie(drvr_gate_delay, std::ignore, std::ignore) = drvrPinTiming(bnet);
-  sta::Delay relaxation = (std::max(drvr_gate_delay, 0.0f)
-                           + rszCriticalPathDelay(bnet).toSeconds())
-                          * relaxation_factor_;
-  rsz::FixedDelay target
-      = slackAtDriverPin(bnet) - rsz::FixedDelay(relaxation, resizer_);
+  // ── Slack-DP path: annotate sink slacks (no arrival_paths_) ──
+  annotateLoadSlacksSlackDp(bnet, drvr_vid);
 
-  for (int i = 0; i < 5 && bnet; i++) {
-    bnet = recoverArea(bnet, target, ((float) (1 + i)) / 5);
+  // Annotate LMs so recoverLrCost / evaluateOption can compute LR cost.
+  // Re-look up PtVertex each time (O(1) index) — pt_graph may have been
+  // mutated by any prior step; vid stays valid.
+  annotateLoadLMs(eval_ctx_->pt_graph->ptVertex(drvr_vid), bnet);
+
+  const bool allow_topology_rewrite
+      = (estimate_parasitics_->getParasiticsSrc()
+         == est::ParasiticsSrc::placement);
+
+  // Phase 1: bufferForTimingSlackDp iterations.
+  for (int i = 0; i < bft_iter; i++) {
+    bnet = bufferForTimingSlackDp(drvr_vid, bnet, allow_topology_rewrite);
+    if (!bnet) {
+      printf("prepareSlackDpBnet: bufferForTimingSlackDp failed for pin %s "
+             "after %d rounds\n", network_->name(drvr_pin), i + 1);
+      return false;
+    }
+  }
+
+  // Phase 2: recoverLrCost iterations with alpha-blended slack threshold.
+  // slack_target = current slack (don't regress vs slack-DP achievement).
+  rsz::FixedDelay slack_target = bnet->slack();
+  for (int i = 0; i < recover_iter && bnet; i++) {
+    bnet = recoverLrCost(drvr_vid, bnet, slack_target,
+                         (float)(1 + i) / recover_iter);
   }
 
   if (!bnet) {
-    printf("prepareRszBnet: Warning: area recovery failed for pin %s\n",
+    printf("prepareSlackDpBnet: recoverLrCost failed for pin %s\n",
            network_->name(drvr_pin));
     return false;
   }
 
   best_bnet_ = bnet;
+
+  // Rebuild virtual buffer for best_bnet_ and refresh local timing so that
+  // (a) best_vinfo_ matches the tree writeTimingToGraph will walk, and
+  // (b) findLocalArrivals allocates paths_ on each virtual vertex.
+  // Without this, writeTimingToGraph's walkTree hits the vi/ei-bounds break
+  // and never calls initNewStaVertexPaths on the inserted rebuffer sta::Vertex.
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
+  best_vinfo_ = buildVirtualBuffer(drvr_vid, best_bnet_);
+  if (!best_vinfo_.failed) {
+    pt_graph->topoSortVertices();
+    buildSyntheticParasitics(drvr_vid, best_bnet_, best_vinfo_);
+    local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
+  }
   return true;
 }
 

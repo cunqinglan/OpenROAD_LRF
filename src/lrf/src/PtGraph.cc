@@ -765,19 +765,18 @@ PtGraph::setSlew(PtVertex &pt_vertex, const RiseFall *rf,
 void
 PtGraph::initLoadSlews(PtVertex &drvr_pt_vertex)
 {
+  const sta::DcalcAnalysisPt *dcalc_ap = dcalc_ap_;
+  const sta::MinMax *slew_min_max = dcalc_ap->slewMinMax();
+  sta::Slew slew_init_value(slew_min_max->initValue());
+  sta::DcalcAPIndex ap_index = dcalc_ap->index();
   PtVertexOutEdgeIterator out_iter(drvr_pt_vertex.objectIdx(), this);
   while (out_iter.hasNext()) {
     PtEdge &pt_edge = out_iter.next();
     if (pt_edge.isWire()) {
       VertexId to_id = pt_edge.ptToId();
       PtVertex &load_pt_vertex = pt_vertices_[to_id];
-      for (const sta::DcalcAnalysisPt *dcalc_ap : sta_->corners()->dcalcAnalysisPts()) {
-        const sta::MinMax *slew_min_max = dcalc_ap->slewMinMax();
-        sta::Slew slew_init_value(slew_min_max->initValue());
-        sta::DcalcAPIndex ap_index = dcalc_ap->index();
-        for (const sta::RiseFall *rf : sta::RiseFall::range()) {
-          setSlew(load_pt_vertex, rf, ap_index, slew_init_value);
-        }
+      for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+        setSlew(load_pt_vertex, rf, ap_index, slew_init_value);
       }
     }
   }
@@ -786,18 +785,17 @@ PtGraph::initLoadSlews(PtVertex &drvr_pt_vertex)
 void
 PtGraph::initWireDelays(PtVertex &drvr_pt_vertex)
 {
+  const sta::DcalcAnalysisPt *dcalc_ap = dcalc_ap_;
+  const sta::MinMax *delay_min_max = dcalc_ap->delayMinMax();
+  sta::Delay delay_init_value(delay_min_max->initValue());
+  sta::DcalcAPIndex ap_index = dcalc_ap->index();
   PtVertexOutEdgeIterator out_iter(drvr_pt_vertex.objectIdx(), this);
   while (out_iter.hasNext()) {
     PtEdge &out_pt_edge = out_iter.next();
     if (out_pt_edge.isWire()
         && out_pt_edge.type() != PtEdgeType::VirtualWireEdge) {
-      for (const sta::DcalcAnalysisPt * dcalc_ap : sta_->corners()->dcalcAnalysisPts()) {
-        const sta::MinMax *delay_min_max = dcalc_ap->delayMinMax();
-        sta::Delay delay_init_value(delay_min_max->initValue());
-        sta::DcalcAPIndex ap_index = dcalc_ap->index();
-        for (const sta::RiseFall *rf : sta::RiseFall::range()) {
-          setWireArcDelay(out_pt_edge, rf, ap_index, delay_init_value);
-        }
+      for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+        setWireArcDelay(out_pt_edge, rf, ap_index, delay_init_value);
       }
     }
   }
@@ -1163,6 +1161,56 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
       }
     }
   }
+  // Precheck: sibling arc_delays were not updated; recover their LM
+  // contribution via finite-diff.
+  if (precheck_mode_)
+    result->delay_lm_sum += siblingDeltaDelayLmSum(
+        const_cast<sta::DcalcAnalysisPt *>(dcalc_ap));
+}
+
+float
+PtGraph::siblingDeltaDelayLmSum(sta::DcalcAnalysisPt *dcalc_ap)
+{
+  // Σ delay_diff × Δin_slew × arc_lm over SiblingEdge arcs.
+  // Δin_slew = pt_graph slew (current candidate) − sta::Graph slew (base).
+  // Caller must have ensured precheck mode is on so SiblingEdges were
+  // not gateDelay'd into PtEdge.arc_delays_.
+  if (dcalc_ap == nullptr) dcalc_ap = dcalc_ap_;
+  float delta_sum = 0.0f;
+  const sta::DcalcAPIndex ap_index = dcalc_ap->index();
+  sta::Graph *sta_graph = sta_->graph();
+  for (PtEdge &pt_edge : pt_edges_) {
+    if (pt_edge.type() != PtEdgeType::SiblingEdge
+        || pt_edge.isSiblingSkipped())
+      continue;
+    sta::Edge *base_edge = pt_edge.edge();
+    if (!base_edge)
+      continue;
+    const float *diffs = base_edge->delayDiffs();
+    if (!diffs)
+      continue;
+    const LMValue *lms = pt_edge.arcLms();
+    sta::TimingArcSet *arc_set = pt_edge.timingArcSet();
+    if (!lms || !arc_set)
+      continue;
+    PtVertex &from_pt = ptVertex(pt_edge.ptFromId());
+    sta::Vertex *from_sta = from_pt.vertex();
+    if (!from_sta)
+      continue;
+    for (sta::TimingArc *arc : arc_set->arcs()) {
+      const sta::RiseFall *from_rf = arc->fromEdge()->asRiseFall();
+      if (!from_rf)
+        continue;
+      const sta::Slew &cur_in = slew(from_pt, from_rf, ap_index);
+      const sta::Slew &base_in = sta_graph->slew(from_sta, from_rf, ap_index);
+      float dslew = sta::delayAsFloat(cur_in) - sta::delayAsFloat(base_in);
+      if (dslew == 0.0f)
+        continue;
+      size_t idx = lmIndex(arc, ap_index, ap_count_);
+      delta_sum += diffs[idx] * dslew * lms[idx];
+    }
+  }
+  return delta_sum;
 }
 
 void

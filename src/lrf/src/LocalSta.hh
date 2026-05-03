@@ -120,9 +120,17 @@ public:
   // Get max slew across rise/fall for a PtVertex
   float getVertexMaxSlew(PtGraph *pt_graph, PtVertex &ptv,
                          sta::DcalcAnalysisPt *dcalc_ap);
-  // Check slew limits for all wire-fanout loads of a driver PtVertex
+  // Check slew limits for all wire-fanout loads of a driver PtVertex.
+  // slew_limit_scale multiplies the library slew limit. Default 0.9 = 10%
+  // headroom, reserved so the optimizer rejects cells that would ship
+  // post-GRT slew violations after the placement → global_routing RC shift.
   bool checkFanoutLoadSlew(PtGraph *pt_graph, VertexId drvr_id,
-                           sta::DcalcAnalysisPt *dcalc_ap);
+                           sta::DcalcAnalysisPt *dcalc_ap,
+                           float slew_limit_scale = 0.95f);
+  // Sum (load_slew - limit)_+ across all wire-fanout loads of drvr.
+  float fanoutLoadSlewViolation(PtGraph *pt_graph, VertexId drvr_id,
+                                sta::DcalcAnalysisPt *dcalc_ap,
+                                float slew_limit_scale = 0.95f);
   sta::LibertyPort *findTargetPort(const PtVertex &ptv,
                                    sta::LibertyCell *to_lib_cell) const;
   float getPinSlew(sta::Pin *pin, const sta::Corner *corner,
@@ -134,11 +142,38 @@ public:
                             const sta::Corner *corner,
                             const sta::MinMax *min_max,
                             PtGraph *pt_graph);
-  bool legalCheckAfterSwap(sta::Instance *inst, 
+  // slew_limit_scale: multiplier on the library slew limit. Default 0.9 =
+  // 10% headroom, matching LrConfig::slew_margin's default. Reserved so the
+  // optimizer rejects cells that would ship post-GRT slew violations after
+  // the placement → global_routing RC shift.
+  bool legalCheckAfterSwap(sta::Instance *inst,
                            sta::LibertyCell *to_lib_cell,
                            const sta::Corner *corner,
                            const sta::MinMax *min_max,
-                           PtGraph *pt_graph);
+                           PtGraph *pt_graph,
+                           float slew_limit_scale = 0.95f);
+
+  // ERC relaxation: instead of boolean legal/illegal, return summed
+  // violation magnitude (max(0, value - limit)) split by type.
+  // slew/cap_limit_scale multiply the library slew/cap limits: a scale of
+  // 0.85 flags violations once the value exceeds 85% of the limit, giving
+  // 15% physical headroom that survives post-GR RC shift. Tighter scale
+  // → earlier penalization → more conservative sizing.
+  // slew is in seconds, cap is in farads. Caller normalizes to taste.
+  struct ViolationSum { float slew = 0.0f; float cap = 0.0f; };
+  ViolationSum violationSumBeforeSwap(sta::Instance *inst,
+                                      sta::LibertyCell *to_lib_cell,
+                                      const sta::Corner *corner,
+                                      const sta::MinMax *min_max,
+                                      PtGraph *pt_graph,
+                                      float cap_limit_scale = 1.0f);
+  ViolationSum violationSumAfterSwap(sta::Instance *inst,
+                                     sta::LibertyCell *to_lib_cell,
+                                     const sta::Corner *corner,
+                                     const sta::MinMax *min_max,
+                                     PtGraph *pt_graph,
+                                     float slew_limit_scale = 1.0f,
+                                     float cap_limit_scale = 1.0f);
 
   // Violation check functions - public interfaces
   void checkSlew(const sta::Pin *pin,
@@ -155,6 +190,8 @@ public:
                  float &slack1) const;
 
   sta::Path *ptVertexWorstSlackPath(PtVertex &pt_vertex, const sta::MinMax *min_max) const;
+  sta::Path *ptVertexWorstSlackPath(PtVertex &pt_vertex,
+                                    const sta::DcalcAnalysisPt *dcalc_ap) const;
 
   // Public API for operators
   DelayLmSumResult initAndGetLocalTimingCost(PtGraph *pt_graph, sta::ArcDelayCalc *arc_delay_calc);

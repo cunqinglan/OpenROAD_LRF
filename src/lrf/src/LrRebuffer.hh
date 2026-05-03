@@ -33,7 +33,7 @@ public:
   static void initGlobalPreamble(sta::dbSta* sta, rsz::Resizer* resizer);
   void init();
   void rebufferPin(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex);
-  rsz::BufferedNetPtr bufferForTiming(sta::VertexId drvr_vertex_id, const rsz::BufferedNetPtr& tree, bool allow_topology_rewrite, bool last_iteration);
+  rsz::BufferedNetPtr bufferForTimingLrf(sta::VertexId drvr_vertex_id, const rsz::BufferedNetPtr& tree, bool allow_topology_rewrite, bool last_iteration);
   void annotateLoadLMs(PtVertex &drvr_pt_vertex, const rsz::BufferedNetPtr& tree);
   void insertBufferOptions(rsz::BufferedNetSeq& opts, int level, int next_segment_wl = 0);
   rsz::BufferedNetPtr addWire(const rsz::BufferedNetPtr& p, odb::Point wire_end, int wire_layer, int level = -1);
@@ -68,13 +68,24 @@ public:
   // Repair slew violations on a single driver net by inserting buffers.
   int repairSlew(const sta::Pin *drvr_pin, rsz::Resizer *resizer);
 
-  // Two-phase RSZ-style rebuffering for parallel execution:
-  //
-  // Phase 1 (parallel-safe): pre-checks, makeBufferedNet, annotateLoadSlacks,
-  // N× bufferForTiming, 5× recoverArea.  Stores result in best_bnet_/drvr_pin_.
-  // Returns true if a valid bnet was prepared.
-  // Does NOT modify the netlist.
-  bool prepareRszBnet(const sta::Pin *drvr_pin, int bft_iter = 3);
+  // Parallel-safe RSZ-style rebuffering (pure slack-DP, no recovery):
+  // pre-checks, makeBufferedNet, annotateLoadSlacksSlackDp,
+  // N× bufferForTimingSlackDp.  Stores result in best_bnet_/drvr_pin_.
+  // No recoverArea (not parallel-safe).  Takes VertexId for thread safety.
+  bool prepareRszBnet(const sta::Pin *drvr_pin, sta::VertexId drvr_vid,
+                      int bft_iter = 3);
+
+  // Slack-DP entry: parallel to prepareRszBnet but uses LRF's slack-DP
+  // family (bufferForTimingSlackDp + recoverLrCost). Stores result in
+  // best_bnet_/drvr_pin_. Takes VertexId (not PtVertex&) so that any
+  // downstream pt_graph mutation (e.g., buildVirtualBuffer inside
+  // evaluateOption) can't invalidate the caller's reference — the PtVertex
+  // is looked up fresh via eval_ctx_->pt_graph->ptVertex(vid) (O(1) vector
+  // index) each time it's actually needed.
+  bool prepareSlackDpBnet(const sta::Pin *drvr_pin,
+                           sta::VertexId drvr_vid,
+                           int bft_iter = 3,
+                           int recover_iter = 5);
 
   // Phase 2 (requires mutex): call applyBufferingToDb() to export
   // best_bnet_ to DB, persist parasitics, and write timing.
@@ -82,6 +93,59 @@ public:
   // Experiment B: generate bnet with RSZ algorithm, evaluate with LRF local timing.
   // Does NOT modify the design — only prints diagnostic info.
   void probeRszBnetWithLocalEval(const sta::Pin *drvr_pin, PtVertex &drvr_pt_vertex);
+
+  // ── Slack-based DP family (LRF-self-contained, no Rebuffer base calls) ──
+  //
+  // All four functions (annotate / bufferForTiming / insertBufferOptions /
+  // attemptTopologyRewrite) are LRF-local copies of the Rebuffer base class
+  // methods, with two key differences:
+  //
+  //   1. annotateLoadSlacksSlackDp: replaces Rebuffer::annotateLoadSlacks.
+  //      Does NOT populate Rebuffer::arrival_paths_; reads sink slacks via
+  //      sta_->vertexSlack (single memory read, multi-thread safe) and caches
+  //      drvr_worst_rf_/drvr_worst_dap_ from driver's own paths instead.
+  //
+  //   2. bufferForTimingSlackDp / insertBufferOptionsSlackDp /
+  //      attemptTopologyRewriteSlackDp: replace every bufferDelay(cell, rf, cap)
+  //      with computeBufferGateDelay(cell, cap), avoiding arrival_paths_.
+  //
+  // CRITICAL: Rebuffer::annotateLoadSlacks (base class) is still relied on by
+  // probeRszBnetWithLocalEval / probeAllOptions / other probes that need real
+  // arrival_paths_. Do NOT call annotateLoadSlacksSlackDp before those probes
+  // — they're the wrong API for the wrong context.
+  void annotateLoadSlacksSlackDp(rsz::BufferedNetPtr& tree,
+                                  sta::VertexId drvr_vid);
+  rsz::BufferedNetPtr bufferForTimingSlackDp(
+      sta::VertexId drvr_vertex_id,
+      const rsz::BufferedNetPtr& tree,
+      bool allow_topology_rewrite);
+  // Slack-based wire-walk buffer insertion. With lrcost_oriented=true (used
+  // by recoverLrCost), ranks options by bufferCost subject to slack ≥
+  // slack_threshold; mirrors base Rebuffer::insertBufferOptions area mode
+  // with bufferCost replacing area as the objective.
+  void insertBufferOptionsSlackDp(rsz::BufferedNetSeq& opts, int level,
+                                   int next_segment_wl,
+                                   bool lrcost_oriented = false,
+                                   rsz::FixedDelay slack_threshold
+                                       = rsz::FixedDelay::ZERO,
+                                   rsz::BufferedNet* exemplar = nullptr);
+  rsz::BufferedNetPtr attemptTopologyRewriteSlackDp(
+      const rsz::BufferedNetPtr& node,
+      const rsz::BufferedNetPtr& left,
+      const rsz::BufferedNetPtr& right,
+      float best_cap);
+
+  // Recover LR cost on a bnet produced by bufferForTimingSlackDp.
+  // Full faithful port of Rebuffer::recoverArea: top-down arrival-delay
+  // spread, bottom-up DP enumeration with assured-envelope guard and
+  // alpha-blended slack threshold, junction full N×M cross product +
+  // Pareto pruning, final selection by min bufferCost among slack-meeting
+  // options. Caller must call annotateLoadLMs first.
+  rsz::BufferedNetPtr recoverLrCost(sta::VertexId drvr_vertex_id,
+                                    const rsz::BufferedNetPtr& root,
+                                    rsz::FixedDelay slack_target,
+                                    float alpha);
+  void computeAndAnnotateBufferCost(const rsz::BufferedNetPtr& root);
   // Repair cap violations on a single driver net by inserting buffers.
   // Walks the Steiner tree bottom-up; at each junction where combined
   // cap exceeds max_cap, inserts a buffer to isolate the larger branch
@@ -142,6 +206,13 @@ protected:
   void buildSyntheticParasitics(VertexId drvr_vertex_id,
                                 const rsz::BufferedNetPtr& option,
                                 const VirtualBufferInfo &vinfo);
+  // Bottom-up pass: set correct levels on virtual buffer vertices so that
+  // topo sort places each VirtualOutput before its downstream loads.
+  // Returns the level of the topmost (closest-to-driver) vertex in the subtree.
+  float fixupVirtualLevels(const rsz::BufferedNetPtr& node,
+                           float drvr_level,
+                           VirtualBufferInfo &info,
+                           size_t &vi);
 
 protected:
   LocalSta *local_sta_;
@@ -159,6 +230,12 @@ protected:
   // candidate decision point. Used by TestRebuffer::probeAllOptions to
   // investigate why multi-buffer topologies are not being generated.
   bool prune_debug_ = false;
+
+  // Cached driver worst-path metadata, populated by annotateLoadSlacksFast.
+  // Used as a thread-safe replacement for Rebuffer::arrival_paths_ when
+  // running slack-based bufferForTiming on LRF context.
+  const sta::RiseFall *drvr_worst_rf_ = nullptr;
+  const sta::DcalcAnalysisPt *drvr_worst_dap_ = nullptr;
 
   // Saved from last bufferForTiming call (last iteration's top options)
   std::vector<rsz::BufferedNetPtr> last_top_opts_;

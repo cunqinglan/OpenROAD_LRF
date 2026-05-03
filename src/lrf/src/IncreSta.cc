@@ -7,6 +7,7 @@
 #include "sta/PathExpanded.hh"
 #include "sta/Search.hh"
 #include "sta/EquivCells.hh"
+#include "sta/Sdc.hh"
 #include "power/Power.hh"
 #include "sta/DcalcAnalysisPt.hh"
 #include "sta/PathAnalysisPt.hh"
@@ -227,6 +228,18 @@ IncreSta::checkeTopoOrder(InstanceSeq &) {
 }
 
 void
+IncreSta::initDelayDiff()
+{
+  sta::Graph *graph = sta_->graph();
+  if (!graph || graph->enableDiff()) return;   // already initialized
+  graph->setEnableDiff(true);
+  // Force a full re-eval: clears the incremental queue and re-seeds roots,
+  // so the next findDelays revisits every arc and writes delay_diffs_.
+  sta_->delaysInvalid();
+  sta_->findDelays();
+}
+
+void
 IncreSta::delayLmSum(Instance *inst, const MinMax *minmax, float &delay_lambda_sum)
 {
   init();
@@ -241,12 +254,111 @@ IncreSta::isPowerOptimizationMode() const
 }
 
 void
+IncreSta::recordMetrics(double wns_ps, double tns_ps, double leakage)
+{
+  // wns/tns rolling 4 (used by isTnsPlateau over a 3-iter span).
+  wns_history_.push_back(wns_ps);
+  tns_history_.push_back(tns_ps);
+  while (wns_history_.size() > 4) wns_history_.pop_front();
+  while (tns_history_.size() > 4) tns_history_.pop_front();
+
+  // leakage is *unbounded* — power_mode_iters_ acts as the index back to the
+  // pre-power baseline (leakage_history_[size-1-power_mode_iters_]). Memory
+  // is O(total LR iters), trivially small.
+  leakage_history_.push_back(leakage);
+
+  // power_mode_iters_ tracks iters since first entering power mode.
+  // Power mode is sticky, so no entry flag needed.
+  if (isPowerOptimizationMode()) ++power_mode_iters_;
+}
+
+double
+IncreSta::tnsImprovementRate() const
+{
+  if (tns_history_.size() < 4) return 0.0;
+  const double front = std::min(tns_history_.front(), 0.0);
+  const double back  = std::min(tns_history_.back(),  0.0);
+  if (front >= 0.0) return 0.0;            // already met → rate ill-defined
+  return std::max(back - front, 0.0) / -front;     // +ve = TNS less negative
+}
+
+double
+IncreSta::leakageReductionRate() const
+{
+  // Index back power_mode_iters_ steps from the latest sample to find the
+  // pre-power baseline. Requires the baseline to still be in the deque
+  // (it is, since leakage_history_ is unbounded).
+  if (power_mode_iters_ == 0) return 0.0;
+  const size_t n = leakage_history_.size();
+  if (n <= power_mode_iters_) return 0.0;            // no pre-power sample
+  const double baseline = leakage_history_[n - 1 - power_mode_iters_];
+  if (baseline <= 0.0) return 0.0;
+  const double cur = leakage_history_.back();
+  return (baseline - cur) / baseline / static_cast<double>(power_mode_iters_);
+}
+
+bool
+IncreSta::isTnsPlateau(double threshold) const
+{
+  if (tns_history_.size() < 4) return false;
+  if (tns_history_.front() >= 0.0) return true;  // already met → treat as plateau
+  return tnsImprovementRate() < threshold;
+}
+
+bool
+IncreSta::isLeakagePlateau(double threshold) const
+{
+  if (!isPowerOptimizationMode()) return false;
+  if (power_mode_iters_ < 3)      return false;   // need ≥3 post-entry samples
+  return leakageReductionRate() < threshold;
+}
+
+void
 IncreSta::lmUpdate()
 {
   sta::Slack wns = sta_->worstSlack(sta::MinMax::max());
-  if (wns >= 0.0) {
-    lr_helper_->setMode("power");
-    printf("All timing constraints are met (WNS %e), switching to power optimization mode\n", wns);
+  sta::Slack tns = sta_->totalNegativeSlack(sta::MinMax::max());
+
+  // Power-mode entry: any ONE of the following is sufficient.
+  //   (a) |WNS| < 1%  of T_eff  (worst violation small)
+  //   (b) |TNS| < 10% of T_eff  (total violation small)
+  //   (c) TNS plateau over the rolling history (improvement rate < 10%)
+  // T_eff = clock_period * (1 + timing_margin), matching RapidLrHelper.
+  // History is fed externally via recordMetrics() at snapshot time.
+  if (lr_helper_ && lr_helper_->mode() != "power") {
+    float clock_period = 0.0f;
+    for (Clock *clock : *sdc_->clocks()) {
+      float period = clock->period();
+      if (period > clock_period) {
+        clock_period = period;
+        break;
+      }
+    }
+    if (clock_period > 0.0f) {
+      const float t_eff = clock_period * (1.0f + lr_helper_->timingMargin());
+      const bool wns_ok     = wns > -0.01 * t_eff;
+      const bool tns_ok     = tns > -0.10 * t_eff;
+      const bool plateau_ok = isTnsPlateau(0.10);
+      if (wns_ok || tns_ok || plateau_ok) {
+        lr_helper_->setMode("power");
+        printf("Switching to power mode "
+               "(WNS=%.3f ps, TNS=%.3f ps, T_eff=%.3f ps; "
+               "wns_ok=%d tns_ok=%d plateau_ok=%d, TNS rate=%.4f)\n",
+               wns * 1e12, tns * 1e12, t_eff * 1e12,
+               wns_ok, tns_ok, plateau_ok, tnsImprovementRate());
+        fflush(stdout);
+      }
+      // Sticky CPS gate — only the timing-clean (a)/(b) thresholds latch
+      // it on; (c) plateau alone is not enough. Once enabled, stays on
+      // for the rest of the run.
+      if (!cps_enabled_ && (wns_ok || tns_ok)) {
+        cps_enabled_ = true;
+        printf("CPS enabled (WNS=%.3f ps, TNS=%.3f ps cleared "
+               "(a)/(b) threshold; T_eff=%.3f ps)\n",
+               wns * 1e12, tns * 1e12, t_eff * 1e12);
+        fflush(stdout);
+      }
+    }
   }
 
   const bool use_parallel = (thread_count_ > 1 && dispatch_queue_);
@@ -354,6 +466,72 @@ IncreSta::averageLeakage()
   }
   delete inst_iter;
   return total_leakage / cnt;
+}
+
+float
+IncreSta::averageOutSlew()
+{
+  sta::Corner *corner = sta_->corners()->findCorner("default");
+  sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
+  double sum = 0.0;
+  int cnt = 0;
+  sta::LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
+  while (inst_iter->hasNext()) {
+    sta::Instance *inst = inst_iter->next();
+    sta::InstancePinIterator *pin_iter = network_->pinIterator(inst);
+    while (pin_iter->hasNext()) {
+      sta::Pin *pin = pin_iter->next();
+      if (!network_->direction(pin)->isAnyOutput())
+        continue;
+      sta::Vertex *vtx = sta_->graph()->pinDrvrVertex(pin);
+      if (!vtx)
+        continue;
+      float s = 0.0f;
+      for (const RiseFall *rf : RiseFall::range()) {
+        float sl = sta_->graph()->slew(vtx, rf, dcalc_ap->index());
+        if (sl > s) s = sl;
+      }
+      sum += s;
+      cnt++;
+    }
+    delete pin_iter;
+  }
+  delete inst_iter;
+  return cnt > 0 ? static_cast<float>(sum / cnt) : 1e-10f;
+}
+
+float
+IncreSta::averageLoadCap()
+{
+  sta::Corner *corner = sta_->corners()->findCorner("default");
+  sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
+  double sum = 0.0;
+  int cnt = 0;
+  sta::LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
+  while (inst_iter->hasNext()) {
+    sta::Instance *inst = inst_iter->next();
+    sta::InstancePinIterator *pin_iter = network_->pinIterator(inst);
+    while (pin_iter->hasNext()) {
+      sta::Pin *pin = pin_iter->next();
+      if (!network_->direction(pin)->isAnyOutput())
+        continue;
+      float lc = sta_->graphDelayCalc()->loadCap(pin, dcalc_ap);
+      sum += lc;
+      cnt++;
+    }
+    delete pin_iter;
+  }
+  delete inst_iter;
+  return cnt > 0 ? static_cast<float>(sum / cnt) : 1e-15f;
+}
+
+void
+IncreSta::updateErcNormalizers()
+{
+  avg_out_slew_ = averageOutSlew();
+  avg_load_cap_ = averageLoadCap();
+  printf("ERC normalizers: avg_slew=%.3e s, avg_cap=%.3e F\n",
+         avg_out_slew_, avg_load_cap_);
 }
 
 float
@@ -674,7 +852,9 @@ IncreSta::setMaxResizeNum(size_t max_resize_num)
 
 void
 IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
-                                  float avg_power, float PT_tradeoff)
+                                  float avg_power, float PT_tradeoff,
+                                  float erc_violation_weight,
+                                  float erc_limit_scale)
 {
   auto start_total = std::chrono::high_resolution_clock::now();
 
@@ -686,6 +866,7 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
   if (!swap_cell_leakage_presaved_)
     preSaveLibCellLeakage();
   makeEquivCellArray();
+  updateErcNormalizers();
 
   auto start_resize = std::chrono::high_resolution_clock::now();
 
@@ -705,6 +886,12 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
     visitor->evalContext().density_weight = density_weight_;
     visitor->evalContext().average_area = average_area_;
   }
+  // ERC penalty normalizers (cached by updateErcNormalizers()).
+  visitor->evalContext().average_slew = avg_out_slew_;
+  visitor->evalContext().average_cap = avg_load_cap_;
+  visitor->evalContext().erc_violation_weight = erc_violation_weight;
+  visitor->evalContext().erc_slew_limit_scale = erc_limit_scale;
+  visitor->evalContext().erc_cap_limit_scale = erc_limit_scale;
   visitor->evalContext().debug = debug_;
 
   local_sta_->taskArranger()->setProgressTag("LRF resize");
@@ -729,7 +916,7 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
          pruning_control_.iteration, pruning_control_.enabled, pruning_control_.K);
   fflush(stdout);
 
-  if (isPowerOptimizationMode()) {
+  if (cps_enabled_) {
     ParallelVisitor *cp_visitor = new ParallelVisitor(sta_, local_sta_, resizer);
     std::unique_ptr<ResizeOperator> cp_resize_op =
         std::make_unique<ResizeOperator>(sta_, local_sta_);
@@ -737,6 +924,12 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
     cp_resize_op->setPruningControl(&pruning_control_);
     cp_visitor->setOperator(std::move(cp_resize_op));
     cp_visitor->init(avg_delay, avg_power, wns_after, PT_tradeoff, &inst_info_map_);
+    cp_visitor->evalContext().average_slew = avg_out_slew_;
+    cp_visitor->evalContext().average_cap = avg_load_cap_;
+    cp_visitor->evalContext().erc_violation_weight = erc_violation_weight;
+    cp_visitor->evalContext().erc_slew_limit_scale = erc_limit_scale;
+    cp_visitor->evalContext().erc_cap_limit_scale = erc_limit_scale;
+    cp_visitor->evalContext().debug = debug_;
     std::chrono::high_resolution_clock::time_point start_cps =
         std::chrono::high_resolution_clock::now();
     LrSizer lr_sizer(sta_, lr_helper_, cp_visitor);
@@ -816,6 +1009,71 @@ IncreSta::parallelBuffering(rsz::Resizer *resizer, float PT_tradeoff,
 
   auto end_total = std::chrono::high_resolution_clock::now();
   printf("IncreSta::parallelBuffering total time %.3f s\n",
+         std::chrono::duration<double>(end_total - start_total).count());
+}
+
+void
+IncreSta::parallelBufferingSdp(rsz::Resizer *resizer, float PT_tradeoff,
+                                float top_ratio, float erc_violation_weight,
+                                float erc_limit_scale)
+{
+  printf("IncreSta::parallelBufferingSdp start (LRF slack-DP rebuffering)\n");
+  auto start_total = std::chrono::high_resolution_clock::now();
+
+  float avg_delay = averageDelayOnCritPath();
+  float avg_leakage = averageLeakage();
+  sta::Slack wns = sta_->worstSlack(sta::MinMax::max());
+
+  local_sta_->initParallel();
+  TaskArranger *task_arranger = local_sta_->taskArranger();
+
+  int top_n = std::max<int>(
+      1, static_cast<int>(task_arranger->vertexCount() * top_ratio));
+  printf("SDP buffering candidates: top_ratio=%.3f (→ top %d of %zu instances)\n",
+         top_ratio, top_n, task_arranger->vertexCount());
+
+  std::vector<size_t> selected = bufferingVerticesCandidateBySensitivity(
+      resizer, avg_delay, avg_leakage, top_n);
+  if (selected.empty()) {
+    printf("No buffering candidates found. Skipping.\n");
+    return;
+  }
+  task_arranger->markSelectedInstances(selected);
+
+  auto *visitor = new ParallelVisitor(sta_, local_sta_, resizer);
+  visitor->setTaskArranger(task_arranger);
+
+  auto buffer_op = std::make_unique<BufferSdpOperator>(
+      sta_, local_sta_, resizer, &visitor->evalContext());
+  visitor->setOperator(std::move(buffer_op));
+  visitor->init(avg_delay, avg_leakage, wns, PT_tradeoff, nullptr);
+  visitor->evalContext().average_slew = avg_out_slew_;
+  visitor->evalContext().average_cap = avg_load_cap_;
+  visitor->evalContext().erc_violation_weight = erc_violation_weight;
+  visitor->evalContext().erc_slew_limit_scale = erc_limit_scale;
+  visitor->evalContext().erc_cap_limit_scale = erc_limit_scale;
+  visitor->evalContext().debug = debug_;
+
+  for (size_t vid : selected)
+    task_arranger->vertex(vid)->move_mask_ = InstVertex::kMoveBuffer;
+
+  auto start_buf = std::chrono::high_resolution_clock::now();
+  local_sta_->taskArranger()->setProgressTag("LRF buffering (SDP)");
+  local_sta_->runResize(resizer, visitor);
+  task_arranger->markDirty();
+  auto end_buf = std::chrono::high_resolution_clock::now();
+
+  sta_->updateTiming(true);
+  sta_->findRequireds();
+  double tns_after = sta_->totalNegativeSlack(sta::MinMax::max());
+  double wns_after = sta_->worstSlack(sta::MinMax::max());
+  printf("After SDP buffering: TNS: %.4f ps, WNS: %.4f ps\n",
+         tns_after * 1e12, wns_after * 1e12);
+  printf("  buffering time: %.3f s\n",
+         std::chrono::duration<double>(end_buf - start_buf).count());
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  printf("IncreSta::parallelBufferingSdp total time %.3f s\n",
          std::chrono::duration<double>(end_total - start_total).count());
 }
 
@@ -962,11 +1220,13 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
   auto start_total = std::chrono::high_resolution_clock::now();
 
   // Ensure prerequisites
+  initDelayDiff();        // populate sta::Edge.delay_diffs_ on first call
   local_sta_->initParallel();
   if (!equiv_cell_array_built_)
     makeEquivCellArray();
   if (!swap_cell_leakage_presaved_)
     preSaveLibCellLeakage();
+  updateErcNormalizers();
 
   Slack wns = sta_->worstSlack(MinMax::max());
   TaskArranger *task_arranger = local_sta_->taskArranger();
@@ -1042,7 +1302,8 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
 void
 IncreSta::parallelResizeByArrayWithPrecheck(
     rsz::Resizer *resizer, float avg_delay, float avg_power,
-    float PT_tradeoff, float top_ratio)
+    float PT_tradeoff, float top_ratio, float erc_violation_weight,
+    float erc_limit_scale)
 {
   auto start_total = std::chrono::high_resolution_clock::now();
 
@@ -1085,6 +1346,11 @@ IncreSta::parallelResizeByArrayWithPrecheck(
     visitor->evalContext().density_weight = density_weight_;
     visitor->evalContext().average_area = average_area_;
   }
+  visitor->evalContext().average_slew = avg_out_slew_;
+  visitor->evalContext().average_cap = avg_load_cap_;
+  visitor->evalContext().erc_violation_weight = erc_violation_weight;
+  visitor->evalContext().erc_slew_limit_scale = erc_limit_scale;
+  visitor->evalContext().erc_cap_limit_scale = erc_limit_scale;
   visitor->evalContext().debug = debug_;
 
   local_sta_->taskArranger()->setProgressTag("LRF precheck");
@@ -1118,7 +1384,7 @@ IncreSta::parallelResizeByArrayWithPrecheck(
     fflush(stdout);
   }
 
-  if (isPowerOptimizationMode()) {
+  if (cps_enabled_) {
     ParallelVisitor *cp_visitor = new ParallelVisitor(sta_, local_sta_, resizer);
     std::unique_ptr<ResizeOperator> cp_resize_op =
         std::make_unique<ResizeOperator>(sta_, local_sta_);
@@ -1131,6 +1397,11 @@ IncreSta::parallelResizeByArrayWithPrecheck(
       cp_visitor->evalContext().density_weight = density_weight_;
       cp_visitor->evalContext().average_area = average_area_;
     }
+    cp_visitor->evalContext().average_slew = avg_out_slew_;
+    cp_visitor->evalContext().average_cap = avg_load_cap_;
+    cp_visitor->evalContext().erc_violation_weight = erc_violation_weight;
+    cp_visitor->evalContext().erc_slew_limit_scale = erc_limit_scale;
+    cp_visitor->evalContext().erc_cap_limit_scale = erc_limit_scale;
     cp_visitor->evalContext().debug = debug_;
     std::chrono::high_resolution_clock::time_point start_cps =
         std::chrono::high_resolution_clock::now();
@@ -1357,6 +1628,7 @@ IncreSta::parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
   if (!swap_cell_leakage_presaved_)
     preSaveLibCellLeakage();
   makeEquivCellArray();
+  updateErcNormalizers();
 
   // Screen buffering candidates by sensitivity, top buffer_top_ratio fraction
   // of total instances (design-size scaled).
@@ -1420,7 +1692,7 @@ IncreSta::parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
   printf("After parallelResizeAndBuffering, TNS: %e, WNS: %e\n",
          tns_after, wns_after);
 
-  if (isPowerOptimizationMode()) {
+  if (cps_enabled_) {
     ParallelVisitor *cp_visitor = new ParallelVisitor(sta_, local_sta_, resizer);
     std::unique_ptr<ResizeOperator> cp_resize_op =
         std::make_unique<ResizeOperator>(sta_, local_sta_);

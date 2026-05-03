@@ -25,11 +25,34 @@ namespace lrf {
 
 float
 EvalContext::swapCost(float delay_lm_sum, float power,
-                      float density_cost) const
+                      float density_cost,
+                      float slew_violation, float cap_violation) const
 {
-  return PT_tradeoff * delay_lm_sum / average_delay
-       + power / average_leakage
-       + density_weight * density_cost / average_area;
+  float cost = PT_tradeoff * delay_lm_sum / average_delay
+             + power / average_leakage
+             + density_weight * density_cost / average_area;
+  // Only add the soft ERC penalty when weight > 0. Weight == 0 disables
+  // the term mathematically; weight < 0 would otherwise produce a NEGATIVE
+  // cost contribution and reward violation, so we explicitly skip it —
+  // the negative-weight semantics is "hard reject in caller", handled at
+  // each evaluate() call site. See NetlistTransformation.hh comment block.
+  if (erc_violation_weight > 0.0f) {
+    cost += erc_violation_weight * (slew_violation / average_slew
+                                  + cap_violation  / average_cap);
+  }
+  return cost;
+}
+
+float
+EvalContext::applySlackPenalty(float lrs_cost, float slack_before,
+                               float slack_after) const
+{
+  if (lrs_cost >= std::numeric_limits<float>::max())
+    return lrs_cost;
+  float deg = slack_before - slack_after;  // >0 means degraded
+  if (deg > 0.0f)
+    return lrs_cost + slack_deg_penalty * deg;
+  return lrs_cost;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -38,12 +61,12 @@ EvalContext::swapCost(float delay_lm_sum, float power,
 
 void
 MoveOption::updateIfBetter(Type t, float c, float s,
-                           float slack_before, float slack_margin,
+                           float /*slack_before*/, float /*slack_margin*/,
                            sta::LibertyCell *cell,
                            rsz::BufferedNetPtr bnet)
 {
-  if (s < slack_before * slack_margin)
-    return;
+  // Slack constraint is now folded into the cost as a soft penalty
+  // (EvalContext::applySlackPenalty), so cost-only comparison suffices.
   if (c < cost) {
     type = t;
     cost = c;
@@ -232,14 +255,18 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     sta::LibertyCell *cand = candidates[i];
 
     auto t_lc0 = std::chrono::high_resolution_clock::now();
-    bool legal_before = local_sta_->legalCheckBeforeSwap(
-        inst, cand, nullptr, nullptr, pt_graph);
+    LocalSta::ViolationSum v_before = local_sta_->violationSumBeforeSwap(
+        inst, cand, nullptr, nullptr, pt_graph, ctx.erc_cap_limit_scale);
     if (ctx.runtime_map) {
       auto t_lc1 = std::chrono::high_resolution_clock::now();
       (*ctx.runtime_map)["legalCheckBeforeSwap"] +=
           std::chrono::duration<double>(t_lc1 - t_lc0).count();
     }
-    if (!legal_before && cand != ori_cell)
+    // Hard-reject mode (erc_violation_weight < 0): skip any candidate that
+    // already violates slew/cap at v_before — never spend delay calc on it.
+    // Always preserve cand == ori_cell so the no-op slack reference survives.
+    if (ctx.erc_violation_weight < 0.0f && cand != ori_cell
+        && (v_before.slew > 0.0f || v_before.cap > 0.0f))
       continue;
 
     float leakage = lookupLeakage(inst, cand);
@@ -247,19 +274,23 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
         pt_graph, ctx.arc_delay_calc, cand, ctx.runtime_map).delay_lm_sum;
 
     auto t_lc2 = std::chrono::high_resolution_clock::now();
-    bool legal_after = local_sta_->legalCheckAfterSwap(
-        inst, cand, nullptr, nullptr, pt_graph);
+    LocalSta::ViolationSum v_after = local_sta_->violationSumAfterSwap(
+        inst, cand, nullptr, nullptr, pt_graph,
+        ctx.erc_slew_limit_scale, ctx.erc_cap_limit_scale);
     if (ctx.runtime_map) {
       auto t_lc3 = std::chrono::high_resolution_clock::now();
       (*ctx.runtime_map)["legalCheckAfterSwap"] +=
           std::chrono::duration<double>(t_lc3 - t_lc2).count();
     }
-    if (!legal_after && cand != ori_cell)
+    if (ctx.erc_violation_weight < 0.0f && cand != ori_cell
+        && (v_after.slew > 0.0f || v_after.cap > 0.0f))
       continue;
 
     // Density penalty: Dd = (cand_area - ori_area) * Φ(x,y)
     float density_cost = (cand->area() - ori_area) * local_density;
-    float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost);
+    float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost,
+                              v_before.slew + v_after.slew,
+                              v_before.cap  + v_after.cap);
     float slack = local_sta_->localSlackAroundRef(pt_graph);
     vec_cost_slack[i * 2] = cost;
     vec_cost_slack[i * 2 + 1] = slack;
@@ -276,9 +307,11 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   }
   auto start_post = std::chrono::high_resolution_clock::now();
 
-  // Pass 2: pick best (with slack margin check)
+  // Pass 2: pick best (slack-degradation penalty folded into cost)
   for (size_t i = 0; i < candidates.size(); i++) {
-    float cost = vec_cost_slack[i * 2];
+    float cost = ctx.applySlackPenalty(vec_cost_slack[i * 2],
+                                       slack_before,
+                                       vec_cost_slack[i * 2 + 1]);
     float slack = vec_cost_slack[i * 2 + 1];
     result.updateIfBetter(MoveOption::RESIZE_ONLY, cost, slack,
                           slack_before, slack_margin_, candidates[i], nullptr);
@@ -288,10 +321,10 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   if (pruning_control_ && mode != EvalMode::PRUNED) {
     std::vector<std::pair<float, sta::LibertyCell*>> cost_cells;
     for (size_t i = 0; i < candidates.size(); i++) {
-      float cost = vec_cost_slack[i * 2];
+      float lrs_cost = vec_cost_slack[i * 2];
       float slack = vec_cost_slack[i * 2 + 1];
-      if (cost < std::numeric_limits<float>::max()
-          && slack >= slack_before * slack_margin_) {
+      if (lrs_cost < std::numeric_limits<float>::max()) {
+        float cost = ctx.applySlackPenalty(lrs_cost, slack_before, slack);
         cost_cells.push_back({cost, candidates[i]});
       }
     }
@@ -403,14 +436,15 @@ ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
     sta::LibertyCell *cand = candidates[i];
 
     auto t_lc0 = std::chrono::high_resolution_clock::now();
-    bool legal_before = local_sta_->legalCheckBeforeSwap(
-        inst, cand, nullptr, nullptr, pt_graph);
+    LocalSta::ViolationSum v_before = local_sta_->violationSumBeforeSwap(
+        inst, cand, nullptr, nullptr, pt_graph, ctx.erc_cap_limit_scale);
     if (ctx.runtime_map) {
       auto t_lc1 = std::chrono::high_resolution_clock::now();
       (*ctx.runtime_map)["legalCheckBeforeSwap"] +=
           std::chrono::duration<double>(t_lc1 - t_lc0).count();
     }
-    if (!legal_before && cand != ori_cell)
+    if (ctx.erc_violation_weight < 0.0f && cand != ori_cell
+        && (v_before.slew > 0.0f || v_before.cap > 0.0f))
       continue;
 
     float leakage = lookupLeakage(inst, cand);
@@ -418,18 +452,22 @@ ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
         pt_graph, ctx.arc_delay_calc, cand, ctx.runtime_map).delay_lm_sum;
 
     auto t_lc2 = std::chrono::high_resolution_clock::now();
-    bool legal_after = local_sta_->legalCheckAfterSwap(
-        inst, cand, nullptr, nullptr, pt_graph);
+    LocalSta::ViolationSum v_after = local_sta_->violationSumAfterSwap(
+        inst, cand, nullptr, nullptr, pt_graph,
+        ctx.erc_slew_limit_scale, ctx.erc_cap_limit_scale);
     if (ctx.runtime_map) {
       auto t_lc3 = std::chrono::high_resolution_clock::now();
       (*ctx.runtime_map)["legalCheckAfterSwap"] +=
           std::chrono::duration<double>(t_lc3 - t_lc2).count();
     }
-    if (!legal_after && cand != ori_cell)
+    if (ctx.erc_violation_weight < 0.0f && cand != ori_cell
+        && (v_after.slew > 0.0f || v_after.cap > 0.0f))
       continue;
 
     float density_cost = (cand->area() - ori_area) * local_density;
-    float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost);
+    float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost,
+                              v_before.slew + v_after.slew,
+                              v_before.cap  + v_after.cap);
     float slack = local_sta_->localSlackAroundRef(pt_graph);
     vec_cost_slack[i * 2] = cost;
     vec_cost_slack[i * 2 + 1] = slack;
@@ -445,7 +483,7 @@ ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
     (*ctx.runtime_map)["equiv_cell_count"] += candidates.size();
   }
 
-  // Pass 2: collect top-N (with slack margin check), sorted ascending by cost
+  // Pass 2: collect top-N (slack penalty folded into cost), sorted ascending
   struct CandEntry {
     float cost;
     sta::LibertyCell *cell;
@@ -454,16 +492,15 @@ ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
   float ori_cost = std::numeric_limits<float>::max();
 
   for (size_t i = 0; i < candidates.size(); i++) {
-    float cost = vec_cost_slack[i * 2];
+    float lrs_cost = vec_cost_slack[i * 2];
     float slack = vec_cost_slack[i * 2 + 1];
     if (candidates[i] == ori_cell) {
-      ori_cost = cost;
+      ori_cost = lrs_cost;  // slack_before == slack_after, no penalty
       continue;
     }
-    if (cost >= std::numeric_limits<float>::max())
+    if (lrs_cost >= std::numeric_limits<float>::max())
       continue;
-    if (slack < slack_before * slack_margin_)
-      continue;
+    float cost = ctx.applySlackPenalty(lrs_cost, slack_before, slack);
     valid.push_back({cost, candidates[i]});
   }
 
@@ -575,20 +612,25 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   }
 
   struct CandResult {
-    float cost  = std::numeric_limits<float>::max();
-    float slack = 0.0f;
+    float cost = std::numeric_limits<float>::max();
   };
   std::vector<CandResult> cand_results(candidates.size());
 
   float ori_cost = std::numeric_limits<float>::max();
-  float ori_slack = 0.0f;
+
+  // Precheck mode: skip SiblingEdge gateDelay (LocalSta) + arrival/required
+  // propagation (LocalSta::increAndGetLocalTimingCost). Slack is therefore
+  // stale-and-identical across candidates, so we drop the slack filter too.
+  PrecheckModeGuard guard(pt_graph);
 
   // Pass 1: evaluate all candidates, record (cost, slack)
   for (size_t i = 0; i < candidates.size(); i++) {
     sta::LibertyCell *cand = candidates[i];
 
-    if (!local_sta_->legalCheckBeforeSwap(inst, cand, nullptr, nullptr, pt_graph)
-        && cand != ori_cell)
+    LocalSta::ViolationSum v_before = local_sta_->violationSumBeforeSwap(
+        inst, cand, nullptr, nullptr, pt_graph, ctx.erc_cap_limit_scale);
+    if (ctx.erc_violation_weight < 0.0f && cand != ori_cell
+        && (v_before.slew > 0.0f || v_before.cap > 0.0f))
       continue;
 
     float leakage = 0.0f;
@@ -599,19 +641,21 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     float delay_lm_sum = local_sta_->increAndGetLocalTimingCost(
         pt_graph, ctx.arc_delay_calc, cand, ctx.runtime_map).delay_lm_sum;
 
-    if (!local_sta_->legalCheckAfterSwap(inst, cand, nullptr, nullptr, pt_graph)
-        && cand != ori_cell)
+    LocalSta::ViolationSum v_after = local_sta_->violationSumAfterSwap(
+        inst, cand, nullptr, nullptr, pt_graph,
+        ctx.erc_slew_limit_scale, ctx.erc_cap_limit_scale);
+    if (ctx.erc_violation_weight < 0.0f && cand != ori_cell
+        && (v_after.slew > 0.0f || v_after.cap > 0.0f))
       continue;
 
     float density_cost = (cand->area() - ori_area) * local_density;
-    float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost);
-    float slack = local_sta_->localSlackAroundRef(pt_graph);
-    cand_results[i] = {cost, slack};
+    float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost,
+                              v_before.slew + v_after.slew,
+                              v_before.cap  + v_after.cap);
+    cand_results[i] = {cost};
 
-    if (cand == ori_cell) {
+    if (cand == ori_cell)
       ori_cost = cost;
-      ori_slack = slack;
-    }
   }
 
   auto end_eval = std::chrono::high_resolution_clock::now();
@@ -624,7 +668,9 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   if (ori_cost == std::numeric_limits<float>::max())
     return result;
 
-  // Pass 2: find best cost with correct ori_slack for slack protection
+  // Pass 2: find best cost. No slack filter / penalty — arrivals/requireds
+  // are not propagated in precheck mode, so localSlackAroundRef is stale and
+  // identical across candidates; any slack-based comparison is a no-op.
   float best_cost = ori_cost;
   for (size_t i = 0; i < candidates.size(); i++) {
     if (candidates[i] == ori_cell)
@@ -632,7 +678,7 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     const CandResult &r = cand_results[i];
     if (r.cost == std::numeric_limits<float>::max())
       continue;  // was skipped (illegal)
-    if (r.cost < best_cost && r.slack >= ori_slack * slack_margin_)
+    if (r.cost < best_cost)
       best_cost = r.cost;
   }
 
@@ -825,23 +871,8 @@ BufferRszOperator::BufferRszOperator(sta::dbSta *db_sta, LocalSta *local_sta,
 bool
 BufferRszOperator::skipInstance(sta::Instance *inst) const
 {
-  // Skip instances whose driver pins all have non-negative slack.
-  sta::Network *network = db_sta_->network();
-  sta::Graph *graph = db_sta_->graph();
-  sta::InstancePinIterator *iter = network->pinIterator(inst);
-  bool all_positive = true;
-  while (iter->hasNext()) {
-    sta::Pin *pin = iter->next();
-    if (network->isDriver(pin)) {
-      sta::Vertex *vtx = graph->pinDrvrVertex(pin);
-      if (vtx && db_sta_->vertexSlack(vtx, sta::MinMax::max()) < 0.0f) {
-        all_positive = false;
-        break;
-      }
-    }
-  }
-  delete iter;
-  return all_positive;
+  return false;  // operators which do actual operation never skip, 
+                  // since they are required to update timing.
 }
 
 MoveOption
@@ -852,34 +883,23 @@ BufferRszOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   if (!rebuffer_)
     return result;
 
-  // Find the worst-slack driver pin on this instance.
-  sta::Network *network = db_sta_->network();
-  sta::Graph *graph = db_sta_->graph();
-  sta::Pin *worst_pin = nullptr;
-  float worst_slack = 0.0f;
-
-  sta::InstancePinIterator *iter = network->pinIterator(inst);
-  while (iter->hasNext()) {
-    sta::Pin *pin = iter->next();
-    if (!network->isDriver(pin))
-      continue;
-    sta::Vertex *vtx = graph->pinDrvrVertex(pin);
-    if (!vtx)
-      continue;
-    float slack = db_sta_->vertexSlack(vtx, sta::MinMax::max());
-    if (slack < worst_slack) {
-      worst_slack = slack;
-      worst_pin = pin;
-    }
+  // Collect RefOutput driver pins from thread-local PtGraph (no global STA).
+  // Mirrors BufferSdpOperator::evaluate — parallel-safe.
+  struct DrvrInfo { sta::Pin *pin; VertexId vid; };
+  std::vector<DrvrInfo> drvr_infos;
+  for (size_t i = 0; i < pt_graph->vertexCount(); i++) {
+    PtVertex &pv = pt_graph->ptVertex(i);
+    if (pv.vertex() && pv.type() == PtVertexType::RefOutput)
+      drvr_infos.push_back({pv.vertex()->pin(), pv.objectIdx()});
   }
-  delete iter;
 
-  if (!worst_pin)
+  if (drvr_infos.size() != 1)
     return result;
 
-  // Heavy computation: makeBufferedNet + bufferForTiming + recoverArea
-  // Result stored in rebuffer_->best_bnet_ / drvr_pin_
-  if (rebuffer_->prepareRszBnet(worst_pin)) {
+  // Sync pt_graph into eval context so LrRebuffer sees the right graph.
+  ctx.pt_graph = pt_graph;
+
+  if (rebuffer_->prepareRszBnet(drvr_infos[0].pin, drvr_infos[0].vid)) {
     result.type = MoveOption::BUFFER_ONLY;
     result.cost = 0.0f;
   }
@@ -915,6 +935,94 @@ BufferRszOperator::copy() const
   auto op = std::make_unique<BufferRszOperator>(db_sta_, local_sta_,
                                                 resizer_, nullptr);
   return op;
+}
+
+// ═══════════════════════════════════════════════════════════
+// BufferSdpOperator — LRF slack-DP rebuffering.
+// Strict mirror of BufferOperator: pin selection via thread-local pt_graph
+// RefOutput vertices (no global STA read), requires exactly 1 driver per
+// instance. Only difference: invokes prepareSlackDpBnet (slack-DP +
+// recoverLrCost) instead of rebufferPin (cost-DP).
+// ═══════════════════════════════════════════════════════════
+
+BufferSdpOperator::BufferSdpOperator(sta::dbSta *db_sta, LocalSta *local_sta,
+                                      rsz::Resizer *resizer, EvalContext *ctx)
+  : db_sta_(db_sta), local_sta_(local_sta), resizer_(resizer)
+{
+  if (ctx) {
+    rebuffer_ = std::make_unique<LrRebuffer>(resizer, local_sta, ctx);
+    rebuffer_->init();
+  }
+}
+
+MoveOption
+BufferSdpOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
+                             EvalContext &ctx)
+{
+  MoveOption result;
+  if (!rebuffer_) {
+    printf("Error: BufferSdpOperator's rebuffer is not initialized.\n");
+    return result;
+  }
+
+  // Sync pt_graph into eval context so LrRebuffer sees the right graph.
+  ctx.pt_graph = pt_graph;
+
+  // Collect RefOutput driver pins from thread-local pt_graph (no global STA).
+  struct DrvrInfo { sta::Pin *pin; VertexId vid; };
+  std::vector<DrvrInfo> drvr_infos;
+  for (size_t i = 0; i < pt_graph->vertexCount(); i++) {
+    PtVertex &pv = pt_graph->ptVertex(i);
+    if (pv.vertex() && pv.type() == PtVertexType::RefOutput)
+      drvr_infos.push_back({pv.vertex()->pin(), pv.objectIdx()});
+  }
+
+  if (drvr_infos.size() != 1)
+    return result;
+
+  // Heavy computation: slack-DP bufferForTiming + recoverLrCost.
+  // Pass vid directly (not PtVertex&) so internal pt_graph mutations
+  // (virtual buffer insertion in evaluateOption etc.) never invalidate
+  // the reference — prepareSlackDpBnet re-looks-up PtVertex via vid
+  // fresh each time it's needed.
+  rebuffer_->prepareSlackDpBnet(drvr_infos[0].pin, drvr_infos[0].vid);
+
+  if (!rebuffer_->bestBnet())
+    return result;
+
+  result.type = MoveOption::BUFFER_ONLY;
+  result.cost = rebuffer_->bestCost();
+  result.buffer_tree = rebuffer_->bestBnet();
+  return result;
+}
+
+void
+BufferSdpOperator::setEvalContext(EvalContext *ctx)
+{
+  rebuffer_ = std::make_unique<LrRebuffer>(resizer_, local_sta_, ctx);
+  rebuffer_->init();
+}
+
+std::unique_ptr<LrOperator>
+BufferSdpOperator::copy() const
+{
+  auto op = std::make_unique<BufferSdpOperator>(db_sta_, local_sta_,
+                                                resizer_, nullptr);
+  return op;
+}
+
+void
+BufferSdpOperator::apply(const MoveOption &move, PtGraph *pt_graph,
+                          std::map<std::string, double> &runtime_map)
+{
+  auto start = std::chrono::steady_clock::now();
+  if (rebuffer_) {
+    int count = rebuffer_->applyBufferingToDb();
+    runtime_map["buffer_count"] += count;
+  }
+  auto end = std::chrono::steady_clock::now();
+  runtime_map["applyDb"] +=
+      std::chrono::duration<double>(end - start).count();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1348,6 +1456,11 @@ ParallelVisitor::init(float average_delay, float average_power, float wns,
   printf("slack_margin: %f\n", slack_margin);
   fflush(stdout);
 
+  // Also expose via EvalContext so LrRebuffer::evaluateOption gate uses the
+  // same margin (otherwise buffering candidates get rejected by strict gate
+  // while same margin is applied on the resize / size-up path).
+  eval_ctx_.slack_margin = slack_margin;
+
   // Propagate to operator via virtual interface
   if (operator_) {
     operator_->setSlackMargin(slack_margin);
@@ -1484,6 +1597,13 @@ ParallelVisitor::copy() const
   v->eval_ctx_.density_map = eval_ctx_.density_map;
   v->eval_ctx_.density_weight = eval_ctx_.density_weight;
   v->eval_ctx_.average_area = eval_ctx_.average_area;
+  v->eval_ctx_.average_slew = eval_ctx_.average_slew;
+  v->eval_ctx_.average_cap = eval_ctx_.average_cap;
+  v->eval_ctx_.erc_violation_weight = eval_ctx_.erc_violation_weight;
+  v->eval_ctx_.erc_slew_limit_scale = eval_ctx_.erc_slew_limit_scale;
+  v->eval_ctx_.erc_cap_limit_scale = eval_ctx_.erc_cap_limit_scale;
+  v->eval_ctx_.slack_margin = eval_ctx_.slack_margin;
+  v->eval_ctx_.debug = eval_ctx_.debug;
   v->task_arranger_ = task_arranger_;
   v->precheck_results_ = precheck_results_;
 
