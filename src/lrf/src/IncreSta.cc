@@ -1,6 +1,8 @@
 #include "lrf/IncreSta.hh"
 #include "LocalSta.hh"
 #include "LrHelper.hh"
+#include "odb/db.h"
+#include "db_sta/dbNetwork.hh"
 #include "sta/Liberty.hh"
 #include "sta/Path.hh"
 #include "sta/Corner.hh"
@@ -842,7 +844,8 @@ void
 IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
                                   float avg_power, float PT_tradeoff,
                                   float erc_violation_weight,
-                                  float erc_limit_scale)
+                                  float erc_limit_scale,
+                                  bool width_constrain)
 {
   auto start_total = std::chrono::high_resolution_clock::now();
 
@@ -855,6 +858,60 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
     preSaveLibCellLeakage();
   makeEquivCellArray();
   updateErcNormalizers();
+
+  // Width-constraint budget: per-instance max-swap-width = orig_width +
+  // left-row-gap + right-row-gap. Computed once per LR iter; treated as
+  // frozen during the parallel pass (consistent with how all swaps see the
+  // same row layout snapshot).
+  std::unordered_map<sta::Instance*, int> max_swap_width_dbu;
+  if (width_constrain) {
+    auto t_wb = std::chrono::high_resolution_clock::now();
+    sta::dbNetwork *dbnet = sta_->getDbNetwork();
+    odb::dbBlock *block = dbnet->block();
+    // Bin all placed std-cell insts by row (yMin), sort by xMin per row.
+    std::map<int, std::vector<std::pair<int, odb::dbInst*>>> rows;
+    for (odb::dbInst *db_inst : block->getInsts()) {
+      if (!db_inst->isPlaced()) continue;
+      odb::dbMaster *m = db_inst->getMaster();
+      if (m->isBlock() || m->isPad() || m->isCover()) continue;
+      odb::Rect bb = db_inst->getBBox()->getBox();
+      rows[bb.yMin()].emplace_back(bb.xMin(), db_inst);
+    }
+    int n_budget = 0;
+    long long sum_gap_dbu = 0;
+    for (auto &kv : rows) {
+      auto &row = kv.second;
+      std::sort(row.begin(), row.end());
+      const size_t N = row.size();
+      for (size_t i = 0; i < N; ++i) {
+        odb::dbInst *db_inst = row[i].second;
+        odb::Rect bb = db_inst->getBBox()->getBox();
+        int x_min = bb.xMin(), x_max = bb.xMax();
+        int left_neighbor_xmax = (i == 0) ? x_min : row[i-1].second->getBBox()->getBox().xMax();
+        int right_neighbor_xmin = (i + 1 == N) ? x_max : row[i+1].first;
+        int left_gap = std::max(0, x_min - left_neighbor_xmax);
+        int right_gap = std::max(0, right_neighbor_xmin - x_max);
+        int orig_w = x_max - x_min;
+        int budget = orig_w + left_gap + right_gap;
+        sta::Instance *sta_inst = dbnet->dbToSta(db_inst);
+        if (sta_inst) {
+          max_swap_width_dbu[sta_inst] = budget;
+          ++n_budget;
+          sum_gap_dbu += (left_gap + right_gap);
+        }
+      }
+    }
+    auto t_we = std::chrono::high_resolution_clock::now();
+    double avg_gap_um = 0.0;
+    if (n_budget > 0) {
+      double dbu = static_cast<double>(block->getDbUnitsPerMicron());
+      avg_gap_um = static_cast<double>(sum_gap_dbu) / n_budget / dbu;
+    }
+    printf("[width_constrain] budgets=%d avg_gap_um=%.4f compute=%.3fs\n",
+           n_budget, avg_gap_um,
+           std::chrono::duration<double>(t_we - t_wb).count());
+    fflush(stdout);
+  }
 
   auto start_resize = std::chrono::high_resolution_clock::now();
 
@@ -881,6 +938,10 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
   visitor->evalContext().erc_slew_limit_scale = erc_limit_scale;
   visitor->evalContext().erc_cap_limit_scale = erc_limit_scale;
   visitor->evalContext().debug = debug_;
+  if (width_constrain) {
+    visitor->evalContext().width_constrain = true;
+    visitor->evalContext().max_swap_width_dbu = &max_swap_width_dbu;
+  }
 
   local_sta_->taskArranger()->setProgressTag("LRF resize");
   local_sta_->runResize(resizer, visitor);

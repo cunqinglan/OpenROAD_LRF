@@ -1627,15 +1627,17 @@ TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
                             size_t buffering_start_iter,
                             float timing_margin,
                             float erc_violation_weight,
-                            float erc_limit_scale)
+                            float erc_limit_scale,
+                            bool width_constrain)
 {
   printf("----- Testing Init Resize -> SDP Buffering "
          "(iterations=%zu, tol=%zu, "
          "buffering_start_iter=%zu, timing_margin=%.4f, "
-         "erc_violation_weight=%.3g, erc_limit_scale=%.3f) -----\n",
+         "erc_violation_weight=%.3g, erc_limit_scale=%.3f, "
+         "width_constrain=%d) -----\n",
          iterations, num_no_improve_tolerance,
          buffering_start_iter, timing_margin, erc_violation_weight,
-         erc_limit_scale);
+         erc_limit_scale, width_constrain ? 1 : 0);
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
@@ -1700,7 +1702,8 @@ TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
     auto start = std::chrono::high_resolution_clock::now();
     printf("----- Phase A: LR ResizeByArray Iteration %zu -----\n", i+1);
     incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff,
-                                     erc_violation_weight, erc_limit_scale);
+                                     erc_violation_weight, erc_limit_scale,
+                                     width_constrain);
     auto end = std::chrono::high_resolution_clock::now();
     double runtime = std::chrono::duration<double>(end - start).count();
 

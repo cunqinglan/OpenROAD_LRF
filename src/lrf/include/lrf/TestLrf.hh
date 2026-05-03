@@ -206,7 +206,8 @@ public:
                             size_t buffering_start_iter = 5,
                             float timing_margin = 0.01f,
                             float erc_violation_weight = -1.0f,
-                            float erc_limit_scale = 0.95f);
+                            float erc_limit_scale = 0.95f,
+                            bool width_constrain = false);
 
   // Print all liberty cells information grouped by unique equiv cell groups.
   void printAllCellsInfo(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);

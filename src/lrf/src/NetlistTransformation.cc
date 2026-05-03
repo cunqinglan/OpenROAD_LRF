@@ -254,6 +254,20 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   for (size_t i = 0; i < candidates.size(); i++) {
     sta::LibertyCell *cand = candidates[i];
 
+    // Width-constrained sizing: skip candidates wider than the available row
+    // gap budget. Gated on ctx.width_constrain so non-resize callers and the
+    // default config are unaffected. Preserves cand == ori_cell for the no-op
+    // slack reference; shrinking is always allowed.
+    if (ctx.width_constrain && ctx.max_swap_width_dbu && cand != ori_cell) {
+      auto wb = ctx.max_swap_width_dbu->find(inst);
+      if (wb != ctx.max_swap_width_dbu->end()) {
+        odb::dbMaster *cand_master = db_sta_->getDbNetwork()->staToDb(cand);
+        if (cand_master &&
+            static_cast<int>(cand_master->getWidth()) > wb->second)
+          continue;
+      }
+    }
+
     auto t_lc0 = std::chrono::high_resolution_clock::now();
     LocalSta::ViolationSum v_before = local_sta_->violationSumBeforeSwap(
         inst, cand, nullptr, nullptr, pt_graph, ctx.erc_cap_limit_scale);
@@ -434,6 +448,20 @@ ResizeOperator::evaluateTopN(PtGraph *pt_graph, sta::Instance *inst,
 
   for (size_t i = 0; i < candidates.size(); i++) {
     sta::LibertyCell *cand = candidates[i];
+
+    // Width-constrained sizing: skip candidates wider than the available row
+    // gap budget. Gated on ctx.width_constrain so non-resize callers and the
+    // default config are unaffected. Preserves cand == ori_cell for the no-op
+    // slack reference; shrinking is always allowed.
+    if (ctx.width_constrain && ctx.max_swap_width_dbu && cand != ori_cell) {
+      auto wb = ctx.max_swap_width_dbu->find(inst);
+      if (wb != ctx.max_swap_width_dbu->end()) {
+        odb::dbMaster *cand_master = db_sta_->getDbNetwork()->staToDb(cand);
+        if (cand_master &&
+            static_cast<int>(cand_master->getWidth()) > wb->second)
+          continue;
+      }
+    }
 
     auto t_lc0 = std::chrono::high_resolution_clock::now();
     LocalSta::ViolationSum v_before = local_sta_->violationSumBeforeSwap(

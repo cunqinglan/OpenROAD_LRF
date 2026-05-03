@@ -80,9 +80,14 @@ public:
   //   EvalContext default → existing callers unaffected).
   // erc_limit_scale: multiplier on lib slew/cap limits (default 0.95 =
   //   5% headroom; matches EvalContext default).
+  // width_constrain: if true, walk current placement and pre-compute each
+  //   instance's max-swap-width budget (orig + left/right row gap). Skip
+  //   candidate swaps whose master width exceeds the budget. Default false
+  //   keeps existing callers unchanged.
   void parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float avg_power,
                       float PT_tradeoff, float erc_violation_weight = -1.0f,
-                      float erc_limit_scale = 0.95f);
+                      float erc_limit_scale = 0.95f,
+                      bool width_constrain = false);
   void setMaxResizeNum(size_t max_resize_num);
   void setBufferOnlyMode(bool mode) { buffer_only_mode_ = mode; }
   void setBakogluK(float k) { bakoglu_k_ = k; }

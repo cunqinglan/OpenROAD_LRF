@@ -93,6 +93,16 @@ struct EvalContext {
   float erc_slew_limit_scale = 0.95f;
   float erc_cap_limit_scale  = 0.95f;
 
+  // Width-constrained sizing: if width_constrain is true and
+  // max_swap_width_dbu has an entry for the instance, candidate cells whose
+  // master width exceeds the budget (in DEF DB units) are skipped before any
+  // delay calc. budget = orig_master_width + (left_row_gap + right_row_gap).
+  // Goal: prevent LR from picking cells that DPL has to displace by many
+  // sites, which causes wire RC drift between LR's placement-parasitics and
+  // post-DPL/GRT reality. nullptr / no entry => unlimited (no constraint).
+  const std::unordered_map<sta::Instance*, int>* max_swap_width_dbu = nullptr;
+  bool width_constrain = false;
+
   // Penalty coefficient for local-slack degradation, folded into swap cost.
   // total = LRS_cost + slack_deg_penalty * max(0, slack_before - slack_after).
   // Replaces the multiplicative slack_margin gate previously enforced inside
