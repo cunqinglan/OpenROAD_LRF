@@ -77,12 +77,14 @@ struct EvalContext {
   //                 with v_before.slew>0 || v_before.cap>0 is skipped before
   //                 the delay calc; same for v_after. cand == ori_cell is
   //                 always preserved (we never skip the no-op cell).
-  // Default -1.0f matches the pre-eb01407 legalCheck behavior — leaving it
-  // at 0.0f silently permits any ERC violation, which on dense designs
-  // (ariane / NV_NVDLA_partition_c) can blow up to thousands of ns / fF.
+  // Default 1e6f = heavy soft penalty (close to but not as strict as hard
+  // reject). Set < 0 to opt back into pre-eb01407 hard-reject legalCheck
+  // behavior; set 0.0f to silently permit any ERC violation (which on dense
+  // designs like ariane / NV_NVDLA_partition_c can blow up to thousands
+  // of ns / fF).
   float average_slew = 1e-10f;   // seconds; populated from IncreSta::averageOutSlew()
   float average_cap  = 1e-15f;   // farads;  populated from IncreSta::averageLoadCap()
-  float erc_violation_weight = -1.0f;
+  float erc_violation_weight = 1e6f;
   // Headroom multipliers for the slew/cap limits used by violationSum*Swap
   // (and therefore the hard-reject gate when erc_violation_weight < 0, and
   // the soft penalty term when > 0). 1.0 = use lib limit as-is; 0.95 = 5%
