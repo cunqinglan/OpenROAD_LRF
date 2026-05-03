@@ -765,19 +765,18 @@ PtGraph::setSlew(PtVertex &pt_vertex, const RiseFall *rf,
 void
 PtGraph::initLoadSlews(PtVertex &drvr_pt_vertex)
 {
+  const sta::DcalcAnalysisPt *dcalc_ap = dcalc_ap_;
+  const sta::MinMax *slew_min_max = dcalc_ap->slewMinMax();
+  sta::Slew slew_init_value(slew_min_max->initValue());
+  sta::DcalcAPIndex ap_index = dcalc_ap->index();
   PtVertexOutEdgeIterator out_iter(drvr_pt_vertex.objectIdx(), this);
   while (out_iter.hasNext()) {
     PtEdge &pt_edge = out_iter.next();
     if (pt_edge.isWire()) {
       VertexId to_id = pt_edge.ptToId();
       PtVertex &load_pt_vertex = pt_vertices_[to_id];
-      for (const sta::DcalcAnalysisPt *dcalc_ap : sta_->corners()->dcalcAnalysisPts()) {
-        const sta::MinMax *slew_min_max = dcalc_ap->slewMinMax();
-        sta::Slew slew_init_value(slew_min_max->initValue());
-        sta::DcalcAPIndex ap_index = dcalc_ap->index();
-        for (const sta::RiseFall *rf : sta::RiseFall::range()) {
-          setSlew(load_pt_vertex, rf, ap_index, slew_init_value);
-        }
+      for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+        setSlew(load_pt_vertex, rf, ap_index, slew_init_value);
       }
     }
   }
@@ -786,18 +785,17 @@ PtGraph::initLoadSlews(PtVertex &drvr_pt_vertex)
 void
 PtGraph::initWireDelays(PtVertex &drvr_pt_vertex)
 {
+  const sta::DcalcAnalysisPt *dcalc_ap = dcalc_ap_;
+  const sta::MinMax *delay_min_max = dcalc_ap->delayMinMax();
+  sta::Delay delay_init_value(delay_min_max->initValue());
+  sta::DcalcAPIndex ap_index = dcalc_ap->index();
   PtVertexOutEdgeIterator out_iter(drvr_pt_vertex.objectIdx(), this);
   while (out_iter.hasNext()) {
     PtEdge &out_pt_edge = out_iter.next();
     if (out_pt_edge.isWire()
         && out_pt_edge.type() != PtEdgeType::VirtualWireEdge) {
-      for (const sta::DcalcAnalysisPt * dcalc_ap : sta_->corners()->dcalcAnalysisPts()) {
-        const sta::MinMax *delay_min_max = dcalc_ap->delayMinMax();
-        sta::Delay delay_init_value(delay_min_max->initValue());
-        sta::DcalcAPIndex ap_index = dcalc_ap->index();
-        for (const sta::RiseFall *rf : sta::RiseFall::range()) {
-          setWireArcDelay(out_pt_edge, rf, ap_index, delay_init_value);
-        }
+      for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+        setWireArcDelay(out_pt_edge, rf, ap_index, delay_init_value);
       }
     }
   }

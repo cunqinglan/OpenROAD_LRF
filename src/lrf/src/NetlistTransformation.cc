@@ -599,16 +599,15 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   }
 
   struct CandResult {
-    float cost  = std::numeric_limits<float>::max();
-    float slack = 0.0f;
+    float cost = std::numeric_limits<float>::max();
   };
   std::vector<CandResult> cand_results(candidates.size());
 
   float ori_cost = std::numeric_limits<float>::max();
-  float ori_slack = 0.0f;
 
-  // Precheck mode: skip SiblingEdge gateDelay; sibling LM contribution
-  // recovered inside delayLmSum via finite-diff (delay_diffs_).
+  // Precheck mode: skip SiblingEdge gateDelay (LocalSta) + arrival/required
+  // propagation (LocalSta::increAndGetLocalTimingCost). Slack is therefore
+  // stale-and-identical across candidates, so we drop the slack filter too.
   PrecheckModeGuard guard(pt_graph);
 
   // Pass 1: evaluate all candidates, record (cost, slack)
@@ -640,13 +639,10 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost,
                               v_before.slew + v_after.slew,
                               v_before.cap  + v_after.cap);
-    float slack = local_sta_->localSlackAroundRef(pt_graph);
-    cand_results[i] = {cost, slack};
+    cand_results[i] = {cost};
 
-    if (cand == ori_cell) {
+    if (cand == ori_cell)
       ori_cost = cost;
-      ori_slack = slack;
-    }
   }
 
   auto end_eval = std::chrono::high_resolution_clock::now();
@@ -659,7 +655,9 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   if (ori_cost == std::numeric_limits<float>::max())
     return result;
 
-  // Pass 2: find best cost with correct ori_slack for slack protection
+  // Pass 2: find best cost. No slack filter — arrivals/requireds are not
+  // propagated in precheck, so localSlackAroundRef is stale and identical
+  // across candidates.
   float best_cost = ori_cost;
   for (size_t i = 0; i < candidates.size(); i++) {
     if (candidates[i] == ori_cell)
@@ -667,7 +665,7 @@ ResizePrecheckOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     const CandResult &r = cand_results[i];
     if (r.cost == std::numeric_limits<float>::max())
       continue;  // was skipped (illegal)
-    if (r.cost < best_cost && r.slack >= ori_slack * slack_margin_)
+    if (r.cost < best_cost)
       best_cost = r.cost;
   }
 
