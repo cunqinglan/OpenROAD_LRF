@@ -20,7 +20,9 @@ enum class LrMode {
 enum class EcoStrategy {
   HALVE_ALWAYS,          // Original: halve ratio on every revert
   HALVE_ON_CONSECUTIVE,  // Only halve on consecutive reverts; accept resets
-  NO_HALVE               // Never halve, full resize every ECO iter
+  NO_HALVE,              // Never halve, full resize every ECO iter
+  ADAPTIVE_FROM_CHANGE   // ratio = lastChange × adaptive_multiplier / total;
+                         // halve on consecutive revert as safety net
 };
 
 // ECO configuration — controls revert/accept/halve behavior.
@@ -32,6 +34,9 @@ struct EcoConfig {
   bool use_precheck = true;           // ECO phase uses precheck (vs full resize)
   bool lm_update_before_revert = true;// run lmUpdate on worse state before revert
   double max_runtime_seconds = 7200.0; // Hard wall-clock limit for LR loop (0=no limit, default 2h)
+  // ADAPTIVE_FROM_CHANGE only: ratio = lastChange × adaptive_multiplier / total
+  float adaptive_multiplier = 1.2f;
+  float adaptive_floor      = 0.02f;  // ratio floor when adaptive shrinks toward 0
 
   // Preset configurations from experimental results (ECO_halve_effect.md).
   static EcoConfig make(EcoStrategy preset) {
@@ -63,6 +68,18 @@ struct EcoConfig {
         cfg.lm_update_before_revert = true;
         cfg.warmup_iters = 6;
         cfg.max_eco_reverts = 6;
+        break;
+      case EcoStrategy::ADAPTIVE_FROM_CHANGE:
+        // Ratio = last_change_count × adaptive_multiplier / total. Tracks
+        // realized resize budget. Halve_factor kicks in only on consecutive
+        // REVERTs (safety net to escape "same N every iter" stall).
+        cfg.adaptive_multiplier = 0.9f;
+        cfg.adaptive_floor      = 0.02f;
+        cfg.halve_factor        = 0.5f;
+        cfg.use_precheck        = true;
+        cfg.lm_update_before_revert = true;
+        cfg.warmup_iters        = 6;
+        cfg.max_eco_reverts     = 6;
         break;
     }
     return cfg;

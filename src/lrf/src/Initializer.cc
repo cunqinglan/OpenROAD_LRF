@@ -103,7 +103,7 @@ Initializer::run()
   // Update parasitics and timing after bulk downsize.
   local_sta->updateGlobalParasiticsAndSync(ep);
   sta_->delaysInvalid();
-  sta_->updateTiming(true);
+  sta_->updateTiming(false);
 
   // Step 2: Fix load violations (reverse topo)
   fixLoadViolations();
@@ -113,7 +113,7 @@ Initializer::run()
   // Update parasitics and timing after Step 2 upsizes.
   local_sta->updateGlobalParasiticsAndSync(ep);
   sta_->delaysInvalid();
-  sta_->updateTiming(true);
+  sta_->updateTiming(false);
 
   // Step 3: Fix slew violations (forward topo)
   fixSlewViolations();
@@ -123,7 +123,7 @@ Initializer::run()
   // Update parasitics and timing after Step 3.
   local_sta->updateGlobalParasiticsAndSync(ep);
   sta_->delaysInvalid();
-  sta_->updateTiming(true);
+  sta_->updateTiming(false);
 
   // Step 4: Fix remaining cap violations by buffer insertion
   fixCapByBuffering();
@@ -247,7 +247,7 @@ Initializer::downsizeToMinLeakage()
     }
   }
 
-  sta_->updateTiming(true);
+  sta_->updateTiming(false);
   printf("[Initializer] Step 1: Downsized %d / %d gates to min-leakage\n",
          swap_count, inst_count);
   fflush(stdout);
@@ -797,7 +797,7 @@ Initializer::fixCapByBuffering()
     LocalSta* local_sta = incre_sta_->localSta();
     local_sta->updateGlobalParasiticsAndSync(ep);
     sta_->delaysInvalid();
-    sta_->updateTiming(true);
+    sta_->updateTiming(false);
   }
 
   printf("[Initializer] Step 4: Inserted %d buffer(s) for %zu cap violations\n",

@@ -522,14 +522,14 @@ ParallelInitializer::run()
 
   local_sta->updateGlobalParasiticsAndSync(ep);
   sta_->delaysInvalid();
-  sta_->updateTiming(true);
+  sta_->updateTiming(false);
 
   fixLoadViolationsParallel();
   auto t2 = std::chrono::steady_clock::now();
 
   local_sta->updateGlobalParasiticsAndSync(ep);
   sta_->delaysInvalid();
-  sta_->updateTiming(true);
+  sta_->updateTiming(false);
 
   int cap_cnt2 = 0, slew_cnt2 = 0;
   countViolations(cap_cnt2, slew_cnt2);
@@ -544,7 +544,7 @@ ParallelInitializer::run()
 
     local_sta->updateGlobalParasiticsAndSync(ep);
     sta_->delaysInvalid();
-    sta_->updateTiming(true);
+    sta_->updateTiming(false);
 
     int cap_cnt3 = 0, slew_cnt3 = 0;
     countViolations(cap_cnt3, slew_cnt3);
@@ -669,7 +669,7 @@ ParallelInitializer::downsizeToMinLeakage()
     }
   }
 
-  sta_->updateTiming(true);
+  sta_->updateTiming(false);
   printf("[ParallelInitializer] Step 1: Downsized %d / %d gates\n",
          swap_count, inst_count);
   fflush(stdout);

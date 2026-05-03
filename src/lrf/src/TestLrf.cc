@@ -1683,7 +1683,7 @@ TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
   // double-regress as REVERT_WARMUP. Phase A breaks on the first REVERT;
   // phase B continues with the same controller (in_eco_, ratio, counters).
   printf("===== Phase A: pure resize (cap=%zu) =====\n", iterations);
-  EcoConfig eco_cfg = EcoConfig::make(EcoStrategy::HALVE_ON_CONSECUTIVE);
+  EcoConfig eco_cfg = EcoConfig::make(EcoStrategy::ADAPTIVE_FROM_CHANGE);
   // EcoController checks `consecutive_reverts_ > max_eco_reverts`. Phase A's
   // break-trigger REVERT brings consecutive_reverts_ to 1, so phase B inherits
   // N reverts of headroom: the (N+1)-th total revert TERMINATEs. (N=0 is the
