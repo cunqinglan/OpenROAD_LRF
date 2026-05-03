@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <string>
 #include <vector>
 
 #include "sta/Clock.hh"
@@ -91,6 +92,16 @@ class Timing
   std::vector<odb::dbMaster*> equivCells(odb::dbMaster* master);
 
   /////////////////////////////////////////////////////////////
+  // ML / diagnostic feature dump
+  /////////////////////////////////////////////////////////////
+  // After globalRoute(save_guides=true) + estimate_parasitics, write four
+  // CSVs to <prefix>_{nets,segments,sinks,congestion}.csv with per-net,
+  // per-segment, per-sink, and per-GCell data. Direct C++ access to
+  // grt::GlobalRouter::getRoutes(), sta::Parasitics::piModel/findElmore,
+  // sta::Search::vertexSlew, and dbGCellGrid — avoids SWIG limitations.
+  void dumpDiagBundle(const std::string& prefix);
+
+  /////////////////////////////////////////////////////////////
   // Functions for LR sizing
   /////////////////////////////////////////////////////////////
   float getLmDelaySum(odb::dbInst* inst, const sta::MinMax *minmax = sta::MinMax::max());
@@ -132,7 +143,8 @@ class Timing
              bool initialize = false,
              const char *checkpoint_dir = "",
              bool debug = false,
-             size_t buffering_start_iter = 5);
+             size_t buffering_start_iter = 5,
+             float timing_margin = 0.01f);
 
   // Test: level-parallel initializer (standalone, does not start LR).
   void testParallelInitializer(bool minimize_leakage = true);
@@ -171,6 +183,36 @@ class Timing
                                               const char *lr_helper_method = "LRHelper",
                                               bool initialize = false,
                                               float density_weight = 0.0f);
+  // LRF slack-DP rebuffering variant (BufferSdpOperator →
+  // prepareSlackDpBnet → bufferForTimingSlackDp + recoverLrCost).
+  void testParallelResizeByArrayWithSdpBuffering(size_t max_resize_num,
+                                              size_t iterations,
+                                              size_t num_no_improve_tolerance,
+                                              bool ratcons = false,
+                                              float PT_tradeoff = 100.0,
+                                              const char *lr_helper_method = "LRHelper",
+                                              bool initialize = false,
+                                              float density_weight = 0.0f,
+                                              float timing_margin = 0.01f);
+  // Two-phase: init+resize → precheck-resize+SDP-buffering. See
+  // TestLrf::testInitResizeThenSdpBuffering for details.
+  // erc_violation_weight: <0 hard reject, ==0 ignore, >0 soft penalty
+  //   (default -1.0 = legacy hard-reject behavior).
+  // erc_limit_scale: multiplier on the lib slew/cap limits used by ERC
+  //   gating (applied to both slew and cap). 0.95 = 5% margin (default,
+  //   matches pre-eb01407 legalCheckAfterSwap headroom). 0.85 = 15% margin
+  //   (tighter, leaves more room for post-GR RC shift).
+  void testInitResizeThenSdpBuffering(size_t max_resize_num,
+                                      size_t iterations,
+                                      size_t num_no_improve_tolerance,
+                                      bool ratcons = false,
+                                      float PT_tradeoff = 100.0,
+                                      const char *lr_helper_method = "LRHelper",
+                                      bool initialize = false,
+                                      float density_weight = 0.0f,
+                                      float timing_margin = 0.01f,
+                                      float erc_violation_weight = -1.0f,
+                                      float erc_limit_scale = 0.95f);
   void testCombinedResizeBuffering(size_t max_resize_num,
                                              size_t iterations,
                                              size_t num_no_improve_tolerance,
@@ -183,6 +225,10 @@ class Timing
                       const char *lr_helper_method = "RapidLRHelper",
                       float bakoglu_k = 2.5,
                       bool debug = false);
+  void testSingleBufferPass(bool use_sdp = false,
+                            float PT_tradeoff = 10.0f,
+                            const char *lr_helper_method = "RapidLRHelper",
+                            size_t lm_warmup_rounds = 5);
   void testParallelResizeByArrayWithPrecheck(size_t max_resize_num,
                                              size_t iterations,
                                              size_t num_no_improve_tolerance,
@@ -213,6 +259,7 @@ class Timing
   void probeRszBnet();
   void probeBufferDeep(const char *pin_names_csv);
   void probeAllOptions(const char *pin_name);
+  void probeAllOptionsBySensitivity(int top_n);
   /////////////////////////////////////////////////////////////
   // End functions for testing LR sizing
   /////////////////////////////////////////////////////////////

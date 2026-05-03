@@ -5,10 +5,21 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
+#include <fstream>
+#include <limits>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
+
+#include "grt/GRoute.h"
+#include "grt/GlobalRouter.h"
+#include "sta/Network.hh"
+#include "sta/Parasitics.hh"
+#include "sta/ParasiticsClass.hh"
+#include "sta/PortDirection.hh"
 
 #include "db_sta/dbNetwork.hh"
 #include "db_sta/dbSta.hh"
@@ -608,7 +619,8 @@ Timing::runLr(int mode, size_t iterations, size_t max_resize_num,
               float density_weight, bool ratcons,
               const char *lr_helper_method, float top_ratio,
               bool initialize, const char *checkpoint_dir,
-              bool debug, size_t buffering_start_iter) {
+              bool debug, size_t buffering_start_iter,
+              float timing_margin) {
   lrf::LrConfig cfg;
   cfg.mode = static_cast<lrf::LrMode>(mode);
   cfg.iterations = iterations;
@@ -623,6 +635,7 @@ Timing::runLr(int mode, size_t iterations, size_t max_resize_num,
   cfg.checkpoint_dir = checkpoint_dir ? checkpoint_dir : "";
   cfg.debug = debug;
   cfg.buffering_start_iter = buffering_start_iter;
+  cfg.timing_margin = timing_margin;
   runLr(cfg);
 }
 
@@ -699,6 +712,46 @@ Timing::testParallelResizeByArrayWithRszBuffering(size_t max_resize_num, size_t 
 }
 
 void
+Timing::testParallelResizeByArrayWithSdpBuffering(size_t max_resize_num, size_t iterations,
+  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
+  const char *lr_helper_method, bool initialize, float density_weight,
+  float timing_margin) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testParallelResizeByArrayWithSdpBuffering with %zu threads, timing_margin=%.4f\n",
+         thread_num, timing_margin);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testParallelLrResizeByArrayWithSdpBuffering(sta, resizer, design_->getBlock(),
+    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
+    PT_tradeoff, lr_helper_method, initialize, density_weight,
+    /*debug=*/false, /*buffering_start_iter=*/5, timing_margin);
+}
+
+void
+Timing::testInitResizeThenSdpBuffering(size_t max_resize_num, size_t iterations,
+  size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
+  const char *lr_helper_method, bool initialize, float density_weight,
+  float timing_margin, float erc_violation_weight, float erc_limit_scale) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testInitResizeThenSdpBuffering with %zu threads, "
+         "timing_margin=%.4f, erc_violation_weight=%.3g, erc_limit_scale=%.3f\n",
+         thread_num, timing_margin, erc_violation_weight, erc_limit_scale);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testInitResizeThenSdpBuffering(sta, resizer, design_->getBlock(),
+    thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
+    PT_tradeoff, lr_helper_method, initialize, density_weight,
+    /*debug=*/false, /*buffering_start_iter=*/5, timing_margin,
+    erc_violation_weight, erc_limit_scale);
+}
+
+void
 Timing::testEcoResizeNoHalve(size_t iterations, float PT_tradeoff,
   const char *lr_helper_method, float halve_factor, bool use_precheck) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
@@ -743,6 +796,21 @@ Timing::testBufferOnly(size_t iterations, float PT_tradeoff,
   lrf::TestLrf test_lrf;
   test_lrf.testBufferOnly(sta, resizer, design_->getBlock(),
     thread_num, iterations, PT_tradeoff, lr_helper_method, bakoglu_k, debug);
+}
+
+void
+Timing::testSingleBufferPass(bool use_sdp, float PT_tradeoff,
+  const char *lr_helper_method, size_t lm_warmup_rounds) {
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testSingleBufferPass with %zu threads, use_sdp=%d\n",
+         thread_num, use_sdp);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testSingleBufferPass(sta, resizer, design_->getBlock(),
+    thread_num, use_sdp, PT_tradeoff, lr_helper_method, lm_warmup_rounds);
 }
 
 void
@@ -902,6 +970,17 @@ Timing::probeAllOptions(const char *pin_name) {
 }
 
 void
+Timing::probeAllOptionsBySensitivity(int top_n) {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  lrf::TestLrf test_lrf;
+  test_lrf.probeAllOptionsBySensitivity(sta, resizer, design_->getBlock(),
+                                         thread_num, top_n);
+}
+
+void
 Timing::testReportVertices() {
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
@@ -957,6 +1036,315 @@ float Timing::getTns(MinMax minmax)
 {
   sta::dbSta* sta = getSta();
   return sta->totalNegativeSlack(getMinMax(minmax));
+}
+
+////////////////////////////////////////////////////////////////
+// dumpDiagBundle — ML / diagnostic feature dump.
+//
+// Caller is expected to have already done:
+//   global_route -guide_file ... (or grt.globalRoute(true))
+//   estimate_parasitics -global_routing
+// Then a single call writes four CSVs at <prefix>_{nets,segments,sinks,
+// congestion}.csv. All numeric values are emitted in SI base units (s, F,
+// Ohm) plus dbu for coordinates; downstream analysis can rescale freely.
+// Missing values (e.g. parasitic not found) are written as the literal
+// "nan" so pandas read_csv treats them as NaN by default.
+////////////////////////////////////////////////////////////////
+namespace {
+
+inline void writeFloat(std::ostream& os, float v)
+{
+  if (std::isfinite(v)) {
+    os << v;
+  } else {
+    os << "nan";
+  }
+}
+
+}  // namespace
+
+void Timing::dumpDiagBundle(const std::string& prefix)
+{
+  sta::dbSta* sta = getSta();
+  sta::dbNetwork* network = sta->getDbNetwork();
+  odb::dbBlock* block = network->block();
+  if (block == nullptr) {
+    return;
+  }
+
+  sta::Parasitics* parasitics = sta->parasitics();
+  sta::Graph* graph = sta->graph();
+  sta::Corner* corner = sta->corners()->findCorner(0);
+  const sta::ParasiticAnalysisPt* ap
+      = corner->findParasiticAnalysisPt(sta::MinMax::max());
+  const sta::MinMax* mm_max = sta::MinMax::max();
+
+  grt::GlobalRouter* grouter = OpenRoad::openRoad()->getGlobalRouter();
+  // Reference (not copy) — getRoutes() returns NetRouteMap&.
+  const grt::NetRouteMap* routes
+      = grouter ? &grouter->getRoutes() : nullptr;
+
+  std::ofstream nets_csv(prefix + "_nets.csv");
+  std::ofstream segs_csv(prefix + "_segments.csv");
+  std::ofstream sinks_csv(prefix + "_sinks.csv");
+  std::ofstream cong_csv(prefix + "_congestion.csv");
+
+  nets_csv
+      << "net_name,sig_type,driver_inst,driver_master,fanout,bterm_count,"
+         "hpwl_dbu,num_segments,"
+         "pi_c2_rise_F,pi_rpi_rise_Ohm,pi_c1_rise_F,"
+         "pi_c2_fall_F,pi_rpi_fall_Ohm,pi_c1_fall_F,"
+         "drvr_slew_rise_s,drvr_slew_fall_s,"
+         "net_cap_F,drvr_max_cap_F\n";
+  segs_csv << "net_name,seg_idx,init_x_dbu,init_y_dbu,init_layer,"
+              "final_x_dbu,final_y_dbu,final_layer,length_dbu,is_via\n";
+  sinks_csv << "net_name,sink_pin_name,sink_inst,sink_master,"
+               "sink_input_cap_F,sink_max_slew_s,"
+               "sink_slew_rise_s,sink_slew_fall_s,"
+               "wire_delay_rise_s,wire_delay_fall_s\n";
+  cong_csv << "layer_name,gx,gy,capacity,usage\n";
+
+  const float kNaN = std::numeric_limits<float>::quiet_NaN();
+
+  // Helper to translate dbNet sig type to a short string.
+  auto sigTypeName = [](odb::dbSigType t) -> const char* {
+    switch (t.getValue()) {
+      case odb::dbSigType::SIGNAL: return "SIGNAL";
+      case odb::dbSigType::POWER:  return "POWER";
+      case odb::dbSigType::GROUND: return "GROUND";
+      case odb::dbSigType::CLOCK:  return "CLOCK";
+      case odb::dbSigType::ANALOG: return "ANALOG";
+      case odb::dbSigType::RESET:  return "RESET";
+      case odb::dbSigType::SCAN:   return "SCAN";
+      case odb::dbSigType::TIEOFF: return "TIEOFF";
+      default: return "OTHER";
+    }
+  };
+
+  size_t n_nets = 0, n_segs = 0, n_sinks = 0;
+
+  for (odb::dbNet* db_net : block->getNets()) {
+    if (db_net->isSpecial()) {
+      continue;
+    }
+
+    sta::Net* sta_net = network->dbToSta(db_net);
+
+    // Pass 1: find driver, count fanout, compute HPWL bbox.
+    odb::dbITerm* drvr_iterm = nullptr;
+    int fanout = 0;
+    int bterm_count = 0;
+    int xmin = std::numeric_limits<int>::max();
+    int xmax = std::numeric_limits<int>::min();
+    int ymin = std::numeric_limits<int>::max();
+    int ymax = std::numeric_limits<int>::min();
+    bool has_xy = false;
+
+    for (odb::dbITerm* it : db_net->getITerms()) {
+      if (it->isOutputSignal()) {
+        if (drvr_iterm == nullptr) {
+          drvr_iterm = it;
+        }
+      } else {
+        ++fanout;
+      }
+      int x = 0, y = 0;
+      if (it->getAvgXY(&x, &y)) {
+        xmin = std::min(xmin, x); xmax = std::max(xmax, x);
+        ymin = std::min(ymin, y); ymax = std::max(ymax, y);
+        has_xy = true;
+      }
+    }
+    for (odb::dbBTerm* bt : db_net->getBTerms()) {
+      ++bterm_count;
+      int x = 0, y = 0;
+      if (bt->getFirstPinLocation(x, y)) {
+        xmin = std::min(xmin, x); xmax = std::max(xmax, x);
+        ymin = std::min(ymin, y); ymax = std::max(ymax, y);
+        has_xy = true;
+      }
+    }
+
+    int hpwl_dbu = has_xy ? ((xmax - xmin) + (ymax - ymin)) : 0;
+
+    // Driver-derived data.
+    sta::Pin* drvr_pin = nullptr;
+    odb::dbInst* drvr_inst = nullptr;
+    odb::dbMaster* drvr_master = nullptr;
+    odb::dbMTerm* drvr_mterm = nullptr;
+    if (drvr_iterm != nullptr) {
+      drvr_pin = network->dbToSta(drvr_iterm);
+      drvr_inst = drvr_iterm->getInst();
+      drvr_master = drvr_inst->getMaster();
+      drvr_mterm = drvr_iterm->getMTerm();
+    }
+
+    float c2_rise = kNaN, rpi_rise = kNaN, c1_rise = kNaN;
+    float c2_fall = kNaN, rpi_fall = kNaN, c1_fall = kNaN;
+    sta::Parasitic* pi_rise = nullptr;
+    sta::Parasitic* pi_fall = nullptr;
+    if (drvr_pin != nullptr && ap != nullptr) {
+      pi_rise = parasitics->findPiElmore(
+          drvr_pin, sta::RiseFall::rise(), ap);
+      pi_fall = parasitics->findPiElmore(
+          drvr_pin, sta::RiseFall::fall(), ap);
+      if (pi_rise && parasitics->isPiModel(pi_rise)) {
+        parasitics->piModel(pi_rise, c2_rise, rpi_rise, c1_rise);
+      }
+      if (pi_fall && parasitics->isPiModel(pi_fall)) {
+        parasitics->piModel(pi_fall, c2_fall, rpi_fall, c1_fall);
+      }
+    }
+
+    float drvr_slew_rise = kNaN, drvr_slew_fall = kNaN;
+    if (drvr_pin != nullptr) {
+      sta::Vertex* drvr_v = graph->pinDrvrVertex(drvr_pin);
+      if (drvr_v != nullptr) {
+        drvr_slew_rise = sta->vertexSlew(
+            drvr_v, sta::RiseFall::rise(), mm_max);
+        drvr_slew_fall = sta->vertexSlew(
+            drvr_v, sta::RiseFall::fall(), mm_max);
+      }
+    }
+
+    float drvr_max_cap = kNaN;
+    if (drvr_mterm != nullptr) {
+      drvr_max_cap = getMaxCapLimit(drvr_mterm);
+    }
+
+    float net_cap = kNaN;
+    if (ap != nullptr) {
+      net_cap = getNetCap(db_net, corner, MinMax::Max);
+    }
+
+    int num_segments = 0;
+    const grt::GRoute* groute = nullptr;
+    if (routes != nullptr) {
+      auto it = routes->find(db_net);
+      if (it != routes->end()) {
+        groute = &it->second;
+        num_segments = static_cast<int>(groute->size());
+      }
+    }
+
+    // Write nets row.
+    nets_csv << db_net->getName() << ','
+             << sigTypeName(db_net->getSigType()) << ','
+             << (drvr_inst ? drvr_inst->getName() : std::string("")) << ','
+             << (drvr_master ? drvr_master->getName() : std::string("")) << ','
+             << fanout << ','
+             << bterm_count << ','
+             << hpwl_dbu << ','
+             << num_segments << ',';
+    writeFloat(nets_csv, c2_rise);  nets_csv << ',';
+    writeFloat(nets_csv, rpi_rise); nets_csv << ',';
+    writeFloat(nets_csv, c1_rise);  nets_csv << ',';
+    writeFloat(nets_csv, c2_fall);  nets_csv << ',';
+    writeFloat(nets_csv, rpi_fall); nets_csv << ',';
+    writeFloat(nets_csv, c1_fall);  nets_csv << ',';
+    writeFloat(nets_csv, drvr_slew_rise); nets_csv << ',';
+    writeFloat(nets_csv, drvr_slew_fall); nets_csv << ',';
+    writeFloat(nets_csv, net_cap);  nets_csv << ',';
+    writeFloat(nets_csv, drvr_max_cap); nets_csv << '\n';
+    ++n_nets;
+
+    // Write segments rows.
+    if (groute != nullptr) {
+      for (size_t i = 0; i < groute->size(); ++i) {
+        const grt::GSegment& seg = (*groute)[i];
+        segs_csv << db_net->getName() << ',' << i << ','
+                 << seg.init_x << ',' << seg.init_y << ',' << seg.init_layer
+                 << ',' << seg.final_x << ',' << seg.final_y << ','
+                 << seg.final_layer << ',' << seg.length() << ','
+                 << (seg.isVia() ? 1 : 0) << '\n';
+        ++n_segs;
+      }
+    }
+
+    // Write sinks rows.
+    if (drvr_pin != nullptr) {
+      for (odb::dbITerm* sink_it : db_net->getITerms()) {
+        if (sink_it == drvr_iterm) {
+          continue;
+        }
+        sta::Pin* sink_pin = network->dbToSta(sink_it);
+
+        // getPortCap takes corner+min_max (ITerm pin only).
+        float sink_input_cap = getPortCap(sink_it, corner, MinMax::Max);
+        float sink_max_slew = kNaN;
+        odb::dbMTerm* sink_mt = sink_it->getMTerm();
+        if (sink_mt != nullptr) {
+          sink_max_slew = getMaxSlewLimit(sink_mt);
+        }
+
+        float sink_slew_rise = kNaN, sink_slew_fall = kNaN;
+        if (sink_pin != nullptr) {
+          sta::Vertex* sink_v = graph->pinLoadVertex(sink_pin);
+          if (sink_v != nullptr) {
+            sink_slew_rise = sta->vertexSlew(
+                sink_v, sta::RiseFall::rise(), mm_max);
+            sink_slew_fall = sta->vertexSlew(
+                sink_v, sta::RiseFall::fall(), mm_max);
+          }
+        }
+
+        float wd_rise = kNaN, wd_fall = kNaN;
+        if (pi_rise != nullptr && sink_pin != nullptr) {
+          float v; bool exists = false;
+          parasitics->findElmore(pi_rise, sink_pin, v, exists);
+          if (exists) wd_rise = v;
+        }
+        if (pi_fall != nullptr && sink_pin != nullptr) {
+          float v; bool exists = false;
+          parasitics->findElmore(pi_fall, sink_pin, v, exists);
+          if (exists) wd_fall = v;
+        }
+
+        sinks_csv << db_net->getName() << ','
+                  << sink_it->getName() << ','
+                  << sink_it->getInst()->getName() << ','
+                  << sink_it->getInst()->getMaster()->getName() << ',';
+        writeFloat(sinks_csv, sink_input_cap); sinks_csv << ',';
+        writeFloat(sinks_csv, sink_max_slew);  sinks_csv << ',';
+        writeFloat(sinks_csv, sink_slew_rise); sinks_csv << ',';
+        writeFloat(sinks_csv, sink_slew_fall); sinks_csv << ',';
+        writeFloat(sinks_csv, wd_rise); sinks_csv << ',';
+        writeFloat(sinks_csv, wd_fall); sinks_csv << '\n';
+        ++n_sinks;
+      }
+    }
+  }
+
+  // Congestion CSV: per (layer, gcell_x, gcell_y).
+  odb::dbGCellGrid* grid = block->getGCellGrid();
+  if (grid != nullptr) {
+    odb::dbTech* tech = block->getDataBase()->getTech();
+    for (odb::dbTechLayer* layer : tech->getLayers()) {
+      if (layer->getType() != odb::dbTechLayerType::ROUTING) {
+        continue;
+      }
+      odb::dbMatrix<odb::dbGCellGrid::GCellData> mat
+          = grid->getLayerCongestionMap(layer);
+      const int rows = mat.numRows();
+      const int cols = mat.numCols();
+      for (int x = 0; x < rows; ++x) {
+        for (int y = 0; y < cols; ++y) {
+          const auto& d = mat(x, y);
+          cong_csv << layer->getName() << ',' << x << ',' << y << ','
+                   << d.capacity << ',' << d.usage << '\n';
+        }
+      }
+    }
+  }
+
+  utl::Logger* logger = OpenRoad::openRoad()->getLogger();
+  if (logger) {
+    logger->report(
+        "[dumpDiagBundle] wrote {}_nets.csv ({} rows), "
+        "{}_segments.csv ({} rows), {}_sinks.csv ({} rows), "
+        "{}_congestion.csv",
+        prefix, n_nets, prefix, n_segs, prefix, n_sinks, prefix);
+  }
 }
 
 }  // namespace ord
