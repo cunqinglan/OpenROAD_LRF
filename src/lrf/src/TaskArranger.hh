@@ -220,8 +220,8 @@ public:
   void enableTopologyCheck(bool enable) { enable_topology_check_ = enable; }
   void printTopologyViolations() const;
   
-  // Flag of verbose printing
-  bool verbose_ = false;
+  // Flag of verbose printing (process-wide; set from LrConfig::verbose at runLr entry)
+  static bool verbose_;
 
 protected:
   // Vertices before num_com_ are combinational.

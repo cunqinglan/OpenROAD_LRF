@@ -144,11 +144,9 @@ struct LrConfig {
   //                 behavior; opt in explicitly if needed.
   float erc_violation_weight = 1e6f;
 
-  // ── Initialization ──
-  bool initialize = false;           // Run Sharma 3-step init before LR
-
   // ── Debug ──
   bool debug = false;             // Print detailed rebuffer/eval diagnostics
+  bool verbose = false;           // Print per-iter ParallelVisitor runtime profile
 
   // ── ECO ──
   EcoConfig eco;

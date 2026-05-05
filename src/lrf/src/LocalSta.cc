@@ -2362,21 +2362,21 @@ LocalSta::violationSumAfterSwap(sta::Instance *inst,
       float cap_limit = getPortMaxCapLimit(port) * cap_limit_scale;
       float load_cap = getLoadCap(ptv, corner, min_max, pt_graph);
       if (load_cap > cap_limit)
-        v.cap += (load_cap - cap_limit) * 0.1;
+        v.cap += (load_cap - cap_limit) * 10;
 
       float slew_limit = getPortMaxSlewLimit(port) * slew_limit_scale;
       float slew = getVertexMaxSlew(pt_graph, ptv, dcalc_ap);
       if (slew > slew_limit)
-        v.slew += (slew - slew_limit) * 0.1;
+        v.slew += (slew - slew_limit) * 10;
 
       v.slew += fanoutLoadSlewViolation(pt_graph, ptv.objectIdx(), dcalc_ap,
-                                        slew_limit_scale) * 0.1;
+                                        slew_limit_scale) * 10;
     }
     else if (ptv.type() == PtVertexType::SiblingDrvr) {
       float slew_limit = getPortMaxSlewLimit(port) * slew_limit_scale;
       float slew = getVertexMaxSlew(pt_graph, ptv, dcalc_ap);
       if (slew > slew_limit)
-        v.slew += (slew - slew_limit) * 0.1;
+        v.slew += (slew - slew_limit) * 10;
     }
   }
   return v;
