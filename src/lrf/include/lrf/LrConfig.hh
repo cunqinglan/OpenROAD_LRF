@@ -144,6 +144,18 @@ struct LrConfig {
   //                 behavior; opt in explicitly if needed.
   float erc_violation_weight = 1e6f;
 
+  // Multiplier on the lib slew/cap limits used by EvalContext's ERC gating
+  // (applied to both slew and cap). 1.0 = use lib limit as-is. 0.95 = 5%
+  // tighter (default — matches pre-eb01407 legalCheckAfterSwap headroom).
+  // 0.85 = 15% headroom. Smaller value penalizes/rejects earlier, leaving
+  // physical margin for post-GR RC shift. See
+  // NetlistTransformation.hh::EvalContext::erc_{slew,cap}_limit_scale.
+  // NOTE: The active path is param-passed (testInitResizeThenSdpBuffering's
+  // erc_limit_scale arg → IncreSta methods → EvalContext); this LrConfig
+  // field is a documentation anchor and reserved for future LrConfig-driven
+  // call sites.
+  float erc_limit_scale = 0.95f;
+
   // ── Debug ──
   bool debug = false;             // Print detailed rebuffer/eval diagnostics
   bool verbose = false;           // Print per-iter ParallelVisitor runtime profile

@@ -1606,14 +1606,16 @@ TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
                             bool debug,
                             size_t buffering_start_iter,
                             float timing_margin,
-                            float erc_violation_weight)
+                            float erc_violation_weight,
+                            float erc_limit_scale)
 {
   printf("----- Testing Init Resize -> SDP Buffering "
          "(iterations=%zu, tol=%zu, "
          "buffering_start_iter=%zu, timing_margin=%.4f, "
-         "erc_violation_weight=%.3g) -----\n",
+         "erc_violation_weight=%.3g, erc_limit_scale=%.3f) -----\n",
          iterations, num_no_improve_tolerance,
-         buffering_start_iter, timing_margin, erc_violation_weight);
+         buffering_start_iter, timing_margin, erc_violation_weight,
+         erc_limit_scale);
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
@@ -1670,7 +1672,7 @@ TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
     auto start = std::chrono::high_resolution_clock::now();
     printf("----- Phase A: LR ResizeByArray Iteration %zu -----\n", i+1);
     incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff,
-                                     erc_violation_weight);
+                                     erc_violation_weight, erc_limit_scale);
     auto end = std::chrono::high_resolution_clock::now();
     double runtime = std::chrono::duration<double>(end - start).count();
 
@@ -1738,7 +1740,7 @@ TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
            i+1, ratio);
     incre_sta->parallelResizeByArrayWithPrecheck(
         resizer, avg_delay, avg_leakage, PT_tradeoff, ratio,
-        erc_violation_weight);
+        erc_violation_weight, erc_limit_scale);
     auto end = std::chrono::high_resolution_clock::now();
     double runtime = std::chrono::duration<double>(end - start).count();
 
@@ -1777,7 +1779,7 @@ TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
 
       auto buf_start = std::chrono::high_resolution_clock::now();
       incre_sta->parallelBufferingSdp(resizer, PT_tradeoff, /*top_ratio=*/0.01f,
-                                      erc_violation_weight);
+                                      erc_violation_weight, erc_limit_scale);
       auto buf_end = std::chrono::high_resolution_clock::now();
       double buf_runtime = std::chrono::duration<double>(buf_end - buf_start).count();
 

@@ -192,6 +192,10 @@ class Timing
   // TestLrf::testInitResizeThenSdpBuffering for details.
   // erc_violation_weight: <0 hard reject, ==0 ignore, >0 soft penalty
   //   (default -1.0 = legacy hard-reject behavior).
+  // erc_limit_scale: multiplier on the lib slew/cap limits used by ERC
+  //   gating (applied to both slew and cap). 0.95 = 5% margin (default,
+  //   matches pre-eb01407 legalCheckAfterSwap headroom). 0.85 = 15% margin
+  //   (tighter, leaves more room for post-GR RC shift).
   void testInitResizeThenSdpBuffering(size_t max_resize_num,
                                       size_t iterations,
                                       size_t num_no_improve_tolerance,
@@ -200,7 +204,8 @@ class Timing
                                       const char *lr_helper_method = "LRHelper",
                                       float density_weight = 0.0f,
                                       float timing_margin = 0.01f,
-                                      float erc_violation_weight = -1.0f);
+                                      float erc_violation_weight = -1.0f,
+                                      float erc_limit_scale = 0.95f);
   void testCombinedResizeBuffering(size_t max_resize_num,
                                              size_t iterations,
                                              size_t num_no_improve_tolerance,
