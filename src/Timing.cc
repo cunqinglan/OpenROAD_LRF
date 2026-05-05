@@ -604,9 +604,9 @@ Timing::runLr(int mode, size_t iterations, size_t max_resize_num,
               size_t num_no_improve_tolerance, float PT_tradeoff,
               float density_weight, bool ratcons,
               const char *lr_helper_method, float top_ratio,
-              bool initialize, const char *checkpoint_dir,
+              const char *checkpoint_dir,
               bool debug, size_t buffering_start_iter,
-              float timing_margin) {
+              float timing_margin, bool verbose) {
   lrf::LrConfig cfg;
   cfg.mode = static_cast<lrf::LrMode>(mode);
   cfg.iterations = iterations;
@@ -617,23 +617,23 @@ Timing::runLr(int mode, size_t iterations, size_t max_resize_num,
   cfg.ratcons = ratcons;
   cfg.lr_helper_method = lr_helper_method;
   cfg.top_ratio = top_ratio;
-  cfg.initialize = initialize;
   cfg.checkpoint_dir = checkpoint_dir ? checkpoint_dir : "";
   cfg.debug = debug;
   cfg.buffering_start_iter = buffering_start_iter;
   cfg.timing_margin = timing_margin;
+  cfg.verbose = verbose;
   runLr(cfg);
 }
 
 void
-Timing::testParallelInitializer(bool minimize_leakage) {
+Timing::runInitialization(bool minimize_leakage) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
   sta::dbSta* sta = getSta();
   lrf::TestLrf test_lrf;
-  test_lrf.testParallelInitializer(sta, resizer, design_->getBlock(),
-                                   thread_num, minimize_leakage);
+  test_lrf.runInitializationStandalone(sta, resizer, design_->getBlock(),
+                                       thread_num, minimize_leakage);
 }
 
 void
@@ -652,7 +652,7 @@ Timing::debugPrecheckAccuracy(float PT_tradeoff, float top_ratio) {
 void
 Timing::testParallelResizeByArray(size_t max_resize_num, size_t iterations,
   size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method, bool initialize, float density_weight) {
+  const char *lr_helper_method, float density_weight) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
   printf("Starting testParallelResizeByArray with %zu threads\n", thread_num);
   fflush(stdout);
@@ -662,13 +662,13 @@ Timing::testParallelResizeByArray(size_t max_resize_num, size_t iterations,
   lrf::TestLrf test_lrf;
   test_lrf.testParallelLrResizeByArray(sta, resizer, design_->getBlock(),
     thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method, initialize, density_weight);
+    PT_tradeoff, lr_helper_method, density_weight);
 }
 
 void
 Timing::testParallelResizeByArrayWithBuffering(size_t max_resize_num, size_t iterations,
   size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method, bool initialize, float density_weight) {
+  const char *lr_helper_method, float density_weight) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
   printf("Starting testParallelResizeByArrayWithBuffering with %zu threads\n", thread_num);
   fflush(stdout);
@@ -678,13 +678,13 @@ Timing::testParallelResizeByArrayWithBuffering(size_t max_resize_num, size_t ite
   lrf::TestLrf test_lrf;
   test_lrf.testParallelLrResizeByArrayWithBuffering(sta, resizer, design_->getBlock(),
     thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method, initialize, density_weight);
+    PT_tradeoff, lr_helper_method, density_weight);
 }
 
 void
 Timing::testParallelResizeByArrayWithRszBuffering(size_t max_resize_num, size_t iterations,
   size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method, bool initialize, float density_weight) {
+  const char *lr_helper_method, float density_weight) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
   printf("Starting testParallelResizeByArrayWithRszBuffering with %zu threads\n", thread_num);
   fflush(stdout);
@@ -694,13 +694,13 @@ Timing::testParallelResizeByArrayWithRszBuffering(size_t max_resize_num, size_t 
   lrf::TestLrf test_lrf;
   test_lrf.testParallelLrResizeByArrayWithRszBuffering(sta, resizer, design_->getBlock(),
     thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method, initialize, density_weight);
+    PT_tradeoff, lr_helper_method, density_weight);
 }
 
 void
 Timing::testParallelResizeByArrayWithSdpBuffering(size_t max_resize_num, size_t iterations,
   size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method, bool initialize, float density_weight,
+  const char *lr_helper_method, float density_weight,
   float timing_margin) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
   printf("Starting testParallelResizeByArrayWithSdpBuffering with %zu threads, timing_margin=%.4f\n",
@@ -712,14 +712,14 @@ Timing::testParallelResizeByArrayWithSdpBuffering(size_t max_resize_num, size_t 
   lrf::TestLrf test_lrf;
   test_lrf.testParallelLrResizeByArrayWithSdpBuffering(sta, resizer, design_->getBlock(),
     thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method, initialize, density_weight,
+    PT_tradeoff, lr_helper_method, density_weight,
     /*debug=*/false, /*buffering_start_iter=*/5, timing_margin);
 }
 
 void
 Timing::testInitResizeThenSdpBuffering(size_t max_resize_num, size_t iterations,
   size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method, bool initialize, float density_weight,
+  const char *lr_helper_method, float density_weight,
   float timing_margin, float erc_violation_weight, float erc_limit_scale) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
   printf("Starting testInitResizeThenSdpBuffering with %zu threads, "
@@ -732,7 +732,7 @@ Timing::testInitResizeThenSdpBuffering(size_t max_resize_num, size_t iterations,
   lrf::TestLrf test_lrf;
   test_lrf.testInitResizeThenSdpBuffering(sta, resizer, design_->getBlock(),
     thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method, initialize, density_weight,
+    PT_tradeoff, lr_helper_method, density_weight,
     /*debug=*/false, /*buffering_start_iter=*/5, timing_margin,
     erc_violation_weight, erc_limit_scale);
 }
@@ -756,7 +756,7 @@ Timing::testEcoResizeNoHalve(size_t iterations, float PT_tradeoff,
 void
 Timing::testCombinedResizeBuffering(size_t max_resize_num, size_t iterations,
   size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method, bool initialize) {
+  const char *lr_helper_method) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
   printf("Starting testCombinedResizeBuffering with %zu threads\n", thread_num);
   fflush(stdout);
@@ -766,7 +766,7 @@ Timing::testCombinedResizeBuffering(size_t max_resize_num, size_t iterations,
   lrf::TestLrf test_lrf;
   test_lrf.testParallelLrCombinedResizeBuffering(sta, resizer, design_->getBlock(),
     thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method, initialize);
+    PT_tradeoff, lr_helper_method);
 }
 
 void

@@ -87,7 +87,7 @@ public:
   // erc_limit_scale: multiplier on lib slew/cap limits (default 0.95 =
   //   5% headroom; matches EvalContext default).
   void parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float avg_power,
-                      float PT_tradeoff, float erc_violation_weight = -1.0f,
+                      float PT_tradeoff, float erc_violation_weight = 1e6f,
                       float erc_limit_scale = 0.95f);
   void setMaxResizeNum(size_t max_resize_num);
   void setBufferOnlyMode(bool mode) { buffer_only_mode_ = mode; }
@@ -106,7 +106,7 @@ public:
   // Mirrors parallelBuffering (cost-DP) signature; only operator differs.
   void parallelBufferingSdp(rsz::Resizer *resizer, float PT_tradeoff,
                              float top_ratio = 0.01f,
-                             float erc_violation_weight = -1.0f,
+                             float erc_violation_weight = 1e6f,
                              float erc_limit_scale = 0.95f);
   void probeRszBnet(rsz::Resizer *resizer, float PT_tradeoff = 10.0f,
                     int top_n = 100);
@@ -136,7 +136,7 @@ public:
   void parallelResizeByArrayWithPrecheck(rsz::Resizer *resizer, float avg_delay,
                                            float avg_power, float PT_tradeoff,
                                            float top_ratio = 0.3,
-                                           float erc_violation_weight = -1.0f,
+                                           float erc_violation_weight = 1e6f,
                                            float erc_limit_scale = 0.95f);
 
   // Adaptive instance-level filtering control.

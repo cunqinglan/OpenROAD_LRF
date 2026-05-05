@@ -156,11 +156,9 @@ struct LrConfig {
   // call sites.
   float erc_limit_scale = 0.95f;
 
-  // ── Initialization ──
-  bool initialize = false;           // Run Sharma 3-step init before LR
-
   // ── Debug ──
   bool debug = false;             // Print detailed rebuffer/eval diagnostics
+  bool verbose = false;           // Print per-iter ParallelVisitor runtime profile
 
   // ── ECO ──
   EcoConfig eco;
