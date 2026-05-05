@@ -706,8 +706,8 @@ TestLrf::compareTimingRecords(const std::unordered_map<sta::Instance*, TimingRec
 }
 
 void
-TestLrf::testMEEAssignments(sta::dbSta* sta, 
-                            rsz::Resizer * /*resizer*/, 
+TestLrf::testMEEAssignments(sta::dbSta* sta,
+                            rsz::Resizer * /*resizer*/,
                             odb::dbBlock * /*block*/)
 {
   // Test MEE assignments
@@ -718,6 +718,415 @@ TestLrf::testMEEAssignments(sta::dbSta* sta,
   TaskArranger *arranger = local_sta->taskArranger();
   arranger->init();
   arranger->printGraph();
+}
+
+////////////////////////////////////////////////////////////////
+// Stage 1: FF endpoint LM dump
+////////////////////////////////////////////////////////////////
+
+namespace {
+
+// Print one (edge, arc) record with LM, AAT, RAT, slack and clamp/floor flags.
+// `side` is a short tag like "D-in", "Q-fan", or "CK-Q" for the human reader.
+void
+printFFArcRecord(sta::dbSta *sta, sta::Edge *edge, sta::TimingArc *arc,
+                 const sta::DcalcAnalysisPt *dcalc_ap, size_t ap_index,
+                 size_t ap_count, const sta::MinMax *minmax,
+                 const char *side)
+{
+  const sta::RiseFall *from_rf = arc->fromEdge()->asRiseFall();
+  const sta::RiseFall *to_rf   = arc->toEdge()->asRiseFall();
+  if (!from_rf || !to_rf) return;
+
+  sta::Graph *graph = sta->graph();
+  sta::Vertex *from_v = edge->from(graph);
+  sta::Vertex *to_v   = edge->to(graph);
+  const char *from_pin = sta->network()->pathName(from_v->pin());
+  const char *to_pin   = sta->network()->pathName(to_v->pin());
+
+  sta::Arrival from_aat = sta->pinArrival(from_v->pin(), from_rf, minmax);
+  sta::Required to_rat  = sta->vertexRequired(to_v, to_rf, minmax);
+  sta::Delay delay      = sta->arcDelay(edge, arc, dcalc_ap);
+  sta::Slack arc_slack  = to_rat - (from_aat + delay);
+
+  sta::LMValue *lms = edge->arcLms();
+  size_t lm_idx = arc->index() * ap_count + ap_index;
+  float lm = lms ? lms[lm_idx] : -1.0f;
+
+  bool clamp_aat = (from_aat < 0.0f);
+  bool clamp_rat = (to_rat < 0.0f);
+  // RapidLrHelper uses LM_FLOOR = 1e-16; treat LM <= 1.1e-16 as floored.
+  bool is_floor  = (lm > 0.0f && lm <= 1.1e-16f);
+  bool is_inf    = (from_aat == sta::INF || from_aat == -sta::INF
+                    || to_rat == sta::INF || to_rat == -sta::INF);
+
+  printf("  [%-7s] %-50s %s -> %-50s %s | role=%-15s | "
+         "lm=%.3e | aat=%+10.3f rat=%+10.3f delay=%+8.3f slack=%+10.3f ps "
+         "| clamp_aat=%d clamp_rat=%d is_floor=%d is_inf=%d\n",
+         side, from_pin, from_rf->name(), to_pin, to_rf->name(),
+         edge->role()->to_string().c_str(),
+         lm,
+         from_aat * 1e12, to_rat * 1e12, delay * 1e12, arc_slack * 1e12,
+         clamp_aat, clamp_rat, is_floor, is_inf);
+}
+
+} // anonymous namespace
+
+void
+TestLrf::testReportFFEndpointLMs(char *inst_name, sta::dbSta* sta,
+                                 rsz::Resizer * /*resizer*/,
+                                 odb::dbBlock *block, size_t lm_iters)
+{
+  printf("===== testReportFFEndpointLMs: inst=%s, lm_iters=%zu =====\n",
+         inst_name, lm_iters);
+
+  sta::dbNetwork *db_network = sta->getDbNetwork();
+  odb::dbInst *db_inst = block->findInst(inst_name);
+  if (!db_inst) {
+    printf("  ERROR: instance %s not found in block.\n", inst_name);
+    return;
+  }
+  sta::Instance *ff_inst = db_network->dbToSta(db_inst);
+  sta::LibertyCell *ff_cell = sta->network()->libertyCell(ff_inst);
+  if (!ff_cell) {
+    printf("  ERROR: instance %s has no liberty cell.\n", inst_name);
+    return;
+  }
+  if (!ff_cell->hasSequentials()) {
+    printf("  WARN: instance %s (cell=%s) is not a flip-flop "
+           "(hasSequentials=false). Continuing anyway.\n",
+           inst_name, ff_cell->name());
+  }
+
+  // Bootstrap LR: same sequence as testParallelLrResizeByArray.
+  sta->searchPreamble();
+  sta->findRequireds();
+  IncreSta *incre_sta = new IncreSta(sta);
+  incre_sta->makeLRHelper("rapidlrhelper");
+  LRHelper *lr_helper = incre_sta->lrHelper();
+  lr_helper->setRatcons(true);          // enable endpoint LM rescaling
+  lr_helper->setTimingMargin(0.01f);    // match RapidLrHelper default
+  // updateAllEdgeLms iterates sorted_lm_vertices_; populate it once.
+  lr_helper->ensureSorted(sta);
+
+  // Run a few lmUpdate cycles so LMs settle to non-trivial values.
+  for (size_t i = 0; i < lm_iters; ++i) {
+    incre_sta->lmUpdate();
+    sta->findRequireds();
+    sta::Slack wns = sta->worstSlack(sta::MinMax::max());
+    sta::Slack tns = sta->totalNegativeSlack(sta::MinMax::max());
+    printf("  [iter %zu] wns=%.3f ps  tns=%.3f ps  (lmUpdate done)\n",
+           i + 1, wns * 1e12, tns * 1e12);
+    fflush(stdout);
+  }
+
+  // Set up AP for indexing arcLms.
+  sta::Corner *corner = sta->cmdCorner();
+  if (!corner) corner = sta->corners()->findCorner("default");
+  const sta::DcalcAnalysisPt *dcalc_ap =
+      corner->findDcalcAnalysisPt(sta::MinMax::max());
+  const size_t ap_index = dcalc_ap->index();
+  const size_t ap_count = sta->graph()->apCount();
+  const sta::MinMax *minmax = sta::MinMax::max();
+  printf("  AP setup: corner=%s, ap_index=%zu, ap_count=%zu\n",
+         corner->name(), ap_index, ap_count);
+
+  sta::Graph *graph = sta->graph();
+  sta::InstancePinIterator *pin_iter = sta->network()->pinIterator(ff_inst);
+  while (pin_iter->hasNext()) {
+    sta::Pin *pin = pin_iter->next();
+    const char *pin_name = sta->network()->pathName(pin);
+    bool is_load = sta->network()->isLoad(pin);
+    bool is_drvr = sta->network()->isDriver(pin);
+    printf("\n-- pin=%s  isLoad=%d  isDrvr=%d --\n", pin_name, is_load, is_drvr);
+
+    if (is_load) {
+      // D-side: combinational in-edges to this load pin.
+      // Distinguish data pins (D, SE, SI, ...) from clock pins (CK):
+      // clock pins carry RAT < 0 / arrival = INF artefacts that aren't part
+      // of our Δsetup × LM cost — tag them "CK-in" for visibility but they
+      // are not part of the acceptance check.
+      // Detect FF clock input via the liberty port's `clock : true` flag —
+      // findLeafPinClocks only matches top-level SDC clock declarations.
+      sta::LibertyPort *lib_port = sta->network()->libertyPort(pin);
+      bool is_clk_pin = (lib_port && lib_port->isClock());
+      const char *side_tag = is_clk_pin ? "CK-in" : "D-in";
+
+      sta::Vertex *load_v = graph->pinLoadVertex(pin);
+      if (!load_v) continue;
+      sta::VertexInEdgeIterator iter(load_v, graph);
+      while (iter.hasNext()) {
+        sta::Edge *e = iter.next();
+        if (e->role()->isTimingCheck()) continue;
+        sta::TimingArcSet *aset = e->timingArcSet();
+        if (!aset) continue;
+        for (sta::TimingArc *arc : aset->arcs()) {
+          printFFArcRecord(sta, e, arc, dcalc_ap, ap_index, ap_count,
+                           minmax, side_tag);
+        }
+      }
+    }
+    if (is_drvr) {
+      // Q-side: walk wire out-edges to fanout loads, then the gate edges
+      // out of those loads (= delay arcs into next-stage drivers).
+      sta::Vertex *drv_v = graph->pinDrvrVertex(pin);
+      if (!drv_v) continue;
+
+      // Optional: print the FF's own CK->Q (regClkToQ) in-edge.
+      sta::VertexInEdgeIterator drv_in_iter(drv_v, graph);
+      while (drv_in_iter.hasNext()) {
+        sta::Edge *e = drv_in_iter.next();
+        if (e->role()->isTimingCheck()) continue;
+        sta::TimingArcSet *aset = e->timingArcSet();
+        if (!aset) continue;
+        for (sta::TimingArc *arc : aset->arcs()) {
+          printFFArcRecord(sta, e, arc, dcalc_ap, ap_index, ap_count,
+                           minmax, "CK-Q");
+        }
+      }
+
+      sta::VertexOutEdgeIterator wire_iter(drv_v, graph);
+      while (wire_iter.hasNext()) {
+        sta::Edge *wire_e = wire_iter.next();
+        if (!wire_e->isWire()) continue;
+        sta::Vertex *fanout_load = wire_e->to(graph);
+        sta::VertexOutEdgeIterator gate_iter(fanout_load, graph);
+        while (gate_iter.hasNext()) {
+          sta::Edge *gate_e = gate_iter.next();
+          if (gate_e->role()->isTimingCheck()) continue;
+          sta::TimingArcSet *aset = gate_e->timingArcSet();
+          if (!aset) continue;
+          for (sta::TimingArc *arc : aset->arcs()) {
+            printFFArcRecord(sta, gate_e, arc, dcalc_ap, ap_index, ap_count,
+                             minmax, "Q-fan");
+          }
+        }
+      }
+    }
+  }
+  delete pin_iter;
+
+  delete incre_sta;
+  printf("\n===== end testReportFFEndpointLMs =====\n");
+  fflush(stdout);
+}
+
+void
+TestLrf::testReportFFPtGraph(char *inst_name, sta::dbSta* sta,
+                             rsz::Resizer * /*resizer*/, odb::dbBlock *block)
+{
+  printf("===== testReportFFPtGraph: inst=%s =====\n", inst_name);
+
+  sta::dbNetwork *db_network = sta->getDbNetwork();
+  odb::dbInst *db_inst = block->findInst(inst_name);
+  if (!db_inst) {
+    printf("  ERROR: instance %s not found in block.\n", inst_name);
+    return;
+  }
+  sta::Instance *ff_inst = db_network->dbToSta(db_inst);
+
+  // Need a fresh LocalSta so PtGraph construction has the right StaState.
+  IncreSta *incre_sta = new IncreSta(sta);
+  LocalSta *local_sta = incre_sta->localSta();
+
+  PtGraph *pt_graph = new PtGraph(sta);
+  local_sta->makePtGraphFF(pt_graph, ff_inst);
+
+  printf("\nFF cell: %s\n",
+         sta->network()->libertyCell(ff_inst)->name());
+  printf("PtGraph: %zu vertices, %zu edges\n",
+         pt_graph->ptVertices().size(), pt_graph->ptEdges().size());
+
+  // ----- Vertices -----
+  printf("\n-- PtVertices --\n");
+  printf("  %-4s %-15s %-50s %-25s %s/%s\n",
+         "id", "type", "pin", "lib_port", "drvr", "load");
+  for (size_t vid = 0; vid < pt_graph->ptVertices().size(); ++vid) {
+    PtVertex &pv = pt_graph->ptVertex(vid);
+    if (pv.type() == PtVertexType::Sentinel) continue;
+    sta::Vertex *v = pv.vertex();
+    if (!v) continue;
+    sta::Pin *pin = v->pin();
+    sta::LibertyPort *lib_port = sta->network()->libertyPort(pin);
+    printf("  %-4zu %-15s %-50s %-25s %d/%d\n",
+           vid, ptVertexTypeName(pv.type()),
+           sta->network()->pathName(pin),
+           lib_port ? lib_port->name() : "(none)",
+           pv.isDriver(), pv.isLoad());
+  }
+
+  // ----- Edges -----
+  printf("\n-- PtEdges --\n");
+  printf("  %-4s %-16s %-15s %-30s -> %-30s\n",
+         "id", "type", "role", "from", "to");
+  size_t check_edge_count = 0;
+  size_t reg_clk_q_count = 0;
+  for (size_t eid = 0; eid < pt_graph->ptEdges().size(); ++eid) {
+    const PtEdge &pe = pt_graph->ptEdges()[eid];
+    if (pe.type() == PtEdgeType::Sentinel) continue;
+    sta::TimingArcSet *aset = pe.timingArcSet();
+    const char *role_name = aset ? aset->role()->to_string().c_str() : "(none)";
+    PtVertex &from_pv = pt_graph->ptVertex(pe.ptFromId());
+    PtVertex &to_pv   = pt_graph->ptVertex(pe.ptToId());
+    const char *from_name = (from_pv.vertex())
+        ? sta->network()->pathName(from_pv.vertex()->pin()) : "(virtual)";
+    const char *to_name = (to_pv.vertex())
+        ? sta->network()->pathName(to_pv.vertex()->pin()) : "(virtual)";
+    printf("  %-4zu %-16s %-15s %-30s -> %-30s\n",
+           eid, ptEdgeTypeName(pe.type()), role_name,
+           from_name, to_name);
+    if (pe.type() == PtEdgeType::CheckEdge) check_edge_count++;
+    if (aset && aset->role() == sta::TimingRole::regClkToQ()) reg_clk_q_count++;
+  }
+
+  // ----- Sibling FF leak check -----
+  // Count instances of OTHER sequential cells in vertex_map_ (would indicate
+  // CK net's sibling FFs leaked in).
+  size_t sibling_ff_count = 0;
+  for (auto &pv : pt_graph->ptVertices()) {
+    if (pv.type() == PtVertexType::Sentinel) continue;
+    sta::Vertex *v = pv.vertex();
+    if (!v) continue;
+    sta::Instance *inst = sta->network()->instance(v->pin());
+    if (!inst || inst == ff_inst) continue;
+    sta::LibertyCell *lc = sta->network()->libertyCell(inst);
+    if (lc && lc->hasSequentials()) sibling_ff_count++;
+  }
+
+  printf("\n-- Acceptance summary --\n");
+  printf("  CheckEdge count       : %zu  (expect: >=1, ideally =1 setup)\n",
+         check_edge_count);
+  printf("  regClkToQ edge count  : %zu  (expect: >=1)\n", reg_clk_q_count);
+  printf("  sibling FF vertices   : %zu  (expect: 0 — clock-pin expansion bounded)\n",
+         sibling_ff_count);
+  printf("  total vertices        : %zu  (expect small for local_graph: ~10-25)\n",
+         pt_graph->ptVertices().size());
+
+  delete pt_graph;
+  delete incre_sta;
+  printf("\n===== end testReportFFPtGraph =====\n");
+  fflush(stdout);
+}
+
+void
+TestLrf::testFFLocalDelay(char *inst_name, sta::dbSta* sta,
+                          rsz::Resizer * /*resizer*/, odb::dbBlock *block)
+{
+  printf("===== testFFLocalDelay: inst=%s =====\n", inst_name);
+
+  sta::dbNetwork *db_network = sta->getDbNetwork();
+  odb::dbInst *db_inst = block->findInst(inst_name);
+  if (!db_inst) {
+    printf("  ERROR: instance %s not found in block.\n", inst_name);
+    return;
+  }
+  sta::Instance *ff_inst = db_network->dbToSta(db_inst);
+
+  // Make timing global is up-to-date so we have a valid baseline.
+  sta->searchPreamble();
+  sta->updateTiming(true);
+
+  IncreSta *incre_sta = new IncreSta(sta);
+  LocalSta *local_sta = incre_sta->localSta();
+  sta::ArcDelayCalc *arc_delay_calc = sta->arcDelayCalc()->copy();
+
+  PtGraph *pt_graph = new PtGraph(sta);
+  local_sta->makePtGraphFF(pt_graph, ff_inst);
+  local_sta->findLocalDelays(pt_graph, arc_delay_calc);
+  local_sta->findLocalCheckDelays(pt_graph, arc_delay_calc);
+
+  const sta::DcalcAnalysisPt *dcalc_ap = pt_graph->dcalcAnalysisPt();
+  const size_t ap_index = dcalc_ap->index();
+
+  printf("\n-- CK->Q (regClkToQ) gate delays --\n");
+  printf("  %-30s -> %-30s %4s %4s | %12s %12s %12s\n",
+         "from", "to", "f_rf", "t_rf", "local(ps)", "global(ps)", "diff(ps)");
+
+  size_t ckq_mismatch = 0;
+  size_t setup_mismatch = 0;
+  const float TOL_PS = 0.0001f;  // 1e-13 s tolerance
+
+  // CK->Q regClkToQ edges: type=RefInstEdge, role=regClkToQ.
+  for (size_t eid = 0; eid < pt_graph->edgeCount(); ++eid) {
+    PtEdge &pe = pt_graph->edge(eid);
+    if (pe.type() == PtEdgeType::Sentinel) continue;
+    sta::TimingArcSet *aset = pe.timingArcSet();
+    if (!aset) continue;
+    if (aset->role() != sta::TimingRole::regClkToQ()) continue;
+
+    sta::Edge *sta_edge = pe.edge();
+    const PtVertex &from_pv = pt_graph->ptVertex(pe.ptFromId());
+    const PtVertex &to_pv   = pt_graph->ptVertex(pe.ptToId());
+    const char *from_name = from_pv.vertex()
+        ? sta->network()->pathName(from_pv.vertex()->pin()) : "(virtual)";
+    const char *to_name = to_pv.vertex()
+        ? sta->network()->pathName(to_pv.vertex()->pin()) : "(virtual)";
+
+    for (sta::TimingArc *arc : aset->arcs()) {
+      const sta::RiseFall *from_rf = arc->fromEdge()->asRiseFall();
+      const sta::RiseFall *to_rf   = arc->toEdge()->asRiseFall();
+      if (!from_rf || !to_rf) continue;
+
+      sta::ArcDelay local_d = pt_graph->arcDelay(pe, arc, ap_index);
+      sta::ArcDelay global_d = sta->arcDelay(sta_edge, arc, dcalc_ap);
+      float diff_ps = (local_d - global_d) * 1e12f;
+      const char *flag = (std::fabs(diff_ps) > TOL_PS) ? "  MISMATCH" : "";
+      if (std::fabs(diff_ps) > TOL_PS) ckq_mismatch++;
+      printf("  %-30s -> %-30s %4s %4s | %+12.4f %+12.4f %+12.4f%s\n",
+             from_name, to_name, from_rf->name(), to_rf->name(),
+             local_d * 1e12, global_d * 1e12, diff_ps, flag);
+    }
+  }
+
+  printf("\n-- Setup CheckEdge delays --\n");
+  printf("  %-30s -> %-30s %4s %4s | %12s %12s %12s\n",
+         "from(CK)", "to(D)", "f_rf", "t_rf", "local(ps)", "ref(ps)", "diff(ps)");
+
+  for (size_t eid = 0; eid < pt_graph->edgeCount(); ++eid) {
+    const PtEdge &pe = pt_graph->edge(eid);
+    if (pe.type() != PtEdgeType::CheckEdge) continue;
+    sta::TimingArcSet *aset = pe.timingArcSet();
+    if (!aset) continue;
+
+    const PtVertex &from_pv = pt_graph->ptVertex(pe.ptFromId());
+    const PtVertex &to_pv   = pt_graph->ptVertex(pe.ptToId());
+    sta::Vertex *from_v = from_pv.vertex();
+    sta::Vertex *to_v   = to_pv.vertex();
+    if (!from_v || !to_v) continue;
+    const char *from_name = sta->network()->pathName(from_v->pin());
+    const char *to_name   = sta->network()->pathName(to_v->pin());
+
+    for (sta::TimingArc *arc : aset->arcs()) {
+      const sta::RiseFall *from_rf = arc->fromEdge()->asRiseFall();
+      const sta::RiseFall *to_rf   = arc->toEdge()->asRiseFall();
+      if (!from_rf || !to_rf) continue;
+
+      sta::ArcDelay local_d = pt_graph->arcDelay(pe, arc, ap_index);
+      // Reference: call checkDelay directly with global slews on both ends.
+      sta::Slew ck_slew = sta->graph()->slew(from_v, from_rf, ap_index);
+      sta::Slew d_slew  = sta->graph()->slew(to_v, to_rf, ap_index);
+      sta::ArcDelay ref_d = arc_delay_calc->checkDelay(
+          to_v->pin(), arc, ck_slew, d_slew, 0.0f, dcalc_ap);
+      float diff_ps = (local_d - ref_d) * 1e12f;
+      const char *flag = (std::fabs(diff_ps) > TOL_PS) ? "  MISMATCH" : "";
+      if (std::fabs(diff_ps) > TOL_PS) setup_mismatch++;
+      printf("  %-30s -> %-30s %4s %4s | %+12.4f %+12.4f %+12.4f%s\n",
+             from_name, to_name, from_rf->name(), to_rf->name(),
+             local_d * 1e12, ref_d * 1e12, diff_ps, flag);
+    }
+  }
+
+  printf("\n-- Acceptance summary --\n");
+  printf("  CK->Q  mismatches  : %zu  (expect 0; tol=%g ps)\n",
+         ckq_mismatch, TOL_PS);
+  printf("  setup  mismatches  : %zu  (expect 0; tol=%g ps)\n",
+         setup_mismatch, TOL_PS);
+
+  delete arc_delay_calc;
+  delete pt_graph;
+  delete incre_sta;
+  printf("\n===== end testFFLocalDelay =====\n");
+  fflush(stdout);
 }
 
 ////////////////////////////////////////////////////////////////
@@ -883,7 +1292,8 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
                             bool initialize,
                             float density_weight,
                             std::string checkpoint_dir,
-                            float timing_margin)
+                            float timing_margin,
+                            bool resize_ff)
 {
   printf("----- Testing Parallel LR Resize By Array (New Framework, timing_margin=%.4f) -----\n",
          timing_margin);
@@ -945,6 +1355,10 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
              i+1, incre_sta->adaptiveTopRatio());
       incre_sta->parallelResizeByArrayWithPrecheck(resizer, avg_delay, avg_leakage,
                                                       PT_tradeoff, top_ratio);
+    } else if (resize_ff) {
+      printf("----- LR ResizeByArrayWithFF Iteration %zu -----\n", i+1);
+      incre_sta->parallelResizeByArrayWithFF(resizer, avg_delay, avg_leakage,
+                                             PT_tradeoff);
     } else {
       printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
       incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
@@ -1227,7 +1641,8 @@ TestLrf::runLr(sta::dbSta* sta, rsz::Resizer *resizer,
           cfg.num_no_improve_tolerance, cfg.ratcons,
           cfg.PT_tradeoff, cfg.lr_helper_method,
           cfg.initialize, cfg.density_weight,
-          cfg.checkpoint_dir, cfg.timing_margin);
+          cfg.checkpoint_dir, cfg.timing_margin,
+          cfg.resize_ff);
       break;
     case LrMode::RESIZE_BUFFER:
       testParallelLrResizeByArrayWithBuffering(

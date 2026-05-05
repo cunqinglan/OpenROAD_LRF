@@ -159,6 +159,13 @@ struct LrConfig {
   // ── Initialization ──
   bool initialize = false;           // Run Sharma 3-step init before LR
 
+  // ── FF parallel resize ──
+  // If true, run FFResizeOperator (silly-parallel sequential sweep) before
+  // each combinational pass. Cost includes setup × LM(D wire-in edge) on top
+  // of standard delay_lm_sum. Currently consumed only by the RESIZE mode
+  // (testParallelLrResizeByArray).
+  bool resize_ff = false;
+
   // ── Debug ──
   bool debug = false;             // Print detailed rebuffer/eval diagnostics
 

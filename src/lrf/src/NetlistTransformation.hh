@@ -149,7 +149,10 @@ public:
   // PtGraph construction level requested by this operator.
   //   Full       — complete local graph (fanout + fanin siblings)
   //   DriverOnly — ref-instance pins + direct fanout loads only
-  enum class PtGraphLevel { Full, DriverOnly };
+  //   FF         — flip-flop variant: opens sequential ref instance, skips
+  //                clock-pin sibling expansion, includes CK→D setup check
+  //                edges as PtEdgeType::CheckEdge.
+  enum class PtGraphLevel { Full, DriverOnly, FF };
   virtual PtGraphLevel ptGraphLevel() const { return PtGraphLevel::Full; }
 
   // Pre-PtGraph skip: return true to skip this instance entirely
@@ -222,6 +225,23 @@ public:
                       EvalContext &ctx) override;
   void apply(const MoveOption &, PtGraph *,
              std::map<std::string, double> &) override {}
+  std::unique_ptr<LrOperator> copy() const override;
+};
+
+// ─── FFResizeOperator ────────────────────────────────────
+// Flip-flop resize: evaluates DFF variants on the FF-mode PtGraph
+// (PtGraphLevel::FF). Cost includes regular delay_lm_sum (combinational +
+// regClkToQ + wire) PLUS Σ setup_delay × LM(D wire-in edge), via
+// LocalSta::increAndGetLocalTimingCostFF.
+//
+// apply() inherited from ResizeOperator (db_sta_->replaceCell under mutex).
+// collectCandidates / lookupLeakage inherited.
+class FFResizeOperator : public ResizeOperator {
+public:
+  using ResizeOperator::ResizeOperator;
+  PtGraphLevel ptGraphLevel() const override { return PtGraphLevel::FF; }
+  MoveOption evaluate(PtGraph *pt_graph, sta::Instance *inst,
+                      EvalContext &ctx) override;
   std::unique_ptr<LrOperator> copy() const override;
 };
 

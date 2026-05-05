@@ -200,7 +200,7 @@ IncreSta::makeLRHelper(std::string method)
   else if (method == "rapidlrhelper")
     lr_helper_ = new RapidLrHelper(sta_);
   else
-    lr_helper_ = new LRHelper(sta_);
+    lr_helper_ = new RapidLrHelper(sta_);
 }
 
 InstanceSeq &
@@ -947,6 +947,66 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
   auto end_total = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_total = end_total - start_total;
   printf("IncreSta::parallelResize total time %f s\n", diff_total.count());
+}
+
+void
+IncreSta::parallelResizeFFs(rsz::Resizer *resizer, float avg_delay,
+                            float avg_power, float PT_tradeoff,
+                            float erc_violation_weight,
+                            float erc_limit_scale)
+{
+  auto start_total = std::chrono::high_resolution_clock::now();
+
+  local_sta_->initParallel();
+  sta::Slack wns = sta_->worstSlack(sta::MinMax::max());
+
+  if (!swap_cell_presaved_)
+    makeSwappableCellsCache(resizer);
+  if (!swap_cell_leakage_presaved_)
+    preSaveLibCellLeakage();
+  makeEquivCellArray();
+  updateErcNormalizers();
+
+  auto *visitor = new ParallelVisitor(sta_, local_sta_, resizer);
+  auto ff_op = std::make_unique<FFResizeOperator>(sta_, local_sta_);
+  ff_op->setEquivCellArray(&equiv_cell_array_, &equiv_cell_pos_map_);
+  visitor->setOperator(std::move(ff_op));
+  visitor->init(avg_delay, avg_power, wns, PT_tradeoff, &inst_info_map_);
+
+  if (density_map_) {
+    visitor->evalContext().density_map = density_map_;
+    visitor->evalContext().density_weight = density_weight_;
+    visitor->evalContext().average_area = average_area_;
+  }
+  visitor->evalContext().average_slew = avg_out_slew_;
+  visitor->evalContext().average_cap = avg_load_cap_;
+  visitor->evalContext().erc_violation_weight = erc_violation_weight;
+  visitor->evalContext().erc_slew_limit_scale = erc_limit_scale;
+  visitor->evalContext().erc_cap_limit_scale = erc_limit_scale;
+  visitor->evalContext().debug = debug_;
+
+  local_sta_->taskArranger()->setProgressTag("LRF FF resize");
+  local_sta_->taskArranger()->visitAllFFs(visitor, resizer);
+  // visitAllFFs deletes per-thread visitor copies (including the original).
+
+  auto end_total = std::chrono::high_resolution_clock::now();
+  printf("IncreSta::parallelResizeFFs total time %f s\n",
+         std::chrono::duration<double>(end_total - start_total).count());
+  fflush(stdout);
+}
+
+void
+IncreSta::parallelResizeByArrayWithFF(rsz::Resizer *resizer, float avg_delay,
+                                      float avg_power, float PT_tradeoff,
+                                      float erc_violation_weight,
+                                      float erc_limit_scale)
+{
+  // FF resize pass (silly parallel) runs first so the combinational pass
+  // sees up-to-date FF Q drive / D-cap loads on shared nets.
+  parallelResizeFFs(resizer, avg_delay, avg_power, PT_tradeoff,
+                    erc_violation_weight, erc_limit_scale);
+  parallelResizeByArray(resizer, avg_delay, avg_power, PT_tradeoff,
+                        erc_violation_weight, erc_limit_scale);
 }
 
 void

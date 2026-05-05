@@ -116,6 +116,37 @@ public:
 
   void testReportVertices(sta::dbSta* sta, rsz::Resizer *resizer, odb::dbBlock *block);
 
+  // Stage 1 (FF resize verification): print LM / AAT / RAT / slack on edges
+  // adjacent to the named flip-flop instance. Bootstraps a RapidLrHelper,
+  // runs `lm_iters` lmUpdate() cycles with RATCONS enabled, then dumps:
+  //   - D-side: combinational in-edges of every load pin (D, CK, ...)
+  //   - Q-side: gate edges into next combinational drivers, reached by
+  //             walking each driver's wire fanout to a load and then
+  //             that load's out-edges
+  //   - CK->Q: regClkToQ in-edge of the Q driver vertex (informational)
+  // Setup/hold check edges are skipped (no LM is maintained on them).
+  void testReportFFEndpointLMs(char *inst_name, sta::dbSta* sta,
+                               rsz::Resizer *resizer, odb::dbBlock *block,
+                               size_t lm_iters = 3);
+
+  // Stage 2 (FF resize verification): build a PtGraph in FF mode for the
+  // named flip-flop instance and dump its vertices and edges. Confirms that
+  // exactly one CK→D CheckEdge (role=setup) exists, that CK pin is included
+  // without sibling FFs flooding in, and that CK→Q regClkToQ in-edge is
+  // present on the Q driver.
+  void testReportFFPtGraph(char *inst_name, sta::dbSta* sta,
+                           rsz::Resizer *resizer, odb::dbBlock *block);
+
+  // Stage 3 (FF resize verification): build a PtGraph in FF mode, run
+  // findLocalDelays + findLocalCheckDelays, and compare the resulting
+  // delays against OpenSTA references:
+  //   - CK→Q (regClkToQ) gate delay  vs sta::Graph::arcDelay
+  //   - setup CheckEdge delay        vs ArcDelayCalc::checkDelay called
+  //                                     directly with global slews
+  // Acceptance: differences < 1e-13 s for both classes of arcs.
+  void testFFLocalDelay(char *inst_name, sta::dbSta* sta,
+                        rsz::Resizer *resizer, odb::dbBlock *block);
+
   void testParallelLrResizeByArray(sta::dbSta* sta,
                             rsz::Resizer *resizer,
                             odb::dbBlock *block,
@@ -125,11 +156,12 @@ public:
                             size_t num_no_improve_tolerance,
                             bool ratcons = false,
                             float PT_tradeoff = 100.0,
-                            std::string lr_helper_method = "LRHelper",
+                            std::string lr_helper_method = "RapidLRHelper",
                             bool initialize = false,
                             float density_weight = 0.0f,
                             std::string checkpoint_dir = "",
-                            float timing_margin = 0.01f);
+                            float timing_margin = 0.01f,
+                            bool resize_ff = false);
 
   void testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
                             rsz::Resizer *resizer,
@@ -140,7 +172,7 @@ public:
                             size_t num_no_improve_tolerance,
                             bool ratcons = false,
                             float PT_tradeoff = 100.0,
-                            std::string lr_helper_method = "LRHelper",
+                            std::string lr_helper_method = "RapidLRHelper",
                             bool initialize = false,
                             float density_weight = 0.0f,
                             bool debug = false,
@@ -156,7 +188,7 @@ public:
                             size_t num_no_improve_tolerance,
                             bool ratcons = false,
                             float PT_tradeoff = 100.0,
-                            std::string lr_helper_method = "LRHelper",
+                            std::string lr_helper_method = "RapidLRHelper",
                             bool initialize = false,
                             float density_weight = 0.0f,
                             bool debug = false);
@@ -174,7 +206,7 @@ public:
                             size_t num_no_improve_tolerance,
                             bool ratcons = false,
                             float PT_tradeoff = 100.0,
-                            std::string lr_helper_method = "LRHelper",
+                            std::string lr_helper_method = "RapidLRHelper",
                             bool initialize = false,
                             float density_weight = 0.0f,
                             bool debug = false,
@@ -199,7 +231,7 @@ public:
                             size_t num_no_improve_tolerance,
                             bool ratcons = false,
                             float PT_tradeoff = 100.0,
-                            std::string lr_helper_method = "LRHelper",
+                            std::string lr_helper_method = "RapidLRHelper",
                             bool initialize = false,
                             float density_weight = 0.0f,
                             bool debug = false,
@@ -286,7 +318,7 @@ public:
                                   rsz::Resizer *resizer,
                                   odb::dbBlock *block,
                                   size_t thread_num,
-                                  std::string lr_helper_method = "LRHelper");
+                                  std::string lr_helper_method = "RapidLRHelper");
 
   // Test LocalSTA slew + arrival accuracy: full traversal with selective
   // resize, compare global graph against updateTiming ground truth.

@@ -85,6 +85,9 @@ enum class PtEdgeType : uint8_t {
   VirtualGateEdge, // virtual device gate edge (no base sta::Edge)
   VirtualWireEdge, // wire edge to/from virtual device (no base sta::Edge)
   SiblingEdge,     // gate edge between sibling vertices on fanin side
+  CheckEdge,       // setup/hold check edge incoming to a load pin (FF mode)
+                   // — never carries delay/LM in propagation; consumed
+                   // separately by findLocalCheckDelays.
   None
 };
 

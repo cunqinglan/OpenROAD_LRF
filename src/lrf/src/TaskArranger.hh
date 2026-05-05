@@ -151,6 +151,11 @@ public:
   // Embarrassingly parallel: dispatches all combinational instances to
   // visitor->visit() with no dependency graph. The visitor defines what to do.
   void visitAll(ParallelVisitor *visitor);
+  // FF parallel resize: silly-parallel iteration over SEQUENTIAL vertices.
+  // No conflict graph (FFs don't share fanin nor sibling-load expansion in
+  // FF-mode PtGraph). For each FF dispatches visit→if change→applyChangesToDb.
+  void visitAllFFs(ParallelVisitor *visitor,
+                               rsz::Resizer *resizer);
   std::set<VertexId> decreOutRefCount(InstVertex *inst_vertex);
   std::set<VertexId> decreOutRefCount(InstVertex &inst_vertex);
   size_t decreRefCount(VertexId vid);

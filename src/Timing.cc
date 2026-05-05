@@ -587,6 +587,35 @@ Timing::testMEEAssignments() {
 }
 
 void
+Timing::testReportFFEndpointLMs(char *inst_name, int lm_iters) {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testReportFFEndpointLMs(inst_name, sta, resizer,
+                                   design_->getBlock(),
+                                   static_cast<size_t>(lm_iters));
+}
+
+void
+Timing::testReportFFPtGraph(char *inst_name) {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testReportFFPtGraph(inst_name, sta, resizer, design_->getBlock());
+}
+
+void
+Timing::testFFLocalDelay(char *inst_name) {
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testFFLocalDelay(inst_name, sta, resizer, design_->getBlock());
+}
+
+void
 Timing::runLr(const lrf::LrConfig &cfg) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
   printf("Starting runLr (mode=%d) with %zu threads\n",
@@ -606,7 +635,7 @@ Timing::runLr(int mode, size_t iterations, size_t max_resize_num,
               const char *lr_helper_method, float top_ratio,
               bool initialize, const char *checkpoint_dir,
               bool debug, size_t buffering_start_iter,
-              float timing_margin) {
+              float timing_margin, bool resize_ff) {
   lrf::LrConfig cfg;
   cfg.mode = static_cast<lrf::LrMode>(mode);
   cfg.iterations = iterations;
@@ -622,6 +651,7 @@ Timing::runLr(int mode, size_t iterations, size_t max_resize_num,
   cfg.debug = debug;
   cfg.buffering_start_iter = buffering_start_iter;
   cfg.timing_margin = timing_margin;
+  cfg.resize_ff = resize_ff;
   runLr(cfg);
 }
 
@@ -652,9 +682,11 @@ Timing::debugPrecheckAccuracy(float PT_tradeoff, float top_ratio) {
 void
 Timing::testParallelResizeByArray(size_t max_resize_num, size_t iterations,
   size_t num_no_improve_tolerance, bool ratcons, float PT_tradeoff,
-  const char *lr_helper_method, bool initialize, float density_weight) {
+  const char *lr_helper_method, bool initialize, float density_weight,
+  bool resize_ff) {
   size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
-  printf("Starting testParallelResizeByArray with %zu threads\n", thread_num);
+  printf("Starting testParallelResizeByArray with %zu threads (resize_ff=%d)\n",
+         thread_num, resize_ff);
   fflush(stdout);
   design_->updateParasiticsNoDeleteNetwork();
   rsz::Resizer* resizer = design_->getResizer();
@@ -662,7 +694,8 @@ Timing::testParallelResizeByArray(size_t max_resize_num, size_t iterations,
   lrf::TestLrf test_lrf;
   test_lrf.testParallelLrResizeByArray(sta, resizer, design_->getBlock(),
     thread_num, max_resize_num, iterations, num_no_improve_tolerance, ratcons,
-    PT_tradeoff, lr_helper_method, initialize, density_weight);
+    PT_tradeoff, lr_helper_method, initialize, density_weight,
+    /* checkpoint_dir */ "", /* timing_margin */ 0.01f, resize_ff);
 }
 
 void

@@ -89,6 +89,19 @@ public:
   void parallelResizeByArray(rsz::Resizer *resizer, float avg_delay, float avg_power,
                       float PT_tradeoff, float erc_violation_weight = -1.0f,
                       float erc_limit_scale = 0.95f);
+  // FF-aware variant: runs parallelResizeFFs first (silly-parallel sequential
+  // sweep), then the regular combinational parallelResizeByArray flow.
+  void parallelResizeByArrayWithFF(rsz::Resizer *resizer, float avg_delay,
+                      float avg_power, float PT_tradeoff,
+                      float erc_violation_weight = -1.0f,
+                      float erc_limit_scale = 0.95f);
+  // Parallel FF resize: silly-parallel sweep over sequential vertices in
+  // FF-mode PtGraph (PtGraphLevel::FF). Cost includes setup × LM(D wire-in)
+  // on top of standard delay_lm_sum. Intended to be called immediately
+  // before each combinational runResize inside parallelResizeByArray.
+  void parallelResizeFFs(rsz::Resizer *resizer, float avg_delay, float avg_power,
+                         float PT_tradeoff, float erc_violation_weight = -1.0f,
+                         float erc_limit_scale = 0.95f);
   void setMaxResizeNum(size_t max_resize_num);
   void setBufferOnlyMode(bool mode) { buffer_only_mode_ = mode; }
   void setBakogluK(float k) { bakoglu_k_ = k; }
@@ -164,7 +177,7 @@ public:
   int loadLmFromFile(const std::string &path, const std::string &design_name);
 
   // APIs for LM update
-  void makeLRHelper(std::string method = "LRHelper");
+  void makeLRHelper(std::string method = "RapidLRHelper");
 
   // Placement density map for density-aware swap cost.
   void setDensityMap(const PlacementDensityMap *map, float weight, float avg_area) {

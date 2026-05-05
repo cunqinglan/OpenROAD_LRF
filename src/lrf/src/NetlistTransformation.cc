@@ -702,6 +702,126 @@ ResizePrecheckOperator::copy() const
 }
 
 // ═══════════════════════════════════════════════════════════
+// FFResizeOperator
+// ═══════════════════════════════════════════════════════════
+
+MoveOption
+FFResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
+                           EvalContext &ctx)
+{
+  MoveOption result;
+
+  odb::dbInst *db_inst = db_sta_->getDbNetwork()->staToDb(inst);
+  if (db_inst && db_inst->isDoNotTouch())
+    return result;
+
+  sta::LibertyCell *ori_cell = db_sta_->network()->libertyCell(inst);
+  if (!ori_cell)
+    return result;
+
+  std::vector<sta::LibertyCell*> candidates = collectCandidates(ori_cell);
+  if (candidates.size() < 2)
+    return result;
+
+  // Reorder ori_cell to last so the no-change/no-recompute fast paths work
+  // and the final virtualReplace leaves PtGraph in the chosen candidate's
+  // state (mirrors ResizeOperator::evaluate rationale).
+  {
+    auto it = std::find(candidates.begin(), candidates.end(), ori_cell);
+    if (it != candidates.end() && it != candidates.end() - 1)
+      std::iter_swap(it, candidates.end() - 1);
+  }
+
+  // Density at this cell's location (shared across candidates).
+  float local_density = 0.0f;
+  float ori_area = ori_cell->area();
+  if (ctx.density_map && ctx.density_weight > 0.0f) {
+    local_density = ctx.density_map->getDensity(db_inst);
+  }
+
+  // Pass 1: per-candidate (cost, slack).
+  std::vector<float> vec_cost_slack(candidates.size() * 2,
+                                    std::numeric_limits<float>::max());
+  float slack_before = 0.0f;
+
+  for (size_t i = 0; i < candidates.size(); i++) {
+    sta::LibertyCell *cand = candidates[i];
+
+    LocalSta::ViolationSum v_before = local_sta_->violationSumBeforeSwap(
+        inst, cand, nullptr, nullptr, pt_graph, ctx.erc_cap_limit_scale);
+    if (ctx.erc_violation_weight < 0.0f && cand != ori_cell
+        && (v_before.slew > 0.0f || v_before.cap > 0.0f))
+      continue;
+
+    // FFs may not always be in inst_info_map_ (depends on
+    // resizer->makeSwappableCells filters). Fall back to liberty
+    // cellAvgLeakage so leakage cost is never silently zero.
+    float leakage = lookupLeakage(inst, cand);
+    if (leakage <= 0.0f)
+      leakage = local_sta_->cellAvgLeakage(cand);
+
+    // FF variant: includes regClkToQ + wire + combinational delay × LM,
+    // plus setup_delay × LM(D wire-in edge).
+    float delay_lm_sum = local_sta_->increAndGetLocalTimingCostFF(
+        pt_graph, ctx.arc_delay_calc, cand, ctx.runtime_map).delay_lm_sum;
+
+    LocalSta::ViolationSum v_after = local_sta_->violationSumAfterSwap(
+        inst, cand, nullptr, nullptr, pt_graph,
+        ctx.erc_slew_limit_scale, ctx.erc_cap_limit_scale);
+    if (ctx.erc_violation_weight < 0.0f && cand != ori_cell
+        && (v_after.slew > 0.0f || v_after.cap > 0.0f))
+      continue;
+
+    float density_cost = (cand->area() - ori_area) * local_density;
+    float cost = ctx.swapCost(delay_lm_sum, leakage, density_cost,
+                              v_before.slew + v_after.slew,
+                              v_before.cap  + v_after.cap);
+    float slack = local_sta_->localSlackAroundRef(pt_graph);
+    vec_cost_slack[i * 2] = cost;
+    vec_cost_slack[i * 2 + 1] = slack;
+
+    if (cand == ori_cell)
+      slack_before = slack;
+  }
+
+  // Pass 2: pick best (slack-degradation penalty applied like ResizeOperator).
+  for (size_t i = 0; i < candidates.size(); i++) {
+    float cost = ctx.applySlackPenalty(vec_cost_slack[i * 2],
+                                       slack_before,
+                                       vec_cost_slack[i * 2 + 1]);
+    float slack = vec_cost_slack[i * 2 + 1];
+    result.updateIfBetter(MoveOption::RESIZE_ONLY, cost, slack,
+                          slack_before, slack_margin_, candidates[i], nullptr);
+  }
+
+  // No-op cases.
+  if (result.target_cell == ori_cell) {
+    result.type = MoveOption::NONE;
+    return result;
+  }
+  if (!result.hasChange()) return result;
+
+  // Recompute final timing for best cell (mirrors ResizeOperator).
+  if (result.target_cell != candidates.back())
+    local_sta_->increAndGetLocalTimingCostFF(pt_graph, ctx.arc_delay_calc,
+                                             result.target_cell, ctx.runtime_map);
+  return result;
+}
+
+std::unique_ptr<LrOperator>
+FFResizeOperator::copy() const
+{
+  auto op = std::make_unique<FFResizeOperator>(db_sta_, local_sta_);
+  op->equiv_cell_array_ = equiv_cell_array_;
+  op->equiv_cell_pos_map_ = equiv_cell_pos_map_;
+  op->inst_info_map_ = inst_info_map_;
+  op->slack_margin_ = slack_margin_;
+  op->col_padding_ = col_padding_;
+  op->row_padding_ = row_padding_;
+  return op;
+}
+
+// ═══════════════════════════════════════════════════════════
 // BufferOperator
 // ═══════════════════════════════════════════════════════════
 
@@ -1493,11 +1613,16 @@ ParallelVisitor::visit(sta::Instance *inst, sta::VertexId vid)
 
   auto start_pt = std::chrono::high_resolution_clock::now();
   pt_graph_.reset(new PtGraph(db_sta_));
-  const bool driver_only = operator_
-      && operator_->ptGraphLevel() == LrOperator::PtGraphLevel::DriverOnly;
-  if (driver_only)
+  const LrOperator::PtGraphLevel level = operator_
+      ? operator_->ptGraphLevel() : LrOperator::PtGraphLevel::Full;
+  if (level == LrOperator::PtGraphLevel::DriverOnly) {
     local_sta_->makePtGraphDriverOnly(pt_graph_.get(), inst);
-  else {
+  } else if (level == LrOperator::PtGraphLevel::FF) {
+    local_sta_->makePtGraphFF(pt_graph_.get(), inst);
+    // FF mode: setup CheckEdge delays are not part of findLocalDelays; the
+    // operator's evaluate() must call findLocalCheckDelays after each cell
+    // candidate's findLocalDelays.
+  } else {
     local_sta_->makePtGraph(pt_graph_.get(), inst);
     pt_graph_->pruneInsignificantSiblings();
   }

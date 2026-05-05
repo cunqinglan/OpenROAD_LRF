@@ -170,6 +170,49 @@ LocalSta::collectLocalVertices(Instance *inst, VertexSet &local_vertices)
 }
 
 void
+LocalSta::collectLocalVerticesFF(Instance *inst, VertexSet &local_vertices)
+{
+  // Mirror of collectLocalVertices, but:
+  //   1. No throw on hasSequentials() — FF cells are accepted.
+  //   2. For clock pins, fanin sibling expansion is suppressed (every
+  //      sister FF on the same clock leaf would otherwise become a
+  //      SiblingLoad and explode the local graph).
+  // The CK pin's own load vertex is still inserted so the CK→D setup
+  // CheckEdge added by PtGraph::addCheckEdgesForRefInst resolves both ends.
+  InstancePinIterator *pin_iter = network_->pinIterator(inst);
+  while (pin_iter->hasNext()) {
+    Pin *pin = pin_iter->next();
+    if (network_->isDriver(pin)) {
+      sta::Vertex *drvr_vertex = graph_->pinDrvrVertex(pin);
+      if (search_pred_->searchTo(drvr_vertex)) {
+        local_vertices.insert(drvr_vertex);
+        collectLocalFanoutVertices(drvr_vertex, local_vertices);
+      }
+    }
+    if (network_->isLoad(pin)) {
+      sta::Vertex *load_vertex = graph_->pinLoadVertex(pin);
+      if (load_vertex == nullptr)
+        continue;
+      local_vertices.insert(load_vertex);
+
+      sta::LibertyPort *lib_port = network_->libertyPort(pin);
+      const bool is_clk_pin = (lib_port && lib_port->isClock());
+      if (is_clk_pin) {
+        // Bounded expansion on clock pins: don't recurse into sibling FFs.
+        // We don't need to add the CK driver vertex either — the CheckEdge
+        // is between the FF's own CK and D vertices, and CK arrival/slew
+        // for delay calc will be read from the global graph.
+        continue;
+      }
+      if (search_pred_->searchFrom(load_vertex)) {
+        collectLocalFaninSiblingVertices(load_vertex, local_vertices);
+      }
+    }
+  }
+  delete pin_iter;
+}
+
+void
 LocalSta::collectLocalFanoutVertices(sta::Vertex *drvr_vertex, 
                                      VertexSet &local_vertices)
 {
@@ -579,6 +622,25 @@ LocalSta::makePtGraphDriverOnly(PtGraph *pt_graph, Instance *inst,
   pt_graph->setDcalcAnalysisPt(dcalc_ap);
 }
 
+void
+LocalSta::makePtGraphFF(PtGraph *pt_graph, Instance *inst,
+                        DcalcAnalysisPt *dcalc_ap)
+{
+  VertexSet local_vertices(graph_);
+  collectLocalVerticesFF(inst, local_vertices);
+  pt_graph->makeGraph(local_vertices, inst);
+  // Add CK→D setup check edges (after the regular vertex/edge build, so
+  // both endpoints are already in vertex_map_).
+  pt_graph->addCheckEdgesForRefInst();
+  if (dcalc_ap == nullptr) {
+    Corner *corner = sta_->corners()->findCorner("default");
+    dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
+    if (dcalc_ap == nullptr)
+      throw std::runtime_error("LocalSta::makePtGraphFF: No dcalc analysis point found");
+  }
+  pt_graph->setDcalcAnalysisPt(dcalc_ap);
+}
+
 PtGraph *
 LocalSta::makePtGraph(Instance *inst, bool update_timing_first)
 {
@@ -610,6 +672,148 @@ LocalSta::findLocalDelays(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc)
     PtVertex &pt_vertex = pt_graph->ptVertex(vertex_id);
     findVertexDelays(vertex_id,  arc_delay_calc, pt_graph);
   }
+}
+
+void
+LocalSta::findLocalCheckDelays(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc)
+{
+  const sta::DcalcAnalysisPt *dcalc_ap = pt_graph->dcalcAnalysisPt();
+  if (dcalc_ap == nullptr) return;
+  const size_t ap_index = dcalc_ap->index();
+
+  // Iterate edges by id so we can take a mutable reference.
+  const size_t edge_count = pt_graph->edgeCount();
+  for (size_t eid = 0; eid < edge_count; ++eid) {
+    PtEdge &pt_edge = pt_graph->edge(eid);
+    if (pt_edge.type() != PtEdgeType::CheckEdge) continue;
+    sta::TimingArcSet *arc_set = pt_edge.timingArcSet();
+    if (arc_set == nullptr) continue;
+    // Only handle setup checks (per user direction: ignore hold).
+    if (arc_set->role() != sta::TimingRole::setup()) continue;
+
+    PtVertex &from_pv = pt_graph->ptVertex(pt_edge.ptFromId());  // CK
+    PtVertex &to_pv   = pt_graph->ptVertex(pt_edge.ptToId());    // D
+    sta::Vertex *from_v = from_pv.vertex();
+    sta::Vertex *to_v   = to_pv.vertex();
+    if (!from_v || !to_v) continue;
+
+    const sta::Pin *check_pin = to_v->pin();   // D pin
+
+    // Liberty 3D-setup support: when a setup table has related_output_pin,
+    // it's actually setup(D_slew, CK_slew, related_out_load_cap). Resolve
+    // the related-out pin once per arc_set and query its load cap below.
+    // For 2D setup tables (most plain DFFs) relatedOut() is null and
+    // related_out_cap stays 0.
+    sta::Instance *ref_inst = pt_graph->refInstance();
+    const sta::LibertyPort *related_out_port = arc_set->relatedOut();
+    const sta::Pin *related_out_pin = nullptr;
+    if (related_out_port && ref_inst)
+      related_out_pin = network_->findPin(ref_inst, related_out_port);
+
+    for (sta::TimingArc *arc : arc_set->arcs()) {
+      const sta::RiseFall *from_rf = arc->fromEdge()->asRiseFall();
+      const sta::RiseFall *to_rf   = arc->toEdge()->asRiseFall();
+      if (!from_rf || !to_rf) continue;
+
+      // CK slew: CK driver is intentionally NOT in the PtGraph
+      // (collectLocalVerticesFF skips clock-pin sibling expansion), so
+      // read from the global graph cache.
+      sta::Slew from_slew = graph_->slew(from_v, from_rf, ap_index);
+      // D slew: populated by findLocalDelays via the upstream wire arc.
+      sta::Slew to_slew = pt_graph->slew(to_pv, to_rf, ap_index);
+
+      float related_out_cap = 0.0f;
+      if (related_out_pin)
+        related_out_cap = sta_->graphDelayCalc()->loadCap(
+            related_out_pin, to_rf, dcalc_ap);
+
+      sta::ArcDelay setup_delay = arc_delay_calc->checkDelay(
+          check_pin, arc, from_slew, to_slew,
+          related_out_cap, dcalc_ap);
+      pt_graph->setArcDelay(pt_edge, arc, ap_index, setup_delay);
+    }
+  }
+}
+
+float
+LocalSta::computeSetupLmSum(PtGraph *pt_graph,
+                            const sta::DcalcAnalysisPt *dcalc_ap)
+{
+  if (!dcalc_ap) dcalc_ap = pt_graph->dcalcAnalysisPt();
+  if (!dcalc_ap) return 0.0f;
+  const size_t ap_index = dcalc_ap->index();
+  const size_t ap_count = graph_->apCount();
+
+  float sum = 0.0f;
+  const size_t edge_count = pt_graph->edgeCount();
+  for (size_t eid = 0; eid < edge_count; ++eid) {
+    PtEdge &check_edge = pt_graph->edge(eid);
+    if (check_edge.type() != PtEdgeType::CheckEdge) continue;
+    sta::TimingArcSet *check_aset = check_edge.timingArcSet();
+
+    // Wire-in edge to D (= CheckEdge to_vertex). D is RefInput; its sole
+    // non-check in-edge is the wire from upstream RefDriver.
+    PtEdge *wire_in_edge = nullptr;
+    PtVertexInEdgeIterator d_in_iter(check_edge.ptToId(), pt_graph);
+    while (d_in_iter.hasNext()) {
+      PtEdge &e = d_in_iter.next();
+      if (e.type() == PtEdgeType::CheckEdge) continue;
+      if (!e.isWire()) continue;
+      wire_in_edge = &e;
+      break;
+    }
+    if (!wire_in_edge) continue;
+    sta::LMValue *wire_lms = wire_in_edge->arcLms();
+    if (!wire_lms) continue;
+
+    // Wire arcs are indexed by to_rf->index() (rise=0, fall=1).
+    for (sta::TimingArc *check_arc : check_aset->arcs()) {
+      const sta::RiseFall *to_rf = check_arc->toEdge()->asRiseFall();
+      if (!to_rf) continue;
+      sta::ArcDelay setup_d = pt_graph->arcDelay(check_edge, check_arc, ap_index);
+      size_t wire_lm_idx = to_rf->index() * ap_count + ap_index;
+      sum += static_cast<float>(setup_d) * wire_lms[wire_lm_idx];
+    }
+  }
+  return sum;
+}
+
+DelayLmSumResult
+LocalSta::increAndGetLocalTimingCostFF(PtGraph *pt_graph,
+                                       ArcDelayCalc *arc_delay_calc,
+                                       sta::LibertyCell *equiv_cell,
+                                       std::map<std::string, double> *runtime_map)
+{
+  auto t0 = std::chrono::high_resolution_clock::now();
+  if (!virtualReplaceCellSelective(pt_graph, equiv_cell)) {
+    return DelayLmSumResult{};
+  }
+  auto t1 = std::chrono::high_resolution_clock::now();
+
+  findLocalDelays(pt_graph, arc_delay_calc);
+  auto t2 = std::chrono::high_resolution_clock::now();
+  findLocalCheckDelays(pt_graph, arc_delay_calc);
+  auto t3 = std::chrono::high_resolution_clock::now();
+
+  // Use the PtGraph's stored AP (set by makePtGraphFF via setDcalcAnalysisPt).
+  DcalcAnalysisPt *dcalc_ap = pt_graph->dcalcAnalysisPt();
+  // Combinational + regClkToQ + wire arcs (CheckEdges excluded by avoid_check default).
+  DelayLmSumResult result = delayLmSum(pt_graph, dcalc_ap, false);
+  // Add setup contribution: Σ setup_delay × LM(D wire-in edge).
+  result.delay_lm_sum += computeSetupLmSum(pt_graph, dcalc_ap);
+  auto t4 = std::chrono::high_resolution_clock::now();
+
+  if (runtime_map) {
+    (*runtime_map)["ff_vrc"] +=
+        std::chrono::duration<double>(t1 - t0).count();
+    (*runtime_map)["ff_findLocalDelays"] +=
+        std::chrono::duration<double>(t2 - t1).count();
+    (*runtime_map)["ff_findLocalCheckDelays"] +=
+        std::chrono::duration<double>(t3 - t2).count();
+    (*runtime_map)["ff_delayLmSum_plus_setup"] +=
+        std::chrono::duration<double>(t4 - t3).count();
+  }
+  return result;
 }
 
 void 

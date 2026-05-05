@@ -46,6 +46,13 @@ public:
   void makePtVertexAndPtEdge(sta::VertexSet &vertex_set);
   void makePtInstEdge(sta::Vertex *drvr_vertex, sta::VertexId drvr_pt_id);
   void makePtWireEdge(sta::Vertex *drvr_vertex, sta::VertexId drvr_pt_id);
+  // Walk each load pin of ref_inst_ and add its setup-check in-edge as a
+  // PtEdge of type CheckEdge. Skips pins whose libertyPort is a clock pin.
+  // The from-vertex (clock pin's load vertex) must already be in
+  // vertex_map_; otherwise the check edge is silently skipped.
+  // Used in FF mode (PtGraphLevel::FF) — combinational construction calls
+  // do NOT invoke this and will not see CheckEdges.
+  void addCheckEdgesForRefInst();
   // When do virtual ref cell swap, update timing arc sets of all edges of
   // the ref instance.
   void updateTimingArcSets();
@@ -415,6 +422,7 @@ private:
 };
 
 const char *ptVertexTypeName(PtVertexType type);
+const char *ptEdgeTypeName(PtEdgeType type);
 
 // RAII guard: turn precheck mode on for the scope, restore on exit.
 class PrecheckModeGuard {

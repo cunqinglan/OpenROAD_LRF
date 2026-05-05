@@ -895,6 +895,66 @@ TaskArranger::visitAll(ParallelVisitor *visitor)
 }
 
 void
+TaskArranger::visitAllFFs(ParallelVisitor *visitor,
+                                      rsz::Resizer *resizer)
+{
+  if (dirty_)
+    rebuild();
+
+  // Clean up any old visitors.
+  for (auto v : visitors_) delete v;
+  visitors_.clear();
+
+  // Count sequential vertices for progress tracking.
+  size_t seq_count = 0;
+  for (auto &v : vertices_)
+    if (v.type() == VertexType::SEQUENTIAL) seq_count++;
+
+  printf("visitAllFFs: %zu sequential instances, %u threads\n",
+         seq_count, thread_count_);
+  fflush(stdout);
+
+  // Per-thread visitor copies (mirror visitAll).
+  visitors_.reserve(thread_count_);
+  visitors_.push_back(visitor);
+  for (size_t i = 1; i < thread_count_; i++) {
+    visitors_.emplace_back(visitor->copy());
+  }
+
+  resetProgress(seq_count);
+  resizer_ = resizer;
+
+  // Silly-parallel: no conflict graph. FFs in FF-mode PtGraph never share
+  // RefDriver/RefInput/RefOutput vertices across instances, and CK driver
+  // is excluded from PtGraph entirely (collectLocalVerticesFF skips clock-
+  // pin sibling expansion). Apply runs under g_odb_sta_access_mutex.
+  for (size_t i = 0; i < vertices_.size(); i++) {
+    if (vertices_[i].type() != VertexType::SEQUENTIAL) continue;
+    InstVertex *iv = &vertices_[i];
+    VertexId vid = static_cast<VertexId>(i);
+    if (!dispatch_queue_) {
+      if (visitors_[0]->visit(iv->inst(), vid))
+        visitors_[0]->applyChangesToDb(resizer_);
+      tickProgress();
+    } else {
+      dispatch_queue_->dispatch([this, iv, vid](int tid) {
+        if (visitors_[tid]->visit(iv->inst(), vid))
+          visitors_[tid]->applyChangesToDb(resizer_);
+        tickProgress();
+      });
+    }
+  }
+  finishTasks();
+
+  // Cleanup visitors.
+  for (auto v : visitors_) {
+    v->printRuntimeProfile();
+    delete v;
+  }
+  visitors_.clear();
+}
+
+void
 TaskArranger::markSelectedInstances(const std::vector<size_t> &vertex_ids)
 {
   // Reset all vertices to skip, then mark selected for resize

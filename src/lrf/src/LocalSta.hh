@@ -54,6 +54,12 @@ public:
 
   void collectLocalGraph(Instance *inst, InstanceSet &local_instances);
   void collectLocalVertices(Instance *inst, VertexSet &local_vertices);
+  // FF variant of collectLocalVertices: accepts sequential ref instances and
+  // skips fanin-sibling expansion on clock pins (otherwise every sister FF on
+  // the same clock leaf would join the local graph as a SiblingLoad). The
+  // CK pin's own load vertex is still inserted so the CK→D setup check edge
+  // resolves both endpoints.
+  void collectLocalVerticesFF(Instance *inst, VertexSet &local_vertices);
   // Lightweight: ref-instance pins + direct wire fanout loads only
   // (no fanin sibling collection, no downstream driver traversal).
   void collectDriverFanoutOnly(Instance *inst, VertexSet &local_vertices);
@@ -62,6 +68,10 @@ public:
   // Lightweight PtGraph: skips fanin siblings; no pruneInsignificantSiblings.
   void makePtGraphDriverOnly(PtGraph *pt_graph, Instance *inst,
                              DcalcAnalysisPt *dcalc_ap = nullptr);
+  // FF PtGraph: accepts sequential ref instance, bounded clock-pin
+  // expansion, and adds CK→D setup CheckEdges via PtGraph::addCheckEdgesForRefInst.
+  void makePtGraphFF(PtGraph *pt_graph, Instance *inst,
+                     DcalcAnalysisPt *dcalc_ap = nullptr);
   PtGraph *makePtGraph(Instance *inst, bool update_timing_first = false);
 
   sta::dbSta *getSta() { return sta_; }
@@ -72,6 +82,28 @@ public:
   // Delay calculation methods
   void findLocalDelays(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
   void initLocalDelays(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc);
+  // Compute setup-time on every CheckEdge in the FF-mode PtGraph.
+  // CK slew is read from the global sta::Graph (CK driver is not in
+  // PtGraph by design); D slew is read from the PtGraph cache after
+  // findLocalDelays has propagated the upstream wire arc to D.
+  // Setup delay is stored in the CheckEdge's arc_delays_ via setArcDelay.
+  void findLocalCheckDelays(PtGraph *pt_graph,
+                            ArcDelayCalc *arc_delay_calc);
+  // Σ over CheckEdges of (setup_delay × LM(wire-in edge to D)). Computes
+  // the FF-specific Δsetup × LM contribution that the regular delayLmSum
+  // misses (because LR maintains LM=0 on check edges). The LM coefficient
+  // is taken from the wire edge feeding D, which carries the endpoint
+  // rescaling of the upstream combinational path's LM.
+  float computeSetupLmSum(PtGraph *pt_graph,
+                          const DcalcAnalysisPt *dcalc_ap = nullptr);
+  // FF variant of increAndGetLocalTimingCost: virtually replace cell,
+  // recompute findLocalDelays + findLocalCheckDelays, and return
+  // delay_lm_sum (combinational, regClkToQ, wire) + computeSetupLmSum.
+  DelayLmSumResult
+  increAndGetLocalTimingCostFF(PtGraph *pt_graph,
+                               ArcDelayCalc *arc_delay_calc,
+                               sta::LibertyCell *equiv_cell,
+                               std::map<std::string, double> *runtime_map = nullptr);
   float maxInputSlew(const Pin* input,
                             const Corner* corner) const;
   void setParasiticsEst(est::EstimateParasitics *estimate_parasitics);

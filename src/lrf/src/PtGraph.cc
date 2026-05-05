@@ -54,7 +54,7 @@ const char *ptVertexTypeName(PtVertexType type)
   return "Unknown";
 }
 
-static const char *ptEdgeTypeName(PtEdgeType type)
+const char *ptEdgeTypeName(PtEdgeType type)
 {
   switch (type) {
     case PtEdgeType::Sentinel:
@@ -67,6 +67,8 @@ static const char *ptEdgeTypeName(PtEdgeType type)
       return "VirtualWireEdge";
     case PtEdgeType::SiblingEdge:
       return "SiblingEdge";
+    case PtEdgeType::CheckEdge:
+      return "CheckEdge";
     case PtEdgeType::None:
       return "None";
   }
@@ -293,7 +295,7 @@ PtGraph::makePtInstEdge(sta::Vertex *drvr_vertex, VertexId drvr_pt_id)
   }
 }
 
-void 
+void
 PtGraph::makePtWireEdge(sta::Vertex *drvr_vertex, VertexId drvr_pt_id)
 {
   sta::Graph *graph = sta_->graph();
@@ -309,6 +311,53 @@ PtGraph::makePtWireEdge(sta::Vertex *drvr_vertex, VertexId drvr_pt_id)
       }
     }
   }
+}
+
+void
+PtGraph::addCheckEdgesForRefInst()
+{
+  if (ref_inst_ == nullptr) return;
+  sta::Network *network = sta_->network();
+  sta::Graph *graph = sta_->graph();
+
+  // Iterate every data load pin of the ref instance (skip clock pins —
+  // setup arcs target data pins, not clock pins).
+  sta::InstancePinIterator *pin_iter = network->pinIterator(ref_inst_);
+  while (pin_iter->hasNext()) {
+    sta::Pin *pin = pin_iter->next();
+    if (!network->isLoad(pin)) continue;
+    sta::LibertyPort *lib_port = network->libertyPort(pin);
+    if (lib_port && lib_port->isClock()) continue;
+
+    sta::Vertex *load_v = graph->pinLoadVertex(pin);
+    if (load_v == nullptr) continue;
+    auto it_to = vertex_map_.find(load_v);
+    if (it_to == vertex_map_.end()) continue;
+    VertexId to_pt_id = it_to->second;
+
+    sta::VertexInEdgeIterator in_iter(load_v, graph);
+    while (in_iter.hasNext()) {
+      sta::Edge *in_edge = in_iter.next();
+      // setup-only (per user direction: manage setup, ignore hold).
+      if (in_edge->role() != sta::TimingRole::setup()) continue;
+
+      // The clock-side end (from_vertex) must already exist in vertex_map_;
+      // FF-mode collectLocalVerticesFF guarantees this by including the
+      // ref instance's CK pin load vertex.
+      sta::Vertex *from_v = in_edge->from(graph);
+      auto it_from = vertex_map_.find(from_v);
+      if (it_from == vertex_map_.end()) continue;
+      VertexId from_pt_id = it_from->second;
+
+      sta::EdgeId pt_eid = makeEdge(in_edge, from_pt_id, to_pt_id);
+      PtEdge &pt_edge = pt_edges_[pt_eid];
+      pt_edge.setType(PtEdgeType::CheckEdge);
+      // Mirror initVertexAndEdges for this newly-added edge (the regular
+      // initVertexAndEdges pass already ran in makeGraph, before us).
+      pt_edge.copyInfoFromEdge(ap_count_);
+    }
+  }
+  delete pin_iter;
 }
 
 VertexId
@@ -1029,7 +1078,6 @@ void PtGraph::initVertexAndEdges()
     if (pt_edge.type() == PtEdgeType::Sentinel)
       continue;
     pt_edge.copyInfoFromEdge(ap_count_);
-    pt_edge.timing_arc_set_ = pt_edge.edge()->timingArcSet();
   }
 }
 
@@ -1527,6 +1575,7 @@ PtEdge::setArcDelays(ArcDelay *arc_delay, size_t delay_count)
 void
 PtEdge::copyInfoFromEdge(size_t ap_count)
 {
+  timing_arc_set_ = edge_->timingArcSet();
   size_t delay_count = edge_->timingArcSet()->arcCount() * ap_count;
   ArcDelay *src_arc_delays = edge_->arcDelays();
   if (src_arc_delays && delay_count > 0)
