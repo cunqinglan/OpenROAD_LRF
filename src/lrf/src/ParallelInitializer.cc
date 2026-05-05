@@ -584,16 +584,37 @@ ParallelInitializer::run()
   int drvr_slew_cnt = 0, load_slew_cnt = 0, cap_cnt = 0;
   float drvr_slew_sum = 0, load_slew_sum = 0, cap_sum = 0;
 
+  // Filter口径与 test/lrf/utils.py:get_score 对齐：
+  //   skip CLOCK/POWER/GROUND nets, skip /SETN /RESETN async pins,
+  //   不按 hasSequentials 过滤 (FF 的 D pin 也要计入)
   for (odb::dbInst* db_inst : block_->getInsts()) {
     if (!db_inst->getMaster()->isCoreAutoPlaceable()) continue;
     sta::Instance* si = db_network_->dbToSta(db_inst);
     LibertyCell* c = db_network_->libertyCell(si);
-    if (!c || c->hasSequentials()) continue;
+    if (!c) continue;
     sta::InstancePinIterator* pit = network_->pinIterator(si);
     while (pit->hasNext()) {
       Pin* p = pit->next();
       sta::LibertyPort* lp = network_->libertyPort(p);
       if (!lp) continue;
+      odb::dbITerm* iterm = nullptr;
+      odb::dbBTerm* bterm = nullptr;
+      odb::dbModITerm* moditerm = nullptr;
+      db_network_->staToDb(p, iterm, bterm, moditerm);
+      if (!iterm) continue;
+      odb::dbNet* dnet = iterm->getNet();
+      if (!dnet) continue;
+      auto sig = dnet->getSigType();
+      if (sig == odb::dbSigType::POWER || sig == odb::dbSigType::GROUND
+          || sig == odb::dbSigType::CLOCK)
+        continue;
+      const std::string pname = iterm->getName();
+      if (pname.size() >= 5
+          && pname.compare(pname.size() - 5, 5, "/SETN") == 0)
+        continue;
+      if (pname.size() >= 7
+          && pname.compare(pname.size() - 7, 7, "/RESETN") == 0)
+        continue;
       float sl; bool se;
       lp->slewLimit(MinMax::max(), sl, se);
       if (!se && sum_lib) sum_lib->defaultMaxSlew(sl, se);
