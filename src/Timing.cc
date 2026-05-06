@@ -1475,12 +1475,36 @@ void Timing::dumpFeatureBundle(const std::string& prefix, int max_fanout)
     return true;
   };
 
+  // ── (c) Post-GRT routes + per-gcell congestion ──
+  // If GRT has been run (caller invoked global_route already), per-net routes
+  // are populated and dbGCellGrid has capacity/usage. If not, all per-route
+  // features below are emitted as NaN/0.
+  const grt::NetRouteMap* routes = (grouter != nullptr)
+                                       ? &grouter->getRoutes() : nullptr;
+  odb::dbGCellGrid* gcell_grid = block->getGCellGrid();
+
+  // Cache routing-level → tech layer pointer (M1=1, M2=2, ...).
+  std::vector<odb::dbTechLayer*> layer_by_level;
+  layer_by_level.push_back(nullptr);  // index 0 unused
+  if (gcell_grid != nullptr) {
+    odb::dbTech* tech = block->getDataBase()->getTech();
+    for (odb::dbTechLayer* tl : tech->getLayers()) {
+      if (tl->getType() != odb::dbTechLayerType::ROUTING) continue;
+      int lvl = tl->getRoutingLevel();
+      while ((int)layer_by_level.size() <= lvl)
+        layer_by_level.push_back(nullptr);
+      layer_by_level[lvl] = tl;
+    }
+  }
+
   std::ofstream csv(prefix + "_features.csv");
   csv << "net,fanout,hpwl_dbu,bbox_w_dbu,bbox_h_dbu,bbox_aspect_ratio,"
          "driver_pin_layer,min_sink_pin_layer,max_sink_pin_layer,"
          "layer_span_count,"
          "macro_dist_dbu,bbox_overlaps_macro,"
          "rudy_avg,rudy_max,rudy_at_drvr,"
+         "route_length_dbu,route_detour_ratio,via_count,route_max_layer,"
+         "route_overflow_sum,route_overflow_max,route_congestion_sum,"
          "cap_F,drvr_max_cap_F,"
          "pi_c2_rise_F,pi_rpi_rise_Ohm,pi_c1_rise_F,"
          "pi_c2_fall_F,pi_rpi_fall_Ohm,pi_c1_fall_F,"
@@ -1598,6 +1622,77 @@ void Timing::dumpFeatureBundle(const std::string& prefix, int max_fanout)
       }
     }
 
+    // ── Post-GRT route features (NaN if GRT not yet run) ──
+    float route_length_dbu = std::numeric_limits<float>::quiet_NaN();
+    float route_detour_ratio = std::numeric_limits<float>::quiet_NaN();
+    int via_count = 0;
+    int route_max_layer = 0;
+    float route_overflow_sum = std::numeric_limits<float>::quiet_NaN();
+    float route_overflow_max = std::numeric_limits<float>::quiet_NaN();
+    float route_congestion_sum = std::numeric_limits<float>::quiet_NaN();
+    if (routes != nullptr) {
+      auto rit = routes->find(db_net);
+      if (rit != routes->end() && !rit->second.empty()) {
+        const grt::GRoute& groute = rit->second;
+        long long len_sum = 0;
+        double of_sum = 0.0, of_max = 0.0, cong_sum = 0.0;
+        bool have_cong = (gcell_grid != nullptr);
+        for (const grt::GSegment& seg : groute) {
+          if (seg.isVia()) {
+            ++via_count;
+          } else {
+            len_sum += static_cast<long long>(seg.length());
+          }
+          int max_lvl_seg = std::max(seg.init_layer, seg.final_layer);
+          if (max_lvl_seg > route_max_layer) route_max_layer = max_lvl_seg;
+
+          if (!have_cong) continue;
+          // Walk gcells the segment traverses; for via, single tile both
+          // layers; for wire on one layer, walk x/y range.
+          int lvl_lo = std::min(seg.init_layer, seg.final_layer);
+          int lvl_hi = std::max(seg.init_layer, seg.final_layer);
+          int x_lo = std::min(seg.init_x, seg.final_x);
+          int x_hi = std::max(seg.init_x, seg.final_x);
+          int y_lo = std::min(seg.init_y, seg.final_y);
+          int y_hi = std::max(seg.init_y, seg.final_y);
+          uint32_t gx_lo = gcell_grid->getXIdx(x_lo);
+          uint32_t gx_hi = gcell_grid->getXIdx(x_hi);
+          uint32_t gy_lo = gcell_grid->getYIdx(y_lo);
+          uint32_t gy_hi = gcell_grid->getYIdx(y_hi);
+          for (int lvl = lvl_lo; lvl <= lvl_hi; ++lvl) {
+            if (lvl <= 0 || lvl >= (int)layer_by_level.size()) continue;
+            odb::dbTechLayer* tl = layer_by_level[lvl];
+            if (tl == nullptr) continue;
+            for (uint32_t gx = gx_lo; gx <= gx_hi; ++gx) {
+              for (uint32_t gy = gy_lo; gy <= gy_hi; ++gy) {
+                float cap   = gcell_grid->getCapacity(tl, gx, gy);
+                float usage = gcell_grid->getUsage(tl, gx, gy);
+                float of    = std::max(0.0f, usage - cap);
+                of_sum += of;
+                if (of > of_max) of_max = of;
+                if (cap > 0.0f) cong_sum += static_cast<double>(usage) / cap;
+              }
+            }
+          }
+        }
+        route_length_dbu = static_cast<float>(len_sum);
+        if (hpwl > 0)
+          route_detour_ratio = static_cast<float>(len_sum) / float(hpwl);
+        if (have_cong) {
+          route_overflow_sum   = static_cast<float>(of_sum);
+          route_overflow_max   = static_cast<float>(of_max);
+          route_congestion_sum = static_cast<float>(cong_sum);
+        }
+      } else {
+        // GRT object exists but no route for this net (skipped or pre-route).
+        route_length_dbu = 0.0f;
+        route_detour_ratio = 0.0f;
+        route_overflow_sum = 0.0f;
+        route_overflow_max = 0.0f;
+        route_congestion_sum = 0.0f;
+      }
+    }
+
     // ── Electrical (depends on currently-active parasitic state) ──
     sta::Pin* drvr_pin = network->dbToSta(drvr);
     odb::dbMTerm* drvr_mterm = drvr->getMTerm();
@@ -1682,6 +1777,13 @@ void Timing::dumpFeatureBundle(const std::string& prefix, int max_fanout)
     writeFloat(csv, rudy_avg);     csv << ',';
     writeFloat(csv, rudy_max);     csv << ',';
     writeFloat(csv, rudy_at_drvr); csv << ',';
+    writeFloat(csv, route_length_dbu);    csv << ',';
+    writeFloat(csv, route_detour_ratio);  csv << ',';
+    csv << via_count << ',';
+    csv << route_max_layer << ',';
+    writeFloat(csv, route_overflow_sum);   csv << ',';
+    writeFloat(csv, route_overflow_max);   csv << ',';
+    writeFloat(csv, route_congestion_sum); csv << ',';
     writeFloat(csv, cap_F);        csv << ',';
     writeFloat(csv, drvr_max_cap); csv << ',';
     writeFloat(csv, c2_rise);  csv << ',';
