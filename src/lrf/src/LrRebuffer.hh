@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include "lrf/LrfClass.hh"
+#include "LocalSta.hh"
 #include "../../rsz/src/Rebuffer.hh"
 
 namespace rsz {
@@ -191,6 +192,12 @@ protected:
                        const rsz::BufferedNetPtr& load_opt,
                        sta::Slew &max_slew);
   bool hasViolation(const rsz::BufferedNetPtr& option, sta::Slew max_slew);
+  // Real-slew ERC after virtual buffer + local STA: walks the driver's wire
+  // fanout in the real sta::Graph (untouched by buildVirtualBuffer) to read
+  // post-buffering slew on the orig load PtVertices, plus the driver pin's
+  // own output slew. Returns Σ(slew - lib_limit × erc_slew_limit_scale)
+  // over violators. Cap is left at 0 in this scope.
+  LocalSta::ViolationSum computeOrigErcViolation(sta::VertexId drvr_pt_vid);
   VirtualBufferInfo buildVirtualBuffer(sta::VertexId drvr_vertex_id,
                                        const rsz::BufferedNetPtr& option);
   void removeVirtualBuffer(VirtualBufferInfo &info);

@@ -1894,6 +1894,25 @@ LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
   auto result = local_sta_->increAndGetLocalTimingCost(pt_graph, arc_delay_calc_, nullptr);
   float delay_lm_sum = result.delay_lm_sum;
   last_delay_lm_sum_ = delay_lm_sum;
+
+  // Real-slew ERC on drvr pin + orig fanout load pins (post-buffering).
+  // Three modes via eval_ctx_->erc_violation_weight, mirroring resize:
+  //   < 0 : hard reject — bail before slack gate, no cost computed.
+  //   = 0 : ignored (swapCost drops the term internally).
+  //   > 0 : soft penalty — folded into swapCost via slew_violation arg.
+  LocalSta::ViolationSum erc = computeOrigErcViolation(pt_vertex_id);
+  if (eval_ctx_->erc_violation_weight < 0.0f
+      && (erc.slew > 0.0f || erc.cap > 0.0f)) {
+    if (eval_ctx_->debug) {
+      printf("[BUF-ERC-REJECT] pin=%s bufs=%d slew_viol=%.3eps cap_viol=%.3efF\n",
+             network_->name(pin_), option->bufferCount(),
+             erc.slew * 1e12, erc.cap * 1e15);
+    }
+    removeVirtualBuffer(vinfo);
+    local_sta_->recomputeSinglePtParasitic(pt_graph, pt_vertex_id);
+    return INF;
+  }
+
   float slack_after = eval_ctx_->use_sum_threshold
       ? local_sta_->localSlackOnSinks(pt_graph)
       : local_sta_->localWorstSlackOnSinks(pt_graph);
@@ -1904,7 +1923,8 @@ LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
   // (margin-1)*|slack|. Default 1.0 = strict equality with original behavior.
   float thresh = original_slack * eval_ctx_->slack_margin;
   if (slack_after >= thresh) {
-    total_cost = eval_ctx_->swapCost(delay_lm_sum, option->leakage());
+    total_cost = eval_ctx_->swapCost(delay_lm_sum, option->leakage(),
+                                     /*density=*/0.0f, erc.slew, erc.cap);
   } else if (option->bufferCount() > 0 && eval_ctx_->debug) {
     float worst_after = local_sta_->localWorstSlackOnSinks(pt_graph);
     float sum_after_val = local_sta_->localSlackOnSinks(pt_graph);
@@ -1952,6 +1972,50 @@ LrRebuffer::hasViolation(const BnetPtr& option, sta::Slew slew)
     return true;
   }
   return false;
+}
+
+LocalSta::ViolationSum
+LrRebuffer::computeOrigErcViolation(VertexId drvr_pt_vid)
+{
+  LocalSta::ViolationSum v{0.0f, 0.0f};
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
+  sta::DcalcAnalysisPt *dcalc_ap = pt_graph->dcalcAnalysisPt();
+  if (!dcalc_ap) return v;
+  const float slew_scale = eval_ctx_->erc_slew_limit_scale;
+
+  // 1) driver pin output slew vs its own port limit.
+  PtVertex &drvr_ptv = pt_graph->ptVertex(drvr_pt_vid);
+  sta::Vertex *sta_drvr = drvr_ptv.vertex();
+  if (!sta_drvr) return v;
+  sta::LibertyPort *drvr_port = drvr_ptv.libertyPort();
+  if (!drvr_port) drvr_port = network_->libertyPort(sta_drvr->pin());
+  if (drvr_port) {
+    const float drvr_slew = local_sta_->getVertexMaxSlew(pt_graph, drvr_ptv,
+                                                         dcalc_ap);
+    const float drvr_lim = local_sta_->getPortMaxSlewLimit(drvr_port)
+                         * slew_scale;
+    if (drvr_slew > drvr_lim) v.slew += (drvr_slew - drvr_lim);
+  }
+
+  // 2) original fanout load pins via the real sta::Graph (buildVirtualBuffer
+  //    only mutates PtGraph; sta::Graph wire edges still point to the orig
+  //    loads). The load PtVertex objects are unchanged across virtualization,
+  //    so reading slew here gives the post-buffering input slew on each load.
+  sta::VertexOutEdgeIterator out_iter(sta_drvr, graph_);
+  while (out_iter.hasNext()) {
+    sta::Edge *edge = out_iter.next();
+    if (!edge->isWire()) continue;
+    sta::Vertex *load_vertex = edge->to(graph_);
+    PtVertex *load_ptv = pt_graph->ptVertex(load_vertex);
+    if (!load_ptv) continue;
+    sta::LibertyPort *load_port = load_ptv->libertyPort();
+    if (!load_port) load_port = network_->libertyPort(load_vertex->pin());
+    if (!load_port) continue;
+    const float s = local_sta_->getVertexMaxSlew(pt_graph, *load_ptv, dcalc_ap);
+    const float lim = local_sta_->getPortMaxSlewLimit(load_port) * slew_scale;
+    if (s > lim) v.slew += (s - lim);
+  }
+  return v;
 }
 
 void 
