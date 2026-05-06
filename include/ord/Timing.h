@@ -105,6 +105,17 @@ class Timing
   // by name. Output: <prefix>_features.csv.
   void dumpFeatureBundle(const std::string& prefix, int max_fanout = 200);
 
+  // ML cap_augment_ratio map (consumed by LocalSta::getEffectiveLoadCap).
+  // Load CSV with header containing "net" + "cap_ratio" → populates
+  // per-net inflation ratios used during LR's legalCheck/violationSum.
+  // Returns # ratios successfully loaded. Empty map = baseline behavior.
+  size_t loadMlCapAugmentRatio(const std::string& csv_path);
+  void clearMlCapAugmentRatio();
+  size_t mlCapAugmentRatioSize() const;
+  size_t loadMlSlewAugmentRatio(const std::string& csv_path);
+  void clearMlSlewAugmentRatio();
+  size_t mlSlewAugmentRatioSize() const;
+
   /////////////////////////////////////////////////////////////
   // Functions for LR sizing
   /////////////////////////////////////////////////////////////

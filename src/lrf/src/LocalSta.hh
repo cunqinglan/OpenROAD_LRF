@@ -137,6 +137,17 @@ public:
                      const sta::MinMax *min_max, PtGraph *pt_graph);
   float getLoadCap(PtVertex &drvr_pt_vertex, const sta::Corner *corner,
                    const sta::MinMax *min_max, PtGraph *pt_graph);
+  // ML-aware: getLoadCap × max(1.0, ml_cap_augment_ratio) for the driver's
+  // net. Used in legalCheck/violationSum so LR sees GRT-projected load cap.
+  // Equivalent to getLoadCap when no ratios loaded.
+  float getEffectiveLoadCap(PtVertex &drvr_pt_vertex,
+                            const sta::Corner *corner,
+                            const sta::MinMax *min_max,
+                            PtGraph *pt_graph);
+  // ML-aware: getVertexMaxSlew × max(1.0, ml_slew_augment_ratio) for the
+  // vertex's net. Equivalent to getVertexMaxSlew when no ratios loaded.
+  float getEffectiveVertexMaxSlew(PtGraph *pt_graph, PtVertex &ptv,
+                                  sta::DcalcAnalysisPt *dcalc_ap);
   bool legalCheckBeforeSwap(sta::Instance *inst, 
                             sta::LibertyCell *to_lib_cell,
                             const sta::Corner *corner,

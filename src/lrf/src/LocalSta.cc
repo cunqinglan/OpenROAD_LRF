@@ -2125,7 +2125,7 @@ LocalSta::checkFanoutLoadSlew(PtGraph *pt_graph, VertexId drvr_id,
         continue;
       }
     }
-    if (getVertexMaxSlew(pt_graph, load_ptv, dcalc_ap)
+    if (getEffectiveVertexMaxSlew(pt_graph, load_ptv, dcalc_ap)
         > getPortMaxSlewLimit(load_port) * slew_limit_scale)
       return false;
   }
@@ -2153,7 +2153,7 @@ LocalSta::fanoutLoadSlewViolation(PtGraph *pt_graph, VertexId drvr_id,
       }
     }
     float limit = getPortMaxSlewLimit(load_port) * slew_limit_scale;
-    float slew = getVertexMaxSlew(pt_graph, load_ptv, dcalc_ap);
+    float slew = getEffectiveVertexMaxSlew(pt_graph, load_ptv, dcalc_ap);
     if (slew > limit)
       sum += (slew - limit);
   }
@@ -2229,7 +2229,9 @@ LocalSta::legalCheckBeforeSwap(sta::Instance *inst,
       if (!to_port)
         continue;
       float cap_limit = getPortMaxCapLimit(to_port);
-      float load_cap = getLoadCap(ptv, corner, min_max, pt_graph);
+      // ML-aware: inflate load cap by predicted GRT/placement ratio when
+      // ratios are loaded; otherwise identical to plain getLoadCap.
+      float load_cap = getEffectiveLoadCap(ptv, corner, min_max, pt_graph);
       if (load_cap > cap_limit)
         return false;
     }
@@ -2262,7 +2264,7 @@ LocalSta::legalCheckAfterSwap(sta::Instance *inst,
     // For RefOutput, check output slew and fanout load slew
     if (ptv.type() == PtVertexType::RefOutput) {
       // Output slew + fanout load slew
-      if (getVertexMaxSlew(pt_graph, ptv, dcalc_ap)
+      if (getEffectiveVertexMaxSlew(pt_graph, ptv, dcalc_ap)
           > getPortMaxSlewLimit(port) * slew_limit_scale)
         return false;
       if (!checkFanoutLoadSlew(pt_graph, ptv.objectIdx(), dcalc_ap,
@@ -2274,9 +2276,9 @@ LocalSta::legalCheckAfterSwap(sta::Instance *inst,
       // (RefInput is a wire fanout of RefDriver, and its libertyPort
       // is already updated to the new cell's port by updateRefPorts).
       // Driver output cap + slew + fanout load slew (including siblings)
-      if (getLoadCap(ptv, corner, min_max, pt_graph) > getPortMaxCapLimit(port))
+      if (getEffectiveLoadCap(ptv, corner, min_max, pt_graph) > getPortMaxCapLimit(port))
         return false;
-      if (getVertexMaxSlew(pt_graph, ptv, dcalc_ap)
+      if (getEffectiveVertexMaxSlew(pt_graph, ptv, dcalc_ap)
           > getPortMaxSlewLimit(port) * slew_limit_scale)
         return false;
       if (!checkFanoutLoadSlew(pt_graph, ptv.objectIdx(), dcalc_ap,
@@ -2287,7 +2289,7 @@ LocalSta::legalCheckAfterSwap(sta::Instance *inst,
       // Sibling driver output slew: resize of the ref instance can
       // change RefDriver's output slew → SibLoad slew → SibDrvr
       // output slew may exceed its port limit.
-      if (getVertexMaxSlew(pt_graph, ptv, dcalc_ap)
+      if (getEffectiveVertexMaxSlew(pt_graph, ptv, dcalc_ap)
           > getPortMaxSlewLimit(port) * slew_limit_scale)
         return false;
     }
@@ -2315,7 +2317,7 @@ LocalSta::violationSumBeforeSwap(sta::Instance *inst,
       if (!to_port)
         continue;
       float cap_limit = getPortMaxCapLimit(to_port) * cap_limit_scale;
-      float load_cap = getLoadCap(ptv, corner, min_max, pt_graph);
+      float load_cap = getEffectiveLoadCap(ptv, corner, min_max, pt_graph);
       if (load_cap > cap_limit)
         v.cap += (load_cap - cap_limit);
     }
@@ -2346,7 +2348,7 @@ LocalSta::violationSumAfterSwap(sta::Instance *inst,
 
     if (ptv.type() == PtVertexType::RefOutput) {
       float slew_limit = getPortMaxSlewLimit(port) * slew_limit_scale;
-      float slew = getVertexMaxSlew(pt_graph, ptv, dcalc_ap);
+      float slew = getEffectiveVertexMaxSlew(pt_graph, ptv, dcalc_ap);
       if (slew > slew_limit)
         v.slew += (slew - slew_limit);
       v.slew += fanoutLoadSlewViolation(pt_graph, ptv.objectIdx(), dcalc_ap,
@@ -2354,12 +2356,12 @@ LocalSta::violationSumAfterSwap(sta::Instance *inst,
     }
     else if (ptv.type() == PtVertexType::RefDriver) {
       float cap_limit = getPortMaxCapLimit(port) * cap_limit_scale;
-      float load_cap = getLoadCap(ptv, corner, min_max, pt_graph);
+      float load_cap = getEffectiveLoadCap(ptv, corner, min_max, pt_graph);
       if (load_cap > cap_limit)
         v.cap += (load_cap - cap_limit);
 
       float slew_limit = getPortMaxSlewLimit(port) * slew_limit_scale;
-      float slew = getVertexMaxSlew(pt_graph, ptv, dcalc_ap);
+      float slew = getEffectiveVertexMaxSlew(pt_graph, ptv, dcalc_ap);
       if (slew > slew_limit)
         v.slew += (slew - slew_limit);
 
@@ -2368,7 +2370,7 @@ LocalSta::violationSumAfterSwap(sta::Instance *inst,
     }
     else if (ptv.type() == PtVertexType::SiblingDrvr) {
       float slew_limit = getPortMaxSlewLimit(port) * slew_limit_scale;
-      float slew = getVertexMaxSlew(pt_graph, ptv, dcalc_ap);
+      float slew = getEffectiveVertexMaxSlew(pt_graph, ptv, dcalc_ap);
       if (slew > slew_limit)
         v.slew += (slew - slew_limit);
     }

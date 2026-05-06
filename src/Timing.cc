@@ -48,6 +48,16 @@
 #include "lrf/IncreSta.hh"
 #include "lrf/TestLrf.hh"
 
+// Forward decls of free functions defined in lrf::ViolationCheck.cc.
+// (Avoids pulling LocalSta.hh / Timing.cc circular include surface.)
+namespace lrf {
+size_t loadMlCapAugmentRatioCsv(odb::dbBlock* block, const std::string& path);
+void   clearMlCapAugmentRatio();
+size_t mlCapAugmentRatioSize();
+size_t loadMlSlewAugmentRatioCsv(odb::dbBlock* block, const std::string& path);
+void   clearMlSlewAugmentRatio();
+size_t mlSlewAugmentRatioSize();
+}
 
 namespace ord {
 
@@ -1694,6 +1704,50 @@ void Timing::dumpFeatureBundle(const std::string& prefix, int max_fanout)
                    "{} macros, RUDY {}x{})",
                    prefix, n_emit, macros.size(), rudy_tcx, rudy_tcy);
   }
+}
+
+size_t Timing::loadMlCapAugmentRatio(const std::string& csv_path)
+{
+  sta::dbSta* sta = getSta();
+  sta::dbNetwork* network = sta->getDbNetwork();
+  odb::dbBlock* block = network ? network->block() : nullptr;
+  if (block == nullptr) {
+    printf("[ML] Timing::loadMlCapAugmentRatio: no block; aborting\n");
+    return 0;
+  }
+  return ::lrf::loadMlCapAugmentRatioCsv(block, csv_path);
+}
+
+void Timing::clearMlCapAugmentRatio()
+{
+  ::lrf::clearMlCapAugmentRatio();
+}
+
+size_t Timing::mlCapAugmentRatioSize() const
+{
+  return ::lrf::mlCapAugmentRatioSize();
+}
+
+size_t Timing::loadMlSlewAugmentRatio(const std::string& csv_path)
+{
+  sta::dbSta* sta = getSta();
+  sta::dbNetwork* network = sta->getDbNetwork();
+  odb::dbBlock* block = network ? network->block() : nullptr;
+  if (block == nullptr) {
+    printf("[ML] Timing::loadMlSlewAugmentRatio: no block; aborting\n");
+    return 0;
+  }
+  return ::lrf::loadMlSlewAugmentRatioCsv(block, csv_path);
+}
+
+void Timing::clearMlSlewAugmentRatio()
+{
+  ::lrf::clearMlSlewAugmentRatio();
+}
+
+size_t Timing::mlSlewAugmentRatioSize() const
+{
+  return ::lrf::mlSlewAugmentRatioSize();
 }
 
 }  // namespace ord

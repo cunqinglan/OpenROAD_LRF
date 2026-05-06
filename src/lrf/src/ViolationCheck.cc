@@ -7,7 +7,149 @@
 #include "sta/InputDrive.hh"
 #include "sta/Fuzzy.hh"
 
+#include <fstream>
+#include <sstream>
+#include <unordered_map>
+
+#include "db_sta/dbNetwork.hh"
+#include "odb/db.h"
+#include "PtGraph.hh"
+
 namespace lrf {
+
+// ─── ML cap_augment_ratio map (process-global) ────────────────────────
+// Populated externally before LR via loadMlCapAugmentRatioCsv() / set...().
+// Read inside getEffectiveLoadCap() to inflate per-net load cap (only
+// inflate, never deflate). Empty = no ML, behave as plain getLoadCap.
+namespace {
+std::unordered_map<odb::dbNet*, float>& mlCapMap()
+{
+  static std::unordered_map<odb::dbNet*, float> m;
+  return m;
+}
+}  // namespace
+
+void setMlCapAugmentRatio(odb::dbNet* net, float ratio)
+{
+  if (net) mlCapMap()[net] = ratio;
+}
+
+float getMlCapAugmentRatio(odb::dbNet* net)
+{
+  auto& m = mlCapMap();
+  auto it = m.find(net);
+  return (it == m.end()) ? 1.0f : it->second;
+}
+
+void clearMlCapAugmentRatio()
+{
+  mlCapMap().clear();
+}
+
+size_t mlCapAugmentRatioSize()
+{
+  return mlCapMap().size();
+}
+
+// ─── ML slew_augment_ratio map (parallel to cap) ──────────────────────
+namespace {
+std::unordered_map<odb::dbNet*, float>& mlSlewMap()
+{
+  static std::unordered_map<odb::dbNet*, float> m;
+  return m;
+}
+}  // namespace
+
+void setMlSlewAugmentRatio(odb::dbNet* net, float ratio)
+{
+  if (net) mlSlewMap()[net] = ratio;
+}
+
+float getMlSlewAugmentRatio(odb::dbNet* net)
+{
+  auto& m = mlSlewMap();
+  auto it = m.find(net);
+  return (it == m.end()) ? 1.0f : it->second;
+}
+
+void clearMlSlewAugmentRatio()
+{
+  mlSlewMap().clear();
+}
+
+size_t mlSlewAugmentRatioSize()
+{
+  return mlSlewMap().size();
+}
+
+// Generic CSV loader used by both cap and slew. Reads header to find "net"
+// column + the requested ratio column; populates the given map. Returns
+// # rows resolved.
+namespace {
+size_t loadRatioCsvImpl(odb::dbBlock* block, const std::string& path,
+                        const std::string& ratio_col_name,
+                        std::unordered_map<odb::dbNet*, float>& target_map,
+                        const char* tag)
+{
+  if (block == nullptr) return 0;
+  std::ifstream f(path);
+  if (!f.is_open()) {
+    printf("[ML] %s: cannot open %s\n", tag, path.c_str());
+    return 0;
+  }
+  std::string line;
+  if (!std::getline(f, line)) return 0;
+  int net_col = -1, ratio_col = -1;
+  {
+    std::stringstream ss(line);
+    std::string h; int idx = 0;
+    while (std::getline(ss, h, ',')) {
+      while (!h.empty() && (h.back() == ' ' || h.back() == '\r')) h.pop_back();
+      if (h == "net" || h == "net_name") net_col = idx;
+      else if (h == ratio_col_name)      ratio_col = idx;
+      ++idx;
+    }
+  }
+  if (net_col < 0 || ratio_col < 0) {
+    printf("[ML] %s: header missing 'net' and/or '%s'\n",
+           tag, ratio_col_name.c_str());
+    return 0;
+  }
+  size_t n_loaded = 0, n_missing = 0;
+  while (std::getline(f, line)) {
+    std::vector<std::string> cells;
+    {
+      std::stringstream ss(line);
+      std::string c;
+      while (std::getline(ss, c, ',')) cells.push_back(c);
+    }
+    if ((int)cells.size() <= std::max(net_col, ratio_col)) continue;
+    const std::string& nm = cells[net_col];
+    float r = 1.0f;
+    try { r = std::stof(cells[ratio_col]); } catch (...) { continue; }
+    odb::dbNet* dbn = block->findNet(nm.c_str());
+    if (dbn == nullptr) { ++n_missing; continue; }
+    target_map[dbn] = r;
+    ++n_loaded;
+  }
+  printf("[ML] %s: loaded %zu ratios from %s (%zu nets not found)\n",
+         tag, n_loaded, path.c_str(), n_missing);
+  fflush(stdout);
+  return n_loaded;
+}
+}  // namespace
+
+size_t loadMlSlewAugmentRatioCsv(odb::dbBlock* block, const std::string& path)
+{
+  return loadRatioCsvImpl(block, path, "slew_ratio", mlSlewMap(),
+                          "loadMlSlewAugmentRatioCsv");
+}
+
+size_t loadMlCapAugmentRatioCsv(odb::dbBlock* block, const std::string& path)
+{
+  return loadRatioCsvImpl(block, path, "cap_ratio", mlCapMap(),
+                          "loadMlCapAugmentRatioCsv");
+}
 
 void
 LocalSta::checkSlew(const sta::Pin *pin,
@@ -276,6 +418,57 @@ LocalSta::getLoadCap(PtVertex &drvr_pt_vertex, const sta::Corner *corner,
       max_cap = load_cap;
   }
   return max_cap;
+}
+
+// ML-aware load cap: multiply raw load cap by predicted GRT/placement
+// inflation ratio (only inflate, never deflate). Used by legalCheck and
+// violationSum so LR sizing decisions see the projected GRT cap.
+// Returns plain getLoadCap() result if the ML map is empty.
+float
+LocalSta::getEffectiveLoadCap(PtVertex &drvr_pt_vertex,
+                              const sta::Corner *corner,
+                              const sta::MinMax *min_max,
+                              PtGraph *pt_graph)
+{
+  float raw = getLoadCap(drvr_pt_vertex, corner, min_max, pt_graph);
+  if (mlCapMap().empty()) return raw;
+  sta::Vertex *v = drvr_pt_vertex.vertex();
+  if (v == nullptr) return raw;
+  const sta::Pin *pin = v->pin();
+  if (pin == nullptr) return raw;
+  // Flat dbNet — matches how dumpFeatureBundle / EstimateParasitics index
+  // nets (handles hierarchical netlists correctly). Goes straight from pin
+  // to flat dbNet, bypassing the protected Parasitics::findParasiticNet.
+  sta::dbNetwork *db_net_iface = dynamic_cast<sta::dbNetwork *>(network_);
+  if (db_net_iface == nullptr) return raw;
+  odb::dbNet *db_net = db_net_iface->flatNet(pin);
+  if (db_net == nullptr) return raw;
+  float ratio = getMlCapAugmentRatio(db_net);
+  if (ratio < 1.0f) ratio = 1.0f;  // never deflate
+  return raw * ratio;
+}
+
+// ML-aware vertex slew: getVertexMaxSlew × max(1.0, slew_ratio) for the
+// net the vertex's pin belongs to. Used in legalCheck/violationSum so LR
+// sees GRT-projected slew. Equivalent to plain getVertexMaxSlew when no
+// slew ratios loaded.
+float
+LocalSta::getEffectiveVertexMaxSlew(PtGraph *pt_graph, PtVertex &ptv,
+                                    sta::DcalcAnalysisPt *dcalc_ap)
+{
+  float raw = getVertexMaxSlew(pt_graph, ptv, dcalc_ap);
+  if (mlSlewMap().empty()) return raw;
+  sta::Vertex *v = ptv.vertex();
+  if (v == nullptr) return raw;
+  const sta::Pin *pin = v->pin();
+  if (pin == nullptr) return raw;
+  sta::dbNetwork *db_net_iface = dynamic_cast<sta::dbNetwork *>(network_);
+  if (db_net_iface == nullptr) return raw;
+  odb::dbNet *db_net = db_net_iface->flatNet(pin);
+  if (db_net == nullptr) return raw;
+  float ratio = getMlSlewAugmentRatio(db_net);
+  if (ratio < 1.0f) ratio = 1.0f;
+  return raw * ratio;
 }
 
 
