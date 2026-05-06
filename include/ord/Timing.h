@@ -262,6 +262,7 @@ class Timing
                                 float top_ratio = 0.3);
   void testParallelKKTProjection(const char *lr_helper_method = "RapidLRHelper");
   void testLocalStaAccuracy(size_t max_steps = 50);
+  void testSlewOnlyAccuracy();
   void testSlewViolationFeasibility();
   void testRepairSlew();
   void testBufferingRsz(float PT_tradeoff = 100.0f, int top_n = 100);

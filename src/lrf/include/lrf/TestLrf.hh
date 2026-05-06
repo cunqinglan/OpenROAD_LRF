@@ -294,6 +294,15 @@ public:
                             odb::dbBlock *block,
                             size_t max_steps);
 
+  // Test slew-only accuracy: zero+invalidate all internal slews/delays
+  // (PI / clock-root vertices preserved as SDC-driven boundary), then
+  // run a single-thread topological visitSlewOnly sweep through the
+  // entire netlist via TaskArranger; compare resulting global-graph
+  // slews against an OpenSTA updateTiming reference.
+  void testSlewOnlyAccuracy(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block);
+
   // Analyze slew violation pins: for each violated driver, check whether
   // downsizing fanout loads and/or upsizing the driver can fix the violation.
   void testSlewViolationFeasibility(sta::dbSta* sta,

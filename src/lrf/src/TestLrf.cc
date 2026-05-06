@@ -3735,6 +3735,249 @@ TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
 }
 
 // ============================================================
+//  testSlewOnlyAccuracy — zero+invalidate internal slews/delays,
+//  preserve PI / clock-root vertices (no fanin) as SDC-driven
+//  boundary, then run a single-thread topological visitSlewOnly
+//  sweep through the entire netlist via TaskArranger; compare
+//  resulting global-graph slews against an OpenSTA updateTiming
+//  reference snapshot.
+// ============================================================
+void
+TestLrf::testSlewOnlyAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
+                               odb::dbBlock *block)
+{
+  printf("\n========================================\n");
+  printf(" Slew-Only Accuracy Test\n");
+  printf("========================================\n\n");
+  fflush(stdout);
+
+  sta->updateTiming(true);
+  sta->findRequireds();
+
+  sta::Corner *corner = sta->corners()->findCorner("default");
+  if (!corner) corner = *sta->corners()->begin();
+  sta::DcalcAnalysisPt *dap = corner->findDcalcAnalysisPt(sta::MinMax::max());
+  sta::DcalcAPIndex dap_index = dap->index();
+
+  // ---- Step 1: snapshot OpenSTA reference slew (default corner / max) ----
+  // updateTimingFromPtGraph writes only RefInput / RefOutput / SiblingLoad.
+  // SiblingLoad is on the *fanin* net of the reference inst (other loads on
+  // the same net as the inst's input pin), NOT the fanout net.
+  // So a vertex is testable (non-boundary) only if:
+  //   * driver vertex: owning inst is combinational (becomes RefOutput when
+  //     its own inst is the visitSlewOnly target).
+  //   * load vertex: its net has at least one combinational-instance load
+  //     pin (becomes RefInput or SiblingLoad in that comb inst's PtGraph).
+  // Boundaries include: top-level input ports, sequential Q outputs,
+  // sequential D/CLK/SETN/RESETN inputs whose net's only loads are seq.
+  sta::Network *net = sta->network();
+  auto is_comb_inst = [&](sta::Instance *inst) {
+    if (!inst) return false;
+    sta::LibertyCell *lc = net->libertyCell(inst);
+    return lc && !lc->hasSequentials();
+  };
+  auto classify_boundary = [&](sta::Vertex *v) -> bool {
+    const sta::Pin *pin = v->pin();
+    if (!pin) return true;
+    if (net->isDriver(pin)) {
+      return !is_comb_inst(net->instance(pin));
+    }
+    sta::Net *n = net->net(pin);
+    if (!n) return true;
+    sta::NetConnectedPinIterator *pit = net->connectedPinIterator(n);
+    bool has_comb_load = false;
+    while (pit->hasNext()) {
+      const sta::Pin *p = pit->next();
+      if (!net->isLoad(p)) continue;
+      if (is_comb_inst(net->instance(p))) { has_comb_load = true; break; }
+    }
+    delete pit;
+    return !has_comb_load;
+  };
+
+  struct Rec {
+    sta::Vertex *vtx;
+    std::string name;
+    bool is_boundary;
+    bool is_driver;
+    float ref_r, ref_f;   // OpenSTA reference (ps)
+    float wb_r, wb_f;     // LocalSta result    (ps)
+  };
+  std::vector<Rec> records;
+  records.reserve(1 << 14);
+  {
+    sta::VertexIterator it(sta->graph());
+    while (it.hasNext()) {
+      sta::Vertex *v = it.next();
+      Rec r;
+      r.vtx = v;
+      r.name = v->name(net);
+      r.is_boundary = classify_boundary(v);
+      r.is_driver = v->pin() ? net->isDriver(v->pin()) : false;
+      r.ref_r = sta->graph()->slew(v, sta::RiseFall::rise(), dap_index) * 1e12f;
+      r.ref_f = sta->graph()->slew(v, sta::RiseFall::fall(), dap_index) * 1e12f;
+      r.wb_r = r.wb_f = 0.0f;
+      records.push_back(r);
+    }
+  }
+  printf("Reference snapshot: %zu vertices\n", records.size());
+
+  // ---- Step 2: zero+invalidate internal state, preserve boundaries ----
+  size_t boundary_count = 0;
+  size_t internal_zeroed = 0;
+
+  // Save boundary slew annotation state so we can restore after
+  // removeDelaySlewAnnotations clears all flags.
+  struct BoundaryAnno {
+    sta::Vertex *v;
+    std::vector<std::pair<const sta::RiseFall*, sta::DcalcAPIndex>> annotated;
+  };
+  std::vector<BoundaryAnno> boundary_annos;
+  for (auto &r : records) {
+    if (!r.is_boundary) continue;
+    boundary_count++;
+    BoundaryAnno ba; ba.v = r.vtx;
+    for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+      for (const sta::DcalcAnalysisPt *cap : sta->corners()->dcalcAnalysisPts()) {
+        if (r.vtx->slewAnnotated(rf, cap->slewMinMax()))
+          ba.annotated.push_back({rf, cap->index()});
+      }
+    }
+    boundary_annos.push_back(std::move(ba));
+  }
+
+  // Clear arc-delay + slew annotation flags globally.
+  sta->graph()->removeDelaySlewAnnotations();
+
+  // Restore slew annotation on boundary vertices (so LocalSta's
+  // seedNoDrvrSlew / seedNoDrvrCellSlew read the preserved value
+  // back from graph at PI / clock-root pins).
+  for (auto &ba : boundary_annos) {
+    for (auto &pr : ba.annotated)
+      ba.v->setSlewAnnotated(true, pr.first, pr.second);
+  }
+
+  // Zero internal vertex slews; leave boundary slews intact.
+  for (auto &r : records) {
+    if (r.is_boundary) continue;
+    for (const sta::RiseFall *rf : sta::RiseFall::range()) {
+      for (const sta::DcalcAnalysisPt *cap : sta->corners()->dcalcAnalysisPts()) {
+        sta->graph()->setSlew(r.vtx, rf, cap->index(), 0.0);
+      }
+    }
+    internal_zeroed++;
+  }
+  printf("Boundary preserved: %zu  Internal zeroed: %zu\n",
+         boundary_count, internal_zeroed);
+  fflush(stdout);
+
+  // ---- Step 3: build IncreSta + TaskArranger (single-threaded) ----
+  IncreSta *incre_sta = new IncreSta(sta, /*thread_count=*/1);
+  LocalSta *local_sta = incre_sta->localSta();
+  TaskArranger *ta = local_sta->taskArranger();
+  ta->init();
+  printf("TaskArranger: %zu vertices, single-threaded\n", ta->vertexCount());
+
+  // Set every InstVertex's move_mask=0 so runTask dispatches to visitSlewOnly.
+  for (size_t i = 0; i < ta->vertexCount(); i++)
+    ta->vertex(i)->move_mask_ = 0;
+
+  // ---- Step 4: dispatch topological sweep ----
+  auto *visitor = new ParallelVisitor(sta, local_sta, resizer);
+  visitor->setTaskArranger(ta);
+  visitor->init(/*avg_delay=*/1e-9f, /*avg_power=*/1e-6f, /*wns=*/0.0f,
+                /*PT_tradeoff=*/100.0f, nullptr);
+  ta->setProgressTag("slew-only");
+  auto t0 = std::chrono::steady_clock::now();
+  local_sta->runResize(resizer, visitor);
+  auto t1 = std::chrono::steady_clock::now();
+  double sweep_sec = std::chrono::duration<double>(t1 - t0).count();
+  printf("Topological visitSlewOnly sweep: %.3f s\n", sweep_sec);
+  fflush(stdout);
+
+  // ---- Step 5: snapshot LocalSta result ----
+  for (auto &r : records) {
+    r.wb_r = sta->graph()->slew(r.vtx, sta::RiseFall::rise(), dap_index) * 1e12f;
+    r.wb_f = sta->graph()->slew(r.vtx, sta::RiseFall::fall(), dap_index) * 1e12f;
+  }
+
+  // ---- Step 6: statistics ----
+  struct Acc { double sum=0, mx=0; size_t n=0, viol_1=0, viol_5=0;
+    void add(double e) { e=std::abs(e); sum+=e; mx=std::max(mx,e); n++;
+      if (e>1.0) viol_1++; if (e>5.0) viol_5++; }
+    double mean() const { return n ? sum/n : 0; }
+  };
+  Acc a_drv, a_load, a_bnd;
+  for (auto &r : records) {
+    double e = std::max(std::abs(r.wb_r - r.ref_r), std::abs(r.wb_f - r.ref_f));
+    if (r.is_boundary) a_bnd.add(e);
+    else if (r.is_driver) a_drv.add(e);
+    else a_load.add(e);
+  }
+  auto print_acc = [](const char *label, const Acc &a) {
+    printf("  %-40s n=%6zu  mean=%8.4f ps  max=%10.4f ps  >1ps:%-6zu  >5ps:%-6zu\n",
+           label, a.n, a.mean(), a.mx, a.viol_1, a.viol_5);
+  };
+  printf("\n=== Slew Error (LocalSta vs OpenSTA) ===\n");
+  print_acc("Driver vertices (output pins):", a_drv);
+  print_acc("Load vertices   (input  pins):", a_load);
+  print_acc("Boundary vertices (PI/clk-root, sanity=0):", a_bnd);
+
+  // Top-20 worst (drivers and loads only; boundary should be 0)
+  std::sort(records.begin(), records.end(),
+            [](const Rec &a, const Rec &b) {
+              double ea = a.is_boundary ? 0
+                  : std::max(std::abs(a.wb_r-a.ref_r), std::abs(a.wb_f-a.ref_f));
+              double eb = b.is_boundary ? 0
+                  : std::max(std::abs(b.wb_r-b.ref_r), std::abs(b.wb_f-b.ref_f));
+              return ea > eb;
+            });
+  printf("\nTop 20 worst slew error (excluding boundary):\n");
+  printf("  %-50s %6s %8s %8s %8s\n", "Vertex", "Type", "Ref(ps)", "WB(ps)", "Err(ps)");
+  for (size_t i = 0, shown = 0; i < records.size() && shown < 20; i++) {
+    auto &r = records[i];
+    if (r.is_boundary) continue;
+    double er = r.wb_r - r.ref_r, ef = r.wb_f - r.ref_f;
+    bool pick_r = std::abs(er) >= std::abs(ef);
+    double err = pick_r ? er : ef;
+    if (std::abs(err) < 1e-6) break;
+    printf("  %-50.50s %6s %8.3f %8.3f %8.3f\n",
+           r.name.c_str(),
+           r.is_driver ? "DRV" : "LOAD",
+           pick_r ? r.ref_r : r.ref_f,
+           pick_r ? r.wb_r  : r.wb_f,
+           err);
+    shown++;
+  }
+
+  // ---- Step 7: write CSV for offline analysis ----
+  const char *csv_path = "test/lrf/slew_accuracy.csv";
+  FILE *fp = fopen(csv_path, "w");
+  if (fp) {
+    fprintf(fp, "name,is_boundary,is_driver,ref_r_ps,ref_f_ps,wb_r_ps,wb_f_ps,err_r_ps,err_f_ps\n");
+    for (auto &r : records) {
+      fprintf(fp, "\"%s\",%d,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n",
+              r.name.c_str(),
+              r.is_boundary ? 1 : 0,
+              r.is_driver ? 1 : 0,
+              r.ref_r, r.ref_f, r.wb_r, r.wb_f,
+              r.wb_r - r.ref_r, r.wb_f - r.ref_f);
+    }
+    fclose(fp);
+    printf("\nCSV: %s\n", csv_path);
+  } else {
+    printf("\n[warn] could not open %s for write\n", csv_path);
+  }
+
+  printf("\n========================================\n");
+  printf(" End Slew-Only Accuracy Test\n");
+  printf("========================================\n");
+  fflush(stdout);
+
+  delete incre_sta;
+}
+
+// ============================================================
 //  testSlewViolationFeasibility — Analyze each slew violation:
 //  can it be fixed by resize (downsize loads + upsize driver)?
 // ============================================================

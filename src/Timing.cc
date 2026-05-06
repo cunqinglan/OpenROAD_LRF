@@ -880,6 +880,16 @@ Timing::testLocalStaAccuracy(size_t max_steps)
   test_lrf.testLocalStaAccuracy(sta, resizer, design_->getBlock(), max_steps);
 }
 
+void
+Timing::testSlewOnlyAccuracy()
+{
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testSlewOnlyAccuracy(sta, resizer, design_->getBlock());
+}
+
 
 void
 Timing::testSlewViolationFeasibility()
