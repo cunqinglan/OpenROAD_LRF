@@ -157,7 +157,6 @@ public:
                             bool ratcons = false,
                             float PT_tradeoff = 100.0,
                             std::string lr_helper_method = "RapidLRHelper",
-                            bool initialize = false,
                             float density_weight = 0.0f,
                             std::string checkpoint_dir = "",
                             float timing_margin = 0.01f,
@@ -173,7 +172,6 @@ public:
                             bool ratcons = false,
                             float PT_tradeoff = 100.0,
                             std::string lr_helper_method = "RapidLRHelper",
-                            bool initialize = false,
                             float density_weight = 0.0f,
                             bool debug = false,
                             size_t buffering_start_iter = 5);
@@ -189,7 +187,6 @@ public:
                             bool ratcons = false,
                             float PT_tradeoff = 100.0,
                             std::string lr_helper_method = "RapidLRHelper",
-                            bool initialize = false,
                             float density_weight = 0.0f,
                             bool debug = false);
 
@@ -207,7 +204,6 @@ public:
                             bool ratcons = false,
                             float PT_tradeoff = 100.0,
                             std::string lr_helper_method = "RapidLRHelper",
-                            bool initialize = false,
                             float density_weight = 0.0f,
                             bool debug = false,
                             size_t buffering_start_iter = 5,
@@ -232,12 +228,11 @@ public:
                             bool ratcons = false,
                             float PT_tradeoff = 100.0,
                             std::string lr_helper_method = "RapidLRHelper",
-                            bool initialize = false,
                             float density_weight = 0.0f,
                             bool debug = false,
                             size_t buffering_start_iter = 5,
                             float timing_margin = 0.01f,
-                            float erc_violation_weight = -1.0f,
+                            float erc_violation_weight = 1e6f,
                             float erc_limit_scale = 0.95f);
 
   // Print all liberty cells information grouped by unique equiv cell groups.
@@ -253,8 +248,7 @@ public:
                             size_t num_no_improve_tolerance,
                             bool ratcons = false,
                             float PT_tradeoff = 100.0,
-                            std::string lr_helper_method = "RapidLRHelper",
-                            bool initialize = false);
+                            std::string lr_helper_method = "RapidLRHelper");
 
   void testBufferOnly(sta::dbSta* sta,
                       rsz::Resizer *resizer,
@@ -391,18 +385,21 @@ public:
              const LrConfig &cfg);
 
   // Run parallel 4-step initialization (Sharma) on an existing IncreSta.
-  // Called internally by testParallelLrResize* when initialize=true.
+  // Internal helper used by runInitializationStandalone; not exposed via
+  // Python.
   void runInitialization(sta::dbSta* sta, IncreSta* incre_sta,
                          rsz::Resizer *resizer, odb::dbBlock *block,
                          size_t thread_num,
                          bool minimize_leakage = true);
 
-  // Test: level-parallel initializer (standalone, does not start LR).
-  void testParallelInitializer(sta::dbSta* sta,
-                               rsz::Resizer *resizer,
-                               odb::dbBlock *block,
-                               int thread_count,
-                               bool minimize_leakage = true);
+  // Standalone parallel initializer: creates its own IncreSta, runs Sharma
+  // 4-step init (mutating dbSta via replaceCell), then resyncs parasitics
+  // and timing. Backs Timing::runInitialization.
+  void runInitializationStandalone(sta::dbSta* sta,
+                                   rsz::Resizer *resizer,
+                                   odb::dbBlock *block,
+                                   int thread_count,
+                                   bool minimize_leakage = true);
 
   // Debug: verify precheck predictions by applying single-gate sizing
   // one at a time, recording PtGraph timing + LM before/after each swap.

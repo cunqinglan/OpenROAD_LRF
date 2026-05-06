@@ -1289,7 +1289,6 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
                             bool ratcons,
                             float PT_tradeoff,
                             std::string lr_helper_method,
-                            bool initialize,
                             float density_weight,
                             std::string checkpoint_dir,
                             float timing_margin,
@@ -1300,14 +1299,6 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
-
-  if (initialize) {
-    runInitialization(sta, incre_sta, resizer, block, thread_num, true);
-    incre_sta->localSta()->updateGlobalParasiticsAndSync(
-        resizer->getEstimateParasitics());
-    sta->delaysInvalid();
-    sta->updateTiming(true);
-  }
 
   lrf::LocalSta *local_sta = incre_sta->localSta();
 
@@ -1633,6 +1624,8 @@ TestLrf::runLr(sta::dbSta* sta, rsz::Resizer *resizer,
          cfg.density_weight, cfg.iterations);
   fflush(stdout);
 
+  TaskArranger::verbose_ = cfg.verbose;
+
   switch (cfg.mode) {
     case LrMode::RESIZE:
       testParallelLrResizeByArray(
@@ -1640,7 +1633,7 @@ TestLrf::runLr(sta::dbSta* sta, rsz::Resizer *resizer,
           cfg.max_resize_num, cfg.iterations,
           cfg.num_no_improve_tolerance, cfg.ratcons,
           cfg.PT_tradeoff, cfg.lr_helper_method,
-          cfg.initialize, cfg.density_weight,
+          cfg.density_weight,
           cfg.checkpoint_dir, cfg.timing_margin,
           cfg.resize_ff);
       break;
@@ -1650,7 +1643,7 @@ TestLrf::runLr(sta::dbSta* sta, rsz::Resizer *resizer,
           cfg.max_resize_num, cfg.iterations,
           cfg.num_no_improve_tolerance, cfg.ratcons,
           cfg.PT_tradeoff, cfg.lr_helper_method,
-          cfg.initialize, cfg.density_weight, cfg.debug,
+          cfg.density_weight, cfg.debug,
           cfg.buffering_start_iter);
       break;
     case LrMode::PRECHECK:
@@ -1682,7 +1675,7 @@ TestLrf::runLr(sta::dbSta* sta, rsz::Resizer *resizer,
           cfg.max_resize_num, cfg.iterations,
           cfg.num_no_improve_tolerance, cfg.ratcons,
           cfg.PT_tradeoff, cfg.lr_helper_method,
-          cfg.initialize, cfg.density_weight, cfg.debug);
+          cfg.density_weight, cfg.debug);
       break;
   }
 }
@@ -1698,7 +1691,6 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
                             bool ratcons,
                             float PT_tradeoff,
                             std::string lr_helper_method,
-                            bool initialize,
                             float density_weight,
                             bool debug,
                             size_t buffering_start_iter)
@@ -1709,14 +1701,6 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   incre_sta->setDebug(debug);
-
-  if (initialize) {
-    runInitialization(sta, incre_sta, resizer, block, thread_num, true);
-    incre_sta->localSta()->updateGlobalParasiticsAndSync(
-        resizer->getEstimateParasitics());
-    sta->delaysInvalid();
-    sta->updateTiming(true);
-  }
 
   lrf::LocalSta *local_sta = incre_sta->localSta();
 
@@ -1864,27 +1848,19 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
                             bool ratcons,
                             float PT_tradeoff,
                             std::string lr_helper_method,
-                            bool initialize,
                             float density_weight,
                             bool debug,
                             size_t buffering_start_iter,
                             float timing_margin)
 {
   printf("----- Testing Parallel LR Resize + SDP Buffering (revert-halve ECO, "
-         "buffering_start_iter=%zu, timing_margin=%.4f, minimize_leakage=false) -----\n",
+         "buffering_start_iter=%zu, timing_margin=%.4f, minimize_leakage=false, "
+         "max_runtime=2h) -----\n",
          buffering_start_iter, timing_margin);
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   incre_sta->setDebug(debug);
-
-  if (initialize) {
-    runInitialization(sta, incre_sta, resizer, block, thread_num, true);
-    incre_sta->localSta()->updateGlobalParasiticsAndSync(
-        resizer->getEstimateParasitics());
-    sta->delaysInvalid();
-    sta->updateTiming(true);
-  }
 
   lrf::LocalSta *local_sta = incre_sta->localSta();
 
@@ -1911,11 +1887,16 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
   // Resize ECO controller
   EcoConfig eco_cfg = EcoConfig::make(EcoStrategy::HALVE_ON_CONSECUTIVE);
   eco_cfg.max_eco_reverts = num_no_improve_tolerance;
+  eco_cfg.max_runtime_seconds = 7200.0;   // hard 2h wall-clock cap
   EcoController eco(eco_cfg, incre_sta, sta, block, resizer);
 
   // Buffering ECO: accept/revert only, never TERMINATEs the outer loop,
   // no leakage-plateau check (buffering optimizes timing, not leakage).
   BufferEcoController buffer_eco(incre_sta, sta, block, resizer);
+
+  // Eagerly populate sta::Edge.delay_diffs_ so the very first precheck iter
+  // (once ECO turns on use_precheck) doesn't pay the full-graph re-eval inline.
+  incre_sta->initDelayDiff();
 
   EcoDecision decision = EcoDecision::ACCEPT;
   for (size_t i = 0; i < iterations; ++i) {
@@ -2036,7 +2017,6 @@ TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
                             bool ratcons,
                             float PT_tradeoff,
                             std::string lr_helper_method,
-                            bool initialize,
                             float density_weight,
                             bool debug,
                             size_t buffering_start_iter,
@@ -2055,14 +2035,6 @@ TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   incre_sta->setDebug(debug);
-
-  if (initialize) {
-    runInitialization(sta, incre_sta, resizer, block, thread_num, true);
-    incre_sta->localSta()->updateGlobalParasiticsAndSync(
-        resizer->getEstimateParasitics());
-    sta->delaysInvalid();
-    sta->updateTiming(true);
-  }
 
   lrf::LocalSta *local_sta = incre_sta->localSta();
 
@@ -2283,7 +2255,6 @@ TestLrf::testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,
                             bool ratcons,
                             float PT_tradeoff,
                             std::string lr_helper_method,
-                            bool initialize,
                             float density_weight,
                             bool debug)
 {
@@ -2292,14 +2263,6 @@ TestLrf::testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   incre_sta->setDebug(debug);
-
-  if (initialize) {
-    runInitialization(sta, incre_sta, resizer, block, thread_num, true);
-    incre_sta->localSta()->updateGlobalParasiticsAndSync(
-        resizer->getEstimateParasitics());
-    sta->delaysInvalid();
-    sta->updateTiming(true);
-  }
 
   lrf::LocalSta *local_sta = incre_sta->localSta();
 
@@ -2455,21 +2418,12 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
                             size_t num_no_improve_tolerance,
                             bool ratcons,
                             float PT_tradeoff,
-                            std::string lr_helper_method,
-                            bool initialize)
+                            std::string lr_helper_method)
 {
   printf("----- Testing Combined Resize + Buffering (ECO) -----\n");
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
-
-  if (initialize) {
-    runInitialization(sta, incre_sta, resizer, block, thread_num, true);
-    incre_sta->localSta()->updateGlobalParasiticsAndSync(
-        resizer->getEstimateParasitics());
-    sta->delaysInvalid();
-    sta->updateTiming(true);
-  }
 
   lrf::LocalSta *local_sta = incre_sta->localSta();
 
@@ -5366,11 +5320,11 @@ TestLrf::probeAllOptionsBySensitivity(sta::dbSta* sta, rsz::Resizer *resizer,
 }
 
 void
-TestLrf::testParallelInitializer(sta::dbSta* sta,
-                                  rsz::Resizer *resizer,
-                                  odb::dbBlock *block,
-                                  int thread_count,
-                                  bool minimize_leakage)
+TestLrf::runInitializationStandalone(sta::dbSta* sta,
+                                      rsz::Resizer *resizer,
+                                      odb::dbBlock *block,
+                                      int thread_count,
+                                      bool minimize_leakage)
 {
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_count);
@@ -5378,6 +5332,12 @@ TestLrf::testParallelInitializer(sta::dbSta* sta,
   ParallelInitializer initializer(sta, incre_sta, resizer, block,
                                   thread_count, minimize_leakage);
   initializer.run();
+  // Resync global parasitics/timing so subsequent runLr / test* entries
+  // observe the cell swaps performed by the initializer.
+  incre_sta->localSta()->updateGlobalParasiticsAndSync(
+      resizer->getEstimateParasitics());
+  sta->delaysInvalid();
+  sta->updateTiming(true);
   delete incre_sta;
 }
 

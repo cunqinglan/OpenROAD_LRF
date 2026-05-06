@@ -156,9 +156,6 @@ struct LrConfig {
   // call sites.
   float erc_limit_scale = 0.95f;
 
-  // ── Initialization ──
-  bool initialize = false;           // Run Sharma 3-step init before LR
-
   // ── FF parallel resize ──
   // If true, run FFResizeOperator (silly-parallel sequential sweep) before
   // each combinational pass. Cost includes setup × LM(D wire-in edge) on top
@@ -168,6 +165,7 @@ struct LrConfig {
 
   // ── Debug ──
   bool debug = false;             // Print detailed rebuffer/eval diagnostics
+  bool verbose = false;           // Print per-iter ParallelVisitor runtime profile
 
   // ── ECO ──
   EcoConfig eco;

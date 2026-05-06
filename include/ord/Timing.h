@@ -136,15 +136,17 @@ class Timing
              bool ratcons = false,
              const char *lr_helper_method = "RapidLRHelper",
              float top_ratio = 0.3f,
-             bool initialize = false,
              const char *checkpoint_dir = "",
              bool debug = false,
              size_t buffering_start_iter = 5,
              float timing_margin = 0.01f,
-             bool resize_ff = false);
+             bool resize_ff = false,
+             bool verbose = false);
 
-  // Test: level-parallel initializer (standalone, does not start LR).
-  void testParallelInitializer(bool minimize_leakage = true);
+  // Standalone Sharma 4-step parallel initializer. Mutates dbSta in place
+  // (replaceCell + parasitics+timing resync); call once before runLr / any
+  // test* entry so they no longer carry an `initialize` flag.
+  void runInitialization(bool minimize_leakage = true);
 
   // Debug: verify precheck predictions one gate at a time.
   void debugPrecheckAccuracy(float PT_tradeoff = 100.0,
@@ -172,7 +174,6 @@ class Timing
                                  bool ratcons = false,
                                  float PT_tradeoff = 100.0,
                                  const char *lr_helper_method = "RapidLRHelper",
-                                 bool initialize = false,
                                  float density_weight = 0.0f,
                                  bool resize_ff = false);
   void testParallelResizeByArrayWithBuffering(size_t max_resize_num,
@@ -181,7 +182,6 @@ class Timing
                                               bool ratcons = false,
                                               float PT_tradeoff = 100.0,
                                               const char *lr_helper_method = "RapidLRHelper",
-                                              bool initialize = false,
                                               float density_weight = 0.0f);
   void testParallelResizeByArrayWithRszBuffering(size_t max_resize_num,
                                               size_t iterations,
@@ -189,7 +189,6 @@ class Timing
                                               bool ratcons = false,
                                               float PT_tradeoff = 100.0,
                                               const char *lr_helper_method = "RapidLRHelper",
-                                              bool initialize = false,
                                               float density_weight = 0.0f);
   // LRF slack-DP rebuffering variant (BufferSdpOperator →
   // prepareSlackDpBnet → bufferForTimingSlackDp + recoverLrCost).
@@ -199,7 +198,6 @@ class Timing
                                               bool ratcons = false,
                                               float PT_tradeoff = 100.0,
                                               const char *lr_helper_method = "RapidLRHelper",
-                                              bool initialize = false,
                                               float density_weight = 0.0f,
                                               float timing_margin = 0.01f);
   // Two-phase: init+resize → precheck-resize+SDP-buffering. See
@@ -216,7 +214,6 @@ class Timing
                                       bool ratcons = false,
                                       float PT_tradeoff = 100.0,
                                       const char *lr_helper_method = "RapidLRHelper",
-                                      bool initialize = false,
                                       float density_weight = 0.0f,
                                       float timing_margin = 0.01f,
                                       float erc_violation_weight = -1.0f,
@@ -226,8 +223,7 @@ class Timing
                                              size_t num_no_improve_tolerance,
                                              bool ratcons = false,
                                              float PT_tradeoff = 100.0,
-                                             const char *lr_helper_method = "RapidLRHelper",
-                                             bool initialize = false);
+                                             const char *lr_helper_method = "RapidLRHelper");
   void testBufferOnly(size_t iterations = 6,
                       float PT_tradeoff = 10.0,
                       const char *lr_helper_method = "RapidLRHelper",

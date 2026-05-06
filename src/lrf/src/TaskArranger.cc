@@ -62,6 +62,8 @@ bool InstVertex::hasFanins() const
   return in_edges_ != edge_id_null;
 }
 
+bool TaskArranger::verbose_ = false;
+
 void
 InstEdge::init(VertexId from, VertexId to)
 {
@@ -888,7 +890,9 @@ TaskArranger::visitAll(ParallelVisitor *visitor)
 
   // Cleanup visitors
   for (auto v : visitors_) {
-    v->printRuntimeProfile();
+    if (verbose_) {
+      v->printRuntimeProfile();
+    }
     delete v;
   }
   visitors_.clear();
@@ -1200,7 +1204,9 @@ TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta,
 
   int cnt = 0;
   for (auto v : visitors_) {
-    v->printRuntimeProfile();
+    if (verbose_) {
+      v->printRuntimeProfile();
+    }
     delete v;
     cnt++;
   }
