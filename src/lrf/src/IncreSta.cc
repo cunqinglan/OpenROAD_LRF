@@ -1363,7 +1363,7 @@ void
 IncreSta::parallelResizeByArrayWithPrecheck(
     rsz::Resizer *resizer, float avg_delay, float avg_power,
     float PT_tradeoff, float top_ratio, float erc_violation_weight,
-    float erc_limit_scale)
+    float erc_limit_scale, bool resize_ff)
 {
   auto start_total = std::chrono::high_resolution_clock::now();
 
@@ -1373,6 +1373,16 @@ IncreSta::parallelResizeByArrayWithPrecheck(
   }
   if (!swap_cell_leakage_presaved_) {
     preSaveLibCellLeakage();
+  }
+
+  // FF parallel resize first (silly-parallel sequential sweep). The precheck
+  // below filters combinational vertices only, so FFs need their own pass.
+  if (resize_ff) {
+    parallelResizeFFs(resizer, avg_delay, avg_power, PT_tradeoff,
+                      erc_violation_weight, erc_limit_scale);
+    // Re-sync timing so precheck sees the new FF cell choices.
+    sta_->updateTiming(true);
+    sta_->findRequireds();
   }
 
   // Phase 1: Precheck — returns filtered top instances sorted by benefit

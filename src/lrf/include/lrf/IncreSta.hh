@@ -146,11 +146,15 @@ public:
       float PT_tradeoff, float top_ratio = 0.3);
 
   // Resize with precheck: precedingResizeCheck + parallelResizeByArray.
+  // resize_ff: if true, run parallelResizeFFs (silly-parallel sequential
+  // sweep) BEFORE the precheck+combinational pass. The precheck itself
+  // continues to operate on combinational vertices only.
   void parallelResizeByArrayWithPrecheck(rsz::Resizer *resizer, float avg_delay,
                                            float avg_power, float PT_tradeoff,
                                            float top_ratio = 0.3,
                                            float erc_violation_weight = 1e6f,
-                                           float erc_limit_scale = 0.95f);
+                                           float erc_limit_scale = 0.95f,
+                                           bool resize_ff = false);
 
   // Adaptive instance-level filtering control.
   // Call activateInstanceFilter() when timing regression is detected.
