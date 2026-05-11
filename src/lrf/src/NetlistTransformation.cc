@@ -924,7 +924,7 @@ BufferSensitivityOperator::skipInstance(sta::Instance *inst) const
     sta::Pin *pin = iter->next();
     if (network->isDriver(pin)) {
       sta::Vertex *vtx = graph->pinDrvrVertex(pin);
-      if (vtx && db_sta_->vertexSlack(vtx, sta::MinMax::max()) < 0.0f) {
+      if (vtx && db_sta_->slack(vtx, sta::MinMax::max()) < 0.0f) {
         all_positive = false;
         break;
       }

@@ -3,14 +3,14 @@
 #include "LrHelper.hh"
 #include "sta/Liberty.hh"
 #include "sta/Path.hh"
-#include "sta/Corner.hh"
+#include "sta/Scene.hh"
 #include "sta/PathExpanded.hh"
 #include "sta/Search.hh"
 #include "sta/EquivCells.hh"
 #include "sta/Sdc.hh"
 #include "power/Power.hh"
-#include "sta/DcalcAnalysisPt.hh"
-#include "sta/PathAnalysisPt.hh"
+#include "sta/Scene.hh"
+#include "sta/Scene.hh"
 #include "sta/PortDirection.hh"
 #include "sta/GraphDelayCalc.hh"
 #include "sta/TimingRole.hh"
@@ -403,9 +403,9 @@ IncreSta::loadLmFromFile(const std::string &path, const std::string &design_name
 }
 
 bool
-IncreSta::checkCapViolated(Pin *pin, const Corner *corner, const MinMax *min_max)
+IncreSta::checkCapViolated(Pin *pin, const Scene *corner, const MinMax *min_max)
 {
-  const Corner *corner1;
+  const Scene *corner1;
   const RiseFall *rf;
   float capacitance, limit, slack;
   sta_->checkCapacitance(pin, corner, min_max, corner1, rf, capacitance, limit, slack);
@@ -416,7 +416,7 @@ IncreSta::checkCapViolated(Pin *pin, const Corner *corner, const MinMax *min_max
 
 float
 IncreSta::maxInputSlew(const Pin* input_pin,
-                            const Corner* corner) const
+                            const Scene* corner) const
 {
   return local_sta_->maxInputSlew(input_pin, corner);
 }
@@ -453,7 +453,7 @@ IncreSta::averageLeakage()
 {
   float total_leakage = 0.0;
   int cnt = 0;
-  sta::Corner *corner = sta_->corners()->findCorner("default");
+  sta::Scene *corner = sta_->findScene("default");
   sta::LeafInstanceIterator* inst_iter = network_->leafInstanceIterator();
   while (inst_iter->hasNext()) {
     sta::Instance* inst = inst_iter->next();
@@ -471,7 +471,7 @@ IncreSta::averageLeakage()
 float
 IncreSta::averageOutSlew()
 {
-  sta::Corner *corner = sta_->corners()->findCorner("default");
+  sta::Scene *corner = sta_->findScene("default");
   sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
   double sum = 0.0;
   int cnt = 0;
@@ -503,7 +503,7 @@ IncreSta::averageOutSlew()
 float
 IncreSta::averageLoadCap()
 {
-  sta::Corner *corner = sta_->corners()->findCorner("default");
+  sta::Scene *corner = sta_->findScene("default");
   sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
   double sum = 0.0;
   int cnt = 0;
@@ -575,7 +575,7 @@ IncreSta::preSaveLibCellLeakage()
   if (!swap_cell_presaved_)
     throw std::runtime_error("IncreSta::preSaveLibCellLeakage called before swappable cells are presaved\n");
   ensureActivities();
-  sta::Corner *corner = sta_->corners()->findCorner("default");
+  sta::Scene *corner = sta_->findScene("default");
   // Clear any previous allocation before creating new one.
   clearLocalCellInfoMap();
   cell_info_vec_ = new LocalCellInfo[int(network_->leafInstanceCount() * 1.4)];
@@ -634,7 +634,7 @@ IncreSta::makeParallelLibData(rsz::Resizer *resizer, TaskArranger *task_arranger
 void 
 IncreSta::ensureActivities()
 {
-  sta::Corner *corner = sta_->corners()->findCorner("default");
+  sta::Scene *corner = sta_->findScene("default");
   LeafInstanceIterator* inst_iter = network_->leafInstanceIterator();
   sta::Instance* inst = nullptr;
   while (inst_iter->hasNext()) {
@@ -662,7 +662,7 @@ IncreSta::makeEquivCellArray(bool verbose)
   sta::dbSta* sta = sta_;
   sta::dbNetwork* network = sta->getDbNetwork();
 
-  sta::Corner* corner = sta->cmdCorner();
+  sta::Scene* corner = sta->cmdScene();
   const sta::DcalcAnalysisPt* dcalc_ap
       = corner ? corner->findDcalcAnalysisPt(sta::MinMax::max()) : nullptr;
   const int lib_ap = dcalc_ap ? dcalc_ap->libertyIndex() : 0;
@@ -1244,7 +1244,7 @@ IncreSta::probeRszBnet(rsz::Resizer *resizer, float PT_tradeoff, int top_n)
       sta::Pin *pin = iter->next();
       if (!network->isDriver(pin)) continue;
       sta::Vertex *vtx = graph->pinDrvrVertex(pin);
-      if (!vtx || sta_->vertexSlack(vtx, sta::MinMax::max()) >= 0.0f) continue;
+      if (!vtx || sta_->slack(vtx, sta::MinMax::max()) >= 0.0f) continue;
 
       // Build PtGraph for this instance (includes parasitic init)
       PtGraph *pt_graph = local_sta_->makePtGraph(inst, true);
@@ -1511,7 +1511,7 @@ IncreSta::bufferingVerticesCandidate(int top_n)
   sta::Graph *graph = sta_->graph();
   const sta::Network *network = sta_->network();
   sta::GraphDelayCalc *dcalc = sta_->graphDelayCalc();
-  const sta::Corner *corner = sta_->cmdCorner();
+  const sta::Scene *corner = sta_->cmdScene();
   const sta::DcalcAnalysisPt *dcalc_ap
       = corner->findDcalcAnalysisPt(sta::MinMax::max());
 
@@ -1542,7 +1542,7 @@ IncreSta::bufferingVerticesCandidate(int top_n)
         sta::Vertex *vertex, *bidirect;
         graph->pinVertices(pin, vertex, bidirect);
         if (vertex) {
-          sta::Slack slack = sta_->vertexSlack(vertex, sta::MinMax::max());
+          sta::Slack slack = sta_->slack(vertex, sta::MinMax::max());
           if (slack < worst_slack)
             worst_slack = slack;
           float load = dcalc->loadCap(pin, dcalc_ap);
@@ -1630,7 +1630,7 @@ IncreSta::bufferingVerticesCandidateBySensitivity(
   visitor->setPrecheckResults(&results);
 
   // Ensure required times are computed before parallel dispatch
-  // (vertexSlack inside evaluate may trigger findRequireds which is not thread-safe)
+  // (slack inside evaluate may trigger findRequireds which is not thread-safe)
   sta_->findRequireds();
 
   // Dispatch all instances in parallel (no conflict graph)

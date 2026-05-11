@@ -18,7 +18,7 @@
 #include "odb/dbTypes.h"
 #include "rsz/OdbCallBack.hh"
 #include "sta/Path.hh"
-#include "sta/UnorderedSet.hh"
+#include <unordered_set>
 #include "utl/Logger.h"
 
 namespace odb {

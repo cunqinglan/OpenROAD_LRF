@@ -60,9 +60,9 @@ public:
   void lmUpdate();
 
   // Check violations
-  bool checkCapViolated(Pin *pin, const Corner *corner, const MinMax *min_max);
-  bool checkSlewViolated(Pin *pin, const Corner *corner, const MinMax *min_max);
-  float maxInputSlew(const Pin* input_pin, const Corner* corner) const;
+  bool checkCapViolated(Pin *pin, const Scene *corner, const MinMax *min_max);
+  bool checkSlewViolated(Pin *pin, const Scene *corner, const MinMax *min_max);
+  float maxInputSlew(const Pin* input_pin, const Scene* corner) const;
   float averageDelayOnCritPath();
   float averageLeakage();
   // Average output-pin slew and load cap across all leaf-instance driver

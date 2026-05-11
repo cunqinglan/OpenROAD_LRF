@@ -313,9 +313,9 @@ class SearchMEEPred : public sta::SearchPred2
 {
 public:
   explicit SearchMEEPred(sta::StaState* sta);
-  virtual bool searchThru(sta::Edge* edge) override;
-  virtual bool searchFrom(const sta::Vertex* from_vertex) override;
-  virtual bool searchTo(const sta::Vertex* to_vertex) override;
+  bool searchThru(sta::Edge* edge, const sta::Mode* mode) const override;
+  bool searchFrom(const sta::Vertex* from_vertex, const sta::Mode* mode) const override;
+  bool searchTo(const sta::Vertex* to_vertex, const sta::Mode* mode) const override;
 };
 
 

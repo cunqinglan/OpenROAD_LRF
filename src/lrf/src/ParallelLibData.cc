@@ -8,7 +8,7 @@
 #include "rsz/Resizer.hh"
 #include "sta/LibertyClass.hh"
 #include "TaskArranger.hh"
-#include "sta/Corner.hh"
+#include "sta/Scene.hh"
 #include "sta/Network.hh"
 #include "power/Power.hh"
 #include "sta/EquivCells.hh"
@@ -45,7 +45,7 @@ ParallelLibData::init(rsz::Resizer* resizer, TaskArranger *task_arranger)
 void
 ParallelLibData::ensureActivities()
 {
-  sta::Corner *corner = sta_->corners()->findCorner("default");
+  sta::Scene *corner = sta_->findScene("default");
   sta::LeafInstanceIterator* inst_iter = network_->leafInstanceIterator();
   sta::Instance* inst = nullptr;
   while (inst_iter->hasNext()) {
@@ -86,7 +86,7 @@ ParallelLibData::makeSwappableCellsCache(rsz::Resizer* resizer)
   for (const sta::LibertyCell* source_cell : unique_equiv_cells) {
     sta::LibertyCellSeq *equive_cells = sta_->equivCells(const_cast<sta::LibertyCell*>(source_cell));
     for (sta::LibertyCell* equiv_cell : *equive_cells) {
-      std::vector<sta::LibertyCellSeq> swappable_cells = resizer->makeSwappableCellsVec(equiv_cell);
+      std::vector<sta::LibertyCellSeq> swappable_cells = resizer->getSwappableCells(equiv_cell);
       swappable_cells_cache_[equiv_cell] = swappable_cells;
     }
   }
@@ -94,7 +94,7 @@ ParallelLibData::makeSwappableCellsCache(rsz::Resizer* resizer)
 }
 
 void
-ParallelLibData::preSaveLibCellLeakage(rsz::Resizer* resizer, sta::Corner* corner)
+ParallelLibData::preSaveLibCellLeakage(rsz::Resizer* resizer, sta::Scene* corner)
 {
   if (!swap_cell_presaved_) {
     printf("ParallelLibData::preSaveLibCellLeakage Error: Swappable cells not prepared yet!\n");
@@ -104,7 +104,7 @@ ParallelLibData::preSaveLibCellLeakage(rsz::Resizer* resizer, sta::Corner* corne
     throw std::runtime_error("ParallelLibData::preSaveLibCellLeakage inst_to_vid_map_ is null (did you call init?)\n");
   }
   if (corner == nullptr) {
-    corner = sta_->corners()->findCorner("default");
+    corner = sta_->findScene("default");
   }
   cell_info_vec_.resize(inst_to_vid_map_->size());
   sta::Power* power_calc = sta_->power();

@@ -6,7 +6,7 @@
 #include <deque>
 #include <vector>
 #include "DcalcAnalysisPt.hh"
-#include "Corner.hh"
+#include "Scene.hh"
 #include "TimingRole.hh"
 #include "sta/Liberty.hh"
 #include "sta/Sdc.hh"
@@ -1474,7 +1474,7 @@ PtGraph::pinToPtVertex(const sta::Pin *pin) const
 float
 PtGraph::getRefPinCapacitance(const PtVertex &pt_vertex,
                               const sta::RiseFall *rf,
-                              const sta::Corner *corner,
+                              const sta::Scene *corner,
                               const sta::MinMax *min_max) const
 {
   float port_cap = 0.0f;

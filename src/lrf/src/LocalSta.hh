@@ -9,7 +9,7 @@
 #include "sta/StaState.hh"
 #include "est/EstimateParasitics.h"
 #include "lrf/LrfClass.hh"
-#include "sta/Map.hh"
+#include <map>
 #include "LocalParasitics.hh"
 #include "sta/Delay.hh"
 #include "sta/SearchPred.hh"
@@ -105,7 +105,7 @@ public:
                                sta::LibertyCell *equiv_cell,
                                std::map<std::string, double> *runtime_map = nullptr);
   float maxInputSlew(const Pin* input,
-                            const Corner* corner) const;
+                            const Scene* corner) const;
   void setParasiticsEst(est::EstimateParasitics *estimate_parasitics);
   void updateGlobalParasiticsAndSync(est::EstimateParasitics *est_parasitics);
   // Sync local parasitic map from global (without re-estimating).
@@ -165,13 +165,13 @@ public:
                                 float slew_limit_scale = 0.95f);
   sta::LibertyPort *findTargetPort(const PtVertex &ptv,
                                    sta::LibertyCell *to_lib_cell) const;
-  float getPinSlew(sta::Pin *pin, const sta::Corner *corner,
+  float getPinSlew(sta::Pin *pin, const sta::Scene *corner,
                      const sta::MinMax *min_max, PtGraph *pt_graph);
-  float getLoadCap(PtVertex &drvr_pt_vertex, const sta::Corner *corner,
+  float getLoadCap(PtVertex &drvr_pt_vertex, const sta::Scene *corner,
                    const sta::MinMax *min_max, PtGraph *pt_graph);
   bool legalCheckBeforeSwap(sta::Instance *inst, 
                             sta::LibertyCell *to_lib_cell,
-                            const sta::Corner *corner,
+                            const sta::Scene *corner,
                             const sta::MinMax *min_max,
                             PtGraph *pt_graph);
   // slew_limit_scale: multiplier on the library slew limit. Default 0.9 =
@@ -180,7 +180,7 @@ public:
   // the placement → global_routing RC shift.
   bool legalCheckAfterSwap(sta::Instance *inst,
                            sta::LibertyCell *to_lib_cell,
-                           const sta::Corner *corner,
+                           const sta::Scene *corner,
                            const sta::MinMax *min_max,
                            PtGraph *pt_graph,
                            float slew_limit_scale = 0.95f);
@@ -195,13 +195,13 @@ public:
   struct ViolationSum { float slew = 0.0f; float cap = 0.0f; };
   ViolationSum violationSumBeforeSwap(sta::Instance *inst,
                                       sta::LibertyCell *to_lib_cell,
-                                      const sta::Corner *corner,
+                                      const sta::Scene *corner,
                                       const sta::MinMax *min_max,
                                       PtGraph *pt_graph,
                                       float cap_limit_scale = 1.0f);
   ViolationSum violationSumAfterSwap(sta::Instance *inst,
                                      sta::LibertyCell *to_lib_cell,
-                                     const sta::Corner *corner,
+                                     const sta::Scene *corner,
                                      const sta::MinMax *min_max,
                                      PtGraph *pt_graph,
                                      float slew_limit_scale = 1.0f,
@@ -210,12 +210,12 @@ public:
   // Violation check functions - public interfaces
   void checkSlew(const sta::Pin *pin,
                  const sta::LibertyCell *lib_cell,
-                 const sta::Corner *corner,
+                 const sta::Scene *corner,
                  const sta::MinMax *min_max,
                  bool check_clks,
                  PtGraph *pt_graph,
                  // Return values
-                 const sta::Corner *&corner1,
+                 const sta::Scene *&corner1,
                  const sta::RiseFall *&rf1,
                  float &slew1,
                  float &limit1,
@@ -255,12 +255,12 @@ protected:
   void checkSlew1(const sta::Pin *pin,
                   Vertex *vertex,
                   const sta::LibertyCell *lib_cell,
-                  const sta::Corner *corner,
+                  const sta::Scene *corner,
                   const sta::MinMax *min_max,
                   bool check_clks,
                   PtGraph *pt_graph,
                   // Return values
-                  const sta::Corner *&corner1,
+                  const sta::Scene *&corner1,
                   const sta::RiseFall *&rf1,
                   float &slew1,
                   float &limit1,
@@ -269,12 +269,12 @@ protected:
   void checkSlew2(const sta::Pin *pin,
                   Vertex *vertex,
                   const sta::LibertyCell *lib_cell,
-                  const sta::Corner *corner,
+                  const sta::Scene *corner,
                   const sta::MinMax *min_max,
                   const ClockSet &clks,
                   PtGraph *pt_graph,
                   // Return values
-                  const sta::Corner *&corner1,
+                  const sta::Scene *&corner1,
                   const sta::RiseFall *&rf1,
                   float &slew1,
                   float &limit1,
@@ -283,13 +283,13 @@ protected:
   void checkSlew3(const sta::Pin *pin,
                   Vertex *vertex,
                   const sta::LibertyCell *lib_cell,
-                  const sta::Corner *corner,
+                  const sta::Scene *corner,
                   const sta::RiseFall *rf,
                   const sta::MinMax *min_max,
                   float limit,
                   PtGraph *pt_graph,
                   // Return values
-                  const sta::Corner *&corner1,
+                  const sta::Scene *&corner1,
                   const sta::RiseFall *&rf1,
                   float &slew1,
                   float &slack1,
@@ -297,7 +297,7 @@ protected:
 
 
   void localFindSlewLimit(const sta::LibertyPort *lib_port,
-                          const sta::Corner *corner,
+                          const sta::Scene *corner,
                           const sta::MinMax *min_max,
                           // Return values
                           float &limit,
@@ -305,7 +305,7 @@ protected:
 
   void localFindSlewLimit(const sta::Pin *pin,
                           const sta::LibertyCell *lib_cell,
-                          const sta::Corner *corner,
+                          const sta::Scene *corner,
                           const sta::MinMax *min_max,
                           const sta::RiseFall *rf,
                           const ClockSet &clks,

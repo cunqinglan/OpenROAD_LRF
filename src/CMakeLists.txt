@@ -287,6 +287,7 @@ add_subdirectory(mpl)
 add_subdirectory(par)
 add_subdirectory(est)
 add_subdirectory(web)
+add_subdirectory(lrf)
 
 ################################################################
 
@@ -335,6 +336,7 @@ target_link_libraries(openroad
   ppl
   stt
   dbSta
+  lrf_lib
   OpenSTA
   odb
   odbtcl

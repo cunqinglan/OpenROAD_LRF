@@ -14,7 +14,7 @@
 #include "sta/TimingModel.hh"
 #include "sta/TimingRole.hh"
 #include "sta/TimingArc.hh"
-#include "sta/DcalcAnalysisPt.hh"
+#include "sta/Scene.hh"
 #include "sta/GraphDelayCalc.hh"
 #include "sta/Delay.hh"
 #include "sta/Bfs.hh"
@@ -35,7 +35,7 @@ namespace lrf {
 using sta::LibertyCell;
 using sta::LibertyCellSeq;
 using sta::Pin;
-using sta::Corner;
+using sta::Scene;
 using sta::RiseFall;
 using sta::MinMax;
 using sta::Vertex;
@@ -457,7 +457,7 @@ ParallelInitializer::countViolations(int& cap_cnt, int& slew_cnt)
   slew_cnt = 0;
   sta::LibertyLibrary* default_lib = network_->defaultLibertyLibrary();
   const sta::DcalcAnalysisPt* dcalc_ap
-      = sta_->cmdCorner()->findDcalcAnalysisPt(MinMax::max());
+      = sta_->cmdScene()->findDcalcAnalysisPt(MinMax::max());
 
   for (odb::dbInst* db_inst : block_->getInsts()) {
     if (!db_inst->getMaster()->isCoreAutoPlaceable()) continue;
@@ -579,7 +579,7 @@ ParallelInitializer::run()
   sta_->findDelays();
   sta::LibertyLibrary* sum_lib = network_->defaultLibertyLibrary();
   const sta::DcalcAnalysisPt* sum_ap
-      = sta_->cmdCorner()->findDcalcAnalysisPt(MinMax::max());
+      = sta_->cmdScene()->findDcalcAnalysisPt(MinMax::max());
 
   int drvr_slew_cnt = 0, load_slew_cnt = 0, cap_cnt = 0;
   float drvr_slew_sum = 0, load_slew_sum = 0, cap_sum = 0;
@@ -703,7 +703,7 @@ ParallelInitializer::fixLoadViolationsParallel()
   est::EstimateParasitics* ep = resizer_->getEstimateParasitics();
   est::IncrementalParasiticsGuard guard(ep);
   const sta::DcalcAnalysisPt* dcalc_ap
-      = sta_->cmdCorner()->findDcalcAnalysisPt(MinMax::max());
+      = sta_->cmdScene()->findDcalcAnalysisPt(MinMax::max());
   sta::LibertyLibrary* default_lib = network_->defaultLibertyLibrary();
 
   sta_->ensureGraph();
@@ -754,7 +754,7 @@ ParallelInitializer::fixSlewViolationsParallel()
   est::EstimateParasitics* ep = resizer_->getEstimateParasitics();
   est::IncrementalParasiticsGuard guard(ep);
   const sta::DcalcAnalysisPt* dcalc_ap
-      = sta_->cmdCorner()->findDcalcAnalysisPt(MinMax::max());
+      = sta_->cmdScene()->findDcalcAnalysisPt(MinMax::max());
   sta::LibertyLibrary* default_lib = network_->defaultLibertyLibrary();
 
   float default_max_slew = sta::INF;
@@ -823,7 +823,7 @@ ParallelInitializer::fixSlewViolationsParallel()
   sta_->findDelays();
   int remaining = 0;
   const sta::DcalcAnalysisPt* dcalc_ap2
-      = sta_->cmdCorner()->findDcalcAnalysisPt(MinMax::max());
+      = sta_->cmdScene()->findDcalcAnalysisPt(MinMax::max());
   sta::VertexIterator viter2(graph_);
   while (viter2.hasNext()) {
     Vertex* vertex = viter2.next();

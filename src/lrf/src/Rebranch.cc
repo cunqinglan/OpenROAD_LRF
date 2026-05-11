@@ -9,9 +9,9 @@
 #include "db_sta/dbNetwork.hh"
 #include "sta/Network.hh"
 #include "sta/NetworkClass.hh"
-#include "sta/Corner.hh"
+#include "sta/Scene.hh"
 #include "sta/Graph.hh"
-#include "sta/PathAnalysisPt.hh"
+#include "sta/Scene.hh"
 #include "stt/SteinerTreeBuilder.h"
 #include "utl/Logger.h"
 
@@ -416,7 +416,7 @@ rebranchTopologyInPlace(est::SteinerTree* tree,
 
 std::unordered_map<const sta::Pin*, double>
 computeSinkCriticality(const sta::Pin* drvr_pin,
-                       sta::Corner* corner,
+                       sta::Scene* corner,
                        sta::dbSta* sta)
 {
   std::unordered_map<const sta::Pin*, double> sink_criticality;
@@ -443,7 +443,7 @@ computeSinkCriticality(const sta::Pin* drvr_pin,
 
   // Determine which corner(s) to use
   if (corner == nullptr) {
-    corner = sta->corners()->findCorner("default");
+    corner = sta->findScene("default");
   }
 
   if (corner == nullptr) {

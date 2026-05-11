@@ -26,7 +26,7 @@ public:
 
   void ensureActivities();
   void makeSwappableCellsCache(rsz::Resizer* resizer);
-  void preSaveLibCellLeakage(rsz::Resizer* resizer, sta::Corner* corner);
+  void preSaveLibCellLeakage(rsz::Resizer* resizer, sta::Scene* corner);
   std::vector<sta::LibertyCellSeq> *getSwappableCells(sta::LibertyCell* source_cell);
 
   bool SwappableCellPresaved() const { return swap_cell_presaved_; }

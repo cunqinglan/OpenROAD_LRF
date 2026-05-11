@@ -7,11 +7,11 @@
 #include "search/ClkInfo.hh"
 #include "sta/Network.hh"
 #include "sta/Sdc.hh"
-#include "sta/PathAnalysisPt.hh"
+#include "sta/Scene.hh"
 #include "sta/Debug.hh"
 #include "search/Genclks.hh"
 #include "sta/Fuzzy.hh"
-#include "sta/Corner.hh"
+#include "sta/Scene.hh"
 #include "sta/PortDirection.hh"
 
 #include <vector>

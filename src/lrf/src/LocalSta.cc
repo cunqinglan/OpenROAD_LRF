@@ -8,17 +8,17 @@
 #include <vector>
 
 #include "sta/Sta.hh"
-#include "sta/Corner.hh"
+#include "sta/Scene.hh"
 #include "sta/MinMax.hh"
 #include "sta/Graph.hh"
 #include "sta/TimingArc.hh"
-#include "sta/DcalcAnalysisPt.hh"
+#include "sta/Scene.hh"
 #include "EquivCells.hh"
 #include "sta/Delay.hh"
 #include "sta/TimingRole.hh"
 #include "sta/ClkNetwork.hh"
 #include "LocalParasitics.hh"
-#include "sta/Corner.hh"
+#include "sta/Scene.hh"
 #include "sta/Sdc.hh"
 #include "sta/InputDrive.hh"
 #include "sta/Parasitics.hh"
@@ -33,11 +33,11 @@
 #include "sta/PortDirection.hh"
 #include "search/Tag.hh"
 #include "search/TagGroup.hh"
-#include "sta/PathAnalysisPt.hh"
+#include "sta/Scene.hh"
 #include "sta/FuncExpr.hh"
 #include "sta/LeakagePower.hh"
 #include "sta/Liberty.hh"
-#include "sta/DelayFloat.hh"
+#include "sta/Delay.hh"
   
 #include <stdexcept>
 
@@ -580,7 +580,7 @@ LocalSta::collectLocalFaninSiblings(Pin *load_pin, PinSet &visited_pins,
 //   collectLocalGraph(inst, local_instances);
 //   pt_graph->makeGraph(local_instances, inst);
 //   if (dcalc_ap == nullptr) {
-//     Corner *corner = sta_->corners()->findCorner(0);
+//     Scene *corner = sta_->findScene(0);
 //     dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
 //     if (dcalc_ap == nullptr) {
 //       throw std::runtime_error("LocalSta::makePtGraph: No dcalc analysis point found");
@@ -597,7 +597,7 @@ LocalSta::makePtGraph(PtGraph *pt_graph, Instance *inst,
   collectLocalVertices(inst, local_vertices);
   pt_graph->makeGraph(local_vertices, inst);
   if (dcalc_ap == nullptr) {
-    Corner *corner = sta_->corners()->findCorner("default");
+    Scene *corner = sta_->findScene("default");
     dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
     if (dcalc_ap == nullptr) {
       throw std::runtime_error("LocalSta::makePtGraph: No dcalc analysis point found");
@@ -614,7 +614,7 @@ LocalSta::makePtGraphDriverOnly(PtGraph *pt_graph, Instance *inst,
   collectDriverFanoutOnly(inst, local_vertices);
   pt_graph->makeGraph(local_vertices, inst);
   if (dcalc_ap == nullptr) {
-    Corner *corner = sta_->corners()->findCorner("default");
+    Scene *corner = sta_->findScene("default");
     dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
     if (dcalc_ap == nullptr)
       throw std::runtime_error("LocalSta::makePtGraphDriverOnly: No dcalc analysis point found");
@@ -633,7 +633,7 @@ LocalSta::makePtGraphFF(PtGraph *pt_graph, Instance *inst,
   // both endpoints are already in vertex_map_).
   pt_graph->addCheckEdgesForRefInst();
   if (dcalc_ap == nullptr) {
-    Corner *corner = sta_->corners()->findCorner("default");
+    Scene *corner = sta_->findScene("default");
     dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
     if (dcalc_ap == nullptr)
       throw std::runtime_error("LocalSta::makePtGraphFF: No dcalc analysis point found");
@@ -1450,7 +1450,7 @@ LocalSta::computeVirtualLoadCap(PtVertex &drvr_pt_vertex,
                                 PtGraph *pt_graph)
 {
   float load_cap = 0.0f;
-  const Corner *corner = dcalc_ap->corner();
+  const Scene *corner = dcalc_ap->corner();
   const MinMax *min_max = dcalc_ap->constraintMinMax();
 
   // Driver output pin capacitance (self-cap of the output port)
@@ -1652,7 +1652,7 @@ LocalSta::delayLmSum(PtGraph *pt_graph,
 
 float 
 LocalSta::maxInputSlew(const Pin* input_pin,
-                            const Corner* corner) const
+                            const Scene* corner) const
 {
   LibertyPort *port = network_->libertyPort(input_pin);
   float limit;
@@ -1679,7 +1679,7 @@ LocalSta::initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_c
 {
   // During pt graph creation, delays from original graph are copied 
   // to pt graph. So here we just need to sum up the delays.
-  const Corner *corner = corners_->findCorner("default");
+  const Scene *corner = sta_->findScene("default");
   DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
   return delayLmSum(pt_graph, dcalc_ap, false);
 }
@@ -1759,7 +1759,7 @@ LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph,
     findLocalRequireds(pt_graph);
   }
   auto t4 = std::chrono::high_resolution_clock::now();
-  const Corner *corner = corners_->findCorner("default");
+  const Scene *corner = sta_->findScene("default");
   DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
   auto result = delayLmSum(pt_graph, dcalc_ap, false);
   auto t5 = std::chrono::high_resolution_clock::now();
@@ -2250,7 +2250,7 @@ LocalSta::getPinMaxCapLimit(sta::Pin *pin, sta::LibertyCell *lib_cell)
 }
 
 float
-LocalSta::getPinSlew(sta::Pin *pin, const sta::Corner *corner,
+LocalSta::getPinSlew(sta::Pin *pin, const sta::Scene *corner,
                      const sta::MinMax *min_max, PtGraph *pt_graph)
 {
   sta::Vertex *vertex, *bidir_vertex;
@@ -2419,13 +2419,13 @@ LocalSta::getPortMaxCapLimit(sta::LibertyPort *port)
 bool
 LocalSta::legalCheckBeforeSwap(sta::Instance *inst,
                                sta::LibertyCell *to_lib_cell,
-                               const sta::Corner *corner,
+                               const sta::Scene *corner,
                                const sta::MinMax *min_max,
                                PtGraph *pt_graph)
 {
   // Check input slew and output load cap legality before swap.
   if (corner == nullptr)
-    corner = corners_->findCorner("default");
+    corner = sta_->findScene("default");
   if (min_max == nullptr)
     min_max = sta::MinMax::max();
   sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(min_max);
@@ -2447,7 +2447,7 @@ LocalSta::legalCheckBeforeSwap(sta::Instance *inst,
 bool
 LocalSta::legalCheckAfterSwap(sta::Instance *inst,
                               sta::LibertyCell *to_lib_cell,
-                              const sta::Corner *corner,
+                              const sta::Scene *corner,
                               const sta::MinMax *min_max,
                               PtGraph *pt_graph,
                               float slew_limit_scale)
@@ -2456,7 +2456,7 @@ LocalSta::legalCheckAfterSwap(sta::Instance *inst,
   // After virtualReplaceCell + updateRefPorts, RefInput/RefOutput ports
   // already point to the new cell's ports.
   if (corner == nullptr)
-    corner = corners_->findCorner("default");
+    corner = sta_->findScene("default");
   if (min_max == nullptr)
     min_max = sta::MinMax::max();
   sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(min_max);
@@ -2505,13 +2505,13 @@ LocalSta::legalCheckAfterSwap(sta::Instance *inst,
 LocalSta::ViolationSum
 LocalSta::violationSumBeforeSwap(sta::Instance *inst,
                                  sta::LibertyCell *to_lib_cell,
-                                 const sta::Corner *corner,
+                                 const sta::Scene *corner,
                                  const sta::MinMax *min_max,
                                  PtGraph *pt_graph,
                                  float cap_limit_scale)
 {
   if (corner == nullptr)
-    corner = corners_->findCorner("default");
+    corner = sta_->findScene("default");
   if (min_max == nullptr)
     min_max = sta::MinMax::max();
 
@@ -2533,14 +2533,14 @@ LocalSta::violationSumBeforeSwap(sta::Instance *inst,
 LocalSta::ViolationSum
 LocalSta::violationSumAfterSwap(sta::Instance *inst,
                                 sta::LibertyCell *to_lib_cell,
-                                const sta::Corner *corner,
+                                const sta::Scene *corner,
                                 const sta::MinMax *min_max,
                                 PtGraph *pt_graph,
                                 float slew_limit_scale,
                                 float cap_limit_scale)
 {
   if (corner == nullptr)
-    corner = corners_->findCorner("default");
+    corner = sta_->findScene("default");
   if (min_max == nullptr)
     min_max = sta::MinMax::max();
   sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(min_max);

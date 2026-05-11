@@ -49,7 +49,7 @@ LrSizer::criticalPathSizing()
   }
   // Step 1: Collect all violating endpoints (negative slack).
   for (sta::Vertex* end : *endpoints) {
-    const sta::Slack end_slack = sta_->vertexSlack(end, max_);
+    const sta::Slack end_slack = sta_->slack(end, max_);
     if (end_slack < 0.0) {
       violating_ends.emplace_back(end, end_slack);
     }

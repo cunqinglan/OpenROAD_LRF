@@ -1100,7 +1100,7 @@ SearchMEEPred::SearchMEEPred(sta::StaState* sta)
 }
 
 bool
-SearchMEEPred::searchThru(sta::Edge* edge)
+SearchMEEPred::searchThru(sta::Edge* edge, const sta::Mode* mode) const
 {
   const sta::TimingRole *role = edge->role();
   sta::Network* network_ = sta_->network();
@@ -1111,13 +1111,13 @@ SearchMEEPred::searchThru(sta::Edge* edge)
   }
   sta::LibertyCell* to_cell = network_->libertyCell(to_inst);
   if (!to_cell) return false;
-  return (SearchPred2::searchThru(edge)
+  return (SearchPred2::searchThru(edge, mode)
           && role->isWire()
           && !to_cell->hasSequentials());
 }
 
-bool 
-SearchMEEPred::searchFrom(const sta::Vertex* from_vertex)
+bool
+SearchMEEPred::searchFrom(const sta::Vertex* from_vertex, const sta::Mode* mode) const
 {
   sta::Instance *from_inst = sta_->network()->instance(from_vertex->pin());
   if (from_inst == sta_->network()->topInstance()) {
@@ -1126,11 +1126,11 @@ SearchMEEPred::searchFrom(const sta::Vertex* from_vertex)
   sta::LibertyCell* from_cell = sta_->network()->libertyCell(from_inst);
   if (!from_cell) return false;
   return (!from_cell->hasSequentials()
-          && SearchPred2::searchFrom(from_vertex));
+          && SearchPred2::searchFrom(from_vertex, mode));
 }
 
 bool
-SearchMEEPred::searchTo(const sta::Vertex* to_vertex)
+SearchMEEPred::searchTo(const sta::Vertex* to_vertex, const sta::Mode* mode) const
 {
   sta::Instance *to_inst = sta_->network()->instance(to_vertex->pin());
   if (to_inst == sta_->network()->topInstance()) {
@@ -1139,7 +1139,7 @@ SearchMEEPred::searchTo(const sta::Vertex* to_vertex)
   sta::LibertyCell* to_cell = sta_->network()->libertyCell(to_inst);
   if (!to_cell) return false;
   return (!to_cell->hasSequentials()
-          && SearchPred2::searchTo(to_vertex));
+          && SearchPred2::searchTo(to_vertex, mode));
 }
 
 void

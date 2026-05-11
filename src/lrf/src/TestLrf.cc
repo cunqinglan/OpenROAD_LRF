@@ -16,7 +16,7 @@
 #include "ParallelInitializer.hh"
 #include "odb/db.h"
 #include "sta/Liberty.hh"
-#include "sta/Corner.hh"
+#include "sta/Scene.hh"
 #include "sta/FuncExpr.hh"
 #include "LocalSearch.hh"
 #include "PtGraph.hh"
@@ -27,7 +27,7 @@
 #include "TaskArranger.hh"
 #include "sta/TimingRole.hh"
 #include "sta/PowerClass.hh"
-#include "sta/PathAnalysisPt.hh"
+#include "sta/Scene.hh"
 #include "sta/Delay.hh"
 #include "est/EstimateParasitics.h"
 #include "sta/EquivCells.hh"
@@ -821,8 +821,8 @@ TestLrf::testReportFFEndpointLMs(char *inst_name, sta::dbSta* sta,
   }
 
   // Set up AP for indexing arcLms.
-  sta::Corner *corner = sta->cmdCorner();
-  if (!corner) corner = sta->corners()->findCorner("default");
+  sta::Scene *corner = sta->cmdScene();
+  if (!corner) corner = sta->findScene("default");
   const sta::DcalcAnalysisPt *dcalc_ap =
       corner->findDcalcAnalysisPt(sta::MinMax::max());
   const size_t ap_index = dcalc_ap->index();
@@ -1164,7 +1164,7 @@ IterationHelper::IterationHelper(sta::dbSta *sta, odb::dbBlock *block,
                                  LocalSta *local_sta, rsz::Resizer *resizer)
   : sta_(sta), block_(block), local_sta_(local_sta), resizer_(resizer)
 {
-  corner_ = sta->corners()->findCorner("default");
+  corner_ = sta->findScene("default");
 }
 
 IterationHelper::Metrics
@@ -2746,7 +2746,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
                             float top_ratio)
 {
   printf("----- Testing Parallel LR Resize By Array With Precheck (New Framework) -----\n");
-  sta::Corner *corner = sta->corners()->findCorner("default");
+  sta::Scene *corner = sta->findScene("default");
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
@@ -2907,7 +2907,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBuffering(sta::dbSta* sta,
                             float top_ratio)
 {
   printf("----- Testing Parallel LR Resize By Array With Precheck + Buffering -----\n");
-  sta::Corner *corner = sta->corners()->findCorner("default");
+  sta::Scene *corner = sta->findScene("default");
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
@@ -3593,7 +3593,7 @@ TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
     // Debug: watch g16's input pin A
     bool is_g16 = (std::string(sta->network()->pathName(inst)) == "g16");
     if (is_g16) {
-      sta::Corner *dc = sta->corners()->findCorner("default");
+      sta::Scene *dc = sta->findScene("default");
       sta::DcalcAnalysisPt *ddap = dc->findDcalcAnalysisPt(sta::MinMax::max());
       printf("[G16] All PtGraph vertices (%zu total):\n", pg->ptVertices().size());
       for (size_t vi = 0; vi < pg->ptVertices().size(); vi++) {
@@ -3672,7 +3672,7 @@ TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
 
   // ---- Debug: fanin cone arrival after write-back, before updateTiming ----
   {
-    sta::Corner *dc = sta->corners()->findCorner("default");
+    sta::Scene *dc = sta->findScene("default");
     sta::DcalcAnalysisPt *ddap = dc->findDcalcAnalysisPt(sta::MinMax::max());
     const char *pins[] = {
       "g158293/A", "g163646/Y", "g163646/A",
@@ -3717,7 +3717,7 @@ TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
   }
 
   // ---- Snapshot: read slew + arrival from global graph ----
-  sta::Corner *corner = sta->corners()->findCorner("default");
+  sta::Scene *corner = sta->findScene("default");
   sta::DcalcAnalysisPt *dap = corner->findDcalcAnalysisPt(sta::MinMax::max());
 
   struct VtxRecord {
@@ -4015,7 +4015,7 @@ TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
     printf("========================================\n\n");
     fflush(stdout);
 
-    sta::Corner *corner = sta->corners()->findCorner("default");
+    sta::Scene *corner = sta->findScene("default");
 
     // Helper: compute slew violations like test_lrf.py get_score()
     // Uses Timing.h-style API: getPinSlew vs getMaxSlewLimit per ITerm
@@ -4122,7 +4122,7 @@ TestLrf::testSlewViolationFeasibility(sta::dbSta* sta,
   LocalSta *local_sta = incre_sta->localSta();
   sta::ArcDelayCalc *arc_delay_calc = sta->arcDelayCalc()->copy();
   sta::dbNetwork *db_net = sta->getDbNetwork();
-  sta::Corner *corner = sta->corners()->findCorner("default");
+  sta::Scene *corner = sta->findScene("default");
   sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(sta::MinMax::max());
 
   // Collect all violation driver pins (output pins with slew > limit)
@@ -4441,7 +4441,7 @@ TestLrf::testRepairSlew(sta::dbSta* sta,
 
     // Check actual slew
     const sta::DcalcAnalysisPt *dcalc_ap
-        = sta->cmdCorner()->findDcalcAnalysisPt(sta::MinMax::max());
+        = sta->cmdScene()->findDcalcAnalysisPt(sta::MinMax::max());
     float worst = 0.0f;
     for (auto rf : sta::RiseFall::range()) {
       float s = graph->slew(vertex, rf, dcalc_ap->index());
@@ -4479,7 +4479,7 @@ TestLrf::testRepairSlew(sta::dbSta* sta,
   // (handles cascaded buffer chains).
   resizer->makeEquivCells();
   const sta::DcalcAnalysisPt *dcalc_ap
-      = sta->cmdCorner()->findDcalcAnalysisPt(sta::MinMax::max());
+      = sta->cmdScene()->findDcalcAnalysisPt(sta::MinMax::max());
   int total_upsized = 0;
 
   // Helper: estimate max output slew for a port driving load_cap
@@ -4752,7 +4752,7 @@ TestLrf::probeBufferOneByOne(sta::dbSta* sta,
       if (network->isLoad(pin)) {
         sta::Vertex *vtx = graph->pinLoadVertex(pin);
         if (vtx) {
-          float s = sta->vertexSlack(vtx, sta::MinMax::max());
+          float s = sta->slack(vtx, sta::MinMax::max());
           if (s < worst) worst = s;
         }
       }
@@ -4794,7 +4794,7 @@ TestLrf::probeBufferOneByOne(sta::dbSta* sta,
       if (!network->isDriver(pin)) continue;
       sta::Vertex *vtx = graph->pinDrvrVertex(pin);
       if (!vtx) continue;
-      float s = sta->vertexSlack(vtx, sta::MinMax::max());
+      float s = sta->slack(vtx, sta::MinMax::max());
       if (s < worst_slack || !drvr_pin) {
         worst_slack = s;
         drvr_pin = pin;
@@ -4996,7 +4996,7 @@ TestLrf::probeBufferDeep(sta::dbSta* sta,
   auto worstSinkSlack = [&](const std::vector<sta::Vertex*> &sinks) -> double {
     double worst = 1e30;
     for (sta::Vertex *vtx : sinks) {
-      float s = sta->vertexSlack(vtx, sta::MinMax::max());
+      float s = sta->slack(vtx, sta::MinMax::max());
       if (s < worst) worst = s;
     }
     return worst == 1e30 ? 0.0 : worst;
@@ -5006,7 +5006,7 @@ TestLrf::probeBufferDeep(sta::dbSta* sta,
   auto sumSinkSlack = [&](const std::vector<sta::Vertex*> &sinks) -> double {
     double sum = 0.0;
     for (sta::Vertex *vtx : sinks)
-      sum += sta->vertexSlack(vtx, sta::MinMax::max());
+      sum += sta->slack(vtx, sta::MinMax::max());
     return sum;
   };
 
@@ -5032,7 +5032,7 @@ TestLrf::probeBufferDeep(sta::dbSta* sta,
       if (network->isDriver(pin)) {
         sta::Vertex *vtx = graph->pinDrvrVertex(pin);
         if (vtx) {
-          float s = sta->vertexSlack(vtx, sta::MinMax::max());
+          float s = sta->slack(vtx, sta::MinMax::max());
           if (s < best_slack) { best_slack = s; best_pin = pin; }
         }
       }
@@ -5054,7 +5054,7 @@ TestLrf::probeBufferDeep(sta::dbSta* sta,
     std::vector<sta::Vertex*> orig_sinks = collectSinkPins(t.drvr_pin);
     double orig_worst_sink = worstSinkSlack(orig_sinks);
     double orig_sum_sink = sumSinkSlack(orig_sinks);
-    float drvr_slack = sta->vertexSlack(graph->pinDrvrVertex(t.drvr_pin),
+    float drvr_slack = sta->slack(graph->pinDrvrVertex(t.drvr_pin),
                                          sta::MinMax::max());
 
     printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
@@ -5158,7 +5158,7 @@ TestLrf::probeAllOptions(sta::dbSta* sta, rsz::Resizer *resizer,
     if (network->isDriver(pin)) {
       sta::Vertex *vtx = graph->pinDrvrVertex(pin);
       if (vtx) {
-        float s = sta->vertexSlack(vtx, sta::MinMax::max());
+        float s = sta->slack(vtx, sta::MinMax::max());
         if (s < best_slack) { best_slack = s; drvr_pin = pin; }
       }
     }
@@ -5183,7 +5183,7 @@ TestLrf::probeAllOptions(sta::dbSta* sta, rsz::Resizer *resizer,
     if (network->isLoad(p)) {
       sta::Vertex *v = graph->pinLoadVertex(p);
       if (v) {
-        float s = sta->vertexSlack(v, sta::MinMax::max());
+        float s = sta->slack(v, sta::MinMax::max());
         if (s < baseline.worst_sink) baseline.worst_sink = s;
         baseline.sum_sink += s;
       }
@@ -5275,7 +5275,7 @@ TestLrf::probeAllOptionsBySensitivity(sta::dbSta* sta, rsz::Resizer *resizer,
       if (network->isDriver(pin)) {
         sta::Vertex *vtx = graph->pinDrvrVertex(pin);
         if (vtx) {
-          float s = sta->vertexSlack(vtx, sta::MinMax::max());
+          float s = sta->slack(vtx, sta::MinMax::max());
           if (s < best_slack) { best_slack = s; drvr_pin = pin; }
         }
       }
@@ -5296,7 +5296,7 @@ TestLrf::probeAllOptionsBySensitivity(sta::dbSta* sta, rsz::Resizer *resizer,
       if (network->isLoad(p)) {
         sta::Vertex *v = graph->pinLoadVertex(p);
         if (v) {
-          float s = sta->vertexSlack(v, sta::MinMax::max());
+          float s = sta->slack(v, sta::MinMax::max());
           if (s < baseline.worst_sink) baseline.worst_sink = s;
           baseline.sum_sink += s;
         }
@@ -5405,7 +5405,7 @@ TestLrf::debugPrecheckAccuracy(sta::dbSta* sta,
   sta::dbNetwork *db_network = sta->getDbNetwork();
   sta::Graph *graph = sta->graph();
   const sta::DcalcAnalysisPt *dcalc_ap =
-      sta->cmdCorner()->findDcalcAnalysisPt(sta::MinMax::max());
+      sta->cmdScene()->findDcalcAnalysisPt(sta::MinMax::max());
 
   // Build reverse map: vertex_idx → Instance*
   TaskArranger *task_arranger = local_sta->taskArranger();
@@ -5414,7 +5414,7 @@ TestLrf::debugPrecheckAccuracy(sta::dbSta* sta,
   for (auto &[inst, vid] : *inst_to_vid)
     vid_to_inst[vid] = const_cast<sta::Instance*>(inst);
 
-  sta::Corner *cmd_corner = sta->cmdCorner();
+  sta::Scene *cmd_corner = sta->cmdScene();
 
   // Helper: dump PtGraph edge-centric info for a given instance
   auto dumpPtGraph = [&](sta::Instance *inst, const char *label) {
@@ -5496,7 +5496,7 @@ TestLrf::debugPrecheckAccuracy(sta::dbSta* sta,
       if (pv.type() != PtVertexType::RefOutput) continue;
       if (!pv.vertex()) continue;
       float slack = sta::delayAsFloat(
-          sta->vertexSlack(pv.vertex(), sta::MinMax::max()));
+          sta->slack(pv.vertex(), sta::MinMax::max()));
       const char *pin_name = db_network->pathName(pv.pin());
       printf("      HEAD_SLACK: %s  slack=%.1fps\n", pin_name, slack * 1e12);
     }

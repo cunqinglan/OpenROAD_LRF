@@ -30,7 +30,7 @@
 #include "sta/Liberty.hh"
 #include "sta/Network.hh"
 #include "sta/Sdc.hh"
-#include "sta/Corner.hh"
+#include "sta/Scene.hh"
 #include "sta/Parasitics.hh"
 #include "PtGraph.hh"
 #include "PtPiElmore.hh"
@@ -61,7 +61,7 @@ LocalReduceToPi::reduceToPi(const Parasitic *parasitic_network,
 		       ParasiticNode *drvr_node,
 		       float coupling_cap_factor,
 		       const RiseFall *rf,
-		       const Corner *corner,
+		       const Scene *corner,
 		       const MinMax *min_max,
 		       const ParasiticAnalysisPt *ap,
 		       float &c2,
@@ -287,7 +287,7 @@ LocalReduceToPiElmore::makePiElmore(const Parasitic *parasitic_network,
 			       ParasiticNode *drvr_node,
 			       float coupling_cap_factor,
 			       const RiseFall *rf,
-			       const Corner *corner,
+			       const Scene *corner,
 			       const MinMax *min_max,
 			       const ParasiticAnalysisPt *ap)
 {
@@ -342,7 +342,7 @@ LocalReduceToPiElmore::makePtPiElmore(const Parasitic *parasitic_network,
                                       ParasiticNode *drvr_node,
                                       float coupling_cap_factor,
                                       const RiseFall *rf,
-                                      const Corner *corner,
+                                      const Scene *corner,
                                       const MinMax *min_max,
                                       const ParasiticAnalysisPt *ap,
                                       PtPiElmore &result)

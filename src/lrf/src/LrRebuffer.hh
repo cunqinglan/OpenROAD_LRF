@@ -102,7 +102,7 @@ public:
   //
   //   1. annotateLoadSlacksSlackDp: replaces Rebuffer::annotateLoadSlacks.
   //      Does NOT populate Rebuffer::arrival_paths_; reads sink slacks via
-  //      sta_->vertexSlack (single memory read, multi-thread safe) and caches
+  //      sta_->slack (single memory read, multi-thread safe) and caches
   //      drvr_worst_rf_/drvr_worst_dap_ from driver's own paths instead.
   //
   //   2. bufferForTimingSlackDp / insertBufferOptionsSlackDp /
@@ -163,7 +163,7 @@ public:
   // load_pins / repeater_cap to reflect the buffer's input pin.
   // Returns true on success (mirrors RepairDesign::makeRepeater).
   static bool makeRepeater(rsz::Resizer *resizer,
-                           const sta::Corner *corner,
+                           const sta::Scene *corner,
                            const odb::Point &loc,
                            sta::LibertyCell *buffer_cell,
                            sta::PinSeq &load_pins,

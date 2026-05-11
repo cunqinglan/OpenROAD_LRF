@@ -147,7 +147,7 @@ LrRebuffer::annotateLoadSlacksSlackDp(BnetPtr& tree, sta::VertexId drvr_vid)
   }
 
   // Step 2: per-sink slack via LOCAL worst-slack path lookup. No shared-STA
-  // calls (no sta_->vertexSlack / findRequired) — safe in parallel visit.
+  // calls (no sta_->slack / findRequired) — safe in parallel visit.
   visitTree(
     [&](auto& recurse, int level, const BnetPtr& node) -> int {
       switch (node->type()) {
@@ -965,7 +965,7 @@ LrRebuffer::init()
 
   arc_delay_calc_ = eval_ctx_->arc_delay_calc;
 
-  sta::Corner *corner = corners_->findCorner("default");
+  sta::Scene *corner = sta_->findScene("default");
   if (corner) {
     initOnCorner(corner);
   } else {
@@ -3126,7 +3126,7 @@ buildSyntheticRCNetwork(const BufferedNetPtr& bnet,
                         PtGraph *pt_graph,
                         VertexId drvr_vid,
                         const sta::Net *fallback_net,
-                        const sta::Corner *corner,
+                        const sta::Scene *corner,
                         const sta::RiseFall *rf,
                         const sta::MinMax *min_max,
                         rsz::Resizer *resizer,
@@ -3234,7 +3234,7 @@ LrRebuffer::buildSyntheticParasitics(VertexId drvr_vertex_id,
   Walker walk = [&](const BufferedNetPtr& bnet, VertexId current_drvr_id) {
     float dbg_orig_cap_rise = -999.0f, dbg_orig_cap_fall = -999.0f;
     if (eval_ctx_->debug) {
-      sta::DcalcAnalysisPt *dap = corners_->findCorner("default")->findDcalcAnalysisPt(sta::MinMax::max());
+      sta::DcalcAnalysisPt *dap = sta_->findScene("default")->findDcalcAnalysisPt(sta::MinMax::max());
       PtPiElmore *pi_r = pt_graph->findPtParasitic(current_drvr_id, sta::RiseFall::rise(), dap->index());
       PtPiElmore *pi_f = pt_graph->findPtParasitic(current_drvr_id, sta::RiseFall::fall(), dap->index());
       if (pi_r) dbg_orig_cap_rise = pi_r->capacitance();
@@ -3244,7 +3244,7 @@ LrRebuffer::buildSyntheticParasitics(VertexId drvr_vertex_id,
     pt_graph->clearPtParasitics(current_drvr_id);
 
     for (sta::DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
-      const sta::Corner *corner = dcalc_ap->corner();
+      const sta::Scene *corner = dcalc_ap->corner();
       const sta::MinMax *min_max = dcalc_ap->constraintMinMax();
       const sta::ParasiticAnalysisPt *ap = dcalc_ap->parasiticAnalysisPt();
       float coupling_cap_factor = ap->couplingCapFactor();
@@ -3460,7 +3460,7 @@ LrRebuffer::repairSlew(const sta::Pin *drvr_pin, rsz::Resizer *resizer)
   if (!drvr_port)
     return 0;
 
-  const sta::Corner *corner = sta_->cmdCorner();
+  const sta::Scene *corner = sta_->cmdScene();
   est::EstimateParasitics *est = resizer->getEstimateParasitics();
 
   // Build BufferedNet (Steiner tree)
@@ -3898,7 +3898,7 @@ LrRebuffer::probeRszBnetWithLocalEval(const sta::Pin *drvr_pin,
   buildSyntheticParasitics(drvr_vid, bnet, vinfo);
 
   if (eval_ctx_->debug) {
-    sta::DcalcAnalysisPt *dap = corners_->findCorner("default")->findDcalcAnalysisPt(sta::MinMax::max());
+    sta::DcalcAnalysisPt *dap = sta_->findScene("default")->findDcalcAnalysisPt(sta::MinMax::max());
     for (const sta::RiseFall *rf : sta::RiseFall::range()) {
       PtPiElmore *pi = pt_graph->findPtParasitic(drvr_vid, rf, dap->index());
       printf("[DBG-PRE-INCRE] drvr_vid=%u rf=%s cap=%.4e (before increAndGetLocalTimingCost)\n",
@@ -3971,7 +3971,7 @@ LrRebuffer::repairCap(const sta::Pin *drvr_pin, float max_cap,
   if (network->isTopLevelPort(drvr_pin))
     return 0;
 
-  const sta::Corner *corner = sta->cmdCorner();
+  const sta::Scene *corner = sta->cmdScene();
   est::EstimateParasitics *est = resizer->getEstimateParasitics();
   sta::dbNetwork *db_network = resizer->getDbNetwork();
 
@@ -4190,7 +4190,7 @@ LrRebuffer::findBufferUnderSlew(rsz::Resizer *resizer,
 // ═══════════════════════════════════════════════════════════
 bool
 LrRebuffer::makeRepeater(rsz::Resizer *resizer,
-                          const sta::Corner *corner,
+                          const sta::Scene *corner,
                           const odb::Point &loc,
                           sta::LibertyCell *buffer_cell,
                           sta::PinSeq &load_pins,
@@ -4223,7 +4223,7 @@ LrRebuffer::makeRepeater(rsz::Resizer *resizer,
   if (buf_in_pin)
     load_pins.push_back(buf_in_pin);
 
-  // Corner-aware input capacitance.
+  // Scene-aware input capacitance.
   repeater_cap = buf_input
       ? resizer->portCapacitance(buf_input, corner) : 0.0f;
 

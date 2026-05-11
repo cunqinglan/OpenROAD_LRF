@@ -2,7 +2,7 @@
 #include "db_sta/dbSta.hh"
 #include "est/EstimateParasitics.h"
 #include "parasitics/ConcreteParasitics.hh"
-#include "sta/Map.hh"
+#include <map>
 #include "sta/StaState.hh"
 
 namespace sta {
@@ -41,11 +41,11 @@ public:
 protected:
   float pinCapacitance(const ParasiticNode *node,
                         const RiseFall *rf,
-                        const Corner *corner,
+                        const Scene *corner,
                         const MinMax *min_max) const;
   float pinCapacitance(const Pin *pin,
                         const RiseFall *rf,
-                        const Corner *corner,
+                        const Scene *corner,
                         const MinMax *min_max) const;
 
   const ConcreteParasiticNetworkMap *global_parasitic_network_map_ = nullptr;

@@ -14,7 +14,7 @@
 
 #include "sta/Graph.hh"
 #include "sta/TimingArc.hh"
-#include "sta/Map.hh"
+#include <map>
 
 namespace sta {
   class StaState;

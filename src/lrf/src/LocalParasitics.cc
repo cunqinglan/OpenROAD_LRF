@@ -5,8 +5,8 @@
 #include "LocalParasitics.hh"
 #include "parasitics/ConcreteParasitics.hh"
 #include "parasitics/ConcreteParasiticsPvt.hh"
-#include "sta/DcalcAnalysisPt.hh"
-#include "sta/Corner.hh"
+#include "sta/Scene.hh"
+#include "sta/Scene.hh"
 #include "PtGraph.hh"
 #include "sta/Sdc.hh"
 #include "sta/ClkNetwork.hh"
@@ -23,7 +23,7 @@ using sta::Parasitic;
 using sta::ParasiticNode;
 using sta::Pin;
 using sta::RiseFall;
-using sta::Corner;
+using sta::Scene;
 using sta::MinMax;
 using sta::ParasiticAnalysisPt;
 using sta::ConcreteParasitic;
@@ -162,7 +162,7 @@ LocalParasitics::findLocalParasiticNetwork(const Net *net, const ParasiticAnalys
 float
 LocalParasitics::pinCapacitance(const Pin *pin,
                                 const RiseFall *rf,
-                                const Corner *corner,
+                                const Scene *corner,
                                 const MinMax *min_max) const
 {
   float pin_cap = 0.0;
@@ -181,7 +181,7 @@ LocalParasitics::pinCapacitance(const Pin *pin,
 float
 LocalParasitics::pinCapacitance(const ParasiticNode *node,
                                 const RiseFall *rf,
-                                const Corner *corner,
+                                const Scene *corner,
                                 const MinMax *min_max) const
 {
   const Pin *pin = parasitics_->pin(node);

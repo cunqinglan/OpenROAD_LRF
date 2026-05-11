@@ -12,12 +12,12 @@ namespace lrf {
 void
 LocalSta::checkSlew(const sta::Pin *pin,
                     const sta::LibertyCell *lib_cell,
-                    const sta::Corner * corner,
+                    const sta::Scene * corner,
                     const sta::MinMax *min_max,
                     bool check_clks,
                     PtGraph *pt_graph,
                     // retrun values
-                    const sta::Corner *&corner1,
+                    const sta::Scene *&corner1,
                     const sta::RiseFall *&rf1,
                     float &slew1,
                     float &limit1,
@@ -55,12 +55,12 @@ void
 LocalSta::checkSlew1(const sta::Pin *pin,
                     Vertex *vertex,
                     const sta::LibertyCell *lib_cell,
-                    const sta::Corner * corner,
+                    const sta::Scene * corner,
                     const sta::MinMax *min_max,
                     bool check_clks,
                     PtGraph *pt_graph,
                     // retrun values
-                    const sta::Corner *&corner1,
+                    const sta::Scene *&corner1,
                     const sta::RiseFall *&rf1,
                     float &slew1,
                     float &limit1,
@@ -88,12 +88,12 @@ void
 LocalSta::checkSlew2(const sta::Pin *pin,
                     Vertex *vertex,
                     const sta::LibertyCell *lib_cell,
-                    const sta::Corner * corner,
+                    const sta::Scene * corner,
                     const sta::MinMax *min_max,
                     const ClockSet &clks,
                     PtGraph *pt_graph,
                     // retrun values
-                    const sta::Corner *&corner1,
+                    const sta::Scene *&corner1,
                     const sta::RiseFall *&rf1,
                     float &slew1,
                     float &limit1,
@@ -112,7 +112,7 @@ LocalSta::checkSlew2(const sta::Pin *pin,
 
 void
 LocalSta::localFindSlewLimit(const sta::LibertyPort *lib_port,
-                const sta::Corner *corner,
+                const sta::Scene *corner,
                 const sta::MinMax *min_max,
                 // Return values
                 float &limit,
@@ -155,7 +155,7 @@ LocalSta::localFindSlewLimit(const sta::LibertyPort *lib_port,
 void
 LocalSta::localFindSlewLimit(const sta::Pin *pin,
                 const sta::LibertyCell *lib_cell,
-                const sta::Corner *corner,
+                const sta::Scene *corner,
                 const sta::MinMax *min_max,
                 const sta::RiseFall *rf,
                 const ClockSet &clks,
@@ -230,13 +230,13 @@ void
 LocalSta::checkSlew3(const sta::Pin *pin,
                     Vertex *vertex,
                     const sta::LibertyCell *lib_cell,
-                    const sta::Corner * corner,
+                    const sta::Scene * corner,
                     const sta::RiseFall *rf,
                     const sta::MinMax *min_max,
                     float limit,
                     PtGraph *pt_graph,
                     // retrun values
-                    const sta::Corner *&corner1,
+                    const sta::Scene *&corner1,
                     const sta::RiseFall *&rf1,
                     float &slew1,
                     float &slack1,
@@ -262,7 +262,7 @@ LocalSta::checkSlew3(const sta::Pin *pin,
 }
 
 float
-LocalSta::getLoadCap(PtVertex &drvr_pt_vertex, const sta::Corner *corner,
+LocalSta::getLoadCap(PtVertex &drvr_pt_vertex, const sta::Scene *corner,
                      const sta::MinMax *min_max, PtGraph *pt_graph)
 {
   sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(min_max);

@@ -9,7 +9,7 @@
 #include "sta/Network.hh"
 #include "sta/Delay.hh"
 #include "sta/TimingArc.hh"
-#include "sta/Map.hh"
+#include <map>
 #include "lrf/LrfClass.hh"
 #include "PtPiElmore.hh"
 #include <stdexcept>
@@ -171,7 +171,7 @@ public:
   const PtVertex &pinToPtVertex(const sta::Pin *pin) const;
   float getRefPinCapacitance(const PtVertex &pt_vertex,
                              const sta::RiseFall *rf,
-                             const sta::Corner *corner,
+                             const sta::Scene *corner,
                              const sta::MinMax *min_max) const;
                              
   // For virtual cell swap

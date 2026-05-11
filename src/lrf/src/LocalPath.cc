@@ -3,7 +3,7 @@
 #include "sta/Search.hh"
 #include "sta/Path.hh"
 #include "search/Tag.hh"
-#include "sta/PathAnalysisPt.hh"
+#include "sta/Scene.hh"
 #include "search/TagGroup.hh"
 
 #include "LocalSearch.hh"

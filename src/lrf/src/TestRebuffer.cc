@@ -11,7 +11,7 @@
 #include "sta/Search.hh"
 #include "search/Tag.hh"
 #include "search/TagGroup.hh"
-#include "sta/PathAnalysisPt.hh"
+#include "sta/Scene.hh"
 
 namespace lrf {
 
@@ -180,7 +180,7 @@ TestRebuffer::rebufferPinVG(const sta::Pin *drvr_pin, sta::Instance *inst,
       // Use pre-captured original sink vertices (not current net which is split by buffer)
       double g_ws = 1e30, g_ss = 0;
       for (sta::Vertex *v : baseline.orig_sink_vertices) {
-        float s = sta_->vertexSlack(v, sta::MinMax::max());
+        float s = sta_->slack(v, sta::MinMax::max());
         if (s < g_ws) g_ws = s;
         g_ss += s;
       }
@@ -319,7 +319,7 @@ TestRebuffer::probeRszBnetWithLocalEval(const sta::Pin *drvr_pin,
 //   Local:  buildVirtualBuffer → buildSyntheticParasitics → increAndGetLocalTimingCost
 //           → localWorstSlackOnSinks / localSlackOnSinks
 //   Global: beginEco → exportBufferTree → estimate_parasitics → updateTiming
-//           → per-sink vertexSlack → worstSlack / totalNegativeSlack → undoEco
+//           → per-sink slack → worstSlack / totalNegativeSlack → undoEco
 //
 // Purpose: identify discrepancy between local PtGraph slack prediction and
 // actual global STA result after buffer insertion, per option.
@@ -490,7 +490,7 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
   double bl_worst = 1e30, bl_sum = 0;
   printf("    per-sink GLOBAL baseline (%zu original sinks, ps):\n", orig_sinks.size());
   for (sta::Vertex *lv : orig_sinks) {
-    float s = sta_->vertexSlack(lv, sta::MinMax::max());
+    float s = sta_->slack(lv, sta::MinMax::max());
     printf("      %-50s %.1f\n", network_->pathName(lv->pin()), s * 1e12);
     if (s < bl_worst) bl_worst = s;
     bl_sum += s;
@@ -762,7 +762,7 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
           // and print per-sink local arrival after buffer
           struct SynPi { VertexId vid; const sta::Pin *pin; float c2, rpi, c1; };
           std::vector<SynPi> syn_pis;
-          sta::DcalcAnalysisPt *dap = corners_->findCorner("default")
+          sta::DcalcAnalysisPt *dap = sta_->findScene("default")
               ->findDcalcAnalysisPt(sta::MinMax::max());
           for (size_t si = 0; si < pg_l->vertexCount(); si++) {
             PtVertex &spv = pg_l->ptVertex(si);
@@ -845,7 +845,7 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
             printf("      [%s-GLOBAL] per-sink after buffer (ps):\n", label);
             printf("        %-40s %10s %10s\n", "sink", "gbl_arr", "gbl_slack");
             for (sta::Vertex *lv : orig_sinks) {
-              float s = sta_->vertexSlack(lv, sta::MinMax::max());
+              float s = sta_->slack(lv, sta::MinMax::max());
               // Get max/rise arrival from vertex paths
               float arr = sta::INF;
               sta::Path *paths = lv->paths();

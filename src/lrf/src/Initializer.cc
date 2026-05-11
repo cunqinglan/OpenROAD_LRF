@@ -14,7 +14,7 @@
 #include "sta/TimingModel.hh"
 #include "sta/TimingRole.hh"
 #include "sta/TimingArc.hh"
-#include "sta/DcalcAnalysisPt.hh"
+#include "sta/Scene.hh"
 #include "sta/GraphDelayCalc.hh"
 #include "sta/Delay.hh"
 #include "odb/db.h"
@@ -29,7 +29,7 @@ namespace lrf {
 using sta::LibertyCell;
 using sta::LibertyCellSeq;
 using sta::Pin;
-using sta::Corner;
+using sta::Scene;
 using sta::RiseFall;
 using sta::MinMax;
 
@@ -142,7 +142,7 @@ Initializer::run()
   sta_->findDelays();
   sta::Graph* graph = sta_->graph();
   sta::dbNetwork* db_network = sta_->getDbNetwork();
-  const Corner* corner = sta_->cmdCorner();
+  const Scene* corner = sta_->cmdScene();
   const MinMax* max = MinMax::max();
   sta::LibertyLibrary* sum_lib = db_network->defaultLibertyLibrary();
   const sta::DcalcAnalysisPt* sum_ap = corner->findDcalcAnalysisPt(max);
@@ -263,7 +263,7 @@ void
 Initializer::fixLoadViolations()
 {
   sta::dbNetwork* db_network = sta_->getDbNetwork();
-  const Corner* corner = sta_->cmdCorner();
+  const Scene* corner = sta_->cmdScene();
   const MinMax* max = MinMax::max();
   const sta::DcalcAnalysisPt* dcalc_ap = corner->findDcalcAnalysisPt(max);
   sta::LibertyLibrary* default_lib = db_network->defaultLibertyLibrary();
@@ -395,7 +395,7 @@ void
 Initializer::fixSlewViolations()
 {
   sta::dbNetwork* db_network = sta_->getDbNetwork();
-  const Corner* corner = sta_->cmdCorner();
+  const Scene* corner = sta_->cmdScene();
   const MinMax* max = MinMax::max();
   const sta::DcalcAnalysisPt* dcalc_ap = corner->findDcalcAnalysisPt(max);
   sta::Graph* graph = sta_->graph();
@@ -578,7 +578,7 @@ void
 Initializer::fixCapByBuffering()
 {
   sta::dbNetwork* db_network = sta_->getDbNetwork();
-  const Corner* corner = sta_->cmdCorner();
+  const Scene* corner = sta_->cmdScene();
   const MinMax* max = MinMax::max();
   const sta::DcalcAnalysisPt* dcalc_ap = corner->findDcalcAnalysisPt(max);
   sta::LibertyLibrary* default_lib = db_network->defaultLibertyLibrary();

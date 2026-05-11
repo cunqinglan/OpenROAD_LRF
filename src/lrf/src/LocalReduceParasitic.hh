@@ -1,5 +1,5 @@
 #pragma once
-#include "sta/Map.hh"
+#include <map>
 #include "sta/NetworkClass.hh"
 #include "sta/StaState.hh"
 #include "sta/Parasitics.hh"
@@ -10,7 +10,7 @@ class ParasiticNode;
 class ParasiticResistor;
 class Pin;
 class RiseFall;
-class Corner;
+class Scene;
 class MinMax;
 class ParasiticAnalysisPt;
 }
@@ -38,7 +38,7 @@ public:
 		  ParasiticNode *drvr_node,
 		  float coupling_cap_factor,
 		  const RiseFall *rf,
-		  const Corner *corner,
+		  const Scene *corner,
 		  const MinMax *min_max,
 		  const ParasiticAnalysisPt *ap,
 		  float &c2,
@@ -70,7 +70,7 @@ protected:
   bool includes_pin_caps_;
   float coupling_cap_multiplier_;
   const RiseFall *rf_;
-  const Corner *corner_;
+  const Scene *corner_;
   const MinMax *min_max_;
   const ParasiticAnalysisPt *ap_;
   ParasiticNodeResistorMap resistor_map_;
@@ -94,7 +94,7 @@ public:
                           ParasiticNode *drvr_node,
                           float coupling_cap_factor,
                           const RiseFall *rf,
-                          const Corner *corner,
+                          const Scene *corner,
                           const MinMax *min_max,
                           const ParasiticAnalysisPt *ap);
   void reduceElmoreDfs(const Pin *drvr_pin,
@@ -111,7 +111,7 @@ public:
                       ParasiticNode *drvr_node,
                       float coupling_cap_factor,
                       const RiseFall *rf,
-                      const Corner *corner,
+                      const Scene *corner,
                       const MinMax *min_max,
                       const ParasiticAnalysisPt *ap,
                       PtPiElmore &result);

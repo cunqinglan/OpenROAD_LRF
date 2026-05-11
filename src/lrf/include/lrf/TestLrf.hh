@@ -92,7 +92,7 @@ public:
 private:
   sta::dbSta *sta_;
   odb::dbBlock *block_;
-  sta::Corner *corner_;
+  sta::Scene *corner_;
   LocalSta *local_sta_;
   rsz::Resizer *resizer_;
   std::vector<std::string> rows_;
