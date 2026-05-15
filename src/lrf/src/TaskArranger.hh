@@ -275,6 +275,13 @@ protected:
   const char *progress_tag_ = "LRF";
 
 private:
+  // True iff at least one of inst's output driver vertices passes
+  // SearchPredNonLatch2::searchTo (i.e. is not isConstant). Tie cells and
+  // fully const-prop'd outputs return false. Such an instance still gets
+  // a TaskArranger vertex (left as VertexType::NONE) so MEE sibling edges
+  // through its fanout net are still formed; visit() skips it.
+  bool hasUsableDriver(sta::Instance *inst);
+
   friend class InstVertexOutEdgeIterator;
   friend class InstVertexInEdgeIterator;
 };
