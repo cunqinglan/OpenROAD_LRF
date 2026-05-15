@@ -751,12 +751,29 @@ PtGraph::tagGroup(const PtVertex &pt_vertex)
 void
 PtGraph::writeSlewToGraph(const PtVertex &pt_vertex, sta::Vertex *sta_vertex)
 {
+  if (!dcalc_ap_)
+    return;
   sta::Graph *sta_graph = sta_->graph();
+  const sta::MinMax *slew_min_max = dcalc_ap_->slewMinMax();
+  const float sentinel = slew_min_max->initValue();
+  const size_t ap = dcalc_ap_->index();
   for (const sta::RiseFall *rf : sta::RiseFall::range()) {
-    for (size_t ap = 0; ap < ap_count_; ap++) {
-      sta::Slew s = slew(pt_vertex, rf, ap);
-      sta_graph->setSlew(sta_vertex, rf, ap, s);
+    if (sta_vertex->slewAnnotated(rf, slew_min_max))
+      continue;
+    sta::Slew s = slew(pt_vertex, rf, ap);
+    // Diagnostic: if a slot still holds the init sentinel, some traversal
+    // path didn't reach it. Print which (vertex,rf) so we can locate the
+    // missing dcalc path instead of silently writing -INF into STA.
+    if (sta::delayAsFloat(s) == sentinel) {
+      sta::Pin *pin = sta_vertex->pin();
+      printf("[LRF-DIAG] writeSlewToGraph sentinel slot: pin=%s rf=%s ap=%zu "
+             "ptType=%d -- slot never written by local dcalc; skipping writeback\n",
+             pin ? sta_->network()->pathName(pin) : "(null)",
+             rf->name(), ap, (int)pt_vertex.type());
+      fflush(stdout);
+      continue;
     }
+    sta_graph->setSlew(sta_vertex, rf, ap, s);
   }
 }
 

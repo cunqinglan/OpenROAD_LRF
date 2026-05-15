@@ -1170,7 +1170,7 @@ LocalSta::zeroSlewAndWireDelays(PtVertex &drvr_pt_vertex,
       bool load_slew_annotated = load_vertex
           ? load_vertex->slewAnnotated(rf, slew_min_max) : false;
       if (!load_slew_annotated) {
-        pt_graph->setSlew(load_pt_vertex, rf, ap_index, 0.0);
+        pt_graph->setSlew(load_pt_vertex, rf, ap_index, slew_min_max->initValue());
       }
     }
   }
