@@ -316,6 +316,7 @@ IncreSta::isLeakagePlateau(double threshold) const
 void
 IncreSta::lmUpdate()
 {
+  auto lm_t0 = std::chrono::high_resolution_clock::now();
   sta::Slack wns = sta_->worstSlack(sta::MinMax::max());
   sta::Slack tns = sta_->totalNegativeSlack(sta::MinMax::max());
 
@@ -363,23 +364,40 @@ IncreSta::lmUpdate()
 
   const bool use_parallel = (thread_count_ > 1 && dispatch_queue_);
 
+  auto lm_t_edge_start = std::chrono::high_resolution_clock::now();
+  double lm_edge_s = 0.0;
+  double lm_kkt_s  = 0.0;
   if (projected_) {
     if (use_parallel)
       lr_helper_->parallelUpdateAllEdgeLms(sta_);
     else
       lr_helper_->updateAllEdgeLms(sta_);
+    auto lm_t_edge_end = std::chrono::high_resolution_clock::now();
+    lm_edge_s = std::chrono::duration<double>(lm_t_edge_end - lm_t_edge_start).count();
 
     if (use_parallel)
       lr_helper_->parallelKKTProjection(sta_);
     else
       lr_helper_->KKTProjection(sta_);
+    lm_kkt_s = std::chrono::duration<double>(
+                 std::chrono::high_resolution_clock::now() - lm_t_edge_end).count();
   } else {
     bool kkt_satisfied = use_parallel
       ? lr_helper_->parallelKKTProjection(sta_)
       : lr_helper_->KKTProjection(sta_);
+    lm_kkt_s = std::chrono::duration<double>(
+                 std::chrono::high_resolution_clock::now() - lm_t_edge_start).count();
     if (kkt_satisfied)
       projected_ = true;
   }
+
+  double lm_total_s = std::chrono::duration<double>(
+                        std::chrono::high_resolution_clock::now() - lm_t0).count();
+  printf("[LM_UPDATE] total=%.3f s  edge_lm=%.3f s  kkt_proj=%.3f s  "
+         "(parallel=%d, projected=%d)\n",
+         lm_total_s, lm_edge_s, lm_kkt_s,
+         use_parallel ? 1 : 0, projected_ ? 1 : 0);
+  fflush(stdout);
 }
 
 bool

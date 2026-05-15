@@ -1350,7 +1350,13 @@ PtGraph::annotateVerticesType()
         continue;
       auto it = vertex_map_.find(drvr_vertex);
       if (it == vertex_map_.end()) {
-        printf("PtGraph::annotateRefFaninVertices: drvr vertex not found in vertex_map_\n");
+        printf("PtGraph::annotateVerticesType: drvr vertex missing: "
+               "inst=%s pin=%s isConstant=%d hasFanout=%d disabledConstraint=%d\n",
+               sta_->network()->pathName(ref_inst_),
+               sta_->network()->pathName(pin),
+               drvr_vertex->isConstant(),
+               drvr_vertex->hasFanout(),
+               drvr_vertex->isDisabledConstraint());
         fflush(stdout);
         continue;
       }

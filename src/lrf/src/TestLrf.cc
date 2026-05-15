@@ -2034,6 +2034,8 @@ TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
          buffering_start_iter, timing_margin, erc_violation_weight,
          erc_limit_scale, resize_ff);
 
+  TaskArranger::verbose_ = true;
+
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   incre_sta->setDebug(debug);

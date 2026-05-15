@@ -572,7 +572,7 @@ LRHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, DcalcAnalysisPt con
   }
   from_aat = std::max(from_aat, 0.0f);
   to_aat = std::max(to_aat, 0.0f);
-  
+
   if (delay_minmax == MinMax::max()) {
     if (to_aat == 0.0) to_aat = 1.0e-12;
     lms[lm_idx] = lms[lm_idx] * (from_aat + delay) / to_aat;

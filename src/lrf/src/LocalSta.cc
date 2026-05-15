@@ -152,6 +152,15 @@ LocalSta::collectLocalVertices(Instance *inst, VertexSet &local_vertices)
       if (search_pred_->searchTo(drvr_vertex)) {
         local_vertices.insert(drvr_vertex);
         collectLocalFanoutVertices(drvr_vertex, local_vertices);
+      } else {
+        printf("[LRF-DIAG] collectLocalVertices drvr filtered: inst=%s pin=%s "
+               "isConstant=%d hasFanout=%d disabledConstraint=%d\n",
+               network_->pathName(inst),
+               network_->pathName(pin),
+               drvr_vertex ? drvr_vertex->isConstant() : -1,
+               drvr_vertex ? drvr_vertex->hasFanout() : -1,
+               drvr_vertex ? drvr_vertex->isDisabledConstraint() : -1);
+        fflush(stdout);
       }
     }
     if (network_->isLoad(pin)) {
@@ -1073,7 +1082,7 @@ LocalSta::findDriverDelays(PtVertex &drvr_pt_vertex,
                     load_pin_index_map, pt_graph);
 }
 
-void 
+void
 LocalSta::initSlew(PtVertex &pt_vertex, PtGraph *pt_graph)
 {
   const DcalcAnalysisPt *dcalc_ap = pt_graph->dcalcAnalysisPt();
