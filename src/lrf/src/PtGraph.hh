@@ -17,7 +17,8 @@
 namespace sta {
 class Sta;
 class LibertyCell;
-class DcalcAnalysisPt;
+class Scene;
+class MinMax;
 }
 
 namespace lrf {
@@ -125,9 +126,9 @@ public:
   float arcLm(const PtEdge &pt_edge,
                      const sta::TimingArc *timing_arc,
                      sta::DcalcAPIndex ap_index) const;
-  const sta::Slew &slew(const PtVertex &pt_vertex,
-                        const sta::RiseFall *rf,
-                        sta::DcalcAPIndex ap_index);
+  sta::Slew slew(const PtVertex &pt_vertex,
+                 const sta::RiseFall *rf,
+                 sta::DcalcAPIndex ap_index);
   const sta::ArcDelay &wireArcDelay(const PtEdge &pt_edge,
                                     const sta::RiseFall *rf,
                                     sta::DcalcAPIndex ap_index);
@@ -159,12 +160,17 @@ public:
 
   void delayLmSum(const sta::MinMax *minmax, float &delay_lambda_sum,
                   bool avoid_check = true);
-  void delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap, float &delay_lambda_sum,
+  void delayLmSum(const sta::Scene *scene,
+                  const sta::MinMax *min_max,
+                  float &delay_lambda_sum,
                   bool avoid_check = true);
-  void delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
-                  DelayLmSumResult *result, 
+  void delayLmSum(const sta::Scene *scene,
+                  const sta::MinMax *min_max,
+                  DelayLmSumResult *result,
                   bool collect_vecs = true);
-  void refgateDelayLmSum(float &delay_lambda_sum, sta::DcalcAnalysisPt *dcalc_ap);
+  void refgateDelayLmSum(float &delay_lambda_sum,
+                         sta::Scene *scene,
+                         const sta::MinMax *min_max);
   sta::Level vertexLevel(sta::VertexId vertex_id) const;
   sta::Level topVertexLevel();
   void createParasiticsNetworks();
@@ -184,9 +190,17 @@ public:
   // siblingDeltaDelayLmSum(): Σ delay_diff × Δin_slew × arc_lm.
   bool isPrecheckMode() const { return precheck_mode_; }
   void setPrecheckMode(bool v) { precheck_mode_ = v; }
-  float siblingDeltaDelayLmSum(sta::DcalcAnalysisPt *dcalc_ap = nullptr);
-  void setDcalcAnalysisPt(sta::DcalcAnalysisPt *dcalc_ap) { dcalc_ap_ = dcalc_ap; }
-  sta::DcalcAnalysisPt *dcalcAnalysisPt() const { return dcalc_ap_; }
+  float siblingDeltaDelayLmSum(sta::Scene *scene = nullptr,
+                               const sta::MinMax *min_max = nullptr);
+  void setScene(sta::Scene *scene, const sta::MinMax *min_max)
+  {
+    scene_ = scene;
+    min_max_ = min_max;
+  }
+  sta::Scene *scene() const { return scene_; }
+  const sta::MinMax *minMax() const { return min_max_; }
+  // Combined index (== scene->dcalcAnalysisPtIndex(min_max_)).
+  sta::DcalcAPIndex apIndex() const;
 
   // PtGraph-local PiElmore parasitics
   PtPiElmore* findPtParasitic(VertexId drvr_id,
@@ -218,7 +232,8 @@ protected:
   sta::Instance *ref_inst_ = nullptr;
   sta::LibertyCell *ref_lib_cell_ = nullptr;
   bool precheck_mode_ = false;
-  sta::DcalcAnalysisPt *dcalc_ap_ = nullptr;
+  sta::Scene *scene_ = nullptr;
+  const sta::MinMax *min_max_ = nullptr;
 
   // PtGraph-local PiElmore parasitics storage.
   // Key: driver VertexId. Value: vector indexed by rf * ap_count + ap_index.
@@ -329,10 +344,12 @@ public:
   sta::LibertyCell *libertyCell() const;
   float level() const { return level_; }
   void setLevel(float lvl) { level_ = lvl; }
-  sta::Slew *slews() { return slews_.empty() ? nullptr : slews_.data(); }
+  // PtGraph commits to OCV mode (POCV rejected at PtGraph construction),
+  // so slews are stored as plain floats (mean only) — not sta::Slew.
+  float *slews() { return slews_.empty() ? nullptr : slews_.data(); }
+  const float *slews() const { return slews_.empty() ? nullptr : slews_.data(); }
   bool hasFanin() const;
   bool hasFanout() const;
-  const sta::Slew *slews() const { return slews_.empty() ? nullptr : slews_.data(); }
   size_t slewCount() const { return slews_.size(); }
   void resizeSlews(size_t slew_count);
   bool isRoot() const;
@@ -367,7 +384,8 @@ protected:
   sta::VertexId object_idx_{pt_vertex_id_null};
   sta::EdgeId out_edges_{pt_edge_id_null};
   sta::EdgeId in_edges_{pt_edge_id_null};
-  std::vector<sta::Slew> slews_;
+  // OCV-only: one float (mean) per (ap, rf) slot.
+  std::vector<float> slews_;
   bool is_root_{};
   PtVertexType type_{PtVertexType::None};
   int tag_group_index_ {static_cast<int>(sta::tag_group_index_max)};

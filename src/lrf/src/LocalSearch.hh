@@ -15,7 +15,6 @@ class StaState;
 class TagGroup;
 class ArrivalVisitor;
 class Graph;
-class PathAnalysisPt;
 class RiseFall;
 class Path;
 class TimingArc;
@@ -46,14 +45,13 @@ public:
   void visitEdge(PtVertex &from_pt_vertex, 
                  PtEdge &edge, 
                  PtVertex &to_pt_vertex);
-  bool visitArc(PtVertex &from_pt_vertex, 
+  bool visitArc(PtVertex &from_pt_vertex,
                 const RiseFall *from_rf,
                 Path *from_path,
                 PtEdge &edge,
                 TimingArc *arc,
                 PtVertex &to_pt_vertex,
-                const MinMax *min_max,
-                const PathAnalysisPt *path_ap);
+                const MinMax *min_max);
   bool visitFromToPath(const Pin *from_pin,
                               Vertex *from_vertex,
                               const RiseFall *from_rf,
@@ -66,8 +64,7 @@ public:
                       const RiseFall *to_rf,
                       Tag *to_tag,
                       Arrival to_arrival,
-                      const MinMax *min_max,
-                      const PathAnalysisPt *path_ap);
+                      const MinMax *min_max);
 protected:
   StaState *sta_;
   PtGraph *pt_graph_;
@@ -86,14 +83,13 @@ public:
   bool localVisitEdge(PtVertex &from_pt_vertex, 
                        PtEdge &edge, 
                        PtVertex &to_pt_vertex);
-  bool localVisitArc(PtVertex &from_pt_vertex, 
+  bool localVisitArc(PtVertex &from_pt_vertex,
                       const RiseFall *from_rf,
                       Path *from_path,
                       PtEdge &edge,
                       TimingArc *arc,
                       PtVertex &to_pt_vertex,
-                      const MinMax *min_max,
-                      const PathAnalysisPt *path_ap);
+                      const MinMax *min_max);
   virtual bool localVisitFromPath(const Pin *from_pin,
                           PtVertex &from_pt_vertex,
                           const RiseFall *from_rf,
@@ -103,8 +99,7 @@ public:
                           const Pin *to_pin,
                           PtVertex &to_pt_vertex,
                           const RiseFall *to_rf,
-                          const MinMax *min_max,
-                          const PathAnalysisPt *path_ap);
+                          const MinMax *min_max);
   virtual bool localVisitFromToPath(
                 PtVertex &from_pt_vertex,
                 const RiseFall *from_rf,
@@ -118,8 +113,7 @@ public:
                 const RiseFall *to_rf,
                 Tag *to_tag,
                 Arrival &to_arrival,
-                const MinMax *min_max,
-                const PathAnalysisPt *path_ap) = 0;
+                const MinMax *min_max) = 0;
   // Just delete this implementation
   virtual bool visitFromToPath(const Pin *from_pin,
 			       Vertex *from_vertex,
@@ -134,8 +128,7 @@ public:
 			       const RiseFall *to_rf,
 			       Tag *to_tag,
 			       Arrival &to_arrival,
-			       const MinMax *min_max,
-			       const PathAnalysisPt *path_ap) override { return false; }
+			       const MinMax *min_max) override { return false; }
 
 protected:
   StaState *sta_;
@@ -177,8 +170,7 @@ public:
                 const RiseFall *to_rf,
                 Tag *to_tag,
                 Arrival &to_arrival,
-                const MinMax *min_max,
-                const PathAnalysisPt *path_ap) override;
+                const MinMax *min_max) override;
   void printArrivals();
 
 protected:
@@ -241,8 +233,7 @@ public:
                 const RiseFall *to_rf,
                 Tag *to_tag,
                 Arrival &to_arrival,
-                const MinMax *min_max,
-                const PathAnalysisPt *path_ap) override;
+                const MinMax *min_max) override;
   void printRequireds();
 protected:
   void seedLocalRootRequireds(PtVertex &pt_vertex);
@@ -269,7 +260,6 @@ protected:
   const Search *search_;
   bool filtered_;
   const RiseFall *rf_;
-  const PathAnalysisPt *path_ap_;
   const MinMax *min_max_;
   Path *paths_;
   size_t path_count_;

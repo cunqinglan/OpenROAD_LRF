@@ -37,8 +37,7 @@ using namespace sta;
 class ConcreteParasitic;
 class ConcreteParasiticNetwork;
 class TaskArranger;
-typedef Map<const Pin*, ConcreteParasitic**> ConcreteParasiticMap;
-typedef Map<const Net*, ConcreteParasiticNetwork**> ConcreteParasiticNetworkMap;
+typedef std::map<const Pin*, ConcreteParasitic**> ConcreteParasiticMap;
 
 typedef float LocalCost;
 
@@ -64,14 +63,14 @@ public:
   // (no fanin sibling collection, no downstream driver traversal).
   void collectDriverFanoutOnly(Instance *inst, VertexSet &local_vertices);
   void makePtGraph(PtGraph *pt_graph, Instance *inst,
-                          DcalcAnalysisPt *dcalc_ap = nullptr);
+                          sta::Scene *scene = nullptr, const sta::MinMax *min_max = nullptr);
   // Lightweight PtGraph: skips fanin siblings; no pruneInsignificantSiblings.
   void makePtGraphDriverOnly(PtGraph *pt_graph, Instance *inst,
-                             DcalcAnalysisPt *dcalc_ap = nullptr);
+                             sta::Scene *scene = nullptr, const sta::MinMax *min_max = nullptr);
   // FF PtGraph: accepts sequential ref instance, bounded clock-pin
   // expansion, and adds CK→D setup CheckEdges via PtGraph::addCheckEdgesForRefInst.
   void makePtGraphFF(PtGraph *pt_graph, Instance *inst,
-                     DcalcAnalysisPt *dcalc_ap = nullptr);
+                     sta::Scene *scene = nullptr, const sta::MinMax *min_max = nullptr);
   PtGraph *makePtGraph(Instance *inst, bool update_timing_first = false);
 
   sta::dbSta *getSta() { return sta_; }
@@ -94,8 +93,7 @@ public:
   // misses (because LR maintains LM=0 on check edges). The LM coefficient
   // is taken from the wire edge feeding D, which carries the endpoint
   // rescaling of the upstream combinational path's LM.
-  float computeSetupLmSum(PtGraph *pt_graph,
-                          const DcalcAnalysisPt *dcalc_ap = nullptr);
+  float computeSetupLmSum(PtGraph *pt_graph);
   // FF variant of increAndGetLocalTimingCost: virtually replace cell,
   // recompute findLocalDelays + findLocalCheckDelays, and return
   // delay_lm_sum (combinational, regClkToQ, wire) + computeSetupLmSum.
@@ -110,7 +108,7 @@ public:
   void updateGlobalParasiticsAndSync(est::EstimateParasitics *est_parasitics);
   // Sync local parasitic map from global (without re-estimating).
   void syncParasiticMapFromGlobal();
-  void setAnalysisPoints(const std::vector<const DcalcAnalysisPt*> &dcalc_ap_set);
+  void setAnalysisPoints(const std::vector<sta::DcalcAPIndex> &dcalc_ap_set);
   void setDebugLabel(const std::string &label) { debug_label_ = label; }
 
   // Power APIs
@@ -125,7 +123,7 @@ public:
   // Full version: checks hasVirtualBuffer tag and recomputes load cap if needed
   void localParasiticLoad(PtVertex &drvr_pt_vertex,
                           const RiseFall *rf,
-                          const DcalcAnalysisPt *dcalc_ap,
+                          const sta::Scene *scene, const sta::MinMax *min_max,
                           const MultiDrvrNet *multi_drvr_net,
                           // Return values
                           float &load_cap,
@@ -151,17 +149,17 @@ public:
   float getPortMaxCapLimit(sta::LibertyPort *port);
   // Get max slew across rise/fall for a PtVertex
   float getVertexMaxSlew(PtGraph *pt_graph, PtVertex &ptv,
-                         sta::DcalcAnalysisPt *dcalc_ap);
+                         const sta::Scene *scene, const sta::MinMax *min_max);
   // Check slew limits for all wire-fanout loads of a driver PtVertex.
   // slew_limit_scale multiplies the library slew limit. Default 0.9 = 10%
   // headroom, reserved so the optimizer rejects cells that would ship
   // post-GRT slew violations after the placement → global_routing RC shift.
   bool checkFanoutLoadSlew(PtGraph *pt_graph, VertexId drvr_id,
-                           sta::DcalcAnalysisPt *dcalc_ap,
+                           const sta::Scene *scene, const sta::MinMax *min_max,
                            float slew_limit_scale = 0.95f);
   // Sum (load_slew - limit)_+ across all wire-fanout loads of drvr.
   float fanoutLoadSlewViolation(PtGraph *pt_graph, VertexId drvr_id,
-                                sta::DcalcAnalysisPt *dcalc_ap,
+                                const sta::Scene *scene, const sta::MinMax *min_max,
                                 float slew_limit_scale = 0.95f);
   sta::LibertyPort *findTargetPort(const PtVertex &ptv,
                                    sta::LibertyCell *to_lib_cell) const;
@@ -223,7 +221,7 @@ public:
 
   sta::Path *ptVertexWorstSlackPath(PtVertex &pt_vertex, const sta::MinMax *min_max) const;
   sta::Path *ptVertexWorstSlackPath(PtVertex &pt_vertex,
-                                    const sta::DcalcAnalysisPt *dcalc_ap) const;
+                                    const sta::Scene *scene, const sta::MinMax *min_max) const;
 
   // Public API for operators
   DelayLmSumResult initAndGetLocalTimingCost(PtGraph *pt_graph, sta::ArcDelayCalc *arc_delay_calc);
@@ -332,14 +330,14 @@ protected:
                    ArcDelayCalc *arc_delay_calc);
   void seedNoDrvrSlew(PtVertex &pt_drvr_vertex,
                              const RiseFall *rf,
-                             const DcalcAnalysisPt *dcalc_ap,
+                             const sta::Scene *scene, const sta::MinMax *min_max,
                              ArcDelayCalc *arc_delay_calc,
                              PtGraph *pt_graph);
   void seedNoDrvrCellSlew(PtVertex &pt_drvr_vertex,
                           const Pin *drvr_pin,
                           const RiseFall *rf,
                           const InputDrive *drive,
-                          const DcalcAnalysisPt *dcalc_ap,
+                          const sta::Scene *scene, const sta::MinMax *min_max,
                           ArcDelayCalc *arc_delay_calc,
                           PtGraph *pt_graph);
   int findPortIndex(const LibertyCell *cell,
@@ -351,7 +349,7 @@ protected:
                             const LibertyPort *from_port,
                             float *from_slews,
                             const LibertyPort *to_port,
-                            const DcalcAnalysisPt *dcalc_ap);
+                            const sta::Scene *scene, const sta::MinMax *min_max);
   LoadPinIndexMap makeLoadPinIndexMap(Vertex *drvr_vertex);
   LoadPinIndexMap makeLoadPinIndexMap(PtVertex &drvr_pt_vertex, PtGraph *pt_graph);
   MultiDrvrNet *findMultiDrvrNet(Vertex *drvr_vertex);
@@ -378,14 +376,14 @@ protected:
   void findDriverArcDelays(PtVertex &drvr_pt_vertex,
                         PtEdge &pt_edge,
                         const TimingArc *arc,
-                        const DcalcAnalysisPt *dcalc_ap,
+                        const sta::Scene *scene, const sta::MinMax *min_max,
                         ArcDelayCalc *arc_delay_calc,
                         PtGraph *pt_graph);
   void findDriverArcDelays(PtVertex &drvr_pt_vertex,
                         const MultiDrvrNet *multi_drvr_net,
                         PtEdge &pt_edge,
                         const TimingArc *arc,
-                        const DcalcAnalysisPt *dcalc_ap,
+                        const sta::Scene *scene, const sta::MinMax *min_max,
                         ArcDelayCalc *arc_delay_calc,
                         LoadPinIndexMap &load_pin_index_map,
                         PtGraph *pt_graph);
@@ -393,23 +391,23 @@ protected:
                          const TimingArc *arc,
                          ArcDcalcResult &dcalc_result,
                          LoadPinIndexMap &load_pin_index_map,
-                         const DcalcAnalysisPt *dcalc_ap,
+                         const sta::Scene *scene, const sta::MinMax *min_max,
                          PtGraph *pt_graph);
   bool annotateDelaySlew(PtEdge &pt_edge,
                         const TimingArc *arc,
                         ArcDelay &gate_delay,
                         Slew &gate_slew,
-                        const DcalcAnalysisPt *dcalc_ap,
+                        const sta::Scene *scene, const sta::MinMax *min_max,
                         PtGraph *pt_graph);
   Slew edgeFromLocalSlew(const PtVertex &from_pt_vertex,
                     const RiseFall *from_rf,
                     const PtEdge &pt_edge,
-                    const DcalcAnalysisPt *dcalc_ap,
+                    const sta::Scene *scene, const sta::MinMax *min_max,
                     PtGraph *pt_graph);
   Slew edgeFromLocalSlew(const PtVertex &from_pt_vertex,
                     const RiseFall *from_rf,
                     const TimingRole *role,
-                    const DcalcAnalysisPt *dcalc_ap,
+                    const sta::Scene *scene, const sta::MinMax *min_max,
                     PtGraph *pt_graph);
   bool annotateLoadDelays(PtVertex &drvr_pt_vertex,
                           const RiseFall *to_rf,
@@ -417,20 +415,16 @@ protected:
                           LoadPinIndexMap &load_pin_index_map,
                           const ArcDelay &extra_delay,
                           bool merge,
-                          const DcalcAnalysisPt *dcalc_ap,
+                          const sta::Scene *scene, const sta::MinMax *min_max,
                           PtGraph *pt_graph);
   float computeVirtualLoadCap(PtVertex &drvr_pt_vertex,
                               const RiseFall *drvr_rf,
-                              const DcalcAnalysisPt *dcalc_ap,
+                              const sta::Scene *scene, const sta::MinMax *min_max,
                               PtGraph *pt_graph);
 
   float delayLmSum(Instance *inst, const MinMax *minmax);
-  float delayLmSum(PtGraph *pt_graph, DcalcAnalysisPt *dcalc_ap);
   DelayLmSumResult delayLmSum(PtGraph *pt_graph,
-                     DcalcAnalysisPt *dcalc_ap, 
                      bool collect_vecs);
-  float delayLmSum(PtGraph *pt_graph);
-  float delayLmSum(sta::Instance *inst, PtGraph *pt_graph);
   float refgateDelayLmSum(PtGraph *pt_graph);
   void graphPop();
   void setSta(dbSta *sta) { sta_ = sta; }
@@ -450,7 +444,7 @@ protected:
   // recomputeSinglePtParasitic moved to public section
   void loadLocalParasitics(const Pin *drvr_pin,
                            const RiseFall *rf,
-                           const DcalcAnalysisPt *dcalc_ap,
+                           const sta::Scene *scene, const sta::MinMax *min_max,
                            const MultiDrvrNet *multi_drvr_net,
                            ArcDelayCalc *arc_delay_calc,
                            float *load_cap,
@@ -463,7 +457,7 @@ protected:
   //                          const MultiDrvrNet *multi_drvr_net,
   //                          PtEdge &pt_edge,
   //                          const TimingArc *arc,
-  //                          const DcalcAnalysisPt *dcalc_ap,
+  //                          const sta::Scene *scene, const sta::MinMax *min_max,
   //                          ArcDelayCalc *arc_delay_calc,
   //                          PtGraph *pt_graph);
 
@@ -527,8 +521,7 @@ protected:
 
   // Containers for parasitics
   ConcreteParasiticMap drvr_parasitic_map_;
-  ConcreteParasiticNetworkMap parasitic_network_map_;
-  std::vector<DcalcAnalysisPt*> dcalc_ap_set_;
+  std::vector<sta::DcalcAPIndex> dcalc_ap_set_;
 
 private:
   friend class TestLrf;

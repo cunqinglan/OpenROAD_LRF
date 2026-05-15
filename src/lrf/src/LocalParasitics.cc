@@ -25,7 +25,6 @@ using sta::Pin;
 using sta::RiseFall;
 using sta::Scene;
 using sta::MinMax;
-using sta::ParasiticAnalysisPt;
 using sta::ConcreteParasitic;
 using sta::StaState;
 
@@ -42,16 +41,23 @@ LocalParasitics::~LocalParasitics()
   delete copy_helper_;
 }
 
+sta::Parasitics *
+LocalParasitics::globalParasitics() const
+{
+  return scenes_.empty() ? nullptr
+                         : scenes_.front()->parasitics(sta::MinMax::max());
+}
+
 void
 LocalParasitics::initParasiticMapFromBase()
 {
-  if (!corners_) {
-    printf("DEBUG: LocalParasitics::initParasiticMapFromBase: corners_ is null\n");
+  if (scenes_.empty()) {
+    printf("DEBUG: LocalParasitics::initParasiticMapFromBase: no scenes\n");
     fflush(stdout);
     return;
   }
 
-  ConcreteParasitics *global = dynamic_cast<ConcreteParasitics*>(parasitics_);
+  ConcreteParasitics *global = dynamic_cast<ConcreteParasitics*>(globalParasitics());
   if (global != nullptr) {
     global_parasitic_network_map_ = &global->parasitic_network_map_;
   }
@@ -73,24 +79,23 @@ LocalParasitics::recomputePtParasitics(PtGraph *pt_graph)
     if (clk_network_->isIdealClock(drvr_pin))
       continue;
     const Net *net = findParasiticNet(drvr_pin);
-    for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
-      ParasiticAnalysisPt *ap = dcalc_ap->parasiticAnalysisPt();
-      Parasitic *parasitic_network = findLocalParasiticNetwork(net, ap);
+    for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
+      Parasitic *parasitic_network = findLocalParasiticNetwork(net);
       if (!parasitic_network)
         continue;
+      sta::Parasitics *parasitics = scene->parasitics(min_max);
       ParasiticNode *drvr_node =
-          parasitics_->findParasiticNode(parasitic_network, drvr_pin);
+          globalParasitics()->findParasiticNode(parasitic_network, drvr_pin);
       if (!drvr_node)
         continue;
       for (const RiseFall *rf : RiseFall::range()) {
         PtPiElmore &pt_pi = pt_graph->makePtParasitic(
-            pt_vertex.objectIdx(), rf, dcalc_ap->index());
+            pt_vertex.objectIdx(), rf, scene->dcalcAnalysisPtIndex(min_max));
         pt_pi.clear();
         LocalReduceToPiElmore reducer(this, pt_graph);
         reducer.makePtPiElmore(parasitic_network, drvr_pin, drvr_node,
-                               ap->couplingCapFactor(), rf,
-                               dcalc_ap->corner(),
-                               dcalc_ap->constraintMinMax(), ap,
+                               parasitics->couplingCapFactor(), rf,
+                               scene, min_max,
                                pt_pi);
       }
     }
@@ -110,24 +115,23 @@ LocalParasitics::recomputeSinglePtParasitic(PtGraph *pt_graph, VertexId drvr_vid
   if (clk_network_->isIdealClock(drvr_pin))
     return;
   const Net *net = findParasiticNet(drvr_pin);
-  for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
-    ParasiticAnalysisPt *ap = dcalc_ap->parasiticAnalysisPt();
-    Parasitic *parasitic_network = findLocalParasiticNetwork(net, ap);
+  for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
+    Parasitic *parasitic_network = findLocalParasiticNetwork(net);
     if (!parasitic_network)
       continue;
+    sta::Parasitics *parasitics = scene->parasitics(min_max);
     ParasiticNode *drvr_node =
-        parasitics_->findParasiticNode(parasitic_network, drvr_pin);
+        globalParasitics()->findParasiticNode(parasitic_network, drvr_pin);
     if (!drvr_node)
       continue;
     for (const RiseFall *rf : RiseFall::range()) {
       PtPiElmore &pt_pi = pt_graph->makePtParasitic(
-          drvr_vid, rf, dcalc_ap->index());
+          drvr_vid, rf, scene->dcalcAnalysisPtIndex(min_max));
       pt_pi.clear();
       LocalReduceToPiElmore reducer(this, pt_graph);
       reducer.makePtPiElmore(parasitic_network, drvr_pin, drvr_node,
-                             ap->couplingCapFactor(), rf,
-                             dcalc_ap->corner(),
-                             dcalc_ap->constraintMinMax(), ap,
+                             parasitics->couplingCapFactor(), rf,
+                             scene, min_max,
                              pt_pi);
     }
   }
@@ -135,26 +139,20 @@ LocalParasitics::recomputeSinglePtParasitic(PtGraph *pt_graph, VertexId drvr_vid
 
 
 Parasitic *
-LocalParasitics::findLocalParasiticNetwork(const Net *net, const ParasiticAnalysisPt *ap) const
+LocalParasitics::findLocalParasiticNetwork(const Net *net) const
 {
   // TODO (Future target.md): resurface these misses via a deduped warning
   // once the flat-vs-hierarchical net identity mismatch is fixed. Until then
   // the prints are silenced — they were spamming 100K+ lines per run on
   // designs with real hierarchy (see ariane133 SRAM dangling outputs).
   if (global_parasitic_network_map_ && !global_parasitic_network_map_->empty()) {
-    ConcreteParasiticNetwork **parasitic_array =
-      global_parasitic_network_map_->findKey(net);
-    if (!parasitic_array) {
+    auto it = global_parasitic_network_map_->find(net);
+    if (it == global_parasitic_network_map_->end()) {
       return nullptr;
     }
-    ConcreteParasiticNetwork *parasitic = parasitic_array[ap->index()];
-    if (!parasitic) {
-      parasitic = parasitic_array[ap->indexMax()];
-      if (parasitic == nullptr) {
-        return nullptr;
-      }
-    }
-    return parasitic;
+    // by-value storage: take address of the map element (std::map element
+    // references are stable across other insertions).
+    return const_cast<ConcreteParasiticNetwork *>(&it->second);
   }
   return nullptr;
 }
@@ -170,10 +168,10 @@ LocalParasitics::pinCapacitance(const Pin *pin,
     Port *port = network_->port(pin);
     LibertyPort *lib_port = network_->libertyPort(port);
     if (lib_port) {
-      pin_cap = sdc_->pinCapacitance(pin, rf, corner, min_max);
+      pin_cap = corner->sdc()->pinCapacitance(pin, rf, corner, min_max);
     }
     else if (network_->isTopLevelPort(pin))
-      pin_cap = sdc_->portExtCap(port, rf, corner, min_max);
+      pin_cap = corner->sdc()->portExtCap(port, rf, corner, min_max);
   }
   return pin_cap;
 }
@@ -184,16 +182,16 @@ LocalParasitics::pinCapacitance(const ParasiticNode *node,
                                 const Scene *corner,
                                 const MinMax *min_max) const
 {
-  const Pin *pin = parasitics_->pin(node);
+  const Pin *pin = globalParasitics()->pin(node);
   float pin_cap = 0.0;
   if (pin) {
     Port *port = network_->port(pin);
     LibertyPort *lib_port = network_->libertyPort(port);
     if (lib_port) {
-      pin_cap = sdc_->pinCapacitance(pin, rf, corner, min_max);
+      pin_cap = corner->sdc()->pinCapacitance(pin, rf, corner, min_max);
     }
     else if (network_->isTopLevelPort(pin))
-      pin_cap = sdc_->portExtCap(port, rf, corner, min_max);
+      pin_cap = corner->sdc()->portExtCap(port, rf, corner, min_max);
   }
   return pin_cap;
 }

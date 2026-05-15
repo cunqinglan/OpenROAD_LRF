@@ -15,8 +15,8 @@
 namespace lrf {
 using namespace sta;
 
-typedef std::map<DcalcAnalysisPt const*, LMValue> DcalcAPToLMValueMap;
-typedef std::map<DcalcAnalysisPt const*, LMValueSeq> DcalcAPToLMValueSeqMap;
+typedef std::map<sta::DcalcAPIndex, LMValue> DcalcAPToLMValueMap;
+typedef std::map<sta::DcalcAPIndex, LMValueSeq> DcalcAPToLMValueSeqMap;
 
 class LRHelper: public dbStaState
 {
@@ -76,9 +76,9 @@ protected:
   void topoSort(LRHelper *lr_helper, VertexSeq &sorted_vertices);
   virtual void updateEdgeLms(Edge *edge, Sta *sta);
   virtual void updateArcLms(Edge *edge, TimingArc *arc, Sta *sta,
-                            DcalcAnalysisPt const *dcalc_ap);
+                            sta::Scene *scene, const sta::MinMax *min_max);
   virtual void updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta,
-                                    DcalcAnalysisPt const *dcalc_ap);
+                                    sta::Scene *scene, const sta::MinMax *min_max);
   // Debug: print pins covered by set_false_path exceptions (from/to)
   void dumpFalsePathPins(Sta *sta);
   void BFSSort();
@@ -118,9 +118,9 @@ public:
 
 protected:
   virtual void updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, 
-                    DcalcAnalysisPt const *dcalc_ap) override;
+                    sta::Scene *scene, const sta::MinMax *min_max) override;
   virtual void updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta, 
-                                    DcalcAnalysisPt const *dcalc_ap) override;
+                                    sta::Scene *scene, const sta::MinMax *min_max) override;
   // This can only be invoked by RapidLrHelper's own methods
   float getMultiplier(Slack arc_slack);
 
@@ -136,7 +136,7 @@ public:
   ~AdaptiveLrHelper() override = default;
   virtual std::string strategyName() const override;
   virtual void updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, 
-                    DcalcAnalysisPt const *dcalc_ap) override;
+                    sta::Scene *scene, const sta::MinMax *min_max) override;
   // This can only be invoked by AdaptiveLrHelper's own methods
   float getMultiplier(Slack arc_slack);
   

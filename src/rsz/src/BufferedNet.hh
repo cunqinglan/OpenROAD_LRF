@@ -214,6 +214,21 @@ class BufferedNet
 
   float area() const { return area_; }
 
+  // LRF: Used by LrRebuffer / Initializer / TestRebuffer for cost
+  // tracking, leakage propagation, and per-arc Lagrangian multiplier
+  // accumulation. Pure additions; do not affect existing rsz logic.
+  float bufferCost() const { return buffer_cost_; }
+  void setBufferCost(float cost) { buffer_cost_ = cost; }
+  float leakage() const { return leakage_; }
+  void setLeakage(float leakage) { leakage_ = leakage; }
+  std::vector<float>& lms() { return lms_; }
+  void setLms(const std::vector<float>& lms) { lms_ = lms; }
+  void setLms(std::vector<float>&& lms) noexcept { lms_ = std::move(lms); }
+  void setLms(float* lms, int count) {
+    lms_.clear();
+    lms_.assign(lms, lms + count);
+  }
+
   static constexpr int null_layer = -1;
 
   struct Metrics
@@ -294,6 +309,12 @@ class BufferedNet
   FixedDelay arrival_delay_ = FixedDelay::ZERO;
 
   const sta::Scene* corner_ = nullptr;
+
+  // LRF: buffer cost, accumulated leakage, per-arc Lagrangian
+  // multipliers. Populated by LrRebuffer; unused by core rsz logic.
+  float buffer_cost_ = 0;
+  float leakage_ = 0;
+  std::vector<float> lms_;
 };
 
 // Template magic to make it easier to write algorithms descending

@@ -63,17 +63,16 @@ LocalReduceToPi::reduceToPi(const Parasitic *parasitic_network,
 		       const RiseFall *rf,
 		       const Scene *corner,
 		       const MinMax *min_max,
-		       const ParasiticAnalysisPt *ap,
 		       float &c2,
 		       float &rpi,
 		       float &c1)
 {
+  corner_ = corner;
+  min_max_ = min_max;
+  parasitics_ = corner->parasitics(min_max);
   includes_pin_caps_ = parasitics_->includesPinCaps(parasitic_network),
   coupling_cap_multiplier_ = coupling_cap_factor;
   rf_ = rf;
-  corner_ = corner;
-  min_max_ = min_max;
-  ap_ = ap;
   resistor_map_ = parasitics_->parasiticNodeResistorMap(parasitic_network);
   capacitor_map_ = parasitics_->parasiticNodeCapacitorMap(parasitic_network);
 
@@ -169,12 +168,12 @@ LocalReduceToPi::pinCapacitance(ParasiticNode *node)
     LibertyPort *lib_port = network_->libertyPort(port);
     if (lib_port) {
       if (!includes_pin_caps_) {
-	pin_cap = sdc_->pinCapacitance(pin, rf_, corner_, min_max_);
+	pin_cap = corner_->sdc()->pinCapacitance(pin, rf_, corner_, min_max_);
 	pin_caps_one_value_ &= lib_port->capacitanceIsOneValue();
       }
     }
     else if (network_->isTopLevelPort(pin))
-      pin_cap = sdc_->portExtCap(port, rf_, corner_, min_max_);
+      pin_cap = corner_->sdc()->portExtCap(port, rf_, corner_, min_max_);
   }
   return pin_cap;
 }
@@ -190,7 +189,7 @@ LocalReduceToPi::localPinCapacitance(ParasiticNode *node)
     if (network_->isTopLevelPort(pin)) {
       Port *port = network_->port(pin);
       if (port)
-        pin_cap = sdc_->portExtCap(port, rf_, corner_, min_max_);
+        pin_cap = corner_->sdc()->portExtCap(port, rf_, corner_, min_max_);
       return pin_cap;
     }
     // Safety: check vertexId before calling pinLoadVertex.
@@ -222,7 +221,7 @@ LocalReduceToPi::localPinCapacitance(ParasiticNode *node)
       LibertyPort *lib_port = network_->libertyPort(port);
       if (lib_port) {
         if (!includes_pin_caps_) {
-          pin_cap = sdc_->pinCapacitance(pin, rf_, corner_, min_max_);
+          pin_cap = corner_->sdc()->pinCapacitance(pin, rf_, corner_, min_max_);
           pin_caps_one_value_ &= lib_port->capacitanceIsOneValue();
         }
       }
@@ -288,13 +287,12 @@ LocalReduceToPiElmore::makePiElmore(const Parasitic *parasitic_network,
 			       float coupling_cap_factor,
 			       const RiseFall *rf,
 			       const Scene *corner,
-			       const MinMax *min_max,
-			       const ParasiticAnalysisPt *ap)
+			       const MinMax *min_max)
 {
   float c2, rpi, c1;
   reduceToPi(parasitic_network, drvr_pin, drvr_node, coupling_cap_factor,
-             rf, corner, min_max, ap, c2, rpi, c1);
-  Parasitic *pi_elmore = parasitics_->makePiElmore(drvr_pin, rf, ap,
+             rf, corner, min_max, c2, rpi, c1);
+  Parasitic *pi_elmore = parasitics_->makePiElmore(drvr_pin, rf, min_max,
 						   c2, rpi, c1);
   parasitics_->setIsReducedParasiticNetwork(pi_elmore, true);
   reduceElmoreDfs(drvr_pin, drvr_node, 0, 0.0, pi_elmore);
@@ -344,12 +342,11 @@ LocalReduceToPiElmore::makePtPiElmore(const Parasitic *parasitic_network,
                                       const RiseFall *rf,
                                       const Scene *corner,
                                       const MinMax *min_max,
-                                      const ParasiticAnalysisPt *ap,
                                       PtPiElmore &result)
 {
   float c2, rpi, c1;
   reduceToPi(parasitic_network, drvr_pin, drvr_node, coupling_cap_factor,
-             rf, corner, min_max, ap, c2, rpi, c1);
+             rf, corner, min_max, c2, rpi, c1);
   result.setPiModel(c2, rpi, c1);
   reduceElmoreDfsToPt(drvr_pin, drvr_node, nullptr, 0.0, result);
 }

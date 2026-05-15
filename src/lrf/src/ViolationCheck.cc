@@ -76,7 +76,7 @@ LocalSta::checkSlew1(const sta::Pin *pin,
       checkSlew2(pin, vertex, lib_cell, corner, min_max, clks, pt_graph,
                  corner1, rf1, slew1, limit1, slack1);
     else {
-      for (auto corner : *sta_->corners()) {
+      for (sta::Scene *corner : sta_->scenes()) {
         checkSlew2(pin, vertex, lib_cell, corner, min_max, clks, pt_graph,
                    corner1, rf1, slew1, limit1, slack1);
       }
@@ -122,7 +122,7 @@ LocalSta::localFindSlewLimit(const sta::LibertyPort *lib_port,
   exists = false;
 
   const Network *network = network_;
-  Sdc *sdc = sdc_;
+  Sdc *sdc = corner->sdc();
   float limit1;
   bool exists1;
 
@@ -163,7 +163,7 @@ LocalSta::localFindSlewLimit(const sta::Pin *pin,
                 float &limit,
                 bool &exists) const
 {
-  sta::Sdc *sdc = sdc_;
+  sta::Sdc *sdc = corner->sdc();
   sta::Network *network = network_;
   LibertyPort *lib_port = lib_cell->findLibertyPort(network_->portName(pin));
   if (!lib_port) {
@@ -230,7 +230,7 @@ void
 LocalSta::checkSlew3(const sta::Pin *pin,
                     Vertex *vertex,
                     const sta::LibertyCell *lib_cell,
-                    const sta::Scene * corner,
+                    const sta::Scene *scene,
                     const sta::RiseFall *rf,
                     const sta::MinMax *min_max,
                     float limit,
@@ -242,9 +242,8 @@ LocalSta::checkSlew3(const sta::Pin *pin,
                     float &slack1,
                     float &limit1) const
 {
-  const DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(min_max);
   PtVertex *pt_vertex = pt_graph->ptVertex(vertex);
-  Slew slew = pt_graph->slew(*pt_vertex, rf, dcalc_ap->index());
+  Slew slew = pt_graph->slew(*pt_vertex, rf, scene->dcalcAnalysisPtIndex(min_max));
   float slew2 = delayAsFloat(slew);
   float slack = (min_max == MinMax::max())
     ? limit - slew2 : slew2 - limit;
@@ -253,7 +252,7 @@ LocalSta::checkSlew3(const sta::Pin *pin,
 	  // Break ties for the sake of regression stability.
 	  || (fuzzyEqual(slack, slack1)
 	      && rf->index() < rf1->index()))) {
-    corner1 = corner;
+    corner1 = scene;
     rf1 = rf;
     slew1 = slew;
     slack1 = slack;
@@ -262,15 +261,14 @@ LocalSta::checkSlew3(const sta::Pin *pin,
 }
 
 float
-LocalSta::getLoadCap(PtVertex &drvr_pt_vertex, const sta::Scene *corner,
+LocalSta::getLoadCap(PtVertex &drvr_pt_vertex, const sta::Scene *scene,
                      const sta::MinMax *min_max, PtGraph *pt_graph)
 {
-  sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(min_max);
   const sta::Parasitic *parasitic;
   float max_cap = 0.0;
   for (const RiseFall *rf : RiseFall::range()) {
     float load_cap = 0.0;
-    localParasiticLoad(drvr_pt_vertex, rf, dcalc_ap, nullptr,
+    localParasiticLoad(drvr_pt_vertex, rf, scene, min_max, nullptr,
                        load_cap, parasitic, pt_graph);
     if (max_cap < load_cap)
       max_cap = load_cap;

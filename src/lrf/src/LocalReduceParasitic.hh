@@ -12,7 +12,6 @@ class Pin;
 class RiseFall;
 class Scene;
 class MinMax;
-class ParasiticAnalysisPt;
 }
 
 namespace lrf {
@@ -22,10 +21,10 @@ class PtPiElmore;
 namespace lrf {
 using namespace sta;
 
-typedef Map<ParasiticNode*, double> ParasiticNodeValueMap;
-typedef Map<ParasiticResistor*, double> ResistorCurrentMap;
-typedef Set<ParasiticResistor*> ParasiticResistorSet;
-typedef Set<ParasiticNode*> ParasiticNodeSet;
+typedef std::map<ParasiticNode*, double> ParasiticNodeValueMap;
+typedef std::map<ParasiticResistor*, double> ResistorCurrentMap;
+typedef std::set<ParasiticResistor*> ParasiticResistorSet;
+typedef std::set<ParasiticNode*> ParasiticNodeSet;
 
 class PtGraph;
 
@@ -40,7 +39,6 @@ public:
 		  const RiseFall *rf,
 		  const Scene *corner,
 		  const MinMax *min_max,
-		  const ParasiticAnalysisPt *ap,
 		  float &c2,
 		  float &rpi,
 		  float &c1);
@@ -72,7 +70,7 @@ protected:
   const RiseFall *rf_;
   const Scene *corner_;
   const MinMax *min_max_;
-  const ParasiticAnalysisPt *ap_;
+  Parasitics *parasitics_ = nullptr;
   ParasiticNodeResistorMap resistor_map_;
   ParasiticNodeCapacitorMap capacitor_map_;
 
@@ -95,8 +93,7 @@ public:
                           float coupling_cap_factor,
                           const RiseFall *rf,
                           const Scene *corner,
-                          const MinMax *min_max,
-                          const ParasiticAnalysisPt *ap);
+                          const MinMax *min_max);
   void reduceElmoreDfs(const Pin *drvr_pin,
 		       ParasiticNode *node,
 		       ParasiticResistor *from_res,
@@ -113,7 +110,6 @@ public:
                       const RiseFall *rf,
                       const Scene *corner,
                       const MinMax *min_max,
-                      const ParasiticAnalysisPt *ap,
                       PtPiElmore &result);
   void reduceElmoreDfsToPt(const Pin *drvr_pin,
                            ParasiticNode *node,

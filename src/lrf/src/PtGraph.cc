@@ -5,12 +5,12 @@
 #include <numeric>
 #include <deque>
 #include <vector>
-#include "DcalcAnalysisPt.hh"
 #include "Scene.hh"
 #include "TimingRole.hh"
 #include "sta/Liberty.hh"
 #include "sta/Sdc.hh"
 #include "sta/Search.hh"
+#include "sta/Variables.hh"
 #include "search/TagGroup.hh"
 #include "LocalSta.hh"
 
@@ -119,6 +119,14 @@ PtGraph::PtGraph(sta::Sta *sta) :
   ap_count_(sta->graph()->apCount()),
   slew_rf_count_(sta::Vertex::transitionCount())
 {
+  // PtGraph stores slews as plain floats (mean only) and does not support
+  // POCV.  Reject up front so we never silently lose the sigma/skewness
+  // channels in copyInfoFromVertex / setSlew.
+  if (sta->variables()->pocvEnabled()) {
+    throw std::runtime_error(
+      "PtGraph: POCV is enabled but PtGraph only supports OCV. "
+      "Disable POCV before constructing PtGraph.");
+  }
   pt_vertices_[0].setType(PtVertexType::Sentinel);
   pt_edges_[0].setType(PtEdgeType::Sentinel);
   graph_made_ = false;
@@ -805,19 +813,20 @@ PtGraph::setSlew(PtVertex &pt_vertex, const RiseFall *rf,
     size_t slew_count = slew_rf_count * ap_count_;
     pt_vertex.resizeSlews(slew_count);
   }
-  sta::Slew *slews = pt_vertex.slews();
+  float *slews = pt_vertex.slews();
   size_t slew_index = ap_index * slew_rf_count + rf->index();
-  slews[slew_index] = slew;
+  // sta::Slew has operator float() (mean only); OCV-mode storage is float.
+  slews[slew_index] = slew.mean();
 }
 
 
 void
 PtGraph::initLoadSlews(PtVertex &drvr_pt_vertex)
 {
-  const sta::DcalcAnalysisPt *dcalc_ap = dcalc_ap_;
-  const sta::MinMax *slew_min_max = dcalc_ap->slewMinMax();
+  // Slew init min/max mirrors delay min/max for the current scene.
+  const sta::MinMax *slew_min_max = min_max_;
   sta::Slew slew_init_value(slew_min_max->initValue());
-  sta::DcalcAPIndex ap_index = dcalc_ap->index();
+  sta::DcalcAPIndex ap_index = apIndex();
   PtVertexOutEdgeIterator out_iter(drvr_pt_vertex.objectIdx(), this);
   while (out_iter.hasNext()) {
     PtEdge &pt_edge = out_iter.next();
@@ -834,10 +843,9 @@ PtGraph::initLoadSlews(PtVertex &drvr_pt_vertex)
 void
 PtGraph::initWireDelays(PtVertex &drvr_pt_vertex)
 {
-  const sta::DcalcAnalysisPt *dcalc_ap = dcalc_ap_;
-  const sta::MinMax *delay_min_max = dcalc_ap->delayMinMax();
+  const sta::MinMax *delay_min_max = min_max_;
   sta::Delay delay_init_value(delay_min_max->initValue());
-  sta::DcalcAPIndex ap_index = dcalc_ap->index();
+  sta::DcalcAPIndex ap_index = apIndex();
   PtVertexOutEdgeIterator out_iter(drvr_pt_vertex.objectIdx(), this);
   while (out_iter.hasNext()) {
     PtEdge &out_pt_edge = out_iter.next();
@@ -861,19 +869,19 @@ PtGraph::setWireArcDelay(PtEdge &pt_edge,
   arc_delays[index] = delay;
 }
 
-const sta::Slew &
+sta::Slew
 PtGraph::slew(const PtVertex &pt_vertex,
                    const sta::RiseFall *rf,
                    sta::DcalcAPIndex ap_index)
 {
   if (!slew_rf_count_) {
-    static sta::Slew zero_slew(0.0);
-    return zero_slew;
+    return sta::Slew(0.0f);
   }
 
-  const sta::Slew *slews = pt_vertex.slews();
+  // OCV-mode storage: plain float (mean). Reconstruct sta::Slew via Slew(float).
+  const float *slews = pt_vertex.slews();
   size_t slew_index = ap_index * slew_rf_count_ + rf->index();
-  return slews[slew_index];
+  return sta::Slew(slews[slew_index]);
 }
 
 sta::ArcDelay
@@ -952,7 +960,8 @@ void
 PtGraph::printGraph(const char *output_path, bool dot_format)
 {
   sta::Network *network = sta_->network();
-  const char *ref_name = ref_inst_ ? network->name(ref_inst_) : "nullptr";
+  const std::string ref_name = ref_inst_ ? network->name(ref_inst_)
+                                          : std::string("nullptr");
   size_t vertex_count = pt_vertices_.size() > 0 ? pt_vertices_.size() - 1 : 0;
   size_t edge_count = pt_edges_.size() > 0 ? pt_edges_.size() - 1 : 0;
   FILE *out = stdout;
@@ -998,7 +1007,7 @@ PtGraph::printGraph(const char *output_path, bool dot_format)
     fprintf(out, "}\n");
   } else {
     fprintf(out, "PtGraph for ref inst %s: %zu vertices, %zu edges\n",
-            ref_name,
+            ref_name.c_str(),
             vertex_count,
             edge_count);
     for (size_t vid = 1; vid < pt_vertices_.size(); vid++) {
@@ -1108,36 +1117,44 @@ PtGraph::delayLmSum(const sta::MinMax *minmax, float &delay_lambda_sum, bool avo
     sta::TimingArcSet *arc_set = pt_edge.timingArcSet();
     if (arc_set == nullptr)
       continue;
-    for (sta::DcalcAnalysisPt *dcalc_ap : sta_->corners()->dcalcAnalysisPts()) {
-      sta::DcalcAPIndex ap_index = dcalc_ap->index();
-      const sta::MinMax *delay_min_max = dcalc_ap->delayMinMax();
-      if (delay_min_max != minmax)
-        continue;
-      for (sta::TimingArc *timing_arc : arc_set->arcs()) {
-        size_t lm_index = lmIndex(timing_arc, ap_index, ap_count_);
-        const ArcDelay &arc_delay = arcDelay(pt_edge, timing_arc, ap_index);
-        if (avoid_check && (pt_edge.role()->isTimingCheck()))
+    for (sta::Scene *scene : sta_->scenes()) {
+      for (const sta::MinMax *delay_min_max : sta::MinMax::range()) {
+        if (delay_min_max != minmax)
           continue;
-        const LMValue *lms = pt_edge.arcLms();
-        if (lms == nullptr) {
-          printf("PtGraph::delayLmSum: pt_edge %u has no lm values\n",
-                  pt_edge.objectIdx());
-          fflush(stdout);
-          continue;
+        sta::DcalcAPIndex ap_index = scene->dcalcAnalysisPtIndex(delay_min_max);
+        for (sta::TimingArc *timing_arc : arc_set->arcs()) {
+          size_t lm_index = lmIndex(timing_arc, ap_index, ap_count_);
+          const ArcDelay &arc_delay = arcDelay(pt_edge, timing_arc, ap_index);
+          if (avoid_check && (pt_edge.role()->isTimingCheck()))
+            continue;
+          const LMValue *lms = pt_edge.arcLms();
+          if (lms == nullptr) {
+            printf("PtGraph::delayLmSum: pt_edge %u has no lm values\n",
+                   pt_edge.objectIdx());
+            fflush(stdout);
+            continue;
+          }
+          LMValue arc_lm = lms[lm_index];
+          delay_lambda_sum += arc_delay * arc_lm;
         }
-        LMValue arc_lm = lms[lm_index];
-        delay_lambda_sum += arc_delay * arc_lm;
       }
     }
   }
 }
 
+sta::DcalcAPIndex
+PtGraph::apIndex() const
+{
+  return scene_->dcalcAnalysisPtIndex(min_max_);
+}
+
 void
-PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
+PtGraph::delayLmSum(const sta::Scene *scene,
+                    const sta::MinMax *min_max,
                     float &delay_lambda_sum,
                     bool avoid_check)
 {
-  const sta::DcalcAPIndex ap_index = dcalc_ap->index();
+  const sta::DcalcAPIndex ap_index = scene->dcalcAnalysisPtIndex(min_max);
   delay_lambda_sum = 0.0f;
   for (PtEdge &pt_edge : pt_edges_) {
     if (pt_edge.type() == PtEdgeType::Sentinel
@@ -1170,14 +1187,15 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
 }
 
 void
-PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
+PtGraph::delayLmSum(const sta::Scene *scene,
+                    const sta::MinMax *min_max,
                     DelayLmSumResult *result,
                     bool collect_vecs)
 {
   if (result == nullptr)
     return;
 
-  const sta::DcalcAPIndex ap_index = dcalc_ap->index();
+  const sta::DcalcAPIndex ap_index = scene->dcalcAnalysisPtIndex(min_max);
   result->delay_lm_sum = 0.0f;
   if (collect_vecs) {
     result->vec_lms.clear();
@@ -1212,20 +1230,21 @@ PtGraph::delayLmSum(const sta::DcalcAnalysisPt *dcalc_ap,
   // Precheck: sibling arc_delays were not updated; recover their LM
   // contribution via finite-diff.
   if (precheck_mode_)
-    result->delay_lm_sum += siblingDeltaDelayLmSum(
-        const_cast<sta::DcalcAnalysisPt *>(dcalc_ap));
+    result->delay_lm_sum +=
+        siblingDeltaDelayLmSum();
 }
 
 float
-PtGraph::siblingDeltaDelayLmSum(sta::DcalcAnalysisPt *dcalc_ap)
+PtGraph::siblingDeltaDelayLmSum(sta::Scene *scene, const sta::MinMax *min_max)
 {
   // Σ delay_diff × Δin_slew × arc_lm over SiblingEdge arcs.
   // Δin_slew = pt_graph slew (current candidate) − sta::Graph slew (base).
   // Caller must have ensured precheck mode is on so SiblingEdges were
   // not gateDelay'd into PtEdge.arc_delays_.
-  if (dcalc_ap == nullptr) dcalc_ap = dcalc_ap_;
+  if (scene == nullptr) scene = scene_;
+  if (min_max == nullptr) min_max = min_max_;
   float delta_sum = 0.0f;
-  const sta::DcalcAPIndex ap_index = dcalc_ap->index();
+  const sta::DcalcAPIndex ap_index = scene->dcalcAnalysisPtIndex(min_max);
   sta::Graph *sta_graph = sta_->graph();
   for (PtEdge &pt_edge : pt_edges_) {
     if (pt_edge.type() != PtEdgeType::SiblingEdge
@@ -1262,11 +1281,14 @@ PtGraph::siblingDeltaDelayLmSum(sta::DcalcAnalysisPt *dcalc_ap)
 }
 
 void
-PtGraph::refgateDelayLmSum(float &delay_lambda_sum, sta::DcalcAnalysisPt *dcalc_ap)
+PtGraph::refgateDelayLmSum(float &delay_lambda_sum,
+                           sta::Scene *scene,
+                           const sta::MinMax *min_max)
 {
-  if (dcalc_ap == nullptr) dcalc_ap = dcalc_ap_;
+  if (scene == nullptr) scene = scene_;
+  if (min_max == nullptr) min_max = min_max_;
   delay_lambda_sum = 0.0f;
-  sta::DcalcAPIndex ref_ap_index = dcalc_ap->index();
+  sta::DcalcAPIndex ref_ap_index = scene->dcalcAnalysisPtIndex(min_max);
   for (PtEdge &pt_edge : pt_edges_) {
     if (pt_edge.type() == PtEdgeType::Sentinel)
       continue;
@@ -1406,9 +1428,9 @@ PtGraph::annotateEdgesType()
 void
 PtGraph::pruneInsignificantSiblings(float threshold_ratio)
 {
-  if (dcalc_ap_ == nullptr)
+  if (scene_ == nullptr || min_max_ == nullptr)
     return;
-  const sta::DcalcAPIndex ap_index = dcalc_ap_->index();
+  const sta::DcalcAPIndex ap_index = apIndex();
 
   // ---- Pass 1: compute total absolute LM sum across all arcs ----
   float total_lm = 0.0f;
@@ -1749,16 +1771,19 @@ PtVertex::resizeSlews(size_t slew_count)
   if (slew_count == 0)
     slews_.clear();
   else
-  slews_.assign(slew_count, sta::Slew());
+    slews_.assign(slew_count, 0.0f);
 }
 
 void
 PtVertex::copyInfoFromVertex(size_t ap_count, size_t slew_rf_count)
 {
   level_ = static_cast<float>(vertex_->level());
-  sta::Slew *src_slews = vertex_->slews();
+  // POCV was rejected at PtGraph construction, so the upstream Vertex
+  // slew buffer is plain float[] and can be bulk-copied without
+  // reinterpret hazards.
+  const float *src_slews = vertex_->slewsFloat();
   size_t slew_count = slew_rf_count * ap_count;
-  if (src_slews) {
+  if (src_slews && slew_count > 0) {
     slews_.assign(src_slews, src_slews + slew_count);
   } else {
     slews_.clear();

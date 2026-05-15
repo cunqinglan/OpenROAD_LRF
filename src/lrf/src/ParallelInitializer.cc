@@ -56,18 +56,18 @@ public:
                  sta::Graph* graph,
                  sta::GraphDelayCalc* graph_delay_calc,
                  est::EstimateParasitics* ep,
-                 const sta::DcalcAnalysisPt* dcalc_ap,
+                 const sta::Scene* scene, const sta::MinMax *min_max,
                  sta::LibertyLibrary* default_lib,
                  std::mutex& modify_mutex)
     : init_(init), sta_(sta), network_(network), graph_(graph),
       graph_delay_calc_(graph_delay_calc),
-      ep_(ep), dcalc_ap_(dcalc_ap),
+      ep_(ep), scene_(scene), min_max_(min_max),
       default_lib_(default_lib), modify_mutex_(modify_mutex) {}
 
   VertexVisitor* copy() const override
   {
     return new FixLoadVisitor(init_, sta_, network_, graph_,
-                              graph_delay_calc_, ep_, dcalc_ap_,
+                              graph_delay_calc_, ep_, scene_, min_max_,
                               default_lib_, modify_mutex_);
   }
 
@@ -100,7 +100,7 @@ public:
 
       OutInfo oi;
       oi.port = lp;
-      oi.load_cap = graph_delay_calc_->loadCap(p, dcalc_ap_);
+      oi.load_cap = graph_delay_calc_->loadCap(p, scene_, min_max_);
 
       oi.cap_limit = sta::INF;
       {
@@ -120,7 +120,7 @@ public:
 
       if (oi.load_cap > oi.cap_limit) any_cap_viol = true;
       if (oi.slew_limit < sta::INF) {
-        float est = init_->estimateMaxSlew(lp, oi.load_cap, dcalc_ap_, inst);
+        float est = init_->estimateMaxSlew(lp, oi.load_cap, scene_, min_max_, inst);
         if (est > oi.slew_limit) any_slew_viol = true;
       }
       outs.push_back(oi);
@@ -155,7 +155,7 @@ public:
         if (!ex && default_lib_) default_lib_->defaultMaxCapacitance(cl, ex);
         if (ex && oi.load_cap > cl) violation += (oi.load_cap - cl);
         if (oi.slew_limit < sta::INF) {
-          float est = init_->estimateMaxSlew(ep, oi.load_cap, dcalc_ap_, inst);
+          float est = init_->estimateMaxSlew(ep, oi.load_cap, scene_, min_max_, inst);
           if (est > oi.slew_limit) violation += (est - oi.slew_limit);
         }
       }
@@ -218,7 +218,8 @@ private:
   sta::Graph* graph_;
   sta::GraphDelayCalc* graph_delay_calc_;
   est::EstimateParasitics* ep_;
-  const sta::DcalcAnalysisPt* dcalc_ap_;
+  const sta::Scene* scene_;
+  const sta::MinMax* min_max_;
   sta::LibertyLibrary* default_lib_;
   std::mutex& modify_mutex_;
   int viol_count_ = 0;
@@ -243,18 +244,18 @@ public:
                  sta::Graph* graph,
                  sta::GraphDelayCalc* graph_delay_calc,
                  est::EstimateParasitics* ep,
-                 const sta::DcalcAnalysisPt* dcalc_ap,
+                 const sta::Scene* scene, const sta::MinMax *min_max,
                  float default_max_slew,
                  std::mutex& modify_mutex)
     : init_(init), sta_(sta), network_(network), graph_(graph),
       graph_delay_calc_(graph_delay_calc),
-      ep_(ep), dcalc_ap_(dcalc_ap),
+      ep_(ep), scene_(scene), min_max_(min_max),
       default_max_slew_(default_max_slew), modify_mutex_(modify_mutex) {}
 
   VertexVisitor* copy() const override
   {
     return new FixSlewVisitor(init_, sta_, network_, graph_,
-                              graph_delay_calc_, ep_, dcalc_ap_,
+                              graph_delay_calc_, ep_, scene_, min_max_,
                               default_max_slew_, modify_mutex_);
   }
 
@@ -292,14 +293,14 @@ public:
 
       float worst = 0.0f;
       for (auto rf : RiseFall::range()) {
-        float s = graph_->slew(vout, rf, dcalc_ap_->index());
+        float s = graph_->slew(vout, rf, scene_->dcalcAnalysisPtIndex(min_max_));
         worst = std::max(worst, s);
       }
       if (worst > limit) any_viol = true;
 
       OutInfo oi;
       oi.port = lp;
-      oi.load_cap = graph_delay_calc_->loadCap(p, dcalc_ap_);
+      oi.load_cap = graph_delay_calc_->loadCap(p, scene_, min_max_);
       oi.slew_limit = limit;
       outs.push_back(oi);
     }
@@ -326,7 +327,7 @@ public:
       for (const OutInfo& oi : outs) {
         sta::LibertyPort* ep = ec->findLibertyPort(oi.port->name());
         if (!ep) { missing_port = true; break; }
-        float est = init_->estimateMaxSlew(ep, oi.load_cap, dcalc_ap_, inst);
+        float est = init_->estimateMaxSlew(ep, oi.load_cap, scene_, min_max_, inst);
         if (est > oi.slew_limit) violation += (est - oi.slew_limit);
       }
       if (missing_port) continue;
@@ -383,7 +384,8 @@ private:
   sta::Graph* graph_;
   sta::GraphDelayCalc* graph_delay_calc_;
   est::EstimateParasitics* ep_;
-  const sta::DcalcAnalysisPt* dcalc_ap_;
+  const sta::Scene* scene_;
+  const sta::MinMax* min_max_;
   float default_max_slew_;
   std::mutex& modify_mutex_;
   int upsized_ = 0;
@@ -415,7 +417,7 @@ ParallelInitializer::~ParallelInitializer() = default;
 
 float
 ParallelInitializer::estimateMaxSlew(sta::LibertyPort* port, float load_cap,
-                                     const sta::DcalcAnalysisPt* dcalc_ap,
+                                     const sta::Scene* scene, const sta::MinMax *min_max,
                                      sta::Instance* inst)
 {
   if (!port) return sta::INF;
@@ -435,7 +437,7 @@ ParallelInitializer::estimateMaxSlew(sta::LibertyPort* port, float load_cap,
           Vertex* in_v = graph_->pinLoadVertex(in_pin);
           if (in_v) {
             const RiseFall* in_rf = arc->fromEdge()->asRiseFall();
-            float s = graph_->slew(in_v, in_rf, dcalc_ap->index());
+            float s = graph_->slew(in_v, in_rf, scene->dcalcAnalysisPtIndex(min_max));
             if (s > 0) in_slew = s;
           }
         }
@@ -456,8 +458,8 @@ ParallelInitializer::countViolations(int& cap_cnt, int& slew_cnt)
   cap_cnt = 0;
   slew_cnt = 0;
   sta::LibertyLibrary* default_lib = network_->defaultLibertyLibrary();
-  const sta::DcalcAnalysisPt* dcalc_ap
-      = sta_->cmdScene()->findDcalcAnalysisPt(MinMax::max());
+  const sta::Scene* scene = sta_->cmdScene();
+  const sta::MinMax* min_max = sta::MinMax::max();
 
   for (odb::dbInst* db_inst : block_->getInsts()) {
     if (!db_inst->getMaster()->isCoreAutoPlaceable()) continue;
@@ -476,7 +478,7 @@ ParallelInitializer::countViolations(int& cap_cnt, int& slew_cnt)
       if (!ce && default_lib) default_lib->defaultMaxCapacitance(cl, ce);
       if (ce) {
         float cl_m = cl * (1.0f - cap_margin_ / 100.0f);
-        if (graph_delay_calc_->loadCap(p, dcalc_ap) > cl_m) cap_cnt++;
+        if (graph_delay_calc_->loadCap(p, scene, min_max) > cl_m) cap_cnt++;
       }
       // Slew check (with margin)
       float sl; bool se;
@@ -488,7 +490,7 @@ ParallelInitializer::countViolations(int& cap_cnt, int& slew_cnt)
         graph_->pinVertices(p, v, bi);
         if (v) {
           for (auto rf : RiseFall::range()) {
-            if (graph_->slew(v, rf, dcalc_ap->index()) > sl_m) {
+            if (graph_->slew(v, rf, scene->dcalcAnalysisPtIndex(min_max)) > sl_m) {
               slew_cnt++;
               break;
             }
@@ -578,8 +580,9 @@ ParallelInitializer::run()
   sta_->ensureGraph();
   sta_->findDelays();
   sta::LibertyLibrary* sum_lib = network_->defaultLibertyLibrary();
-  const sta::DcalcAnalysisPt* sum_ap
-      = sta_->cmdScene()->findDcalcAnalysisPt(MinMax::max());
+  const sta::Scene* sum_scene = sta_->cmdScene();
+  const sta::MinMax* sum_min_max = sta::MinMax::max();
+  const sta::DcalcAPIndex sum_ap_index = sum_scene->dcalcAnalysisPtIndex(sum_min_max);
 
   int drvr_slew_cnt = 0, load_slew_cnt = 0, cap_cnt = 0;
   float drvr_slew_sum = 0, load_slew_sum = 0, cap_sum = 0;
@@ -623,7 +626,7 @@ ParallelInitializer::run()
         graph_->pinVertices(p, v, bi);
         if (v) {
           for (auto rf : RiseFall::range()) {
-            float s = graph_->slew(v, rf, sum_ap->index());
+            float s = graph_->slew(v, rf, sum_ap_index);
             if (s > sl) {
               float excess = (s - sl) * 1e9;
               if (network_->direction(p)->isOutput()) {
@@ -641,7 +644,7 @@ ParallelInitializer::run()
         lp->capacitanceLimit(MinMax::max(), cl, ce);
         if (!ce && sum_lib) sum_lib->defaultMaxCapacitance(cl, ce);
         if (ce) {
-          float lc = graph_delay_calc_->loadCap(p, sum_ap);
+          float lc = graph_delay_calc_->loadCap(p, sum_scene, sum_min_max);
           if (lc > cl) { cap_cnt++; cap_sum += (lc - cl) * 1e15; }
         }
       }
@@ -702,8 +705,8 @@ ParallelInitializer::fixLoadViolationsParallel()
 {
   est::EstimateParasitics* ep = resizer_->getEstimateParasitics();
   est::IncrementalParasiticsGuard guard(ep);
-  const sta::DcalcAnalysisPt* dcalc_ap
-      = sta_->cmdScene()->findDcalcAnalysisPt(MinMax::max());
+  sta::Scene* scene = sta_->cmdScene();
+  const sta::MinMax* min_max = sta::MinMax::max();
   sta::LibertyLibrary* default_lib = network_->defaultLibertyLibrary();
 
   sta_->ensureGraph();
@@ -732,7 +735,7 @@ ParallelInitializer::fixLoadViolationsParallel()
   }
 
   FixLoadVisitor visitor(this, sta_, db_network_, graph_, graph_delay_calc_,
-                         ep, dcalc_ap, default_lib, modify_mutex_);
+                         ep, scene, min_max, default_lib, modify_mutex_);
   bfs.visitParallel(0, &visitor);
 
   int unfixed = visitor.violCount() - visitor.upsizeCount();
@@ -753,8 +756,8 @@ ParallelInitializer::fixSlewViolationsParallel()
 {
   est::EstimateParasitics* ep = resizer_->getEstimateParasitics();
   est::IncrementalParasiticsGuard guard(ep);
-  const sta::DcalcAnalysisPt* dcalc_ap
-      = sta_->cmdScene()->findDcalcAnalysisPt(MinMax::max());
+  sta::Scene* scene = sta_->cmdScene();
+  const sta::MinMax* min_max = sta::MinMax::max();
   sta::LibertyLibrary* default_lib = network_->defaultLibertyLibrary();
 
   float default_max_slew = sta::INF;
@@ -799,7 +802,7 @@ ParallelInitializer::fixSlewViolationsParallel()
     }
 
     FixSlewVisitor visitor(this, sta_, db_network_, graph_, graph_delay_calc_,
-                           ep, dcalc_ap, default_max_slew, modify_mutex_);
+                           ep, scene, min_max, default_max_slew, modify_mutex_);
     bfs.visitParallel(max_level, &visitor);
 
     int upsized_this_pass = visitor.upsized();
@@ -822,7 +825,7 @@ ParallelInitializer::fixSlewViolationsParallel()
   // Final verification.
   sta_->findDelays();
   int remaining = 0;
-  const sta::DcalcAnalysisPt* dcalc_ap2
+  const lrf::DcalcAnalysisPt* dcalc_ap2
       = sta_->cmdScene()->findDcalcAnalysisPt(MinMax::max());
   sta::VertexIterator viter2(graph_);
   while (viter2.hasNext()) {

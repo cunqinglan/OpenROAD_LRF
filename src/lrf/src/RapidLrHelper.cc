@@ -26,7 +26,7 @@ float
 RapidLrHelper::getMultiplier(Slack arc_slack) {
   // Only consider the first clock now
   float clock_period = 0.0f;
-  for (Clock *clock : *sdc_->clocks()) {
+  for (Clock *clock : *sta_->cmdMode()->sdc()->clocks()) {
     float period = clock->period();
     if (period > clock_period) {
       clock_period = period;
@@ -64,15 +64,15 @@ RapidLrHelper::getMultiplier(Slack arc_slack) {
   return scaling_factor;
 }
 
-void 
-RapidLrHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta, 
-                                    DcalcAnalysisPt const *dcalc_ap) 
+void
+RapidLrHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta,
+                                    sta::Scene *scene, const sta::MinMax *min_max)
 {
-  const size_t ap_index = dcalc_ap->index();
+  const size_t ap_index = scene->dcalcAnalysisPtIndex(min_max);
   const RiseFall *from_rf = arc->fromEdge()->asRiseFall();
   const RiseFall *to_rf = arc->toEdge()->asRiseFall();
-  const MinMax *delay_minmax = dcalc_ap->delayMinMax();
-  Delay delay = sta->arcDelay(edge, arc, dcalc_ap);
+  const MinMax *delay_minmax = min_max;
+  Delay delay = sta->arcDelay(edge, arc, scene, min_max);
   size_t lm_idx = arc->index() * graph_->apCount() + ap_index;
   Vertex *from_vertex = edge->from(graph_);
   Vertex *to_vertex = edge->to(graph_);
@@ -100,7 +100,7 @@ RapidLrHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta,
   if (multiplier < 0.0) {
     printf("RapidLrHelper::updateEndPointArcLms: ERROR: edge %s AP corner %s delay min/max %s: computed non-positive multiplier %.6f with aat %.6f, rat %.6f, delay %.6f\n",
             edge->to_string(graph_).c_str(),
-            dcalc_ap->corner()->name(),
+            scene->name(),
             delay_minmax->to_string().c_str(),
             multiplier,
             from_aat * 1.0e12, to_rat * 1.0e12, delay * 1.0e12);
@@ -115,20 +115,20 @@ RapidLrHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta,
   }
 }
 
-void 
-RapidLrHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, 
-                            DcalcAnalysisPt const *dcalc_ap) 
+void
+RapidLrHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta,
+                            sta::Scene *scene, const sta::MinMax *min_max)
 {
-  size_t ap_index = dcalc_ap->index();
+  size_t ap_index = scene->dcalcAnalysisPtIndex(min_max);
   size_t lm_idx = lmIndex(arc, ap_index, graph_->apCount());
   sta::Vertex *from_vertex = edge->from(graph_);
   sta::Vertex *to_vertex = edge->to(graph_);
   sta::RiseFall const *from_rf = arc->fromEdge()->asRiseFall();
   sta::RiseFall  const *to_rf = arc->toEdge()->asRiseFall();
-  sta::MinMax const *delay_minmax = dcalc_ap->delayMinMax();
+  sta::MinMax const *delay_minmax = min_max;
   sta::Arrival from_aat = sta->pinArrival(from_vertex->pin(), from_rf, delay_minmax);
   sta::Required to_rat = sta->vertexRequired(to_vertex, to_rf, delay_minmax);
-  sta::Delay delay = sta->arcDelay(edge, arc, dcalc_ap);
+  sta::Delay delay = sta->arcDelay(edge, arc, scene, min_max);
   LMValue *lms = edge->arcLms();
 
   // Disabled edge: unconstrained timing values.
@@ -168,8 +168,9 @@ RapidLrHelper::updateCriticalPathLms(sta::Path *path_end)
     return true;
   }
   const int start_index = expended_path.startIndex();
-  const sta::DcalcAnalysisPt *dcalc_ap = path_end->dcalcAnalysisPt(sta_);
-  const int lib_ap = dcalc_ap->libertyIndex();
+  sta::Scene *scene = path_end->scene(sta_);
+  const sta::MinMax *min_max = path_end->minMax(sta_);
+  const int lib_ap = scene->libertyIndex(min_max);
   float min_delta_lm = 0.0f;
   
   // First pass: calculate min_delta_lm
@@ -201,7 +202,7 @@ RapidLrHelper::updateCriticalPathLms(sta::Path *path_end)
         fflush(stdout);
         continue;
       }
-      size_t lm_idx = lmIndex(arc, dcalc_ap->index(), graph_->apCount());
+      size_t lm_idx = lmIndex(arc, scene->dcalcAnalysisPtIndex(min_max), graph_->apCount());
       Slack path_slack = path->slack(sta_);
       float multiplier = getMultiplier(path_slack);
       if (multiplier == 0.0f) {
@@ -227,7 +228,7 @@ RapidLrHelper::updateCriticalPathLms(sta::Path *path_end)
       if (!lms) {
         continue;
       }
-      size_t lm_idx = lmIndex(arc, dcalc_ap->index(), graph_->apCount());
+      size_t lm_idx = lmIndex(arc, scene->dcalcAnalysisPtIndex(min_max), graph_->apCount());
       lms[lm_idx] += min_delta_lm;
       static constexpr LMValue LM_FLOOR = 1e-16;
       if (lms[lm_idx] < LM_FLOOR) {

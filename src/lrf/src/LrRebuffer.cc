@@ -131,16 +131,18 @@ LrRebuffer::LrRebuffer(rsz::Resizer *resizer, LocalSta *local_sta,
 void
 LrRebuffer::annotateLoadSlacksSlackDp(BnetPtr& tree, sta::VertexId drvr_vid)
 {
-  // Step 1: cache driver arrival per rise/fall for the target dcalc_ap.
+  // Step 1: cache driver arrival per rise/fall for the target (scene, min_max).
   // Replaces Rebuffer::arrival_paths_ (single-thread, shared-STA based) with
   // thread-local state derived from local_sta_ + the known PtGraph dap.
-  sta::DcalcAnalysisPt *target_dcalc_ap = eval_ctx_->pt_graph->dcalcAnalysisPt();
+  sta::Scene *target_scene = eval_ctx_->pt_graph->scene();
+  const sta::MinMax *target_min_max = eval_ctx_->pt_graph->minMax();
+  sta::DcalcAPIndex target_ap_index = eval_ctx_->pt_graph->apIndex();
   sta::Arrival drvr_arrival[sta::RiseFall::index_count] = {0, 0};
   PtVertex &drvr_pv = eval_ctx_->pt_graph->ptVertex(drvr_vid);
   PtVertexPathIterator drvr_iter(drvr_pv, local_sta_);
   while (drvr_iter.hasNext()) {
     sta::Path *p = drvr_iter.next();
-    if (p->dcalcAnalysisPt(local_sta_) == target_dcalc_ap) {
+    if (p->dcalcAnalysisPtIndex(local_sta_) == target_ap_index) {
       int rf_idx = p->transition(local_sta_)->index();
       drvr_arrival[rf_idx] = p->arrival();
     }
@@ -162,7 +164,9 @@ LrRebuffer::annotateLoadSlacksSlackDp(BnetPtr& tree, sta::VertexId drvr_vid)
           sta::Vertex *sv = graph_->pinLoadVertex(load_pin);
           PtVertex *load_pv = sv ? eval_ctx_->pt_graph->ptVertex(sv) : nullptr;
           sta::Path *req_path = load_pv
-              ? local_sta_->ptVertexWorstSlackPath(*load_pv, target_dcalc_ap)
+              ? local_sta_->ptVertexWorstSlackPath(*load_pv,
+                                                    target_scene,
+                                                    target_min_max)
               : nullptr;
           if (req_path == nullptr) {
             node->setSlackTransition(nullptr);
@@ -1077,7 +1081,7 @@ LrRebuffer::computeNetSensitivity(const sta::Pin *drvr_pin,
   const float r_drv = drvr_port->driveResistance();
 
   PtGraph *pt_graph = eval_ctx_->pt_graph;
-  const sta::DcalcAPIndex ap_index = pt_graph->dcalcAnalysisPt()->index();
+  const sta::DcalcAPIndex ap_index = pt_graph->scene()->index();
   const sta::DcalcAPIndex ap_count = graph_->apCount();
 
   // ---- Bakoglu gate: 1{D_current > D_opt} via PtPiElmore ----
@@ -2130,7 +2134,7 @@ LrRebuffer::cellDelayLmSum(VertexId pt_vertex_id,
   max_slew = -INF;
   PtGraph *pt_graph = eval_ctx_->pt_graph;
   float delay_lm_sum = 0.0f;
-  sta::DcalcAnalysisPt *dcalc_pt = pt_graph->dcalcAnalysisPt();
+  lrf::DcalcAnalysisPt *dcalc_pt = pt_graph->scene();
   sta::DcalcAPIndex ap_index = dcalc_pt->index();
   float output_cap = load_opt->cap();
   PtVertexInEdgeIterator in_edge_iter(pt_vertex_id, pt_graph);
@@ -2178,12 +2182,13 @@ rsz::FixedDelay
 LrRebuffer::computeBufferGateDelay(sta::LibertyCell *buffer_cell,
                                    float load_cap)
 {
-  sta::DcalcAnalysisPt *dcalc_ap = eval_ctx_->pt_graph->dcalcAnalysisPt();
+  sta::Scene *scene = eval_ctx_->pt_graph->scene();
+  const sta::MinMax *min_max = eval_ctx_->pt_graph->minMax();
   sta::LibertyPort *input, *output;
   buffer_cell->bufferPorts(input, output);
   sta::ArcDelay gate_delays[sta::RiseFall::index_count];
   sta::Slew slews[sta::RiseFall::index_count];
-  resizer_->gateDelays(output, load_cap, dcalc_ap, gate_delays, slews);
+  resizer_->gateDelays(output, load_cap, scene, min_max, gate_delays, slews);
   rsz::FixedDelay delay = rsz::FixedDelay::ZERO;
   for (auto rf : sta::RiseFall::range()) {
     delay = std::max<rsz::FixedDelay>(
@@ -2199,7 +2204,7 @@ LrRebuffer::computeBufferAddedCost(float buffer_delay_seconds,
                                     float buffer_leakage,
                                     const BnetPtr& load_opt)
 {
-  sta::DcalcAPIndex ap_index = eval_ctx_->pt_graph->dcalcAnalysisPt()->index();
+  sta::DcalcAPIndex ap_index = eval_ctx_->pt_graph->apIndex();
   // Part 1: Calculate buffer delay × LM contribution
   float buffer_delta_delay_lm = 0.0f;
   const auto& load_lms = load_opt->lms();
@@ -2915,8 +2920,8 @@ LrRebuffer::buildVirtualBuffer(VertexId drvr_vertex_id,
     PtEdge &e = pt_graph->edge(eid);
     sta::ArcDelay d(delay_sec);
     for (const sta::RiseFall *rf : sta::RiseFall::range()) {
-      for (sta::DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
-        pt_graph->setWireArcDelay(e, rf, dcalc_ap->index(), d);
+      for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
+        pt_graph->setWireArcDelay(e, rf, scene->dcalcAnalysisPtIndex(min_max), d);
       }
     }
   };
@@ -3234,20 +3239,19 @@ LrRebuffer::buildSyntheticParasitics(VertexId drvr_vertex_id,
   Walker walk = [&](const BufferedNetPtr& bnet, VertexId current_drvr_id) {
     float dbg_orig_cap_rise = -999.0f, dbg_orig_cap_fall = -999.0f;
     if (eval_ctx_->debug) {
-      sta::DcalcAnalysisPt *dap = sta_->findScene("default")->findDcalcAnalysisPt(sta::MinMax::max());
-      PtPiElmore *pi_r = pt_graph->findPtParasitic(current_drvr_id, sta::RiseFall::rise(), dap->index());
-      PtPiElmore *pi_f = pt_graph->findPtParasitic(current_drvr_id, sta::RiseFall::fall(), dap->index());
+      const sta::DcalcAPIndex ap_index = pt_graph->apIndex();
+      PtPiElmore *pi_r = pt_graph->findPtParasitic(current_drvr_id, sta::RiseFall::rise(), ap_index);
+      PtPiElmore *pi_f = pt_graph->findPtParasitic(current_drvr_id, sta::RiseFall::fall(), ap_index);
       if (pi_r) dbg_orig_cap_rise = pi_r->capacitance();
       if (pi_f) dbg_orig_cap_fall = pi_f->capacitance();
     }
 
     pt_graph->clearPtParasitics(current_drvr_id);
 
-    for (sta::DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
-      const sta::Scene *corner = dcalc_ap->corner();
-      const sta::MinMax *min_max = dcalc_ap->constraintMinMax();
-      const sta::ParasiticAnalysisPt *ap = dcalc_ap->parasiticAnalysisPt();
-      float coupling_cap_factor = ap->couplingCapFactor();
+    for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
+      const sta::Scene *corner = scene;
+      sta::Parasitics *parasitics = scene->parasitics(min_max);
+      float coupling_cap_factor = parasitics->couplingCapFactor();
 
       for (const sta::RiseFall *rf : sta::RiseFall::range()) {
         int saved_vi = vi;
@@ -3270,10 +3274,10 @@ LrRebuffer::buildSyntheticParasitics(VertexId drvr_vertex_id,
         LocalReduceToPiElmore reducer(this, pt_graph);
         float c2, rpi, c1;
         reducer.reduceToPi(syn_net, nullptr, drvr_node, coupling_cap_factor,
-                           rf, corner, min_max, ap, c2, rpi, c1);
+                           rf, corner, min_max, c2, rpi, c1);
 
         PtPiElmore &pt_pi = pt_graph->makePtParasitic(
-            current_drvr_id, rf, dcalc_ap->index());
+            current_drvr_id, rf, scene->dcalcAnalysisPtIndex(min_max));
         pt_pi.setPiModel(c2, rpi, c1);
 
         if (eval_ctx_->debug) {
@@ -3287,7 +3291,7 @@ LrRebuffer::buildSyntheticParasitics(VertexId drvr_vertex_id,
         }
 
         // Elmore DFS using downstream caps from reduceToPi
-        auto resistor_map = parasitics_->parasiticNodeResistorMap(syn_net);
+        auto resistor_map = scene->parasitics(min_max)->parasiticNodeResistorMap(syn_net);
         std::set<sta::ParasiticNode*> visited;
         std::unordered_map<unsigned, float> node_elmore;
 
@@ -3898,9 +3902,9 @@ LrRebuffer::probeRszBnetWithLocalEval(const sta::Pin *drvr_pin,
   buildSyntheticParasitics(drvr_vid, bnet, vinfo);
 
   if (eval_ctx_->debug) {
-    sta::DcalcAnalysisPt *dap = sta_->findScene("default")->findDcalcAnalysisPt(sta::MinMax::max());
+    const sta::DcalcAPIndex ap_index = pt_graph->apIndex();
     for (const sta::RiseFall *rf : sta::RiseFall::range()) {
-      PtPiElmore *pi = pt_graph->findPtParasitic(drvr_vid, rf, dap->index());
+      PtPiElmore *pi = pt_graph->findPtParasitic(drvr_vid, rf, ap_index);
       printf("[DBG-PRE-INCRE] drvr_vid=%u rf=%s cap=%.4e (before increAndGetLocalTimingCost)\n",
              (unsigned)drvr_vid, rf->name(),
              pi ? pi->capacitance() : -1.0f);

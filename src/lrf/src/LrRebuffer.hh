@@ -235,7 +235,8 @@ protected:
   // Used as a thread-safe replacement for Rebuffer::arrival_paths_ when
   // running slack-based bufferForTiming on LRF context.
   const sta::RiseFall *drvr_worst_rf_ = nullptr;
-  const sta::DcalcAnalysisPt *drvr_worst_dap_ = nullptr;
+  const sta::Scene *drvr_worst_scene_ = nullptr;
+  const sta::MinMax *drvr_worst_min_max_ = nullptr;
 
   // Saved from last bufferForTiming call (last iteration's top options)
   std::vector<rsz::BufferedNetPtr> last_top_opts_;

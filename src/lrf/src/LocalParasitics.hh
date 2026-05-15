@@ -14,8 +14,6 @@ namespace sta {
   class ParasiticNode;
   class StaState;
   class ConcretePiElmore;
-
-  typedef Map<const Net*, ConcreteParasiticNetwork**> ConcreteParasiticNetworkMap;
 }
 
 namespace lrf {
@@ -32,13 +30,18 @@ public:
   LocalParasitics(sta::StaState* state, bool parallelism_exists = true);
   virtual ~LocalParasitics();
   void initParasiticMapFromBase();
-  Parasitic *findLocalParasiticNetwork(const Net *net, const ParasiticAnalysisPt *ap) const;
+  Parasitic *findLocalParasiticNetwork(const Net *net) const;
   // Reduce parasitic networks into PtGraph-local PtPiElmore objects.
   void recomputePtParasitics(PtGraph *pt_graph);
   // Rebuild PtPiElmore for a single driver vertex from the original parasitic network.
   void recomputeSinglePtParasitic(PtGraph *pt_graph, sta::VertexId drvr_vid);
 
 protected:
+  // Access the "global" parasitics object — historically StaState::parasitics_,
+  // now lives on the (single) Scene. LRF assumes single-scene deployment;
+  // multi-scene support would push this down to per-call site.
+  Parasitics *globalParasitics() const;
+
   float pinCapacitance(const ParasiticNode *node,
                         const RiseFall *rf,
                         const Scene *corner,

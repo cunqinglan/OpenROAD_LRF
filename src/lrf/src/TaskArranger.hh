@@ -309,7 +309,7 @@ private:
   friend class TaskArranger;
 };
 
-class SearchMEEPred : public sta::SearchPred2
+class SearchMEEPred : public sta::SearchPred1
 {
 public:
   explicit SearchMEEPred(sta::StaState* sta);

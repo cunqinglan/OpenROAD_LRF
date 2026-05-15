@@ -327,7 +327,7 @@ IncreSta::lmUpdate()
   // History is fed externally via recordMetrics() at snapshot time.
   if (lr_helper_ && lr_helper_->mode() != "power") {
     float clock_period = 0.0f;
-    for (Clock *clock : *sdc_->clocks()) {
+    for (Clock *clock : *sta_->cmdMode()->sdc()->clocks()) {
       float period = clock->period();
       if (period > clock_period) {
         clock_period = period;
@@ -471,8 +471,8 @@ IncreSta::averageLeakage()
 float
 IncreSta::averageOutSlew()
 {
-  sta::Scene *corner = sta_->findScene("default");
-  sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
+  sta::Scene *scene = sta_->findScene("default");
+  const sta::MinMax *min_max = sta::MinMax::max();
   double sum = 0.0;
   int cnt = 0;
   sta::LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
@@ -488,7 +488,7 @@ IncreSta::averageOutSlew()
         continue;
       float s = 0.0f;
       for (const RiseFall *rf : RiseFall::range()) {
-        float sl = sta_->graph()->slew(vtx, rf, dcalc_ap->index());
+        float sl = sta_->graph()->slew(vtx, rf, scene->dcalcAnalysisPtIndex(min_max));
         if (sl > s) s = sl;
       }
       sum += s;
@@ -503,8 +503,8 @@ IncreSta::averageOutSlew()
 float
 IncreSta::averageLoadCap()
 {
-  sta::Scene *corner = sta_->findScene("default");
-  sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
+  sta::Scene *scene = sta_->findScene("default");
+  const sta::MinMax *min_max = sta::MinMax::max();
   double sum = 0.0;
   int cnt = 0;
   sta::LeafInstanceIterator *inst_iter = network_->leafInstanceIterator();
@@ -515,7 +515,7 @@ IncreSta::averageLoadCap()
       sta::Pin *pin = pin_iter->next();
       if (!network_->direction(pin)->isAnyOutput())
         continue;
-      float lc = sta_->graphDelayCalc()->loadCap(pin, dcalc_ap);
+      float lc = sta_->graphDelayCalc()->loadCap(pin, scene, min_max);
       sum += lc;
       cnt++;
     }
@@ -663,7 +663,7 @@ IncreSta::makeEquivCellArray(bool verbose)
   sta::dbNetwork* network = sta->getDbNetwork();
 
   sta::Scene* corner = sta->cmdScene();
-  const sta::DcalcAnalysisPt* dcalc_ap
+  const lrf::DcalcAnalysisPt* dcalc_ap
       = corner ? corner->findDcalcAnalysisPt(sta::MinMax::max()) : nullptr;
   const int lib_ap = dcalc_ap ? dcalc_ap->libertyIndex() : 0;
 
@@ -1511,9 +1511,8 @@ IncreSta::bufferingVerticesCandidate(int top_n)
   sta::Graph *graph = sta_->graph();
   const sta::Network *network = sta_->network();
   sta::GraphDelayCalc *dcalc = sta_->graphDelayCalc();
-  const sta::Scene *corner = sta_->cmdScene();
-  const sta::DcalcAnalysisPt *dcalc_ap
-      = corner->findDcalcAnalysisPt(sta::MinMax::max());
+  const sta::Scene *scene = sta_->cmdScene();
+  const sta::MinMax *min_max = sta::MinMax::max();
 
   struct BufferCandidate {
     size_t vertex_id;
@@ -1545,7 +1544,7 @@ IncreSta::bufferingVerticesCandidate(int top_n)
           sta::Slack slack = sta_->slack(vertex, sta::MinMax::max());
           if (slack < worst_slack)
             worst_slack = slack;
-          float load = dcalc->loadCap(pin, dcalc_ap);
+          float load = dcalc->loadCap(pin, scene, min_max);
           if (load > cout)
             cout = load;
         }

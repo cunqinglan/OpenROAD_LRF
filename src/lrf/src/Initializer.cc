@@ -46,12 +46,15 @@ Initializer::~Initializer() = default;
 
 float
 Initializer::estimateMaxSlew(sta::LibertyPort* port, float load_cap,
-                             const sta::DcalcAnalysisPt* dcalc_ap,
+                             const sta::Scene* scene,
+                             const sta::MinMax* min_max,
                              sta::Instance* inst)
 {
   if (!port) return sta::INF;
   sta::LibertyCell* cell = port->libertyCell();
   sta::Graph* graph = sta_->graph();
+  const sta::DcalcAPIndex ap_index = scene->dcalcAnalysisPtIndex(min_max);
+  sta::OperatingConditions* op_cond = scene->sdc()->operatingConditions(min_max);
   float max_slew = 0;
   for (sta::TimingArcSet* arc_set : cell->timingArcSets()) {
     if (arc_set->role()->isTimingCheck()) continue;
@@ -69,14 +72,14 @@ Initializer::estimateMaxSlew(sta::LibertyPort* port, float load_cap,
           sta::Vertex* in_v = graph->pinLoadVertex(in_pin);
           if (in_v) {
             const sta::RiseFall* in_rf = arc->fromEdge()->asRiseFall();
-            float s = graph->slew(in_v, in_rf, dcalc_ap->index());
+            float s = graph->slew(in_v, in_rf, ap_index);
             if (s > 0) in_slew = s;
           }
         }
       }
       sta::ArcDelay arc_delay;
       sta::Slew arc_slew;
-      model->gateDelay(dcalc_ap->operatingConditions(),
+      model->gateDelay(op_cond,
                        in_slew, load_cap, false, arc_delay, arc_slew);
       max_slew = std::max(max_slew, sta::delayAsFloat(arc_slew));
     }
@@ -145,7 +148,7 @@ Initializer::run()
   const Scene* corner = sta_->cmdScene();
   const MinMax* max = MinMax::max();
   sta::LibertyLibrary* sum_lib = db_network->defaultLibertyLibrary();
-  const sta::DcalcAnalysisPt* sum_ap = corner->findDcalcAnalysisPt(max);
+  const sta::DcalcAPIndex sum_ap_index = corner->dcalcAnalysisPtIndex(max);
 
   int drvr_slew_cnt = 0, load_slew_cnt = 0, cap_cnt = 0;
   float drvr_slew_sum = 0, load_slew_sum = 0, cap_sum = 0;
@@ -171,7 +174,7 @@ Initializer::run()
         graph->pinVertices(p, v, bi);
         if (v) {
           for (auto rf : RiseFall::range()) {
-            float s = graph->slew(v, rf, sum_ap->index());
+            float s = graph->slew(v, rf, sum_ap_index);
             if (s > sl) {
               float excess = (s - sl) * 1e9;
               if (network_->direction(p)->isOutput()) {
@@ -191,7 +194,7 @@ Initializer::run()
         lp->capacitanceLimit(max, cl, ce);
         if (!ce && sum_lib) sum_lib->defaultMaxCapacitance(cl, ce);
         if (ce) {
-          float lc = sta_->graphDelayCalc()->loadCap(p, sum_ap);
+          float lc = sta_->graphDelayCalc()->loadCap(p, corner, max);
           if (lc > cl) {
             cap_cnt++;
             cap_sum += (lc - cl) * 1e15;
@@ -263,9 +266,8 @@ void
 Initializer::fixLoadViolations()
 {
   sta::dbNetwork* db_network = sta_->getDbNetwork();
-  const Scene* corner = sta_->cmdScene();
-  const MinMax* max = MinMax::max();
-  const sta::DcalcAnalysisPt* dcalc_ap = corner->findDcalcAnalysisPt(max);
+  const Scene* scene = sta_->cmdScene();
+  const MinMax* min_max = MinMax::max();
   sta::LibertyLibrary* default_lib = db_network->defaultLibertyLibrary();
   est::EstimateParasitics* ep = resizer_->getEstimateParasitics();
   est::IncrementalParasiticsGuard guard(ep);
@@ -303,13 +305,13 @@ Initializer::fixLoadViolations()
     sta::LibertyPort* drvr_port = network_->libertyPort(out_pin);
     if (!drvr_port) continue;
 
-    float load_cap = sta_->graphDelayCalc()->loadCap(out_pin, dcalc_ap);
+    float load_cap = sta_->graphDelayCalc()->loadCap(out_pin, scene, min_max);
 
     // Get maxcap limit
     float cap_limit = sta::INF;
     {
       float cl; bool ex;
-      drvr_port->capacitanceLimit(max, cl, ex);
+      drvr_port->capacitanceLimit(min_max, cl, ex);
       if (!ex && default_lib) default_lib->defaultMaxCapacitance(cl, ex);
       if (ex) cap_limit = cl;
     }
@@ -319,7 +321,7 @@ Initializer::fixLoadViolations()
     float slew_limit = sta::INF;
     {
       float sl; bool ex;
-      drvr_port->slewLimit(max, sl, ex);
+      drvr_port->slewLimit(min_max, sl, ex);
       if (!ex && default_lib) default_lib->defaultMaxSlew(sl, ex);
       if (ex) slew_limit = sl;
     }
@@ -328,7 +330,7 @@ Initializer::fixLoadViolations()
     bool cap_viol = (load_cap > cap_limit);
     bool slew_viol = false;
     if (slew_limit < sta::INF) {
-      float est_slew = estimateMaxSlew(drvr_port, load_cap, dcalc_ap, inst);
+      float est_slew = estimateMaxSlew(drvr_port, load_cap, scene, min_max, inst);
       if (est_slew > slew_limit)
         slew_viol = true;
     }
@@ -355,13 +357,13 @@ Initializer::fixLoadViolations()
 
       // Check maxcap
       float cl; bool ex;
-      ep->capacitanceLimit(max, cl, ex);
+      ep->capacitanceLimit(min_max, cl, ex);
       if (!ex && default_lib) default_lib->defaultMaxCapacitance(cl, ex);
       if (ex && load_cap > cl) continue;
 
       // Check slew-as-cap: can this cell drive load_cap within slew_limit?
       if (slew_limit < sta::INF) {
-        float est = estimateMaxSlew(ep, load_cap, dcalc_ap, inst);
+        float est = estimateMaxSlew(ep, load_cap, scene, min_max, inst);
         if (est > slew_limit) continue;
       }
 
@@ -395,9 +397,8 @@ void
 Initializer::fixSlewViolations()
 {
   sta::dbNetwork* db_network = sta_->getDbNetwork();
-  const Scene* corner = sta_->cmdScene();
-  const MinMax* max = MinMax::max();
-  const sta::DcalcAnalysisPt* dcalc_ap = corner->findDcalcAnalysisPt(max);
+  const Scene* scene = sta_->cmdScene();
+  const MinMax* min_max = MinMax::max();
   sta::Graph* graph = sta_->graph();
   sta::LibertyLibrary* default_lib = db_network->defaultLibertyLibrary();
   est::EstimateParasitics* ep = resizer_->getEstimateParasitics();
@@ -428,12 +429,12 @@ Initializer::fixSlewViolations()
 
     float limit = 0.0f;
     bool exists = false;
-    port->slewLimit(max, limit, exists);
+    port->slewLimit(min_max, limit, exists);
     if (!exists) limit = default_max_slew;
 
     float worst = 0.0f;
     for (auto rf : RiseFall::range()) {
-      float s = graph->slew(vertex, rf, dcalc_ap->index());
+      float s = graph->slew(vertex, rf, scene->dcalcAnalysisPtIndex(min_max));
       worst = std::max(worst, s);
     }
     if (worst > limit)
@@ -464,7 +465,7 @@ Initializer::fixSlewViolations()
 
       float worst = 0.0f;
       for (auto rf : RiseFall::range()) {
-        float s = graph->slew(vertex, rf, dcalc_ap->index());
+        float s = graph->slew(vertex, rf, scene->dcalcAnalysisPtIndex(min_max));
         worst = std::max(worst, s);
       }
       if (worst <= v.limit) continue;
@@ -474,7 +475,7 @@ Initializer::fixSlewViolations()
       sta::LibertyPort* drvr_port = network_->libertyPort(v.drvr_pin);
       if (!cur_cell || !drvr_port) continue;
 
-      float load_cap = sta_->graphDelayCalc()->loadCap(v.drvr_pin, dcalc_ap);
+      float load_cap = sta_->graphDelayCalc()->loadCap(v.drvr_pin, scene, min_max);
 
       LibertyCellSeq* equivs = sta_->equivCells(cur_cell);
       if (!equivs) continue;
@@ -489,7 +490,7 @@ Initializer::fixSlewViolations()
         if (ec->area() < cur_cell->area()) continue;
         sta::LibertyPort* ep = ec->findLibertyPort(drvr_port->name());
         if (!ep) continue;
-        float est = estimateMaxSlew(ep, load_cap, dcalc_ap, inst);
+        float est = estimateMaxSlew(ep, load_cap, scene, min_max, inst);
         if (est <= v.limit) {
           best = ec;
           break;
@@ -529,11 +530,11 @@ Initializer::fixSlewViolations()
     if (!port) continue;
     float limit = 0.0f;
     bool exists = false;
-    port->slewLimit(max, limit, exists);
+    port->slewLimit(min_max, limit, exists);
     if (!exists) limit = default_max_slew;
     float worst = 0.0f;
     for (auto rf : RiseFall::range()) {
-      float s = graph->slew(vertex, rf, dcalc_ap->index());
+      float s = graph->slew(vertex, rf, scene->dcalcAnalysisPtIndex(min_max));
       worst = std::max(worst, s);
     }
     if (worst > limit) {
@@ -541,7 +542,7 @@ Initializer::fixSlewViolations()
       // Diagnostic: why can't we fix this?
       sta::Instance* inst = network_->instance(pin);
       LibertyCell* cur = network_->libertyCell(inst);
-      float load_cap = sta_->graphDelayCalc()->loadCap(pin, dcalc_ap);
+      float load_cap = sta_->graphDelayCalc()->loadCap(pin, scene, min_max);
       // Find largest equiv cell and its estimated slew
       LibertyCellSeq* equivs = cur ? sta_->equivCells(cur) : nullptr;
       const char* largest_name = cur ? cur->name() : "?";
@@ -554,7 +555,7 @@ Initializer::fixSlewViolations()
         largest_name = largest->name();
         sta::LibertyPort* lp = largest->findLibertyPort(port->name());
         if (lp)
-          largest_slew = estimateMaxSlew(lp, load_cap, dcalc_ap, inst);
+          largest_slew = estimateMaxSlew(lp, load_cap, scene, min_max, inst);
       }
       printf("[Initializer] Step 3: UNRESOLVED pin %s, cell %s, "
              "slew=%.3fps limit=%.3fps load_cap=%.2ffF, "
@@ -578,9 +579,8 @@ void
 Initializer::fixCapByBuffering()
 {
   sta::dbNetwork* db_network = sta_->getDbNetwork();
-  const Scene* corner = sta_->cmdScene();
-  const MinMax* max = MinMax::max();
-  const sta::DcalcAnalysisPt* dcalc_ap = corner->findDcalcAnalysisPt(max);
+  const Scene* scene = sta_->cmdScene();
+  const MinMax* min_max = MinMax::max();
   sta::LibertyLibrary* default_lib = db_network->defaultLibertyLibrary();
   est::EstimateParasitics* ep = resizer_->getEstimateParasitics();
 
@@ -608,12 +608,12 @@ Initializer::fixCapByBuffering()
 
       float cap_limit;
       bool exists;
-      port->capacitanceLimit(max, cap_limit, exists);
+      port->capacitanceLimit(min_max, cap_limit, exists);
       if (!exists && default_lib)
         default_lib->defaultMaxCapacitance(cap_limit, exists);
       if (!exists) continue;
 
-      float load_cap = sta_->graphDelayCalc()->loadCap(p, dcalc_ap);
+      float load_cap = sta_->graphDelayCalc()->loadCap(p, scene, min_max);
       if (load_cap > cap_limit) {
         violations.push_back({p, inst, load_cap, cap_limit});
       }
@@ -707,7 +707,7 @@ Initializer::fixCapByBuffering()
           cell->bufferPorts(in, out);
           if (!out) continue;
           float cl; bool ce;
-          out->capacitanceLimit(max, cl, ce);
+          out->capacitanceLimit(min_max, cl, ce);
           if (!ce && default_lib)
             default_lib->defaultMaxCapacitance(cl, ce);
           if (!ce || cl < buf_group_cap) continue;
@@ -733,7 +733,7 @@ Initializer::fixCapByBuffering()
             c->bufferPorts(bi, bo);
             if (!bo) continue;
             float cl; bool ce;
-            bo->capacitanceLimit(max, cl, ce);
+            bo->capacitanceLimit(min_max, cl, ce);
             if (ce && cl > max_buf_cap) {
               max_buf_cap = cl;
               max_buf_name = c->name();

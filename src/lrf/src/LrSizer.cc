@@ -37,7 +37,7 @@ LrSizer::criticalPathSizing()
   const sta::VertexSet* endpoints = sta_->endpoints();
   std::vector<std::pair<sta::Vertex*, sta::Slack>> violating_ends;
   float clock_period = 0.0;
-  for (auto *clock : *sdc_->clocks()) {
+  for (auto *clock : *sta_->cmdMode()->sdc()->clocks()) {
     float period = clock->period();
     if (period > clock_period) {
       clock_period = period;

@@ -574,57 +574,55 @@ LocalSta::collectLocalFaninSiblings(Pin *load_pin, PinSet &visited_pins,
 
 // void 
 // LocalSta::makePtGraph(PtGraph *pt_graph, Instance *inst, 
-//                           DcalcAnalysisPt *dcalc_ap)
+//                           sta::Scene *scene, const sta::MinMax *min_max)
 // {
 //   InstanceSet local_instances(sta_->network());
 //   collectLocalGraph(inst, local_instances);
 //   pt_graph->makeGraph(local_instances, inst);
-//   if (dcalc_ap == nullptr) {
+//   if (scene == nullptr) {
 //     Scene *corner = sta_->findScene(0);
 //     dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
-//     if (dcalc_ap == nullptr) {
+//     if (scene == nullptr) {
 //       throw std::runtime_error("LocalSta::makePtGraph: No dcalc analysis point found");
 //     }
 //   }
-//   pt_graph->setDcalcAnalysisPt(dcalc_ap);
+//   pt_graph->setScene(scene, min_max);
 // }
 
 void
 LocalSta::makePtGraph(PtGraph *pt_graph, Instance *inst, 
-                      DcalcAnalysisPt *dcalc_ap)
+                      sta::Scene *scene, const sta::MinMax *min_max)
 {
   VertexSet local_vertices(graph_);
   collectLocalVertices(inst, local_vertices);
   pt_graph->makeGraph(local_vertices, inst);
-  if (dcalc_ap == nullptr) {
-    Scene *corner = sta_->findScene("default");
-    dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
-    if (dcalc_ap == nullptr) {
-      throw std::runtime_error("LocalSta::makePtGraph: No dcalc analysis point found");
+  if (scene == nullptr) {
+    scene = sta_->findScene("default");
+    if (scene == nullptr) {
+      throw std::runtime_error("LocalSta::makePtGraph: No scene found");
     }
   }
-  pt_graph->setDcalcAnalysisPt(dcalc_ap);
+  pt_graph->setScene(scene, min_max);
 }
 
 void
 LocalSta::makePtGraphDriverOnly(PtGraph *pt_graph, Instance *inst,
-                                DcalcAnalysisPt *dcalc_ap)
+                                sta::Scene *scene, const sta::MinMax *min_max)
 {
   VertexSet local_vertices(graph_);
   collectDriverFanoutOnly(inst, local_vertices);
   pt_graph->makeGraph(local_vertices, inst);
-  if (dcalc_ap == nullptr) {
-    Scene *corner = sta_->findScene("default");
-    dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
-    if (dcalc_ap == nullptr)
-      throw std::runtime_error("LocalSta::makePtGraphDriverOnly: No dcalc analysis point found");
+  if (scene == nullptr) {
+    scene = sta_->findScene("default");
+    if (scene == nullptr)
+      throw std::runtime_error("LocalSta::makePtGraphDriverOnly: No scene found");
   }
-  pt_graph->setDcalcAnalysisPt(dcalc_ap);
+  pt_graph->setScene(scene, min_max);
 }
 
 void
 LocalSta::makePtGraphFF(PtGraph *pt_graph, Instance *inst,
-                        DcalcAnalysisPt *dcalc_ap)
+                        sta::Scene *scene, const sta::MinMax *min_max)
 {
   VertexSet local_vertices(graph_);
   collectLocalVerticesFF(inst, local_vertices);
@@ -632,13 +630,12 @@ LocalSta::makePtGraphFF(PtGraph *pt_graph, Instance *inst,
   // Add CK→D setup check edges (after the regular vertex/edge build, so
   // both endpoints are already in vertex_map_).
   pt_graph->addCheckEdgesForRefInst();
-  if (dcalc_ap == nullptr) {
-    Scene *corner = sta_->findScene("default");
-    dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
-    if (dcalc_ap == nullptr)
-      throw std::runtime_error("LocalSta::makePtGraphFF: No dcalc analysis point found");
+  if (scene == nullptr) {
+    scene = sta_->findScene("default");
+    if (scene == nullptr)
+      throw std::runtime_error("LocalSta::makePtGraphFF: No scene found");
   }
-  pt_graph->setDcalcAnalysisPt(dcalc_ap);
+  pt_graph->setScene(scene, min_max);
 }
 
 PtGraph *
@@ -677,9 +674,10 @@ LocalSta::findLocalDelays(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc)
 void
 LocalSta::findLocalCheckDelays(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc)
 {
-  const sta::DcalcAnalysisPt *dcalc_ap = pt_graph->dcalcAnalysisPt();
-  if (dcalc_ap == nullptr) return;
-  const size_t ap_index = dcalc_ap->index();
+  sta::Scene *scene = pt_graph->scene();
+  const sta::MinMax *min_max = pt_graph->minMax();
+  if (scene == nullptr) return;
+  const size_t ap_index = scene->dcalcAnalysisPtIndex(min_max);
 
   // Iterate edges by id so we can take a mutable reference.
   const size_t edge_count = pt_graph->edgeCount();
@@ -725,23 +723,20 @@ LocalSta::findLocalCheckDelays(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc)
       float related_out_cap = 0.0f;
       if (related_out_pin)
         related_out_cap = sta_->graphDelayCalc()->loadCap(
-            related_out_pin, to_rf, dcalc_ap);
+            related_out_pin, to_rf, scene, min_max);
 
       sta::ArcDelay setup_delay = arc_delay_calc->checkDelay(
           check_pin, arc, from_slew, to_slew,
-          related_out_cap, dcalc_ap);
+          related_out_cap, scene, min_max);
       pt_graph->setArcDelay(pt_edge, arc, ap_index, setup_delay);
     }
   }
 }
 
 float
-LocalSta::computeSetupLmSum(PtGraph *pt_graph,
-                            const sta::DcalcAnalysisPt *dcalc_ap)
+LocalSta::computeSetupLmSum(PtGraph *pt_graph)
 {
-  if (!dcalc_ap) dcalc_ap = pt_graph->dcalcAnalysisPt();
-  if (!dcalc_ap) return 0.0f;
-  const size_t ap_index = dcalc_ap->index();
+  const size_t ap_index = pt_graph->apIndex();
   const size_t ap_count = graph_->apCount();
 
   float sum = 0.0f;
@@ -795,12 +790,10 @@ LocalSta::increAndGetLocalTimingCostFF(PtGraph *pt_graph,
   findLocalCheckDelays(pt_graph, arc_delay_calc);
   auto t3 = std::chrono::high_resolution_clock::now();
 
-  // Use the PtGraph's stored AP (set by makePtGraphFF via setDcalcAnalysisPt).
-  DcalcAnalysisPt *dcalc_ap = pt_graph->dcalcAnalysisPt();
   // Combinational + regClkToQ + wire arcs (CheckEdges excluded by avoid_check default).
-  DelayLmSumResult result = delayLmSum(pt_graph, dcalc_ap, false);
+  DelayLmSumResult result = delayLmSum(pt_graph, false);
   // Add setup contribution: Σ setup_delay × LM(D wire-in edge).
-  result.delay_lm_sum += computeSetupLmSum(pt_graph, dcalc_ap);
+  result.delay_lm_sum += computeSetupLmSum(pt_graph);
   auto t4 = std::chrono::high_resolution_clock::now();
 
   if (runtime_map) {
@@ -849,12 +842,13 @@ LocalSta::seedDrvrSlew(PtVertex &pt_drvr_vertex, PtGraph *pt_graph,
   InputDrive *drive = 0;
   if (network_->isTopLevelPort(drvr_pin)) {
     Port *port = network_->port(drvr_pin);
-    drive = sdc_->findInputDrive(port);
+    drive = pt_graph->scene()->sdc()->findInputDrive(port);
   }
-  const DcalcAnalysisPt *dcalc_ap = pt_graph->dcalcAnalysisPt();
+  sta::Scene *scene = pt_graph->scene();
+  const sta::MinMax *min_max = pt_graph->minMax();
   for (const RiseFall *rf : RiseFall::range()) {
     if (drive) {
-      const MinMax *cnst_min_max = dcalc_ap->constraintMinMax();
+      const MinMax *cnst_min_max = min_max;
       const LibertyCell *drvr_cell;
       const LibertyPort *from_port, *to_port;
       float *from_slews;
@@ -866,7 +860,7 @@ LocalSta::seedDrvrSlew(PtVertex &pt_drvr_vertex, PtGraph *pt_graph,
         seedNoDrvrCellSlew(pt_drvr_vertex, drvr_pin, rf, drive,
                            dcalc_ap, arc_delay_calc, pt_graph);
     } else {
-      seedNoDrvrSlew(pt_drvr_vertex, rf, dcalc_ap, arc_delay_calc, pt_graph);
+      seedNoDrvrSlew(pt_drvr_vertex, rf, scene, min_max, arc_delay_calc, pt_graph);
     }
   }
 }
@@ -876,12 +870,12 @@ LocalSta::seedNoDrvrCellSlew(PtVertex &pt_drvr_vertex,
                               const Pin *drvr_pin,
                               const RiseFall *rf,
                               const InputDrive *drive,
-                              const DcalcAnalysisPt *dcalc_ap,
+                              const sta::Scene *scene, const sta::MinMax *min_max,
                               ArcDelayCalc *arc_delay_calc,
                               PtGraph *pt_graph)
 {
-  DcalcAPIndex ap_index = dcalc_ap->index();
-  const MinMax *cnst_min_max = dcalc_ap->constraintMinMax();
+  DcalcAPIndex ap_index = scene->dcalcAnalysisPtIndex(min_max);
+  const MinMax *cnst_min_max = min_max;
   Slew slew = default_slew;
   float drive_slew;
   bool exists;
@@ -900,12 +894,12 @@ LocalSta::seedNoDrvrCellSlew(PtVertex &pt_drvr_vertex,
   drive->driveResistance(rf, cnst_min_max, drive_res, exists);
   const Parasitic *parasitic;
   float load_cap;
-  localParasiticLoad(pt_drvr_vertex, rf, dcalc_ap, nullptr, load_cap, parasitic, pt_graph);
+  localParasiticLoad(pt_drvr_vertex, rf, scene, min_max, nullptr, load_cap, parasitic, pt_graph);
   if (exists) {
     drive_delay = load_cap * drive_res;
     slew = load_cap * drive_res;
   }
-  const MinMax *slew_min_max = dcalc_ap->slewMinMax();
+  const MinMax *slew_min_max = min_max;
   if (pt_drvr_vertex.vertex()->slewAnnotated(rf, slew_min_max)) {
       slew = graph_->slew(pt_drvr_vertex.vertex(), rf, ap_index);
   }
@@ -914,23 +908,23 @@ LocalSta::seedNoDrvrCellSlew(PtVertex &pt_drvr_vertex,
   LoadPinIndexMap load_pin_index_map = makeLoadPinIndexMap(pt_drvr_vertex, pt_graph);
   ArcDcalcResult dcalc_result =
     arc_delay_calc->inputPortDelay(drvr_pin, delayAsFloat(slew), rf, parasitic,
-                                   load_pin_index_map, dcalc_ap);
+                                   load_pin_index_map, scene, min_max);
   annotateLoadDelays(pt_drvr_vertex, rf, dcalc_result, load_pin_index_map,
-                     drive_delay, false, dcalc_ap, pt_graph);
+                     drive_delay, false, scene, min_max, pt_graph);
   arc_delay_calc->finishDrvrPin();
 }
 
 void
 LocalSta::seedNoDrvrSlew(PtVertex &pt_drvr_vertex,
                              const RiseFall *rf,
-                             const DcalcAnalysisPt *dcalc_ap,
+                             const sta::Scene *scene, const sta::MinMax *min_max,
                              ArcDelayCalc *arc_delay_calc,
                              PtGraph *pt_graph)
 {
   const sta::Pin *drvr_pin = pt_drvr_vertex.vertex()->pin();
   sta::Vertex *drvr_vertex = pt_drvr_vertex.vertex();
-  const MinMax *slew_min_max = dcalc_ap->slewMinMax();
-  DcalcAPIndex ap_index = dcalc_ap->index();
+  const MinMax *slew_min_max = min_max;
+  DcalcAPIndex ap_index = scene->dcalcAnalysisPtIndex(min_max);
   Slew slew(0.0);
   // Top level bidirect driver uses load slew unless
   // bidirect instance paths are disabled.
@@ -946,14 +940,14 @@ LocalSta::seedNoDrvrSlew(PtVertex &pt_drvr_vertex,
 
   float load_cap = 0.0f;
   const Parasitic *parasitic = nullptr;
-  localParasiticLoad(pt_drvr_vertex, rf, dcalc_ap, nullptr,
+  localParasiticLoad(pt_drvr_vertex, rf, scene, min_max, nullptr,
                      load_cap, parasitic, pt_graph);
   LoadPinIndexMap load_pin_index_map = makeLoadPinIndexMap(pt_drvr_vertex, pt_graph);
   ArcDcalcResult dcalc_result =
     arc_delay_calc->inputPortDelay(drvr_pin, delayAsFloat(slew), rf,
                                    const_cast<Parasitic*>(parasitic),
-                                   load_pin_index_map, dcalc_ap);
-  annotateLoadDelays(pt_drvr_vertex, rf, dcalc_result, load_pin_index_map, delay_zero, false, dcalc_ap, pt_graph);
+                                   load_pin_index_map, scene, min_max);
+  annotateLoadDelays(pt_drvr_vertex, rf, dcalc_result, load_pin_index_map, delay_zero, false, scene, min_max, pt_graph);
   arc_delay_calc->finishDrvrPin();
 }
 
@@ -963,11 +957,11 @@ LocalSta::seedLoadSlew(PtVertex &pt_load_vertex, PtGraph *pt_graph,
 {
   Vertex *vertex = pt_load_vertex.vertex();
   const Pin *pin = vertex->pin();
-  ClockSet *clks = sdc_->findLeafPinClocks(pin);
+  ClockSet *clks = pt_graph->scene()->sdc()->findLeafPinClocks(pin);
   loadSlewFromGraph(pt_load_vertex, pt_graph);
-  const DcalcAnalysisPt *dcalc_ap = pt_graph->dcalcAnalysisPt();
-  const MinMax *slew_min_max = dcalc_ap->slewMinMax();
-  DcalcAPIndex ap_index = dcalc_ap->index();
+  const sta::MinMax *min_max = pt_graph->minMax();
+  const MinMax *slew_min_max = min_max;
+  DcalcAPIndex ap_index = pt_graph->apIndex();
   for (const RiseFall *rf : RiseFall::range()) {
     if (!vertex->slewAnnotated(rf, slew_min_max)) {
       float slew = 0.0;
@@ -990,8 +984,7 @@ void
 LocalSta::loadSlewFromGraph(PtVertex &root_pt_vertex, PtGraph *pt_graph)
 {
   Vertex *root_vertex = root_pt_vertex.vertex();
-  const DcalcAnalysisPt *dcalc_ap = pt_graph->dcalcAnalysisPt();
-  DcalcAPIndex ap_index = dcalc_ap->index();
+  DcalcAPIndex ap_index = pt_graph->apIndex();
   for (const RiseFall *rf : RiseFall::range()) {
     Slew slew = graph_->slew(root_vertex, rf, ap_index);
     pt_graph->setSlew(root_pt_vertex, rf, ap_index, slew);
@@ -1006,13 +999,13 @@ LocalSta::findInputDriverDelay(const LibertyCell *drvr_cell,
                               const LibertyPort *from_port,
                               float *from_slews,
                               const LibertyPort *to_port,
-                              const DcalcAnalysisPt *dcalc_ap)
+                              const sta::Scene *scene, const sta::MinMax *min_max)
 {
   for (TimingArcSet *arc_set : drvr_cell->timingArcSets(from_port, to_port)) {
     for (TimingArc *arc : arc_set->arcs()) {
       if (arc->toEdge()->asRiseFall() == rf) {
         float from_slew = from_slews[arc->fromEdge()->index()];
-        findInputArcDelay(drvr_pin, drvr_vertex, arc, from_slew, dcalc_ap);
+        findInputArcDelay(drvr_pin, drvr_vertex, arc, from_slew, scene, min_max);
       }
     }
   }
@@ -1076,10 +1069,11 @@ LocalSta::findDriverDelays(PtVertex &drvr_pt_vertex,
 void 
 LocalSta::initSlew(PtVertex &pt_vertex, PtGraph *pt_graph)
 {
-  const DcalcAnalysisPt *dcalc_ap = pt_graph->dcalcAnalysisPt();
-  const MinMax *slew_min_max = dcalc_ap->slewMinMax();
+  sta::Scene *scene = pt_graph->scene();
+  const sta::MinMax *min_max = pt_graph->minMax();
+  const MinMax *slew_min_max = min_max;
   Slew slew_init_value(slew_min_max->initValue());
-  DcalcAPIndex ap_index = dcalc_ap->index();
+  DcalcAPIndex ap_index = scene->dcalcAnalysisPtIndex(min_max);
   for (const RiseFall *rf : RiseFall::range()) {
     pt_graph->setSlew(pt_vertex, rf, ap_index, slew_init_value);
   }
@@ -1140,9 +1134,8 @@ LocalSta::zeroSlewAndWireDelays(PtVertex &drvr_pt_vertex,
                            PtGraph *pt_graph)
 {
   Vertex *drvr_vertex = drvr_pt_vertex.vertex();
-  const DcalcAnalysisPt *dcalc_ap = pt_graph->dcalcAnalysisPt();
-  DcalcAPIndex ap_index = dcalc_ap->index();
-  const MinMax *slew_min_max = dcalc_ap->slewMinMax();
+  DcalcAPIndex ap_index = pt_graph->apIndex();
+  const MinMax *slew_min_max = pt_graph->minMax();
   // Init drvr slew.
   bool drvr_slew_annotated = drvr_vertex
       ? drvr_vertex->slewAnnotated(rf, slew_min_max) : false;
@@ -1195,10 +1188,11 @@ LocalSta::findDriverEdgeDelays(PtVertex &drvr_pt_vertex,
   // Only compute delay at the cost-relevant analysis point — PtGraph stores
   // a single dcalc_ap_, and downstream consumers (delayLmSum, violationSum,
   // siblingDeltaDelayLmSum) all read that one AP.
-  const DcalcAnalysisPt *dcalc_ap = pt_graph->dcalcAnalysisPt();
+  sta::Scene *scene = pt_graph->scene();
+  const sta::MinMax *min_max = pt_graph->minMax();
   for (const TimingArc *arc : ref_arc_set->arcs()) {
     findDriverArcDelays(drvr_pt_vertex, multi_drvr_net, pt_edge,
-                        arc, dcalc_ap, arc_delay_calc,
+                        arc, scene, min_max, arc_delay_calc,
                         load_pin_index_map, pt_graph);
     delay_exists[arc->toEdge()->asRiseFall()->index()] = true;
   }
@@ -1209,14 +1203,14 @@ void
 LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
                               PtEdge &pt_edge,
                               const TimingArc *arc,
-                              const DcalcAnalysisPt *dcalc_ap,
+                              const sta::Scene *scene, const sta::MinMax *min_max,
                               ArcDelayCalc *arc_delay_calc,
                               PtGraph *pt_graph)
 {
   Vertex *drvr_vertex = drvr_pt_vertex.vertex();
   MultiDrvrNet *multi_drvr = drvr_vertex ? multiDrvrNet(drvr_vertex) : nullptr;
   LoadPinIndexMap load_pin_index_map = makeLoadPinIndexMap(drvr_pt_vertex, pt_graph);
-  findDriverArcDelays(drvr_pt_vertex, multi_drvr, pt_edge, arc, dcalc_ap,
+  findDriverArcDelays(drvr_pt_vertex, multi_drvr, pt_edge, arc, scene, min_max,
                       arc_delay_calc, load_pin_index_map, pt_graph);
 }
 
@@ -1225,7 +1219,8 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
                               const MultiDrvrNet *multi_drvr_net,
                               PtEdge &pt_edge,
                               const TimingArc *arc,
-                              const DcalcAnalysisPt *dcalc_ap,
+                              const sta::Scene *scene, 
+                              const sta::MinMax *min_max,
                               ArcDelayCalc *arc_delay_calc,
                               LoadPinIndexMap &load_pin_index_map,
                               PtGraph *pt_graph)
@@ -1243,7 +1238,7 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
     const Parasitic *parasitic = nullptr;
     float load_cap = 0.0f;
 
-    localParasiticLoad(drvr_pt_vertex, drvr_rf, dcalc_ap, multi_drvr_net,
+    localParasiticLoad(drvr_pt_vertex, drvr_rf, scene, min_max, multi_drvr_net,
                        load_cap, parasitic, pt_graph);
 
     if (multi_drvr_net == nullptr) {
@@ -1253,10 +1248,10 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
       ArcDcalcResult dcalc_result;
       dcalc_result = arc_delay_calc->gateDelay(
                           dcalc_pin, arc, in_slew, load_cap, parasitic,
-                          load_pin_index_map, dcalc_ap);
+                          load_pin_index_map, scene, min_max);
 
       annotateDelaysSlews(pt_edge, arc, dcalc_result,
-                          load_pin_index_map, dcalc_ap, pt_graph);
+                          load_pin_index_map, scene, min_max, pt_graph);
     } else {
       // ArcDcalcArg dcalc_args = makeArcDcalcArgs(drvr_pt_vertex,
                                   // multi_drvr_net, pt_edge, arc,
@@ -1274,17 +1269,17 @@ LocalSta::annotateDelaysSlews(PtEdge &pt_edge,
                          const TimingArc *arc,
                          ArcDcalcResult &dcalc_result,
                          LoadPinIndexMap &load_pin_index_map,
-                         const DcalcAnalysisPt *dcalc_ap,
+                         const sta::Scene *scene, const sta::MinMax *min_max,
                          PtGraph *pt_graph)
 {
   bool delay_changed = annotateDelaySlew(pt_edge, arc,
                   dcalc_result.gateDelay(),
-                  dcalc_result.drvrSlew(), dcalc_ap, pt_graph);
+                  dcalc_result.drvrSlew(), scene, min_max, pt_graph);
   if (!pt_edge.role()->isLatchDtoQ()) {
     PtVertex &to_pt_vertex = pt_graph->ptVertex(pt_edge.ptToId());
     delay_changed |= annotateLoadDelays(to_pt_vertex, arc->toEdge()->asRiseFall(),
                        dcalc_result, load_pin_index_map,
-                       delay_zero, true, dcalc_ap, pt_graph);
+                       delay_zero, true, scene, min_max, pt_graph);
   }
   return delay_changed;
 }
@@ -1296,13 +1291,13 @@ LocalSta::annotateLoadDelays(PtVertex &drvr_pt_vertex,
                              LoadPinIndexMap &load_pin_index_map,
                              const ArcDelay &extra_delay,
                              bool merge,
-                             const DcalcAnalysisPt *dcalc_ap,
+                             const sta::Scene *scene, const sta::MinMax *min_max,
                              PtGraph *pt_graph)
 {
   Vertex *drvr_vertex = drvr_pt_vertex.vertex();
   bool load_changed = false;
-  DcalcAPIndex ap_index = dcalc_ap->index();
-  const MinMax * slew_min_max = dcalc_ap->slewMinMax();
+  DcalcAPIndex ap_index = scene->dcalcAnalysisPtIndex(min_max);
+  const MinMax * slew_min_max = min_max;
   PtVertexOutEdgeIterator edge_iter(drvr_pt_vertex, pt_graph);
   while (edge_iter.hasNext()) {
     PtEdge &wire_pt_edge = edge_iter.next();
@@ -1384,7 +1379,7 @@ LocalSta::annotateLoadDelays(PtVertex &drvr_pt_vertex,
       if (!wire_annotated) {
         const ArcDelay &delay = pt_graph->wireArcDelay(wire_pt_edge, to_rf, ap_index);
         ArcDelay wire_delay_extra = wire_delay + extra_delay;
-        const MinMax *delay_min_max = dcalc_ap->delayMinMax();
+        const MinMax *delay_min_max = min_max;
         if (!merge || delayGreater(wire_delay_extra, delay, delay_min_max, this)) {
           pt_graph->setWireArcDelay(wire_pt_edge, to_rf, ap_index, wire_delay_extra);
           load_changed = true;
@@ -1400,16 +1395,16 @@ LocalSta::annotateDelaySlew(PtEdge &pt_edge,
                          const TimingArc *arc,
                          ArcDelay &gate_delay,
                          Slew &gate_slew,
-                         const DcalcAnalysisPt *dcalc_ap,
+                         const sta::Scene *scene, const sta::MinMax *min_max,
                          PtGraph *pt_graph)
 {
   bool delay_changed = false;
-  DcalcAPIndex ap_index = dcalc_ap->index();
+  DcalcAPIndex ap_index = scene->dcalcAnalysisPtIndex(min_max);
   PtVertex &drvr_pt_vertex = pt_graph->ptVertex(pt_edge.ptToId());
   Vertex *drvr_vertex = drvr_pt_vertex.vertex();
   const RiseFall *drvr_rf = arc->toEdge()->asRiseFall();
   const Slew drvr_slew = pt_graph->slew(drvr_pt_vertex, drvr_rf, ap_index);
-  const MinMax *slew_min_max = dcalc_ap->slewMinMax();
+  const MinMax *slew_min_max = min_max;
   bool slew_annotated = drvr_vertex ? drvr_vertex->slewAnnotated(drvr_rf, slew_min_max) : false;
   if (delayGreater(gate_slew, drvr_slew, slew_min_max, this)
       && !slew_annotated
@@ -1435,7 +1430,7 @@ LocalSta::annotateDelaySlew(PtEdge &pt_edge,
 //                            const MultiDrvrNet *multi_drvr_net,
 //                            PtEdge &pt_edge,
 //                            const TimingArc *arc,
-//                            const DcalcAnalysisPt *dcalc_ap,
+//                            const sta::Scene *scene, const sta::MinMax *min_max,
 //                            ArcDelayCalc *arc_delay_calc,
 //                            PtGraph *pt_graph)
 // {
@@ -1446,12 +1441,12 @@ LocalSta::annotateDelaySlew(PtEdge &pt_edge,
 float
 LocalSta::computeVirtualLoadCap(PtVertex &drvr_pt_vertex,
                                 const RiseFall *drvr_rf,
-                                const DcalcAnalysisPt *dcalc_ap,
+                                const sta::Scene *scene, const sta::MinMax *min_max,
                                 PtGraph *pt_graph)
 {
   float load_cap = 0.0f;
-  const Scene *corner = dcalc_ap->corner();
-  const MinMax *min_max = dcalc_ap->constraintMinMax();
+  const Scene *corner = scene;
+  const MinMax *min_max = min_max;
 
   // Driver output pin capacitance (self-cap of the output port)
   LibertyPort *drvr_port = nullptr;
@@ -1570,7 +1565,7 @@ Slew
 LocalSta::edgeFromLocalSlew(const PtVertex &from_pt_vertex,
                        const RiseFall *from_rf,
                        const PtEdge &pt_edge,
-                       const DcalcAnalysisPt *dcalc_ap,
+                       const sta::Scene *scene, const sta::MinMax *min_max,
                        PtGraph *pt_graph)
 {
   return edgeFromLocalSlew(from_pt_vertex, from_rf, pt_edge.role(),
@@ -1581,7 +1576,7 @@ Slew
 LocalSta::edgeFromLocalSlew(const PtVertex &from_pt_vertex,
                        const RiseFall *from_rf,
                        const TimingRole *role,
-                       const DcalcAnalysisPt *dcalc_ap,
+                       const sta::Scene *scene, const sta::MinMax *min_max,
                        PtGraph *pt_graph)
 {
   Vertex *from_vertex = from_pt_vertex.vertex();
@@ -1589,9 +1584,9 @@ LocalSta::edgeFromLocalSlew(const PtVertex &from_pt_vertex,
       && role->genericRole() == TimingRole::regClkToQ()
       && clk_network_->isIdealClock(from_vertex->pin())) {
     return clk_network_->idealClkSlew(from_vertex->pin(), from_rf,
-                                      dcalc_ap->slewMinMax());
+                                      min_max);
   } else {
-    return pt_graph->slew(from_pt_vertex, from_rf, dcalc_ap->index());
+    return pt_graph->slew(from_pt_vertex, from_rf, scene->dcalcAnalysisPtIndex(min_max));
   }
 }
 
@@ -1623,30 +1618,12 @@ LocalSta::refgateDelayLmSum(PtGraph *pt_graph)
   return delay_lambda_sum;
 }
 
-float 
-LocalSta::delayLmSum(PtGraph *pt_graph, DcalcAnalysisPt *dcalc_ap)
-{
-  float delay_lm_sum;
-  pt_graph->delayLmSum(dcalc_ap, delay_lm_sum);
-  return delay_lm_sum;
-}
-
-float
-LocalSta::delayLmSum(PtGraph *pt_graph)
-{
-  sta::DcalcAnalysisPt *dcalc_ap = pt_graph->dcalcAnalysisPt();
-  float delay_lm_sum;
-  pt_graph->delayLmSum(dcalc_ap, delay_lm_sum);
-  return delay_lm_sum;
-}
-
 DelayLmSumResult
 LocalSta::delayLmSum(PtGraph *pt_graph,
-                     DcalcAnalysisPt *dcalc_ap,
                      bool collect_vecs)
 {
   DelayLmSumResult result;
-  pt_graph->delayLmSum(dcalc_ap, &result, collect_vecs);
+  pt_graph->delayLmSum(&result, collect_vecs);
   return result;
 }
 
@@ -1677,11 +1654,11 @@ LocalSta::maxInputSlew(const Pin* input_pin,
 DelayLmSumResult
 LocalSta::initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_calc)
 {
-  // During pt graph creation, delays from original graph are copied 
+  // During pt graph creation, delays from original graph are copied
   // to pt graph. So here we just need to sum up the delays.
-  const Scene *corner = sta_->findScene("default");
-  DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
-  return delayLmSum(pt_graph, dcalc_ap, false);
+  const sta::Scene *scene = sta_->findScene("default");
+  const sta::MinMax *min_max = MinMax::max();
+  return delayLmSum(pt_graph, scene, min_max, false);
 }
 
 // Swap ref cell and selectively recompute parasitics.
@@ -1759,9 +1736,9 @@ LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph,
     findLocalRequireds(pt_graph);
   }
   auto t4 = std::chrono::high_resolution_clock::now();
-  const Scene *corner = sta_->findScene("default");
-  DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
-  auto result = delayLmSum(pt_graph, dcalc_ap, false);
+  const sta::Scene *scene = sta_->findScene("default");
+  const sta::MinMax *min_max = MinMax::max();
+  auto result = delayLmSum(pt_graph, scene, min_max, false);
   auto t5 = std::chrono::high_resolution_clock::now();
 
   if (runtime_map) {
@@ -1818,7 +1795,7 @@ LocalSta::localSlackAroundRef(PtGraph *pt_graph)
       while (path_iter.hasNext()) {
         Path *path = path_iter.next();
         // We should select the wanted analysis point here.
-        if (path->dcalcAnalysisPt(this) == pt_graph->dcalcAnalysisPt()) {
+        if (path->dcalcAnalysisPtIndex(this) == pt_graph->scene()) {
           Slack slack = path->slack(this);
           if (slack > 0.0) continue; // Only consider negative slack
           local_slack += slack;
@@ -1894,7 +1871,7 @@ LocalSta::localSlackOnSinks(PtGraph *pt_graph)
 
     size_t path_count = pt_tg->pathCount();
     for (size_t i = 0; i < path_count; i++) {
-      if (pt_paths[i].dcalcAnalysisPt(this) != pt_graph->dcalcAnalysisPt())
+      if (pt_paths[i].dcalcAnalysisPtIndex(this) != pt_graph->apIndex())
         continue;
       sta::Slack slack = sta_paths[i].required() - pt_paths[i].arrival();
       if (sta::delayInf(slack))
@@ -1943,7 +1920,7 @@ LocalSta::localWorstSlackOnSinks(PtGraph *pt_graph)
 
     size_t path_count = pt_tg->pathCount();
     for (size_t i = 0; i < path_count; i++) {
-      if (pt_paths[i].dcalcAnalysisPt(this) != pt_graph->dcalcAnalysisPt())
+      if (pt_paths[i].dcalcAnalysisPtIndex(this) != pt_graph->apIndex())
         continue;
       sta::Slack slack = sta_paths[i].required() - pt_paths[i].arrival();
       if (sta::delayInf(slack)) continue;
@@ -1957,7 +1934,7 @@ LocalSta::localWorstSlackOnSinks(PtGraph *pt_graph)
 void
 LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
                           const RiseFall *rf,
-                          const DcalcAnalysisPt *dcalc_ap,
+                          const sta::Scene *scene, const sta::MinMax *min_max,
                           const MultiDrvrNet *multi_drvr_net,
                           // Return values
                           float &load_cap,
@@ -1971,7 +1948,7 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
   // Uses objectIdx indexing — works for both real and virtual vertices.
   // Includes synthetic Pi set by buildSyntheticParasitics.
   PtPiElmore *pt_pi = pt_graph->findPtParasitic(
-      drvr_pt_vertex.objectIdx(), rf, dcalc_ap->index());
+      drvr_pt_vertex.objectIdx(), rf, scene->dcalcAnalysisPtIndex(min_max));
   if (pt_pi && pt_pi->capacitance() > 0.0f) {
     parasitic = pt_pi;
     load_cap = pt_pi->capacitance();
@@ -1989,7 +1966,7 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
     local_parasitics_->recomputeSinglePtParasitic(pt_graph,
                                                    drvr_pt_vertex.objectIdx());
     pt_pi = pt_graph->findPtParasitic(
-        drvr_pt_vertex.objectIdx(), rf, dcalc_ap->index());
+        drvr_pt_vertex.objectIdx(), rf, scene->dcalcAnalysisPtIndex(min_max));
     if (pt_pi && pt_pi->capacitance() > 0.0f) {
       parasitic = pt_pi;
       load_cap = pt_pi->capacitance();
@@ -1999,7 +1976,7 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
 
   // Virtual driver or driver with virtual buffer downstream
   if (drvr_pt_vertex.hasVirtualBuffer()) {
-    load_cap = computeVirtualLoadCap(drvr_pt_vertex, rf, dcalc_ap, pt_graph);
+    load_cap = computeVirtualLoadCap(drvr_pt_vertex, rf, scene, min_max, pt_graph);
     return;
   }
 
@@ -2009,7 +1986,7 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
   bool has_net_load;
   float fanout;
   float pin_cap, wire_cap;
-  netCaps(drvr_pin, rf, dcalc_ap, multi_drvr_net,
+  netCaps(drvr_pin, rf, scene, min_max, multi_drvr_net,
           pin_cap, wire_cap, fanout, has_net_load);
   load_cap = pin_cap + wire_cap;
 }
@@ -2026,15 +2003,15 @@ LocalSta::printLocalParasitics(PtGraph *pt_graph) const
     Vertex *vertex = pt_vertex.vertex();
     if (pt_vertex.isDriver() && vertex) {
       for (const RiseFall *rf : RiseFall::range()) {
-        for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
+        for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
           PtPiElmore *pt_pi = pt_graph->findPtParasitic(
-              pt_vertex.objectIdx(), rf, dcalc_ap->index());
+              pt_vertex.objectIdx(), rf, scene->dcalcAnalysisPtIndex(min_max));
           if (pt_pi) {
             printf("%s::printLocalParasitics: Pin %s, RF %s, AP %u, with cap %f\n",
                    debug_label_.c_str(),
                    network_->name(vertex->pin()),
                    rf->to_string().c_str(),
-                   dcalc_ap->index(),
+                   scene->dcalcAnalysisPtIndex(min_max),
                    pt_pi->capacitance() * 1.0e15);
             fflush(stdout);
           }
@@ -2055,15 +2032,15 @@ LocalSta::printParasitics(PtGraph *pt_graph) const
     Vertex *vertex = pt_vertex.vertex();
     if (pt_vertex.isDriver()) {
       for (const RiseFall *rf : RiseFall::range()) {
-        for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
+        for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
           const Parasitic *parasitic = 
-            arc_delay_calc_->findParasitic(vertex->pin(), rf, dcalc_ap);
+            arc_delay_calc_->findParasitic(vertex->pin(), rf, scene, min_max);
           float load_cap = local_parasitics_->capacitance(parasitic);
           if (parasitic != nullptr) {
             printf("LOCALSTA::printLocalParasitics: Pin %s, RF %s, AP %u, with cap %f\n",
                    network_->name(vertex->pin()),
                    rf->to_string().c_str(),
-                   dcalc_ap->index(),
+                   scene->dcalcAnalysisPtIndex(min_max),
                    load_cap * 1.0e15);
             fflush(stdout);
           }
@@ -2146,12 +2123,12 @@ LocalSta::printLocalSlews(PtGraph *pt_graph) const
         ? pt_vertex.vertex()->to_string(graph_)
         : ("virtual_" + std::to_string(pt_vertex.objectIdx()));
     for (const RiseFall *rf : RiseFall::range()) {
-      for (const DcalcAnalysisPt *dcalc_ap : corners_->dcalcAnalysisPts()) {
-        Slew slew = pt_graph->slew(pt_vertex, rf, dcalc_ap->index());
+      for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
+        Slew slew = pt_graph->slew(pt_vertex, rf, scene->dcalcAnalysisPtIndex(min_max));
         printf("Vertex %s, RF %s, AP %u, slew = %f\n",
                vname.c_str(),
                rf->to_string().c_str(),
-               dcalc_ap->index(),
+               scene->dcalcAnalysisPtIndex(min_max),
                slew * 1.0e12);
       }
     }
@@ -2168,7 +2145,7 @@ LocalSta::getPinMaxSlewLimit(sta::Pin *pin, sta::LibertyCell *lib_cell)
   if (pin == nullptr || lib_cell == nullptr)
     throw std::runtime_error("LocalSta::getPinMaxSlewLimit: pin or lib_cell is nullptr");
   sta::dbNetwork *network = sta_->getDbNetwork();
-  const char *port_name = network->portName(pin);
+  const std::string port_name = network->portName(pin);
   sta::LibertyPort *sta_port = lib_cell->findLibertyPort(port_name);
   if (sta_port == nullptr)
     throw std::runtime_error("LocalSta::getPinMaxSlewLimit: sta_port is nullptr");
@@ -2214,7 +2191,7 @@ LocalSta::getPinMaxCapLimit(sta::Pin *pin, sta::LibertyCell *lib_cell)
     throw std::runtime_error("LocalSta::getPinMaxCapLimit: pin or lib_cell is nullptr");
   }
   sta::dbNetwork *network = sta_->getDbNetwork();
-  const char *port_name = network->portName(pin);
+  const std::string port_name = network->portName(pin);
   sta::LibertyPort *sta_port = lib_cell->findLibertyPort(port_name);
   if (sta_port == nullptr) 
     throw std::runtime_error("LocalSta::getPinMaxCapLimit: sta_port is nullptr");
@@ -2262,7 +2239,7 @@ LocalSta::getPinSlew(sta::Pin *pin, const sta::Scene *corner,
     return 0.0;
   float max_vertex_slew = 0.0;
   for (const RiseFall *rf : RiseFall::range()) {
-    float vertex_slew = pt_graph->slew(*pt_vertex, rf, corner->findDcalcAnalysisPt(min_max)->index());
+    float vertex_slew = pt_graph->slew(*pt_vertex, rf, corner->dcalcAnalysisPtIndex(min_max));
     if (vertex_slew > max_vertex_slew)
       max_vertex_slew = vertex_slew;
   }
@@ -2301,11 +2278,11 @@ LocalSta::findTargetPort(const PtVertex &ptv,
 
 float
 LocalSta::getVertexMaxSlew(PtGraph *pt_graph, PtVertex &ptv,
-                           sta::DcalcAnalysisPt *dcalc_ap)
+                           const sta::Scene *scene, const sta::MinMax *min_max)
 {
   float max_slew = 0.0;
   for (const RiseFall *rf : RiseFall::range()) {
-    float s = pt_graph->slew(ptv, rf, dcalc_ap->index());
+    float s = pt_graph->slew(ptv, rf, scene->dcalcAnalysisPtIndex(min_max));
     if (s > max_slew)
       max_slew = s;
   }
@@ -2314,7 +2291,7 @@ LocalSta::getVertexMaxSlew(PtGraph *pt_graph, PtVertex &ptv,
 
 bool
 LocalSta::checkFanoutLoadSlew(PtGraph *pt_graph, VertexId drvr_id,
-                              sta::DcalcAnalysisPt *dcalc_ap,
+                              const sta::Scene *scene, const sta::MinMax *min_max,
                               float slew_limit_scale)
 {
   PtVertexOutEdgeIterator out_iter(drvr_id, pt_graph);
@@ -2332,7 +2309,7 @@ LocalSta::checkFanoutLoadSlew(PtGraph *pt_graph, VertexId drvr_id,
         continue;
       }
     }
-    if (getVertexMaxSlew(pt_graph, load_ptv, dcalc_ap)
+    if (getVertexMaxSlew(pt_graph, load_ptv, scene, min_max)
         > getPortMaxSlewLimit(load_port) * slew_limit_scale)
       return false;
   }
@@ -2341,7 +2318,7 @@ LocalSta::checkFanoutLoadSlew(PtGraph *pt_graph, VertexId drvr_id,
 
 float
 LocalSta::fanoutLoadSlewViolation(PtGraph *pt_graph, VertexId drvr_id,
-                                  sta::DcalcAnalysisPt *dcalc_ap,
+                                  const sta::Scene *scene, const sta::MinMax *min_max,
                                   float slew_limit_scale)
 {
   float sum = 0.0f;
@@ -2360,7 +2337,7 @@ LocalSta::fanoutLoadSlewViolation(PtGraph *pt_graph, VertexId drvr_id,
       }
     }
     float limit = getPortMaxSlewLimit(load_port) * slew_limit_scale;
-    float slew = getVertexMaxSlew(pt_graph, load_ptv, dcalc_ap);
+    float slew = getVertexMaxSlew(pt_graph, load_ptv, scene, min_max);
     if (slew > limit)
       sum += (slew - limit);
   }
@@ -2419,16 +2396,15 @@ LocalSta::getPortMaxCapLimit(sta::LibertyPort *port)
 bool
 LocalSta::legalCheckBeforeSwap(sta::Instance *inst,
                                sta::LibertyCell *to_lib_cell,
-                               const sta::Scene *corner,
+                               const sta::Scene *scene,
                                const sta::MinMax *min_max,
                                PtGraph *pt_graph)
 {
   // Check input slew and output load cap legality before swap.
-  if (corner == nullptr)
-    corner = sta_->findScene("default");
+  if (scene == nullptr)
+    scene = sta_->findScene("default");
   if (min_max == nullptr)
     min_max = sta::MinMax::max();
-  sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(min_max);
 
   for (auto &ptv : pt_graph->ptVertices()) {
     if (ptv.type() == PtVertexType::RefOutput) {
@@ -2436,7 +2412,7 @@ LocalSta::legalCheckBeforeSwap(sta::Instance *inst,
       if (!to_port)
         continue;
       float cap_limit = getPortMaxCapLimit(to_port);
-      float load_cap = getLoadCap(ptv, corner, min_max, pt_graph);
+      float load_cap = getLoadCap(ptv, scene, min_max, pt_graph);
       if (load_cap > cap_limit)
         return false;
     }
@@ -2447,7 +2423,7 @@ LocalSta::legalCheckBeforeSwap(sta::Instance *inst,
 bool
 LocalSta::legalCheckAfterSwap(sta::Instance *inst,
                               sta::LibertyCell *to_lib_cell,
-                              const sta::Scene *corner,
+                              const sta::Scene *scene,
                               const sta::MinMax *min_max,
                               PtGraph *pt_graph,
                               float slew_limit_scale)
@@ -2455,11 +2431,10 @@ LocalSta::legalCheckAfterSwap(sta::Instance *inst,
   // Check output slew and input load cap legality after swap.
   // After virtualReplaceCell + updateRefPorts, RefInput/RefOutput ports
   // already point to the new cell's ports.
-  if (corner == nullptr)
-    corner = sta_->findScene("default");
+  if (scene == nullptr)
+    scene = sta_->findScene("default");
   if (min_max == nullptr)
     min_max = sta::MinMax::max();
-  sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(min_max);
 
   for (auto &ptv : pt_graph->ptVertices()) {
     sta::LibertyPort *port = ptv.libertyPort();
@@ -2469,10 +2444,10 @@ LocalSta::legalCheckAfterSwap(sta::Instance *inst,
     // For RefOutput, check output slew and fanout load slew
     if (ptv.type() == PtVertexType::RefOutput) {
       // Output slew + fanout load slew
-      if (getVertexMaxSlew(pt_graph, ptv, dcalc_ap)
+      if (getVertexMaxSlew(pt_graph, ptv, scene, min_max)
           > getPortMaxSlewLimit(port) * slew_limit_scale)
         return false;
-      if (!checkFanoutLoadSlew(pt_graph, ptv.objectIdx(), dcalc_ap,
+      if (!checkFanoutLoadSlew(pt_graph, ptv.objectIdx(), scene, min_max,
                                slew_limit_scale))
         return false;
     }
@@ -2481,12 +2456,12 @@ LocalSta::legalCheckAfterSwap(sta::Instance *inst,
       // (RefInput is a wire fanout of RefDriver, and its libertyPort
       // is already updated to the new cell's port by updateRefPorts).
       // Driver output cap + slew + fanout load slew (including siblings)
-      if (getLoadCap(ptv, corner, min_max, pt_graph) > getPortMaxCapLimit(port))
+      if (getLoadCap(ptv, scene, min_max, pt_graph) > getPortMaxCapLimit(port))
         return false;
-      if (getVertexMaxSlew(pt_graph, ptv, dcalc_ap)
+      if (getVertexMaxSlew(pt_graph, ptv, scene, min_max)
           > getPortMaxSlewLimit(port) * slew_limit_scale)
         return false;
-      if (!checkFanoutLoadSlew(pt_graph, ptv.objectIdx(), dcalc_ap,
+      if (!checkFanoutLoadSlew(pt_graph, ptv.objectIdx(), scene, min_max,
                                slew_limit_scale))
         return false;
     }
@@ -2494,7 +2469,7 @@ LocalSta::legalCheckAfterSwap(sta::Instance *inst,
       // Sibling driver output slew: resize of the ref instance can
       // change RefDriver's output slew → SibLoad slew → SibDrvr
       // output slew may exceed its port limit.
-      if (getVertexMaxSlew(pt_graph, ptv, dcalc_ap)
+      if (getVertexMaxSlew(pt_graph, ptv, scene, min_max)
           > getPortMaxSlewLimit(port) * slew_limit_scale)
         return false;
     }
@@ -2533,17 +2508,16 @@ LocalSta::violationSumBeforeSwap(sta::Instance *inst,
 LocalSta::ViolationSum
 LocalSta::violationSumAfterSwap(sta::Instance *inst,
                                 sta::LibertyCell *to_lib_cell,
-                                const sta::Scene *corner,
+                                const sta::Scene *scene,
                                 const sta::MinMax *min_max,
                                 PtGraph *pt_graph,
                                 float slew_limit_scale,
                                 float cap_limit_scale)
 {
-  if (corner == nullptr)
-    corner = sta_->findScene("default");
+  if (scene == nullptr)
+    scene = sta_->findScene("default");
   if (min_max == nullptr)
     min_max = sta::MinMax::max();
-  sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(min_max);
 
   ViolationSum v;
   for (auto &ptv : pt_graph->ptVertices()) {
@@ -2553,10 +2527,10 @@ LocalSta::violationSumAfterSwap(sta::Instance *inst,
 
     if (ptv.type() == PtVertexType::RefOutput) {
       float slew_limit = getPortMaxSlewLimit(port) * slew_limit_scale;
-      float slew = getVertexMaxSlew(pt_graph, ptv, dcalc_ap);
+      float slew = getVertexMaxSlew(pt_graph, ptv, scene, min_max);
       if (slew > slew_limit)
         v.slew += (slew - slew_limit);
-      v.slew += fanoutLoadSlewViolation(pt_graph, ptv.objectIdx(), dcalc_ap,
+      v.slew += fanoutLoadSlewViolation(pt_graph, ptv.objectIdx(), scene, min_max,
                                         slew_limit_scale);
     }
     // For fanin and sibling vertices, the erc weight is x 0.1.
@@ -2564,21 +2538,21 @@ LocalSta::violationSumAfterSwap(sta::Instance *inst,
     // avoid ping-pong between output and input.
     else if (ptv.type() == PtVertexType::RefDriver) {
       float cap_limit = getPortMaxCapLimit(port) * cap_limit_scale;
-      float load_cap = getLoadCap(ptv, corner, min_max, pt_graph);
+      float load_cap = getLoadCap(ptv, scene, min_max, pt_graph);
       if (load_cap > cap_limit)
         v.cap += (load_cap - cap_limit) * 10;
 
       float slew_limit = getPortMaxSlewLimit(port) * slew_limit_scale;
-      float slew = getVertexMaxSlew(pt_graph, ptv, dcalc_ap);
+      float slew = getVertexMaxSlew(pt_graph, ptv, scene, min_max);
       if (slew > slew_limit)
         v.slew += (slew - slew_limit) * 10;
 
-      v.slew += fanoutLoadSlewViolation(pt_graph, ptv.objectIdx(), dcalc_ap,
+      v.slew += fanoutLoadSlewViolation(pt_graph, ptv.objectIdx(), scene, min_max,
                                         slew_limit_scale) * 10;
     }
     else if (ptv.type() == PtVertexType::SiblingDrvr) {
       float slew_limit = getPortMaxSlewLimit(port) * slew_limit_scale;
-      float slew = getVertexMaxSlew(pt_graph, ptv, dcalc_ap);
+      float slew = getVertexMaxSlew(pt_graph, ptv, scene, min_max);
       if (slew > slew_limit)
         v.slew += (slew - slew_limit) * 10;
     }
@@ -2686,7 +2660,7 @@ LocalSta::ptVertexWorstSlackPath(PtVertex &pt_vertex, const sta::MinMax *min_max
 
 sta::Path *
 LocalSta::ptVertexWorstSlackPath(PtVertex &pt_vertex,
-                                 const sta::DcalcAnalysisPt *dcalc_ap) const
+                                 const sta::Scene *scene, const sta::MinMax *min_max) const
 {
   Path *worst_slack_path = nullptr;
   sta::Slack worst_slack = sta::MinMax::min()->initValue();
@@ -2694,7 +2668,7 @@ LocalSta::ptVertexWorstSlackPath(PtVertex &pt_vertex,
   while (path_iter.hasNext()) {
     sta::Path *path = path_iter.next();
     sta::Slack path_slack = path->slack(this);
-    if (path->dcalcAnalysisPt(this) == dcalc_ap
+    if (path->dcalcAnalysisPtIndex(this) == dcalc_ap
         && (!path->tag(this)->isGenClkSrcPath()
             && delayLess(path_slack, worst_slack, this))) {
       worst_slack = path_slack;
@@ -2724,7 +2698,7 @@ LocalSta::printPerSinkArrivals(PtGraph *pt_graph, const char *label)
   }
 
   // Target: max / default corner / rise
-  sta::DcalcAnalysisPt *target_ap = pt_graph->dcalcAnalysisPt();
+  sta::DcalcAPIndex target_ap = pt_graph->apIndex();
   const sta::RiseFall *target_rf = sta::RiseFall::rise();
 
   printf("      [%s] per-sink arrival (max/default/rise, ps):\n", label);
@@ -2747,7 +2721,7 @@ LocalSta::printPerSinkArrivals(PtGraph *pt_graph, const char *label)
     // Find the path matching target_ap + rise
     size_t path_count = pt_tg->pathCount();
     for (size_t i = 0; i < path_count; i++) {
-      if (pt_paths[i].dcalcAnalysisPt(this) != target_ap)
+      if (pt_paths[i].dcalcAnalysisPtIndex(this) != target_ap)
         continue;
       sta::Tag *tag = pt_paths[i].tag(this);
       if (!tag || tag->rfIndex() != target_rf->index())

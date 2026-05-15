@@ -762,7 +762,7 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
           // and print per-sink local arrival after buffer
           struct SynPi { VertexId vid; const sta::Pin *pin; float c2, rpi, c1; };
           std::vector<SynPi> syn_pis;
-          sta::DcalcAnalysisPt *dap = sta_->findScene("default")
+          lrf::DcalcAnalysisPt *dap = sta_->findScene("default")
               ->findDcalcAnalysisPt(sta::MinMax::max());
           for (size_t si = 0; si < pg_l->vertexCount(); si++) {
             PtVertex &spv = pg_l->ptVertex(si);

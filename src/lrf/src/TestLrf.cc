@@ -77,7 +77,7 @@ checkSlewViolations(sta::dbSta *sta, odb::dbBlock *block,
     if (!vtx) continue;
     float slew = 0.0;
     for (const sta::RiseFall *rf : sta::RiseFall::range())
-      for (const sta::DcalcAnalysisPt *dap : sta->corners()->dcalcAnalysisPts())
+      for (sta::Scene *scene : (sta)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range())
         slew = std::max(slew, (float)delayAsFloat(
             sta->graph()->slew(vtx, rf, dap->index())));
     if (slew > limit) {
@@ -447,7 +447,7 @@ TestLrf::comparePtGraphs(PtGraph *local_pt_graph, PtGraph *open_pt_graph, sta::d
     }
     sta::TimingArcSet *arc_set = local_edge_obj->timingArcSet();
     for (auto *arc : arc_set->arcs()) {
-      for (sta::DcalcAnalysisPt *dcalc_ptr : sta->corners()->dcalcAnalysisPts()) {
+      for (sta::Scene *scene : (sta)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
         sta::ArcDelay local_delay = local_pt_graph->arcDelay(local_edge, arc, dcalc_ptr->index()) * 1e12;
         sta::ArcDelay open_delay = open_pt_graph->arcDelay(open_edge, arc, dcalc_ptr->index()) * 1e12;
         double delay_diff = std::abs(local_delay - open_delay);
@@ -531,11 +531,11 @@ TestLrf::comparePtGraphs(PtGraph *local_pt_graph, PtGraph *open_pt_graph, sta::d
     while (local_path_iter.hasNext() && open_path_iter.hasNext()) {
       sta::Path *local_path = local_path_iter.next();
       sta::Path *open_path = open_path_iter.next();
-      if (local_path->dcalcAnalysisPt(sta) != open_path->dcalcAnalysisPt(sta)) {
-        printf("DcalcApIndex mismatch at vertex index %zu: Local=%u, Open=%u\n", 
+      if (local_path->dcalcAnalysisPtIndex(sta) != open_path->dcalcAnalysisPtIndex(sta)) {
+        printf("DcalcApIndex mismatch at vertex index %zu: Local=%u, Open=%u\n",
                i,
-               local_path->dcalcAnalysisPt(sta)->index(),
-               open_path->dcalcAnalysisPt(sta)->index());
+               local_path->dcalcAnalysisPtIndex(sta),
+               open_path->dcalcAnalysisPtIndex(sta));
         fflush(stdout);
         same = false;
         continue;
@@ -634,9 +634,9 @@ TestLrf::compareTimingRecords(const std::unordered_map<sta::Instance*, TimingRec
             const sta::Path &p1 = v_info1.paths[i];
             const sta::Path &p2 = v_info2.paths[i];
             
-            // Check DcalcAnalysisPt
+            // Check lrf::DcalcAnalysisPt
             if (p1.dcalcAnalysisPt(sta) != p2.dcalcAnalysisPt(sta)) {
-              printf("DcalcAnalysisPt mismatch for vertex %s (lib %s) path %zu\n", v_name.c_str(), lib_name.c_str(), i);
+              printf("lrf::DcalcAnalysisPt mismatch for vertex %s (lib %s) path %zu\n", v_name.c_str(), lib_name.c_str(), i);
               same = false;
             }
 
@@ -730,7 +730,7 @@ namespace {
 // `side` is a short tag like "D-in", "Q-fan", or "CK-Q" for the human reader.
 void
 printFFArcRecord(sta::dbSta *sta, sta::Edge *edge, sta::TimingArc *arc,
-                 const sta::DcalcAnalysisPt *dcalc_ap, size_t ap_index,
+                 const sta::Scene *scene, const sta::MinMax *min_max, size_t ap_index,
                  size_t ap_count, const sta::MinMax *minmax,
                  const char *side)
 {
@@ -741,12 +741,12 @@ printFFArcRecord(sta::dbSta *sta, sta::Edge *edge, sta::TimingArc *arc,
   sta::Graph *graph = sta->graph();
   sta::Vertex *from_v = edge->from(graph);
   sta::Vertex *to_v   = edge->to(graph);
-  const char *from_pin = sta->network()->pathName(from_v->pin());
-  const char *to_pin   = sta->network()->pathName(to_v->pin());
+  const std::string from_pin = sta->network()->pathName(from_v->pin());
+  const std::string to_pin   = sta->network()->pathName(to_v->pin());
 
   sta::Arrival from_aat = sta->pinArrival(from_v->pin(), from_rf, minmax);
   sta::Required to_rat  = sta->vertexRequired(to_v, to_rf, minmax);
-  sta::Delay delay      = sta->arcDelay(edge, arc, dcalc_ap);
+  sta::Delay delay      = sta->arcDelay(edge, arc, scene, min_max);
   sta::Slack arc_slack  = to_rat - (from_aat + delay);
 
   sta::LMValue *lms = edge->arcLms();
@@ -763,7 +763,7 @@ printFFArcRecord(sta::dbSta *sta, sta::Edge *edge, sta::TimingArc *arc,
   printf("  [%-7s] %-50s %s -> %-50s %s | role=%-15s | "
          "lm=%.3e | aat=%+10.3f rat=%+10.3f delay=%+8.3f slack=%+10.3f ps "
          "| clamp_aat=%d clamp_rat=%d is_floor=%d is_inf=%d\n",
-         side, from_pin, from_rf->name(), to_pin, to_rf->name(),
+         side, from_pin.c_str(), from_rf->name(), to_pin.c_str(), to_rf->name(),
          edge->role()->to_string().c_str(),
          lm,
          from_aat * 1e12, to_rat * 1e12, delay * 1e12, arc_slack * 1e12,
@@ -821,24 +821,23 @@ TestLrf::testReportFFEndpointLMs(char *inst_name, sta::dbSta* sta,
   }
 
   // Set up AP for indexing arcLms.
-  sta::Scene *corner = sta->cmdScene();
-  if (!corner) corner = sta->findScene("default");
-  const sta::DcalcAnalysisPt *dcalc_ap =
-      corner->findDcalcAnalysisPt(sta::MinMax::max());
-  const size_t ap_index = dcalc_ap->index();
+  sta::Scene *scene = sta->cmdScene();
+  if (!scene) scene = sta->findScene("default");
+  const sta::MinMax *min_max = sta::MinMax::max();
+  const size_t ap_index = scene->dcalcAnalysisPtIndex(min_max);
   const size_t ap_count = sta->graph()->apCount();
   const sta::MinMax *minmax = sta::MinMax::max();
-  printf("  AP setup: corner=%s, ap_index=%zu, ap_count=%zu\n",
-         corner->name(), ap_index, ap_count);
+  printf("  AP setup: scene=%s, ap_index=%zu, ap_count=%zu\n",
+         scene->name().c_str(), ap_index, ap_count);
 
   sta::Graph *graph = sta->graph();
   sta::InstancePinIterator *pin_iter = sta->network()->pinIterator(ff_inst);
   while (pin_iter->hasNext()) {
     sta::Pin *pin = pin_iter->next();
-    const char *pin_name = sta->network()->pathName(pin);
+    const std::string pin_name = sta->network()->pathName(pin);
     bool is_load = sta->network()->isLoad(pin);
     bool is_drvr = sta->network()->isDriver(pin);
-    printf("\n-- pin=%s  isLoad=%d  isDrvr=%d --\n", pin_name, is_load, is_drvr);
+    printf("\n-- pin=%s  isLoad=%d  isDrvr=%d --\n", pin_name.c_str(), is_load, is_drvr);
 
     if (is_load) {
       // D-side: combinational in-edges to this load pin.
@@ -861,7 +860,7 @@ TestLrf::testReportFFEndpointLMs(char *inst_name, sta::dbSta* sta,
         sta::TimingArcSet *aset = e->timingArcSet();
         if (!aset) continue;
         for (sta::TimingArc *arc : aset->arcs()) {
-          printFFArcRecord(sta, e, arc, dcalc_ap, ap_index, ap_count,
+          printFFArcRecord(sta, e, arc, scene, min_max, ap_index, ap_count,
                            minmax, side_tag);
         }
       }
@@ -880,7 +879,7 @@ TestLrf::testReportFFEndpointLMs(char *inst_name, sta::dbSta* sta,
         sta::TimingArcSet *aset = e->timingArcSet();
         if (!aset) continue;
         for (sta::TimingArc *arc : aset->arcs()) {
-          printFFArcRecord(sta, e, arc, dcalc_ap, ap_index, ap_count,
+          printFFArcRecord(sta, e, arc, scene, min_max, ap_index, ap_count,
                            minmax, "CK-Q");
         }
       }
@@ -897,7 +896,7 @@ TestLrf::testReportFFEndpointLMs(char *inst_name, sta::dbSta* sta,
           sta::TimingArcSet *aset = gate_e->timingArcSet();
           if (!aset) continue;
           for (sta::TimingArc *arc : aset->arcs()) {
-            printFFArcRecord(sta, gate_e, arc, dcalc_ap, ap_index, ap_count,
+            printFFArcRecord(sta, gate_e, arc, scene, min_max, ap_index, ap_count,
                              minmax, "Q-fan");
           }
         }
@@ -968,13 +967,15 @@ TestLrf::testReportFFPtGraph(char *inst_name, sta::dbSta* sta,
     const char *role_name = aset ? aset->role()->to_string().c_str() : "(none)";
     PtVertex &from_pv = pt_graph->ptVertex(pe.ptFromId());
     PtVertex &to_pv   = pt_graph->ptVertex(pe.ptToId());
-    const char *from_name = (from_pv.vertex())
-        ? sta->network()->pathName(from_pv.vertex()->pin()) : "(virtual)";
-    const char *to_name = (to_pv.vertex())
-        ? sta->network()->pathName(to_pv.vertex()->pin()) : "(virtual)";
+    const std::string from_name = (from_pv.vertex())
+        ? sta->network()->pathName(from_pv.vertex()->pin())
+        : std::string("(virtual)");
+    const std::string to_name = (to_pv.vertex())
+        ? sta->network()->pathName(to_pv.vertex()->pin())
+        : std::string("(virtual)");
     printf("  %-4zu %-16s %-15s %-30s -> %-30s\n",
            eid, ptEdgeTypeName(pe.type()), role_name,
-           from_name, to_name);
+           from_name.c_str(), to_name.c_str());
     if (pe.type() == PtEdgeType::CheckEdge) check_edge_count++;
     if (aset && aset->role() == sta::TimingRole::regClkToQ()) reg_clk_q_count++;
   }
@@ -1034,9 +1035,13 @@ TestLrf::testFFLocalDelay(char *inst_name, sta::dbSta* sta,
   local_sta->makePtGraphFF(pt_graph, ff_inst);
   local_sta->findLocalDelays(pt_graph, arc_delay_calc);
   local_sta->findLocalCheckDelays(pt_graph, arc_delay_calc);
+  sta::Scene *default_scene = sta->cmdScene();
+  if (!default_scene) default_scene = pt_graph->setScene(default_scene, sta::MinMax::max());
 
-  const sta::DcalcAnalysisPt *dcalc_ap = pt_graph->dcalcAnalysisPt();
-  const size_t ap_index = dcalc_ap->index();
+  // AP indexing for arcLms: use the same AP as the global timing reference
+  const size_t ap_index = pt_graph->apIndex();
+  sta::Scene *scene = pt_graph->scene();
+  const sta::MinMax *min_max = pt_graph->minMax();
 
   printf("\n-- CK->Q (regClkToQ) gate delays --\n");
   printf("  %-30s -> %-30s %4s %4s | %12s %12s %12s\n",
@@ -1057,10 +1062,12 @@ TestLrf::testFFLocalDelay(char *inst_name, sta::dbSta* sta,
     sta::Edge *sta_edge = pe.edge();
     const PtVertex &from_pv = pt_graph->ptVertex(pe.ptFromId());
     const PtVertex &to_pv   = pt_graph->ptVertex(pe.ptToId());
-    const char *from_name = from_pv.vertex()
-        ? sta->network()->pathName(from_pv.vertex()->pin()) : "(virtual)";
-    const char *to_name = to_pv.vertex()
-        ? sta->network()->pathName(to_pv.vertex()->pin()) : "(virtual)";
+    const std::string from_name = from_pv.vertex()
+        ? sta->network()->pathName(from_pv.vertex()->pin())
+        : std::string("(virtual)");
+    const std::string to_name = to_pv.vertex()
+        ? sta->network()->pathName(to_pv.vertex()->pin())
+        : std::string("(virtual)");
 
     for (sta::TimingArc *arc : aset->arcs()) {
       const sta::RiseFall *from_rf = arc->fromEdge()->asRiseFall();
@@ -1068,12 +1075,12 @@ TestLrf::testFFLocalDelay(char *inst_name, sta::dbSta* sta,
       if (!from_rf || !to_rf) continue;
 
       sta::ArcDelay local_d = pt_graph->arcDelay(pe, arc, ap_index);
-      sta::ArcDelay global_d = sta->arcDelay(sta_edge, arc, dcalc_ap);
+      sta::ArcDelay global_d = sta->arcDelay(sta_edge, arc, scene, min_max);
       float diff_ps = (local_d - global_d) * 1e12f;
       const char *flag = (std::fabs(diff_ps) > TOL_PS) ? "  MISMATCH" : "";
       if (std::fabs(diff_ps) > TOL_PS) ckq_mismatch++;
       printf("  %-30s -> %-30s %4s %4s | %+12.4f %+12.4f %+12.4f%s\n",
-             from_name, to_name, from_rf->name(), to_rf->name(),
+             from_name.c_str(), to_name.c_str(), from_rf->name(), to_rf->name(),
              local_d * 1e12, global_d * 1e12, diff_ps, flag);
     }
   }
@@ -1106,7 +1113,7 @@ TestLrf::testFFLocalDelay(char *inst_name, sta::dbSta* sta,
       sta::Slew ck_slew = sta->graph()->slew(from_v, from_rf, ap_index);
       sta::Slew d_slew  = sta->graph()->slew(to_v, to_rf, ap_index);
       sta::ArcDelay ref_d = arc_delay_calc->checkDelay(
-          to_v->pin(), arc, ck_slew, d_slew, 0.0f, dcalc_ap);
+          to_v->pin(), arc, ck_slew, d_slew, 0.0f, scene, min_max);
       float diff_ps = (local_d - ref_d) * 1e12f;
       const char *flag = (std::fabs(diff_ps) > TOL_PS) ? "  MISMATCH" : "";
       if (std::fabs(diff_ps) > TOL_PS) setup_mismatch++;
@@ -3594,7 +3601,7 @@ TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
     bool is_g16 = (std::string(sta->network()->pathName(inst)) == "g16");
     if (is_g16) {
       sta::Scene *dc = sta->findScene("default");
-      sta::DcalcAnalysisPt *ddap = dc->findDcalcAnalysisPt(sta::MinMax::max());
+      lrf::DcalcAnalysisPt *ddap = dc->findDcalcAnalysisPt(sta::MinMax::max());
       printf("[G16] All PtGraph vertices (%zu total):\n", pg->ptVertices().size());
       for (size_t vi = 0; vi < pg->ptVertices().size(); vi++) {
         PtVertex &pv = pg->ptVertices()[vi];
@@ -3673,7 +3680,7 @@ TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
   // ---- Debug: fanin cone arrival after write-back, before updateTiming ----
   {
     sta::Scene *dc = sta->findScene("default");
-    sta::DcalcAnalysisPt *ddap = dc->findDcalcAnalysisPt(sta::MinMax::max());
+    lrf::DcalcAnalysisPt *ddap = dc->findDcalcAnalysisPt(sta::MinMax::max());
     const char *pins[] = {
       "g158293/A", "g163646/Y", "g163646/A",
       "g184873/Y", "g184873/A", "g184873/B", "g184873/C",
@@ -3718,7 +3725,7 @@ TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
 
   // ---- Snapshot: read slew + arrival from global graph ----
   sta::Scene *corner = sta->findScene("default");
-  sta::DcalcAnalysisPt *dap = corner->findDcalcAnalysisPt(sta::MinMax::max());
+  lrf::DcalcAnalysisPt *dap = corner->findDcalcAnalysisPt(sta::MinMax::max());
 
   struct VtxRecord {
     sta::Vertex *vtx;
@@ -4051,8 +4058,8 @@ TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
 
         float slew = 0.0;
         for (const sta::RiseFall *rf : sta::RiseFall::range()) {
-          for (const sta::DcalcAnalysisPt *dcalc_ap : sta->corners()->dcalcAnalysisPts()) {
-            float s = sta->graph()->slew(vtx, rf, dcalc_ap->index());
+          for (sta::Scene *scene : (sta)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
+            float s = sta->graph()->slew(vtx, rf, scene->dcalcAnalysisPtIndex(min_max));
             slew = std::max(slew, (float)delayAsFloat(s));
           }
         }
@@ -4122,8 +4129,8 @@ TestLrf::testSlewViolationFeasibility(sta::dbSta* sta,
   LocalSta *local_sta = incre_sta->localSta();
   sta::ArcDelayCalc *arc_delay_calc = sta->arcDelayCalc()->copy();
   sta::dbNetwork *db_net = sta->getDbNetwork();
-  sta::Scene *corner = sta->findScene("default");
-  sta::DcalcAnalysisPt *dcalc_ap = corner->findDcalcAnalysisPt(sta::MinMax::max());
+  sta::Scene *scene = sta->findScene("default");
+  const sta::MinMax *min_max = sta::MinMax::max();
 
   // Collect all violation driver pins (output pins with slew > limit)
   struct ViolDriver {
@@ -4158,7 +4165,7 @@ TestLrf::testSlewViolationFeasibility(sta::dbSta* sta,
 
     float slew = 0.0;
     for (const sta::RiseFall *rf : sta::RiseFall::range()) {
-      float s = delayAsFloat(sta->graph()->slew(vtx, rf, dcalc_ap->index()));
+      float s = delayAsFloat(sta->graph()->slew(vtx, rf, scene->dcalcAnalysisPtIndex(min_max)));
       slew = std::max(slew, s);
     }
     if (slew > limit) {
@@ -4294,7 +4301,7 @@ TestLrf::testSlewViolationFeasibility(sta::dbSta* sta,
     delete pin_iter;
 
     // Wire cap
-    float total_load_cap = sta->graphDelayCalc()->loadCap(vd.drvr_pin, dcalc_ap);
+    float total_load_cap = sta->graphDelayCalc()->loadCap(vd.drvr_pin, scene, min_max);
     float wire_cap = total_load_cap - total_cap;
     if (wire_cap < 0) wire_cap = 0;
 
@@ -4395,6 +4402,9 @@ TestLrf::testRepairSlew(sta::dbSta* sta,
   printf("========================================\n");
 
   sta::dbNetwork *db_network = sta->getDbNetwork();
+  sta::Scene *scene = sta->cmdScene();
+  if (!scene) scene = sta->findScene("default");
+  const sta::MinMax *min_max = sta::MinMax::max();
 
   // Step 1: Find all slew violations (same logic as MLCAD evaluation)
   sta->ensureGraph();
@@ -4440,11 +4450,11 @@ TestLrf::testRepairSlew(sta::dbSta* sta,
       limit = default_max_slew;
 
     // Check actual slew
-    const sta::DcalcAnalysisPt *dcalc_ap
+    const lrf::DcalcAnalysisPt *dcalc_ap
         = sta->cmdScene()->findDcalcAnalysisPt(sta::MinMax::max());
     float worst = 0.0f;
     for (auto rf : sta::RiseFall::range()) {
-      float s = graph->slew(vertex, rf, dcalc_ap->index());
+      float s = graph->slew(vertex, rf, scene->dcalcAnalysisPtIndex(min_max));
       worst = std::max(worst, s);
     }
 
@@ -4478,7 +4488,7 @@ TestLrf::testRepairSlew(sta::dbSta* sta,
   // that fixes the slew violation.  Iterate until no more progress
   // (handles cascaded buffer chains).
   resizer->makeEquivCells();
-  const sta::DcalcAnalysisPt *dcalc_ap
+  const lrf::DcalcAnalysisPt *dcalc_ap
       = sta->cmdScene()->findDcalcAnalysisPt(sta::MinMax::max());
   int total_upsized = 0;
 
@@ -4521,7 +4531,7 @@ TestLrf::testRepairSlew(sta::dbSta* sta,
       // Re-check current slew
       float worst = 0.0f;
       for (auto rf : sta::RiseFall::range()) {
-        float s = graph->slew(vertex, rf, dcalc_ap->index());
+        float s = graph->slew(vertex, rf, scene->dcalcAnalysisPtIndex(min_max));
         worst = std::max(worst, s);
       }
       if (worst <= v.limit) continue;  // already fixed
@@ -4532,7 +4542,7 @@ TestLrf::testRepairSlew(sta::dbSta* sta,
       if (!cur_cell || !drvr_port) continue;
 
       // Get current load cap
-      float load_cap = sta->graphDelayCalc()->loadCap(v.drvr_pin, dcalc_ap);
+      float load_cap = sta->graphDelayCalc()->loadCap(v.drvr_pin, scene, min_max);
 
       // Find smallest equiv cell (by area) that fixes the violation
       sta::LibertyCellSeq *equivs = sta->equivCells(cur_cell);
@@ -4587,7 +4597,7 @@ TestLrf::testRepairSlew(sta::dbSta* sta,
     if (!vertex) continue;
     float worst = 0.0f;
     for (auto rf : sta::RiseFall::range()) {
-      float s = graph->slew(vertex, rf, dcalc_ap->index());
+      float s = graph->slew(vertex, rf, scene->dcalcAnalysisPtIndex(min_max));
       worst = std::max(worst, s);
     }
     if (worst > v.limit) {
@@ -5404,7 +5414,7 @@ TestLrf::debugPrecheckAccuracy(sta::dbSta* sta,
 
   sta::dbNetwork *db_network = sta->getDbNetwork();
   sta::Graph *graph = sta->graph();
-  const sta::DcalcAnalysisPt *dcalc_ap =
+  const lrf::DcalcAnalysisPt *dcalc_ap =
       sta->cmdScene()->findDcalcAnalysisPt(sta::MinMax::max());
 
   // Build reverse map: vertex_idx → Instance*

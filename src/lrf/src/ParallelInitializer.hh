@@ -68,7 +68,7 @@ private:
   // When inst is provided, uses actual input slew from graph;
   // otherwise falls back to a fixed 50ps estimate.
   float estimateMaxSlew(sta::LibertyPort* port, float load_cap,
-                        const sta::DcalcAnalysisPt* dcalc_ap,
+                        const sta::Scene* scene, const sta::MinMax *min_max,
                         sta::Instance* inst = nullptr);
 
   IncreSta* incre_sta_;

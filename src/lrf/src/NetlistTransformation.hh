@@ -78,7 +78,7 @@ struct EvalContext {
   //                 the delay calc; same for v_after. cand == ori_cell is
   //                 always preserved (we never skip the no-op cell).
   // Default 1e6f = heavy soft penalty (close to but not as strict as hard
-  // reject). Set < 0 to opt back into pre-eb01407 hard-reject legalCheck
+  // reject). std::set< 0 to opt back into pre-eb01407 hard-reject legalCheck
   // behavior; set 0.0f to silently permit any ERC violation (which on dense
   // designs like ariane / NV_NVDLA_partition_c can blow up to thousands
   // of ns / fF).

@@ -156,8 +156,8 @@ LRHelper::KKTProjection(Sta *sta) {
 
   // Map from analysis point to in LM sums of early/late
   DcalcAPToLMValueSeqMap ap_lm_seq_map;
-  for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
-    ap_lm_seq_map[dcalc_ap] = LMValueSeq();
+  for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
+    ap_lm_seq_map[scene->dcalcAnalysisPtIndex(min_max)] = LMValueSeq();
   }
   size_t in_sum_index = computeInLmSums(ap_lm_seq_map);
 
@@ -203,8 +203,8 @@ LRHelper::checkKKTForAllVertices() {
       continue;
     }
     std::vector<LMValue> out_lm_vec(graph_->apCount(), 0.0);
-    for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
-      const size_t ap_index = dcalc_ap->index();
+    for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
+      const size_t ap_index = scene->dcalcAnalysisPtIndex(min_max);
 
       LMValue out_lm_sum = 0.0;
       size_t out_edge_count = 0;
@@ -247,11 +247,11 @@ LRHelper::checkKKTForAllVertices() {
       if (out_edge_count == 0) {
         out_lm_sum = -1.0; // Indicate no outputs
       }
-      out_lm_vec[dcalc_ap->index()] = out_lm_sum;
+      out_lm_vec[scene->dcalcAnalysisPtIndex(min_max)] = out_lm_sum;
     }
 
-    for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
-      const size_t ap_index = dcalc_ap->index();
+    for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
+      const size_t ap_index = scene->dcalcAnalysisPtIndex(min_max);
 
       LMValue in_lm_sum = 0.0;
       VertexInEdgeIterator in_edge_iter(*vertex_it, graph_);
@@ -291,7 +291,7 @@ LRHelper::checkKKTForAllVertices() {
         in_edge_count++;
       }
 
-      LMValue out_lm_sum = out_lm_vec[dcalc_ap->index()];
+      LMValue out_lm_sum = out_lm_vec[scene->dcalcAnalysisPtIndex(min_max)];
       const float epsilon = 1e-4;
       if (!(out_lm_sum == 0.0 && in_lm_sum == 0.0)
             && !(out_lm_sum == 0.0)   // All output edges disabled for this AP
@@ -302,9 +302,9 @@ LRHelper::checkKKTForAllVertices() {
         all_satisfied = false;
         printf("LRHelper::checkKKTForAllVertices: vertex %s KKT not satisfied for AP corner %s, delay min/max %s, slew min/max %s: out LM sum %e != in LM sum %e\n",
                 (*vertex_it)->to_string(graph_).c_str(),
-                dcalc_ap->corner()->name(),
-                dcalc_ap->delayMinMax()->to_string().c_str(),
-                dcalc_ap->slewMinMax()->to_string().c_str(),
+                scene->name(),
+                min_max->to_string().c_str(),
+                min_max->to_string().c_str(),
                 out_lm_sum, in_lm_sum);
         fflush(stdout);
       }
@@ -330,10 +330,10 @@ LRHelper::distributeLmOutToIn(Vertex *vertex,
       continue;
     }
     LMValue *lms = in_edge->arcLms();
-    for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
-      const size_t ap_index = dcalc_ap->index();
+    for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
+      const size_t ap_index = scene->dcalcAnalysisPtIndex(min_max);
       LMValue out_lm_sum = out_lm_sums[ap_index];
-      LMValue in_lm_sum = in_lm_seq_map[dcalc_ap][in_sum_index];
+      LMValue in_lm_sum = in_lm_seq_map[scene->dcalcAnalysisPtIndex(min_max)][in_sum_index];
       if (out_lm_sum == 0.0) {
         // All output edges disabled for this AP; propagate to input edges.
         for (TimingArc *arc : in_edge->timingArcSet()->arcs()) {
@@ -346,8 +346,8 @@ LRHelper::distributeLmOutToIn(Vertex *vertex,
         printf("LRHelper::distributeLmOutToIn: vertex %s edge %s AP corner %s, delay min/max %s: in LM sum is zero, skipping distribution\n",
                vertex->to_string(graph_).c_str(),
                in_edge->to_string(graph_).c_str(),
-               dcalc_ap->corner()->name(),
-               dcalc_ap->delayMinMax()->to_string().c_str());
+               scene->name(),
+               min_max->to_string().c_str());
                fflush(stdout);
         continue;
       }
@@ -369,15 +369,15 @@ LRHelper::computeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_map)
     Vertex *vertex = *vertex_it;
 
     if (!hasFanin(vertex, search_pred_, graph_)) {
-      for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
-        ap_lm_map[dcalc_ap].push_back(0.0);
+      for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
+        ap_lm_map[scene->dcalcAnalysisPtIndex(min_max)].push_back(0.0);
       }
       in_sum_index++;
       continue;
     }
 
-    for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
-      const size_t ap_index = dcalc_ap->index();
+    for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
+      const size_t ap_index = scene->dcalcAnalysisPtIndex(min_max);
 
       LMValue in_lm_sum = 0.0;
       VertexInEdgeIterator in_edge_iter(vertex, graph_);
@@ -408,7 +408,7 @@ LRHelper::computeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_map)
         //        fflush(stdout);
         in_lm_sum = 1.0;
       }
-      ap_lm_map[dcalc_ap].push_back(in_lm_sum);
+      ap_lm_map[scene->dcalcAnalysisPtIndex(min_max)].push_back(in_lm_sum);
     }
     in_sum_index++;
   }
@@ -431,8 +431,8 @@ LRHelper::computeOutLmSum(Vertex *vertex) const
       continue;
     }
     LMValue const *lms = out_edge->arcLms();
-    for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
-      const size_t ap_index = dcalc_ap->index();
+    for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
+      const size_t ap_index = scene->dcalcAnalysisPtIndex(min_max);
       for (TimingArc *arc : out_edge->timingArcSet()->arcs()) {
         size_t lm_idx = arc->index() * graph_->apCount() + ap_index;
         LMValue arc_lm = lms[lm_idx];
@@ -476,12 +476,12 @@ LRHelper::updateAllEdgeLms(Sta *sta) {
 }
 
 void
-LRHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta, DcalcAnalysisPt const *dcalc_ap) {
-  const size_t ap_index = dcalc_ap->index();
+LRHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta, sta::Scene *scene, const sta::MinMax *min_max) {
+  const size_t ap_index = scene->dcalcAnalysisPtIndex(min_max);
   const RiseFall *from_rf = arc->fromEdge()->asRiseFall();
   const RiseFall *to_rf = arc->toEdge()->asRiseFall();
-  const MinMax *delay_minmax = dcalc_ap->delayMinMax();
-  Delay delay = sta->arcDelay(edge, arc, dcalc_ap);
+  const MinMax *delay_minmax = min_max;
+  Delay delay = sta->arcDelay(edge, arc, scene, min_max);
   size_t lm_idx = arc->index() * graph_->apCount() + ap_index;
   Vertex *from_vertex = edge->from(graph_);
   Vertex *to_vertex = edge->to(graph_);
@@ -502,8 +502,8 @@ LRHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta, DcalcAnalys
   if (delay_minmax == MinMax::max()) {
     // printf("LRHelper::updateEndPointArcLms: edge %s AP corner %s, delay min/max %s: aat %f, rat %f, delay %f, original LM %f\n",
     //         edge->to_string(graph_).c_str(),
-    //         dcalc_ap->corner()->name(),
-    //         dcalc_ap->delayMinMax()->to_string().c_str(),
+    //         scene->name(),
+    //         min_max->to_string().c_str(),
     //         from_aat * 1.0e12, to_rat * 1.0e12, delay * 1.0e12,
     //         lms[lm_idx]);
     // fflush(stdout);
@@ -518,7 +518,7 @@ LRHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta, DcalcAnalys
   if (lms[lm_idx] < 0.0) {
     printf("LRHelper::updateEndPointArcLms: edge %s AP corner %s delay min/max %s: computed negative LM %.6f with aat %.6f, rat %.6f, delay %.6f\n",
             edge->to_string(graph_).c_str(),
-            dcalc_ap->corner()->name(),
+            scene->name(),
             delay_minmax->to_string().c_str(),
             lms[lm_idx],
             from_aat * 1.0e12, to_rat * 1.0e12, delay * 1.0e12);
@@ -533,31 +533,31 @@ LRHelper::updateEdgeLms(Edge *edge, Sta *sta) {
   for (Vertex *vertex : *(sta->endpoints())) {
     vertex->setIsEndpoint(true);
   }
-  for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
+  for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
     for (TimingArc *arc : edge->timingArcSet()->arcs()) {
       if (edge->to(graph_)->isEndPoint() && RATCONS_) {
-        updateEndPointArcLms(edge, arc, sta, dcalc_ap);
+        updateEndPointArcLms(edge, arc, sta, scene, min_max);
       } else
-      updateArcLms(edge, arc, sta, dcalc_ap);
+      updateArcLms(edge, arc, sta, scene, min_max);
     }
   }
 }
 
 void 
-LRHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, DcalcAnalysisPt const *dcalc_ap) {
-  const size_t ap_index = dcalc_ap->index();
+LRHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, sta::Scene *scene, const sta::MinMax *min_max) {
+  const size_t ap_index = scene->dcalcAnalysisPtIndex(min_max);
   size_t lm_idx = arc->index() * graph_->apCount() + ap_index;
   Vertex *from_vertex = edge->from(graph_);
   Vertex *to_vertex = edge->to(graph_);
   
   RiseFall const *from_rf = arc->fromEdge()->asRiseFall();
   RiseFall  const *to_rf = arc->toEdge()->asRiseFall();
-  MinMax const *delay_minmax = dcalc_ap->delayMinMax();
+  MinMax const *delay_minmax = min_max;
   Arrival from_aat = sta->vertexArrival(from_vertex, from_rf, 
       clk_edge_wildcard, nullptr,  delay_minmax);
   Arrival to_aat = sta->vertexArrival(to_vertex, to_rf,
       clk_edge_wildcard, nullptr,  delay_minmax);
-  Delay delay = sta->arcDelay(edge, arc, dcalc_ap);
+  Delay delay = sta->arcDelay(edge, arc, scene, min_max);
   LMValue *lms = edge->arcLms();
   LMValue origin = lms[lm_idx];
 
@@ -587,7 +587,7 @@ LRHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, DcalcAnalysisPt con
   if (lms[lm_idx] < 0.0) {
     printf("LRHelper::updateArcLms: edge %s AP corner %s delay min/max %s: computed negative LM %.6f from origin %.6f with aat %.6f, rat %.6f, delay %.6f\n",
             edge->to_string(graph_).c_str(),
-            dcalc_ap->corner()->name(),
+            scene->name(),
             delay_minmax->to_string().c_str(),
             lms[lm_idx], origin,
             from_aat * 1.0e12, to_aat * 1.0e12, delay * 1.0e12);
@@ -709,8 +709,8 @@ LRHelper::parallelComputeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_map)
   const size_t n = sorted_lm_vertices_.size();
 
   // Pre-allocate vectors for each analysis point
-  for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
-    ap_lm_map[dcalc_ap].resize(n, 0.0);
+  for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
+    ap_lm_map[scene->dcalcAnalysisPtIndex(min_max)].resize(n, 0.0);
   }
 
   if (thread_count_ <= 1 || !dispatch_queue_) {
@@ -734,8 +734,8 @@ LRHelper::parallelComputeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_map)
             seq[i] = 0.0;
           continue;
         }
-        for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
-          const size_t ap_index = dcalc_ap->index();
+        for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
+          const size_t ap_index = scene->dcalcAnalysisPtIndex(min_max);
           LMValue in_lm_sum = 0.0;
           size_t in_edge_count = 0;
           VertexInEdgeIterator in_edge_iter(vertex, graph_);
@@ -752,7 +752,7 @@ LRHelper::parallelComputeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_map)
           }
           if (in_lm_sum == 0.0 || in_edge_count == 0)
             in_lm_sum = 1.0;
-          ap_lm_map[dcalc_ap][i] = in_lm_sum;
+          ap_lm_map[scene->dcalcAnalysisPtIndex(min_max)][i] = in_lm_sum;
         }
       }
     });
@@ -800,8 +800,8 @@ LRHelper::parallelCheckKKTForAllVertices()
           continue;
 
         std::vector<LMValue> out_lm_vec(graph_->apCount(), 0.0);
-        for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
-          const size_t ap_index = dcalc_ap->index();
+        for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
+          const size_t ap_index = scene->dcalcAnalysisPtIndex(min_max);
           LMValue out_lm_sum = 0.0;
           size_t out_edge_count = 0;
           VertexOutEdgeIterator out_edge_iter(vertex, graph_);
@@ -823,8 +823,8 @@ LRHelper::parallelCheckKKTForAllVertices()
           out_lm_vec[ap_index] = out_lm_sum;
         }
 
-        for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
-          const size_t ap_index = dcalc_ap->index();
+        for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
+          const size_t ap_index = scene->dcalcAnalysisPtIndex(min_max);
           LMValue in_lm_sum = 0.0;
           size_t in_edge_count = 0;
           VertexInEdgeIterator in_edge_iter(vertex, graph_);
@@ -961,12 +961,12 @@ LRHelper::parallelUpdateAllEdgeLms(Sta *sta)
           if (out_edge->role()->isTimingCheck())
             continue;
           // updateEdgeLms skips endpoint marking (already done above)
-          for (DcalcAnalysisPt const *dcalc_ap : graph_->corners()->dcalcAnalysisPts()) {
+          for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
             for (TimingArc *arc : out_edge->timingArcSet()->arcs()) {
               if (out_edge->to(graph_)->isEndPoint() && RATCONS_) {
-                updateEndPointArcLms(out_edge, arc, sta, dcalc_ap);
+                updateEndPointArcLms(out_edge, arc, sta, scene, min_max);
               } else {
-                updateArcLms(out_edge, arc, sta, dcalc_ap);
+                updateArcLms(out_edge, arc, sta, scene, min_max);
               }
             }
           }
@@ -986,7 +986,7 @@ AdaptiveLrHelper::strategyName() const
 }
 
 void
-AdaptiveLrHelper::updateArcLms(sta::Edge *edge, sta::TimingArc *arc, Sta *sta, sta::DcalcAnalysisPt const *dcalc_ap)
+AdaptiveLrHelper::updateArcLms(sta::Edge *edge, sta::TimingArc *arc, Sta *sta, sta::Scene *scene, const sta::MinMax *min_max)
 {
 }
 

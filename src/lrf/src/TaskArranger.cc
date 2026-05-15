@@ -407,9 +407,9 @@ TaskArranger::makeVertices()
     vertex.setObjectIdx(vid);  
     setInstanceId1(top_inst, vid);
     vertex.setType(VertexType::TOP);
-    const char *inst_name = network_->name(top_inst);
-    printf("  Initialized top instance vertex %d: inst=%p, name=%s\n", 
-           vid, (void*)top_inst, inst_name);
+    const std::string inst_name = network_->name(top_inst);
+    printf("  Initialized top instance vertex %d: inst=%p, name=%s\n",
+           vid, (void*)top_inst, inst_name.c_str());
     fflush(stdout);
   }
   
@@ -639,9 +639,14 @@ TaskArranger::makeEdge(InstVertex* from_vertex,
   if (to_vertex->type() == VertexType::SEQUENTIAL
       || to_vertex->type() == VertexType::TOP) {
     // Disallow incoming edges to SEQ/TOP: do not create * -> (SEQ/TOP).
-    const char* from_name = from_vertex->inst() ? network_->name(from_vertex->inst()) : "<null>";
-    const char* to_name = to_vertex->inst() ? network_->name(to_vertex->inst()) : "<null>";
-    printf("Disallow edge into %s (SEQ/TOP): from=%s -> to=%s\n", to_name, from_name, to_name);
+    const std::string from_name = from_vertex->inst()
+                                        ? network_->name(from_vertex->inst())
+                                        : std::string("<null>");
+    const std::string to_name = to_vertex->inst()
+                                      ? network_->name(to_vertex->inst())
+                                      : std::string("<null>");
+    printf("Disallow edge into %s (SEQ/TOP): from=%s -> to=%s\n",
+           to_name.c_str(), from_name.c_str(), to_name.c_str());
     fflush(stdout);
     return edge_id_null;
   }
@@ -1095,7 +1100,7 @@ InstVertexInEdgeIterator::hasNext() const
 }
 
 SearchMEEPred::SearchMEEPred(sta::StaState* sta)
-  : sta::SearchPred2(sta)
+  : sta::SearchPred1(sta)
 {
 }
 
@@ -1111,7 +1116,7 @@ SearchMEEPred::searchThru(sta::Edge* edge, const sta::Mode* mode) const
   }
   sta::LibertyCell* to_cell = network_->libertyCell(to_inst);
   if (!to_cell) return false;
-  return (SearchPred2::searchThru(edge, mode)
+  return (SearchPred1::searchThru(edge, mode)
           && role->isWire()
           && !to_cell->hasSequentials());
 }
@@ -1126,7 +1131,7 @@ SearchMEEPred::searchFrom(const sta::Vertex* from_vertex, const sta::Mode* mode)
   sta::LibertyCell* from_cell = sta_->network()->libertyCell(from_inst);
   if (!from_cell) return false;
   return (!from_cell->hasSequentials()
-          && SearchPred2::searchFrom(from_vertex, mode));
+          && SearchPred1::searchFrom(from_vertex, mode));
 }
 
 bool
@@ -1139,7 +1144,7 @@ SearchMEEPred::searchTo(const sta::Vertex* to_vertex, const sta::Mode* mode) con
   sta::LibertyCell* to_cell = sta_->network()->libertyCell(to_inst);
   if (!to_cell) return false;
   return (!to_cell->hasSequentials()
-          && SearchPred2::searchTo(to_vertex, mode));
+          && SearchPred1::searchTo(to_vertex, mode));
 }
 
 void

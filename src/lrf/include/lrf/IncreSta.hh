@@ -15,7 +15,6 @@ namespace sta {
   class ConcreteParasitic;
   class Parasitic; // forward declare individual parasitic object
   class Parasitics;
-  class ParasiticAnalysisPt;
 }
 
 namespace est {

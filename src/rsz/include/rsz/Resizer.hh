@@ -46,6 +46,12 @@
 #include "stt/SteinerTreeBuilder.h"
 #include "utl/Logger.h"
 
+namespace lrf {
+class LrRebuffer;
+class TestRebuffer;
+class Initializer;
+}
+
 namespace rsz {
 
 // Buffer use classification
@@ -963,6 +969,11 @@ class Resizer : public sta::dbStaState, public sta::dbNetworkObserver
 
   friend class BufferedNet;
   friend class GateCloner;
+  // LRF: expose Resizer internals (makeBufferedNet etc.) to LRF
+  // rebuffering/initialization helpers.
+  friend class lrf::LrRebuffer;
+  friend class lrf::TestRebuffer;
+  friend class lrf::Initializer;
   friend class PreChecks;
   friend class RecoverPower;
   friend class RepairDesign;
