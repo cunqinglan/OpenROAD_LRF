@@ -173,7 +173,7 @@ LocalReduceToPi::pinCapacitance(ParasiticNode *node)
       }
     }
     else if (network_->isTopLevelPort(pin))
-      pin_cap = corner_->sdc()->portExtCap(port, rf_, corner_, min_max_);
+      pin_cap = corner_->sdc()->portExtCap(port, rf_, min_max_);
   }
   return pin_cap;
 }
@@ -189,7 +189,7 @@ LocalReduceToPi::localPinCapacitance(ParasiticNode *node)
     if (network_->isTopLevelPort(pin)) {
       Port *port = network_->port(pin);
       if (port)
-        pin_cap = corner_->sdc()->portExtCap(port, rf_, corner_, min_max_);
+        pin_cap = corner_->sdc()->portExtCap(port, rf_, min_max_);
       return pin_cap;
     }
     // Safety: check vertexId before calling pinLoadVertex.
@@ -239,7 +239,7 @@ LocalReduceToPi::visit(ParasiticNode *node)
 bool
 LocalReduceToPi::isVisited(ParasiticNode *node)
 {
-  return visited_nodes_.hasKey(node);
+  return visited_nodes_.count(node) > 0;
 }
 
 void
@@ -251,7 +251,7 @@ LocalReduceToPi::leave(ParasiticNode *node)
 bool
 LocalReduceToPi::isLoopResistor(ParasiticResistor *resistor)
 {
-  return loop_resistors_.hasKey(resistor);
+  return loop_resistors_.count(resistor) > 0;
 }
 
 void

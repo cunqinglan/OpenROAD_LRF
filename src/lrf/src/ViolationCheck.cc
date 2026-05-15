@@ -3,6 +3,8 @@
 #include "LocalSta.hh"
 #include "sta/ClkNetwork.hh"
 #include "sta/Sdc.hh"
+#include "sta/Mode.hh"
+#include "search/Sim.hh"
 #include "sta/PortDirection.hh"
 #include "sta/InputDrive.hh"
 #include "sta/Fuzzy.hh"
@@ -66,9 +68,10 @@ LocalSta::checkSlew1(const sta::Pin *pin,
                     float &limit1,
                     float &slack1) const
 {
-  if (!vertex->isDisabledConstraint()
-      && !vertex->isConstant()
-      && !sta_->clkNetwork()->isIdealClock(pin)) {
+  sta::Mode *mode = sta_->cmdMode();
+  if (!mode->sdc()->isDisabledConstraint(pin)
+      && !mode->sim()->isConstant(vertex)
+      && !mode->clkNetwork()->isIdealClock(pin)) {
     ClockSet clks;
     if (check_clks)
       clks = clockDomains(vertex);
@@ -136,7 +139,7 @@ LocalSta::localFindSlewLimit(const sta::LibertyPort *lib_port,
   }
 
   if (lib_port) {
-    const LibertyPort *corner_port = lib_port->cornerPort(corner, min_max);
+    const LibertyPort *corner_port = lib_port->scenePort(corner, min_max);
     corner_port->slewLimit(min_max, limit1, exists1);
     if (!exists1
         // default_max_transition only applies to outputs.
@@ -176,7 +179,7 @@ LocalSta::localFindSlewLimit(const sta::Pin *pin,
   bool exists1;
   if (!clks.empty()) {
     // Look for clock slew limits.
-    bool is_clk = sta_->clkNetwork()->isIdealClock(pin);
+    bool is_clk = sta_->cmdMode()->clkNetwork()->isIdealClock(pin);
     for (Clock *clk : clks) {
       PathClkOrData clk_data = is_clk ? PathClkOrData::clk : PathClkOrData::data;
       sdc->slewLimit(clk, rf, clk_data, min_max,
@@ -204,11 +207,11 @@ LocalSta::localFindSlewLimit(const sta::Pin *pin,
       for (auto rf : RiseFall::range()) {
         const LibertyCell *cell;
         const LibertyPort *from_port;
-        float *from_slews;
+        const sta::DriveCellSlews *from_slews;
         const LibertyPort *to_port;
         drive->driveCell(rf, min_max, cell, from_port, from_slews, to_port);
         if (to_port) {
-          const LibertyPort *corner_port = to_port->cornerPort(corner, min_max);
+          const LibertyPort *corner_port = to_port->scenePort(corner, min_max);
           corner_port->slewLimit(min_max, limit1, exists1);
           if (!exists1
               && corner_port->direction()->isAnyOutput()

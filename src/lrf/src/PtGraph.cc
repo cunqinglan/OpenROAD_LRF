@@ -1080,7 +1080,7 @@ void PtGraph::initVertexAndEdges()
   for (PtVertex &pt_vertex : pt_vertices_) {
     if (pt_vertex.type() == PtVertexType::Sentinel)
       continue;
-    pt_vertex.copyInfoFromVertex(ap_count_, slew_rf_count_);
+    pt_vertex.copyInfoFromVertex(sta_->graph(), ap_count_, slew_rf_count_);
     initPaths(pt_vertex);
   }
   for (PtEdge &pt_edge : pt_edges_) {
@@ -1521,7 +1521,7 @@ PtGraph::getRefPinCapacitance(const PtVertex &pt_vertex,
   }
   if (pt_vertex.type() == PtVertexType::RefInput
       || pt_vertex.type() == PtVertexType::RefOutput) {
-    port_cap = sta_->sdc()->portCapacitance(ref_inst_, lib_port, rf, corner, min_max);
+    port_cap = corner->sdc()->pinCapacitance(pin, rf, corner, min_max);
   } else {
     port_cap = lib_port->capacitance(rf, min_max);
   }
@@ -1599,11 +1599,13 @@ PtEdge::copyInfoFromEdge(size_t ap_count)
 {
   timing_arc_set_ = edge_->timingArcSet();
   size_t delay_count = edge_->timingArcSet()->arcCount() * ap_count;
-  ArcDelay *src_arc_delays = edge_->arcDelays();
-  if (src_arc_delays && delay_count > 0)
-    arc_delays_.assign(src_arc_delays, src_arc_delays + delay_count);
-  else
-    arc_delays_.clear();
+  const float *src_arc_delays = edge_->arcDelays();
+  arc_delays_.clear();
+  if (src_arc_delays && delay_count > 0) {
+    arc_delays_.reserve(delay_count);
+    for (size_t i = 0; i < delay_count; ++i)
+      arc_delays_.emplace_back(src_arc_delays[i]);
+  }
 }
 
 void
@@ -1775,18 +1777,18 @@ PtVertex::resizeSlews(size_t slew_count)
 }
 
 void
-PtVertex::copyInfoFromVertex(size_t ap_count, size_t slew_rf_count)
+PtVertex::copyInfoFromVertex(sta::Graph *graph, size_t ap_count, size_t slew_rf_count)
 {
   level_ = static_cast<float>(vertex_->level());
-  // POCV was rejected at PtGraph construction, so the upstream Vertex
-  // slew buffer is plain float[] and can be bulk-copied without
-  // reinterpret hazards.
-  const float *src_slews = vertex_->slewsFloat();
+  // POCV was rejected at PtGraph construction; pull per-(rf, ap) slews
+  // through the public Graph accessor since Vertex::slews() is non-public
+  // in upstream OpenSTA.
   size_t slew_count = slew_rf_count * ap_count;
-  if (src_slews && slew_count > 0) {
-    slews_.assign(src_slews, src_slews + slew_count);
-  } else {
-    slews_.clear();
+  slews_.clear();
+  if (slew_count > 0) {
+    slews_.reserve(slew_count);
+    for (size_t i = 0; i < slew_count; ++i)
+      slews_.emplace_back(static_cast<float>(graph->slew(vertex_, i)));
   }
 }
 

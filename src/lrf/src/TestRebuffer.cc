@@ -238,7 +238,7 @@ TestRebuffer::probeRszBnetWithLocalEval(const sta::Pin *drvr_pin,
   if (buf_count == 0) return;
 
   std::optional<rsz::FixedDelay> rsz_slack_opt = Rebuffer::evaluateOption(bnet, 0);
-  float rsz_slack = rsz_slack_opt ? rsz_slack_opt->toSeconds() : -1e30f;
+  float rsz_slack = rsz_slack_opt ? sta::delayAsFloat(rsz_slack_opt->toSeconds()) : -1e30f;
 
   // ── Step 2: LRF local timing evaluation on the RSZ bnet ──
   PtGraph *pt_graph = eval_ctx_->pt_graph;
@@ -516,7 +516,7 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
   bool want_prune_debug = false;
   if (const char *pat = std::getenv("PRUNE_DEBUG_PIN")) {
     if (pat[0] != '\0'
-        && strstr(network_->pathName(drvr_pin), pat) != nullptr) {
+        && strstr(network_->pathName(drvr_pin).c_str(), pat) != nullptr) {
       want_prune_debug = true;
     }
   }
@@ -567,7 +567,7 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
           sta::Delay drvr_gate_delay;
           std::tie(drvr_gate_delay, std::ignore, std::ignore) = drvrPinTiming(rb);
           // Simplified relaxation: small fraction of driver gate delay.
-          sta::Delay relaxation = std::max(drvr_gate_delay, 0.0f) * 0.01f;
+          sta::Delay relaxation = std::max(drvr_gate_delay, sta::Delay(0.0f)) * 0.01f;
           rsz::FixedDelay target = slackAtDriverPin(rb)
                                  - rsz::FixedDelay(relaxation, resizer_);
           for (int i = 0; i < 5 && rb; i++) {
@@ -740,7 +740,7 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
           //            + PT_tradeoff * cell_delay_lm / avg_delay
           // real       = swapCost(dlm_after, opt->leakage())   (both normalized)
           // gap        = real - analytical = residual of analytical proxy
-          sta::Slew max_slew_probe = 0;
+          float max_slew_probe = 0;
           float cell_dlm = cellDelayLmSum(v, opt, max_slew_probe);
           float cell_dlm_norm = eval_ctx_->PT_tradeoff * cell_dlm
                                     / eval_ctx_->average_delay;
@@ -762,14 +762,14 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
           // and print per-sink local arrival after buffer
           struct SynPi { VertexId vid; const sta::Pin *pin; float c2, rpi, c1; };
           std::vector<SynPi> syn_pis;
-          lrf::DcalcAnalysisPt *dap = sta_->findScene("default")
-              ->findDcalcAnalysisPt(sta::MinMax::max());
+          const sta::DcalcAPIndex dap_index = sta_->findScene("default")
+              ->dcalcAnalysisPtIndex(sta::MinMax::max());
           for (size_t si = 0; si < pg_l->vertexCount(); si++) {
             PtVertex &spv = pg_l->ptVertex(si);
             if (spv.type() == PtVertexType::RefOutput
                 || (spv.vertex() && network_->isDriver(spv.vertex()->pin()))) {
               PtPiElmore *pi = pg_l->findPtParasitic(
-                  spv.objectIdx(), sta::RiseFall::rise(), dap->index());
+                  spv.objectIdx(), sta::RiseFall::rise(), dap_index);
               if (pi) {
                 float pc2, prpi, pc1;
                 pi->piModel(pc2, prpi, pc1);
@@ -855,7 +855,7 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
                   for (size_t pi = 0; pi < tg->pathCount(); pi++) {
                     sta::Tag *tag = paths[pi].tag(sta_);
                     if (tag && tag->rfIndex() == sta::RiseFall::riseIndex()
-                        && tag->pathAnalysisPt(sta_)->pathMinMax() == sta::MinMax::max()) {
+                        && tag->minMax() == sta::MinMax::max()) {
                       arr = paths[pi].arrival();
                       break;
                     }
@@ -864,7 +864,7 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
               }
               printf("        %-40s %+10.1f %+10.1f\n",
                      network_->name(lv->pin()),
-                     sta::delayInf(arr) ? 0.0 : arr * 1e12,
+                     sta::delayInf(arr, sta_) ? 0.0 : arr * 1e12,
                      s * 1e12);
               if (s < ws) ws = s;
               ss += s;

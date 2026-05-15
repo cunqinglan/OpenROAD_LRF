@@ -26,7 +26,6 @@ namespace sta
 class dbSta;
 class dbNetwork;
 class Instance;
-class lrf::DcalcAnalysisPt;
 }  // namespace sta
 
 namespace est
@@ -51,7 +50,6 @@ struct ErrorPoint
   PtEdge   *open_edge;
   sta::Arrival local_arrival;
   sta::Arrival open_arrival;
-  lrf::DcalcAnalysisPt* analysis_pt;
 };
 
 // ── IterationHelper ──────────────────────────────────────

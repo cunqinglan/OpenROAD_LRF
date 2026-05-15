@@ -930,9 +930,9 @@ LrRebuffer::recoverLrCost(VertexId drvr_vertex_id,
 void
 LrRebuffer::initGlobalPreamble(sta::dbSta *sta, rsz::Resizer *resizer)
 {
-  sta->checkCapacitanceLimitPreamble();
-  sta->checkSlewLimitPreamble();
-  sta->checkFanoutLimitPreamble();
+  sta->checkCapacitancesPreamble(sta->scenes());
+  sta->checkSlewsPreamble();
+  sta->checkFanoutPreamble();
   resizer->resizePreamble();
 }
 
@@ -1259,7 +1259,7 @@ LrRebuffer::persistBufferParasitics()
 
   auto persistNet = [&](const sta::Net *net) {
     if (!net) return;
-    estimate_parasitics_->estimateWireParasiticNoDeleteNetwork(net);
+    estimate_parasitics_->estimateWireParasitic(net);
   };
 
   using BnetType = rsz::BufferedNetType;
@@ -1949,7 +1949,7 @@ LrRebuffer::evaluateOption(VertexId pt_vertex_id, const BnetPtr& option,
 }
 
 bool
-LrRebuffer::hasViolation(const BnetPtr& option, sta::Slew slew)
+LrRebuffer::hasViolation(const BnetPtr& option, float slew)
 {
   if (!loadSlewSatisfactory(drvr_port_, option)) return true;
   if (slew > drvr_pin_max_slew_ && option->cap() > drvr_load_high_water_mark_) {
@@ -2134,8 +2134,7 @@ LrRebuffer::cellDelayLmSum(VertexId pt_vertex_id,
   max_slew = -INF;
   PtGraph *pt_graph = eval_ctx_->pt_graph;
   float delay_lm_sum = 0.0f;
-  lrf::DcalcAnalysisPt *dcalc_pt = pt_graph->scene();
-  sta::DcalcAPIndex ap_index = dcalc_pt->index();
+  sta::DcalcAPIndex ap_index = pt_graph->apIndex();
   float output_cap = load_opt->cap();
   PtVertexInEdgeIterator in_edge_iter(pt_vertex_id, pt_graph);
   while (in_edge_iter.hasNext()) {
@@ -2159,7 +2158,8 @@ LrRebuffer::cellDelayLmSum(VertexId pt_vertex_id,
                                                     output_cap,
                                                     nullptr,
                                                     load_pin_index_map,
-                                                    dcalc_pt);
+                                                    pt_graph->scene(),
+                                                    pt_graph->minMax());
       sta::Delay arc_delay = dcalc_result.gateDelay();
       int lm_index = lmIndex(arc, ap_index, graph_->apCount());
       LMValue lm = lms[lm_index];
@@ -2544,7 +2544,7 @@ LrRebuffer::initNewStaVertexPaths(const PtVertex &pt_vertex,
 
   // New vertex: allocate paths and initialize from PtVertex data.
   size_t path_count = pt_tg->pathCount();
-  sta::Path *sta_paths = graph_->makePaths(sta_vertex, path_count);
+  sta::Path *sta_paths = sta_vertex->makePaths(path_count);
   for (size_t i = 0; i < path_count; i++) {
     sta::Tag *tag = search_->tag(pt_paths[i].tagIndex(this));
     sta_paths[i].init(sta_vertex, tag, pt_paths[i].arrival(), this);
@@ -3305,9 +3305,9 @@ LrRebuffer::buildSyntheticParasitics(VertexId drvr_vertex_id,
           auto it = resistor_map.find(node);
           if (it != resistor_map.end()) {
             for (sta::ParasiticResistor *res : it->second) {
-              sta::ParasiticNode *onode = parasitics_->otherNode(res, node);
+              sta::ParasiticNode *onode = scene->parasitics(min_max)->otherNode(res, node);
               if (res != from_res && visited.find(onode) == visited.end()) {
-                float r = parasitics_->value(res);
+                float r = scene->parasitics(min_max)->value(res);
                 double dwn_cap = reducer.downstreamCap(onode);
                 elmoreDfs(onode, res, elmore + r * dwn_cap);
               }
@@ -3725,7 +3725,7 @@ LrRebuffer::prepareRszBnet(const sta::Pin *drvr_pin,
 
   const bool allow_topology_rewrite
       = (estimate_parasitics_->getParasiticsSrc()
-         == est::ParasiticsSrc::placement);
+         == est::ParasiticsSrc::kPlacement);
 
   // Phase 1: parallel-safe slack-DP (replaces Rebuffer::bufferForTiming which
   // reads arrival_paths_ / bufferDelay from shared STA).
@@ -3793,7 +3793,7 @@ LrRebuffer::prepareSlackDpBnet(const sta::Pin *drvr_pin,
 
   const bool allow_topology_rewrite
       = (estimate_parasitics_->getParasiticsSrc()
-         == est::ParasiticsSrc::placement);
+         == est::ParasiticsSrc::kPlacement);
 
   // Phase 1: bufferForTimingSlackDp iterations.
   for (int i = 0; i < bft_iter; i++) {
@@ -3874,7 +3874,7 @@ LrRebuffer::probeRszBnetWithLocalEval(const sta::Pin *drvr_pin,
 
   // RSZ slack evaluation
   std::optional<rsz::FixedDelay> rsz_slack_opt = Rebuffer::evaluateOption(bnet, 0);
-  float rsz_slack = rsz_slack_opt ? rsz_slack_opt->toSeconds() : -1e30f;
+  float rsz_slack = rsz_slack_opt ? sta::delayAsFloat(rsz_slack_opt->toSeconds()) : -1e30f;
 
   // ── Step 2: LRF local timing evaluation on the same bnet ──
   PtGraph *pt_graph = eval_ctx_->pt_graph;
@@ -4170,7 +4170,7 @@ LrRebuffer::findBufferUnderSlew(rsz::Resizer *resizer,
 
   for (sta::LibertyCell *buffer : swappable) {
     float slew = resizer->bufferSlew(
-        buffer, load_cap, resizer->tgt_slew_dcalc_ap_);
+        buffer, load_cap, resizer->tgt_slew_corner_, sta::MinMax::max());
     if (slew < max_slew)
       return buffer;
     if (slew < min_slew) {

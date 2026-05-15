@@ -50,6 +50,8 @@ namespace lrf {
 class LrRebuffer;
 class TestRebuffer;
 class Initializer;
+class ParallelLibData;
+class IncreSta;
 }
 
 namespace rsz {
@@ -974,6 +976,8 @@ class Resizer : public sta::dbStaState, public sta::dbNetworkObserver
   friend class lrf::LrRebuffer;
   friend class lrf::TestRebuffer;
   friend class lrf::Initializer;
+  friend class lrf::ParallelLibData;
+  friend class lrf::IncreSta;
   friend class PreChecks;
   friend class RecoverPower;
   friend class RepairDesign;

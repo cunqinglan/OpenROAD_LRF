@@ -15,6 +15,8 @@
 #include "sta/TimingRole.hh"
 #include "sta/TimingArc.hh"
 #include "sta/Scene.hh"
+#include "sta/Mode.hh"
+#include "sta/Sdc.hh"
 #include "sta/GraphDelayCalc.hh"
 #include "sta/Delay.hh"
 #include "odb/db.h"
@@ -77,11 +79,10 @@ Initializer::estimateMaxSlew(sta::LibertyPort* port, float load_cap,
           }
         }
       }
-      sta::ArcDelay arc_delay;
-      sta::Slew arc_slew;
-      model->gateDelay(op_cond,
-                       in_slew, load_cap, false, arc_delay, arc_slew);
-      max_slew = std::max(max_slew, sta::delayAsFloat(arc_slew));
+      float arc_delay = 0, arc_slew = 0;
+      model->gateDelay(op_cond, sta::delayAsFloat(in_slew), load_cap,
+                       arc_delay, arc_slew);
+      max_slew = std::max(max_slew, arc_slew);
     }
   }
   return max_slew;
@@ -346,13 +347,13 @@ Initializer::fixLoadViolations()
     std::sort(by_area.begin(), by_area.end(),
               [](LibertyCell* a, LibertyCell* b) { return a->area() < b->area(); });
 
-    const char* port_name = drvr_port->name();
+    const std::string port_name = drvr_port->name();
     LibertyCell* best = nullptr;
 
     for (LibertyCell* ec : by_area) {
       if (ec->area() <= cell->area() && ec != cell) continue;
       if (ec == cell) continue;
-      sta::LibertyPort* ep = ec->findLibertyPort(port_name);
+      sta::LibertyPort* ep = ec->findLibertyPort(port_name.c_str());
       if (!ep) continue;
 
       // Check maxcap
@@ -545,7 +546,7 @@ Initializer::fixSlewViolations()
       float load_cap = sta_->graphDelayCalc()->loadCap(pin, scene, min_max);
       // Find largest equiv cell and its estimated slew
       LibertyCellSeq* equivs = cur ? sta_->equivCells(cur) : nullptr;
-      const char* largest_name = cur ? cur->name() : "?";
+      std::string largest_name = cur ? cur->name() : std::string("?");
       float largest_slew = worst;
       if (equivs && !equivs->empty()) {
         LibertyCell* largest = cur;
@@ -553,16 +554,16 @@ Initializer::fixSlewViolations()
           if (ec->area() > largest->area()) largest = ec;
         }
         largest_name = largest->name();
-        sta::LibertyPort* lp = largest->findLibertyPort(port->name());
+        sta::LibertyPort* lp = largest->findLibertyPort(port->name().c_str());
         if (lp)
           largest_slew = estimateMaxSlew(lp, load_cap, scene, min_max, inst);
       }
       printf("[Initializer] Step 3: UNRESOLVED pin %s, cell %s, "
              "slew=%.3fps limit=%.3fps load_cap=%.2ffF, "
              "largest_equiv=%s est_slew=%.3fps\n",
-             network_->pathName(pin), cur ? cur->name() : "?",
+             network_->pathName(pin).c_str(), cur ? cur->name().c_str() : "?",
              worst * 1e12, limit * 1e12, load_cap * 1e15,
-             largest_name, largest_slew * 1e12);
+             largest_name.c_str(), largest_slew * 1e12);
     }
   }
 
@@ -721,7 +722,7 @@ Initializer::fixCapByBuffering()
       if (!buf_cell) {
         // Find the largest buffer max_cap in library for diagnostic.
         float max_buf_cap = 0;
-        const char* max_buf_name = "none";
+        std::string max_buf_name = "none";
         sta::LibertyLibraryIterator* dlib = network_->libertyLibraryIterator();
         while (dlib->hasNext()) {
           sta::LibertyLibrary* lib = dlib->next();
@@ -744,8 +745,8 @@ Initializer::fixCapByBuffering()
         printf("[Initializer] Step 4: UNRESOLVED pin %s, "
                "need buffer for group_cap=%.2f fF, "
                "but largest buffer %s has max_cap=%.2f fF (%zu loads in group)\n",
-               network_->pathName(drvr_pin),
-               buf_group_cap * 1e15, max_buf_name, max_buf_cap * 1e15,
+               network_->pathName(drvr_pin).c_str(),
+               buf_group_cap * 1e15, max_buf_name.c_str(), max_buf_cap * 1e15,
                buf_loads.size());
         break;
       }

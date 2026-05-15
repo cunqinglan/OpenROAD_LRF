@@ -189,8 +189,8 @@ protected:
                        float original_slack);
   float cellDelayLmSum(sta::VertexId pt_vertex_id,
                        const rsz::BufferedNetPtr& load_opt,
-                       sta::Slew &max_slew);
-  bool hasViolation(const rsz::BufferedNetPtr& option, sta::Slew max_slew);
+                       float &max_slew);
+  bool hasViolation(const rsz::BufferedNetPtr& option, float max_slew);
   VirtualBufferInfo buildVirtualBuffer(sta::VertexId drvr_vertex_id,
                                        const rsz::BufferedNetPtr& option);
   void removeVirtualBuffer(VirtualBufferInfo &info);

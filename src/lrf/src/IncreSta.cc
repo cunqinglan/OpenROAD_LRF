@@ -8,6 +8,7 @@
 #include "sta/Search.hh"
 #include "sta/EquivCells.hh"
 #include "sta/Sdc.hh"
+#include "sta/Mode.hh"
 #include "power/Power.hh"
 #include "sta/Scene.hh"
 #include "sta/Scene.hh"
@@ -327,7 +328,7 @@ IncreSta::lmUpdate()
   // History is fed externally via recordMetrics() at snapshot time.
   if (lr_helper_ && lr_helper_->mode() != "power") {
     float clock_period = 0.0f;
-    for (Clock *clock : *sta_->cmdMode()->sdc()->clocks()) {
+    for (Clock *clock : sta_->cmdMode()->sdc()->clocks()) {
       float period = clock->period();
       if (period > clock_period) {
         clock_period = period;
@@ -405,11 +406,12 @@ IncreSta::loadLmFromFile(const std::string &path, const std::string &design_name
 bool
 IncreSta::checkCapViolated(Pin *pin, const Scene *corner, const MinMax *min_max)
 {
-  const Scene *corner1;
-  const RiseFall *rf;
-  float capacitance, limit, slack;
-  sta_->checkCapacitance(pin, corner, min_max, corner1, rf, capacitance, limit, slack);
-  if (corner1 && slack < 0.0)
+  const Scene *scene_out = nullptr;
+  const RiseFall *rf = nullptr;
+  float capacitance = 0, limit = 0, slack = 0;
+  sta_->checkCapacitance(pin, sta_->scenes(), min_max,
+                         capacitance, limit, slack, rf, scene_out);
+  if (scene_out && slack < 0.0)
     return true;
   return false;
 }
@@ -442,7 +444,9 @@ IncreSta::averageDelayOnCritPath() {
     return 0.0f;
   }
 
-  Arrival worst_arrival = sta_->vertexArrival(worst_vertex, MinMax::max());
+  Arrival worst_arrival = sta_->arrival(worst_vertex,
+                                        sta::RiseFallBoth::riseFall(),
+                                        sta_->scenes(), MinMax::max());
   size_t path_length = path_expanded.size();
 
   return (worst_arrival / path_length);
@@ -663,9 +667,7 @@ IncreSta::makeEquivCellArray(bool verbose)
   sta::dbNetwork* network = sta->getDbNetwork();
 
   sta::Scene* corner = sta->cmdScene();
-  const lrf::DcalcAnalysisPt* dcalc_ap
-      = corner ? corner->findDcalcAnalysisPt(sta::MinMax::max()) : nullptr;
-  const int lib_ap = dcalc_ap ? dcalc_ap->libertyIndex() : 0;
+  const int lib_ap = corner ? corner->libertyIndex(sta::MinMax::max()) : 0;
 
   // Iterate all liberty cells and get their equiv group.
   std::set<sta::LibertyCellSeq*> seen_groups;
@@ -695,10 +697,10 @@ IncreSta::makeEquivCellArray(bool verbose)
       for (sta::LibertyCell* c : *group) {
         if (!c)
           continue;
-        const sta::LibertyCell* corner_cell = c->cornerCell(lib_ap);
+        const sta::LibertyCell* corner_cell = c->sceneCell(lib_ap);
         const double incap = avgInputCap(corner_cell);
         cell_incap[c] = incap;
-        cell_parts[c] = parseCellName(c->name());
+        cell_parts[c] = parseCellName(c->name().c_str());
         cols[cell_parts[c].prefix].push_back(c);
       }
 
@@ -833,8 +835,8 @@ IncreSta::makeSwappableCellsCache(rsz::Resizer *resizer)
   for (const sta::LibertyCell* source_cell : unique_equiv_cells) {
     sta::LibertyCellSeq *equive_cells = sta_->equivCells(const_cast<sta::LibertyCell*>(source_cell));
     for (sta::LibertyCell* equiv_cell : *equive_cells) {
-      sta::LibertyCellSeq *swappable_cells = resizer->makeSwappableCells(equiv_cell);
-      swappable_cells_cache_[equiv_cell] = swappable_cells;
+      auto *seq = new sta::LibertyCellSeq(resizer->getSwappableCells(equiv_cell));
+      swappable_cells_cache_[equiv_cell] = seq;
     }
   }
   swap_cell_presaved_ = true;

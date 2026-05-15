@@ -4,6 +4,7 @@
 #include "sta/TimingRole.hh"
 #include "sta/Clock.hh"
 #include "sta/Sdc.hh"
+#include "sta/Mode.hh"
 #include "sta/PathExpanded.hh"
 #include "LrHelper.hh"
 #include "lrf/LrfClass.hh"
@@ -26,7 +27,7 @@ float
 RapidLrHelper::getMultiplier(Slack arc_slack) {
   // Only consider the first clock now
   float clock_period = 0.0f;
-  for (Clock *clock : *sta_->cmdMode()->sdc()->clocks()) {
+  for (Clock *clock : sta_->cmdMode()->sdc()->clocks()) {
     float period = clock->period();
     if (period > clock_period) {
       clock_period = period;
@@ -72,12 +73,12 @@ RapidLrHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta,
   const RiseFall *from_rf = arc->fromEdge()->asRiseFall();
   const RiseFall *to_rf = arc->toEdge()->asRiseFall();
   const MinMax *delay_minmax = min_max;
-  Delay delay = sta->arcDelay(edge, arc, scene, min_max);
+  Delay delay = sta->arcDelay(edge, arc, ap_index);
   size_t lm_idx = arc->index() * graph_->apCount() + ap_index;
   Vertex *from_vertex = edge->from(graph_);
   Vertex *to_vertex = edge->to(graph_);
-  Arrival from_aat = sta->pinArrival(from_vertex->pin(), from_rf, delay_minmax);
-  Required to_rat = sta->vertexRequired(to_vertex, to_rf, delay_minmax);
+  Arrival from_aat = sta->arrival(from_vertex->pin(), from_rf->asRiseFallBoth(), delay_minmax);
+  Required to_rat = sta->required(to_vertex, to_rf->asRiseFallBoth(), sta->scenes(), delay_minmax);
   LMValue *lms = edge->arcLms();
 
   // Disabled edge: unconstrained timing values.
@@ -88,8 +89,8 @@ RapidLrHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta,
     return;
   }
 
-  from_aat = std::max(from_aat, 0.0f);
-  to_rat = std::max(to_rat, 0.0f);
+  from_aat = std::max(from_aat, sta::Arrival(0.0f));
+  to_rat = std::max(to_rat, sta::Required(0.0f));
   Slack arc_slack = to_rat - (from_aat + delay);
   if (delay_minmax == MinMax::min()) {
     arc_slack = (from_aat + delay) - to_rat;
@@ -126,9 +127,9 @@ RapidLrHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta,
   sta::RiseFall const *from_rf = arc->fromEdge()->asRiseFall();
   sta::RiseFall  const *to_rf = arc->toEdge()->asRiseFall();
   sta::MinMax const *delay_minmax = min_max;
-  sta::Arrival from_aat = sta->pinArrival(from_vertex->pin(), from_rf, delay_minmax);
-  sta::Required to_rat = sta->vertexRequired(to_vertex, to_rf, delay_minmax);
-  sta::Delay delay = sta->arcDelay(edge, arc, scene, min_max);
+  sta::Arrival from_aat = sta->arrival(from_vertex->pin(), from_rf->asRiseFallBoth(), delay_minmax);
+  sta::Required to_rat = sta->required(to_vertex, to_rf->asRiseFallBoth(), sta->scenes(), delay_minmax);
+  sta::Delay delay = sta->arcDelay(edge, arc, ap_index);
   LMValue *lms = edge->arcLms();
 
   // Disabled edge: unconstrained timing values.
@@ -137,8 +138,8 @@ RapidLrHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta,
     return;
   }
   
-  from_aat = std::max(from_aat, 0.0f);
-  to_rat = std::max(to_rat, 0.0f);
+  from_aat = std::max(from_aat, sta::Arrival(0.0f));
+  to_rat = std::max(to_rat, sta::Required(0.0f));
   Slack arc_slack = to_rat - (from_aat + delay);
   if (delay_minmax == MinMax::min()) {
     arc_slack = (from_aat + delay) - to_rat;

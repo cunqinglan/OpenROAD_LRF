@@ -20,11 +20,14 @@
 #include "LocalParasitics.hh"
 #include "sta/Scene.hh"
 #include "sta/Sdc.hh"
+#include "sta/Mode.hh"
+#include "sta/ClkNetwork.hh"
 #include "sta/InputDrive.hh"
 #include "sta/Parasitics.hh"
 #include "parasitics/ConcreteParasiticsPvt.hh"
 #include "LocalSta.hh"
 #include "PtGraph.hh"
+#include "LrHelper.hh"  // for lrf::SearchPredNonLatch
 #include "LocalSearch.hh"
 #include "TaskArranger.hh"
 #include "db_sta/dbSta.hh"
@@ -60,7 +63,7 @@ LocalSta::LocalSta(sta::dbSta *sta) :
   local_parasitics_(new LocalParasitics(sta)),
   task_arranger_(new TaskArranger(sta)),
   pred_(new SearchMEEPred(sta)),
-  search_pred_(new SearchPredNonLatch2(sta))
+  search_pred_(new SearchPredNonLatch(sta))
 {
   printf("LocalSta::LocalSta created\n");
   fflush(stdout);
@@ -99,7 +102,7 @@ void
 LocalSta::updateGlobalParasiticsAndSync(est::EstimateParasitics *est_parasitics)
 {
   auto t0 = std::chrono::high_resolution_clock::now();
-  est_parasitics->updateWireParasiticsNoDeleteNetworkParallel();
+  est_parasitics->updateParasitics();
   auto t1 = std::chrono::high_resolution_clock::now();
   local_parasitics_->initParasiticMapFromBase();
   auto t2 = std::chrono::high_resolution_clock::now();
@@ -424,15 +427,15 @@ LocalSta::cellAvgLeakage(sta::LibertyCell *cell)
   }
 
   // 2. Average all conditional leakage groups
-  sta::LeakagePowerSeq *leakages = cell->leakagePowers();
-  if (!leakages || leakages->empty()) {
+  const sta::LeakagePowerSeq &leakages = cell->leakagePowers();
+  if (leakages.empty()) {
     return 0.0f;
   }
 
   float total_leakage = 0.0f;
   int count = 0;
-  for (sta::LeakagePower *leak : *leakages) {
-    float pwr = leak->power();
+  for (const sta::LeakagePower &leak : leakages) {
+    float pwr = leak.power();
     if (pwr > 0.0f) {
       total_leakage += pwr;
       count++;
@@ -463,15 +466,15 @@ LocalSta::cellLeakageWithDuty(sta::LibertyCell *cell,
   // Determine output duty based on cell function
   sta::FuncExpr *func = out_port->function();
   bool is_inverter = (func
-                      && func->op() == sta::FuncExpr::op_not
-                      && func->left()->op() == sta::FuncExpr::op_port);
+                      && func->op() == sta::FuncExpr::Op::not_
+                      && func->left()->op() == sta::FuncExpr::Op::port);
   float output_duty = is_inverter ? (1.0f - input_duty) : input_duty;
 
   // Lambda to evaluate P(when=true) given port duties
   std::function<float(sta::FuncExpr*)> evalProb;
   evalProb = [&](sta::FuncExpr *expr) -> float {
     switch (expr->op()) {
-      case sta::FuncExpr::op_port: {
+      case sta::FuncExpr::Op::port: {
         sta::LibertyPort *port = expr->port();
         if (port == in_port)
           return input_duty;
@@ -479,23 +482,23 @@ LocalSta::cellLeakageWithDuty(sta::LibertyCell *cell,
           return output_duty;
         return 0.5f;
       }
-      case sta::FuncExpr::op_not:
+      case sta::FuncExpr::Op::not_:
         return 1.0f - evalProb(expr->left());
-      case sta::FuncExpr::op_and:
+      case sta::FuncExpr::Op::and_:
         return evalProb(expr->left()) * evalProb(expr->right());
-      case sta::FuncExpr::op_or: {
+      case sta::FuncExpr::Op::or_: {
         float pa = evalProb(expr->left());
         float pb = evalProb(expr->right());
         return pa + pb - pa * pb;
       }
-      case sta::FuncExpr::op_xor: {
+      case sta::FuncExpr::Op::xor_: {
         float pa = evalProb(expr->left());
         float pb = evalProb(expr->right());
         return pa * (1.0f - pb) + (1.0f - pa) * pb;
       }
-      case sta::FuncExpr::op_one:
+      case sta::FuncExpr::Op::one:
         return 1.0f;
-      case sta::FuncExpr::op_zero:
+      case sta::FuncExpr::Op::zero:
         return 0.0f;
     }
     return 0.5f;
@@ -508,16 +511,16 @@ LocalSta::cellLeakageWithDuty(sta::LibertyCell *cell,
   bool found_uncond = false;
   float cond_duty_sum = 0.0f;
 
-  for (sta::LeakagePower *leak : *cell->leakagePowers()) {
-    sta::FuncExpr *when = leak->when();
+  for (const sta::LeakagePower &leak : cell->leakagePowers()) {
+    sta::FuncExpr *when = leak.when();
     if (when) {
       float prob = evalProb(when);
-      cond_leakage += leak->power() * prob;
-      if (leak->power() > 0.0f)
+      cond_leakage += leak.power() * prob;
+      if (leak.power() > 0.0f)
         cond_duty_sum += prob;
       found_cond = true;
     } else {
-      uncond_leakage += leak->power();
+      uncond_leakage += leak.power();
       found_uncond = true;
     }
   }
@@ -851,14 +854,14 @@ LocalSta::seedDrvrSlew(PtVertex &pt_drvr_vertex, PtGraph *pt_graph,
       const MinMax *cnst_min_max = min_max;
       const LibertyCell *drvr_cell;
       const LibertyPort *from_port, *to_port;
-      float *from_slews;
+      const sta::DriveCellSlews *from_slews;
       drive->driveCell(rf, cnst_min_max, drvr_cell, from_port,
                        from_slews, to_port);
       if (drvr_cell) {
         printf("Warning: LocalSta::seedDrvrSlew: Input drive seeding not implemented yet\n");
       } else
         seedNoDrvrCellSlew(pt_drvr_vertex, drvr_pin, rf, drive,
-                           dcalc_ap, arc_delay_calc, pt_graph);
+                           scene, min_max, arc_delay_calc, pt_graph);
     } else {
       seedNoDrvrSlew(pt_drvr_vertex, rf, scene, min_max, arc_delay_calc, pt_graph);
     }
@@ -967,9 +970,7 @@ LocalSta::seedLoadSlew(PtVertex &pt_load_vertex, PtGraph *pt_graph,
       float slew = 0.0;
       if (clks) {
         slew = slew_min_max->initValue();
-        ClockSet::Iterator clk_iter(clks);
-        while (clk_iter.hasNext()) {
-          Clock *clk = clk_iter.next();
+        for (Clock *clk : *clks) {
           float clk_slew = clk->slew(rf, slew_min_max);
           if (slew_min_max->compare(clk_slew, slew))
             slew = clk_slew;
@@ -1005,7 +1006,7 @@ LocalSta::findInputDriverDelay(const LibertyCell *drvr_cell,
     for (TimingArc *arc : arc_set->arcs()) {
       if (arc->toEdge()->asRiseFall() == rf) {
         float from_slew = from_slews[arc->fromEdge()->index()];
-        findInputArcDelay(drvr_pin, drvr_vertex, arc, from_slew, scene, min_max);
+        findInputArcDelay(drvr_pin, drvr_vertex, arc, from_slew, scene, min_max, arc_delay_calc_);
       }
     }
   }
@@ -1244,7 +1245,7 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
     if (multi_drvr_net == nullptr) {
       PtVertex &from_pt_vertex = pt_graph->ptVertex(pt_edge.ptFromId());
       const Slew in_slew = edgeFromLocalSlew(from_pt_vertex, from_rf, pt_edge,
-                                            dcalc_ap, pt_graph);
+                                            scene, min_max, pt_graph);
       ArcDcalcResult dcalc_result;
       dcalc_result = arc_delay_calc->gateDelay(
                           dcalc_pin, arc, in_slew, load_cap, parasitic,
@@ -1446,7 +1447,6 @@ LocalSta::computeVirtualLoadCap(PtVertex &drvr_pt_vertex,
 {
   float load_cap = 0.0f;
   const Scene *corner = scene;
-  const MinMax *min_max = min_max;
 
   // Driver output pin capacitance (self-cap of the output port)
   LibertyPort *drvr_port = nullptr;
@@ -1569,7 +1569,7 @@ LocalSta::edgeFromLocalSlew(const PtVertex &from_pt_vertex,
                        PtGraph *pt_graph)
 {
   return edgeFromLocalSlew(from_pt_vertex, from_rf, pt_edge.role(),
-                      dcalc_ap, pt_graph);
+                      scene, min_max, pt_graph);
 }
 
 Slew
@@ -1580,11 +1580,12 @@ LocalSta::edgeFromLocalSlew(const PtVertex &from_pt_vertex,
                        PtGraph *pt_graph)
 {
   Vertex *from_vertex = from_pt_vertex.vertex();
+  sta::ClkNetwork *clk_network = scene->mode()->clkNetwork();
   if (from_vertex
       && role->genericRole() == TimingRole::regClkToQ()
-      && clk_network_->isIdealClock(from_vertex->pin())) {
-    return clk_network_->idealClkSlew(from_vertex->pin(), from_rf,
-                                      min_max);
+      && clk_network->isIdealClock(from_vertex->pin())) {
+    return clk_network->idealClkSlew(from_vertex->pin(), from_rf,
+                                     min_max);
   } else {
     return pt_graph->slew(from_pt_vertex, from_rf, scene->dcalcAnalysisPtIndex(min_max));
   }
@@ -1614,7 +1615,8 @@ float
 LocalSta::refgateDelayLmSum(PtGraph *pt_graph)
 {
   float delay_lambda_sum;
-  pt_graph->refgateDelayLmSum(delay_lambda_sum, nullptr);
+  pt_graph->refgateDelayLmSum(delay_lambda_sum,
+                              pt_graph->scene(), pt_graph->minMax());
   return delay_lambda_sum;
 }
 
@@ -1623,7 +1625,8 @@ LocalSta::delayLmSum(PtGraph *pt_graph,
                      bool collect_vecs)
 {
   DelayLmSumResult result;
-  pt_graph->delayLmSum(&result, collect_vecs);
+  pt_graph->delayLmSum(pt_graph->scene(), pt_graph->minMax(),
+                       &result, collect_vecs);
   return result;
 }
 
@@ -1656,9 +1659,7 @@ LocalSta::initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_c
 {
   // During pt graph creation, delays from original graph are copied
   // to pt graph. So here we just need to sum up the delays.
-  const sta::Scene *scene = sta_->findScene("default");
-  const sta::MinMax *min_max = MinMax::max();
-  return delayLmSum(pt_graph, scene, min_max, false);
+  return delayLmSum(pt_graph, false);
 }
 
 // Swap ref cell and selectively recompute parasitics.
@@ -1736,9 +1737,7 @@ LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph,
     findLocalRequireds(pt_graph);
   }
   auto t4 = std::chrono::high_resolution_clock::now();
-  const sta::Scene *scene = sta_->findScene("default");
-  const sta::MinMax *min_max = MinMax::max();
-  auto result = delayLmSum(pt_graph, scene, min_max, false);
+  auto result = delayLmSum(pt_graph, false);
   auto t5 = std::chrono::high_resolution_clock::now();
 
   if (runtime_map) {
@@ -1795,10 +1794,10 @@ LocalSta::localSlackAroundRef(PtGraph *pt_graph)
       while (path_iter.hasNext()) {
         Path *path = path_iter.next();
         // We should select the wanted analysis point here.
-        if (path->dcalcAnalysisPtIndex(this) == pt_graph->scene()) {
+        if (path->dcalcAnalysisPtIndex(this) == pt_graph->apIndex()) {
           Slack slack = path->slack(this);
           if (slack > 0.0) continue; // Only consider negative slack
-          local_slack += slack;
+          local_slack = local_slack + slack;
           // printf("LocalSta::localSlack: Vertex %s path: %s, arrival = %f, required = %f, slack = %f\n",
           //        pt_vertex.vertex()->to_string(graph_).c_str(),
           //        path->to_string(sta_).c_str(),
@@ -1874,11 +1873,11 @@ LocalSta::localSlackOnSinks(PtGraph *pt_graph)
       if (pt_paths[i].dcalcAnalysisPtIndex(this) != pt_graph->apIndex())
         continue;
       sta::Slack slack = sta_paths[i].required() - pt_paths[i].arrival();
-      if (sta::delayInf(slack))
+      if (sta::delayInf(slack, this))
         continue;
       if (slack > 0.0)
         continue;
-      local_slack += slack;
+      local_slack = local_slack + slack;
     }
   }
   return local_slack;
@@ -1923,7 +1922,7 @@ LocalSta::localWorstSlackOnSinks(PtGraph *pt_graph)
       if (pt_paths[i].dcalcAnalysisPtIndex(this) != pt_graph->apIndex())
         continue;
       sta::Slack slack = sta_paths[i].required() - pt_paths[i].arrival();
-      if (sta::delayInf(slack)) continue;
+      if (sta::delayInf(slack, this)) continue;
       if (slack < worst_slack)
         worst_slack = slack;
     }
@@ -2648,7 +2647,7 @@ LocalSta::ptVertexWorstSlackPath(PtVertex &pt_vertex, const sta::MinMax *min_max
     sta::Path *path = path_iter.next();
     const Tag *tag = path->tag(this);
     sta::Slack path_slack = path->slack(this);
-    if (tag->pathAnalysisPt(this)->pathMinMax() == min_max
+    if (tag->minMax() == min_max
         && (!path->tag(this)->isGenClkSrcPath()
             && delayLess(path_slack, worst_slack, this))) {
       worst_slack = path_slack;
@@ -2668,7 +2667,7 @@ LocalSta::ptVertexWorstSlackPath(PtVertex &pt_vertex,
   while (path_iter.hasNext()) {
     sta::Path *path = path_iter.next();
     sta::Slack path_slack = path->slack(this);
-    if (path->dcalcAnalysisPtIndex(this) == dcalc_ap
+    if (path->dcalcAnalysisPtIndex(this) == scene->dcalcAnalysisPtIndex(min_max)
         && (!path->tag(this)->isGenClkSrcPath()
             && delayLess(path_slack, worst_slack, this))) {
       worst_slack = path_slack;

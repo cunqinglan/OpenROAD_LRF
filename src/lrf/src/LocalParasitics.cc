@@ -9,6 +9,8 @@
 #include "sta/Scene.hh"
 #include "PtGraph.hh"
 #include "sta/Sdc.hh"
+#include "sta/Mode.hh"
+#include "sta/ClkNetwork.hh"
 #include "sta/ClkNetwork.hh"
 
 #include "LocalReduceParasitic.hh"
@@ -29,7 +31,7 @@ using sta::ConcreteParasitic;
 using sta::StaState;
 
 LocalParasitics::LocalParasitics(StaState* state, bool parallelism_exists) :
-  ConcreteParasitics(state),
+  ConcreteParasitics("lrf_local", "", state),
   parallelism_exists_(parallelism_exists),
   copy_helper_(new ParasiticCopyHelper(state))
 {
@@ -76,7 +78,7 @@ LocalParasitics::recomputePtParasitics(PtGraph *pt_graph)
     const Pin *drvr_pin = pt_vertex.vertex()->pin();
     // Ideal clock nets have no parasitic network by design (skipped in
     // EstimateParasitics). Continue silently to avoid spurious errors.
-    if (clk_network_->isIdealClock(drvr_pin))
+    if (scenes_.front()->mode()->clkNetwork()->isIdealClock(drvr_pin))
       continue;
     const Net *net = findParasiticNet(drvr_pin);
     for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
@@ -112,7 +114,7 @@ LocalParasitics::recomputeSinglePtParasitic(PtGraph *pt_graph, VertexId drvr_vid
   const Pin *drvr_pin = pt_vertex.vertex()->pin();
   // Ideal clock nets have no parasitic network by design (skipped in
   // EstimateParasitics). Return silently to avoid spurious errors.
-  if (clk_network_->isIdealClock(drvr_pin))
+  if (scenes_.front()->mode()->clkNetwork()->isIdealClock(drvr_pin))
     return;
   const Net *net = findParasiticNet(drvr_pin);
   for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
@@ -171,7 +173,7 @@ LocalParasitics::pinCapacitance(const Pin *pin,
       pin_cap = corner->sdc()->pinCapacitance(pin, rf, corner, min_max);
     }
     else if (network_->isTopLevelPort(pin))
-      pin_cap = corner->sdc()->portExtCap(port, rf, corner, min_max);
+      pin_cap = corner->sdc()->portExtCap(port, rf, min_max);
   }
   return pin_cap;
 }
@@ -191,7 +193,7 @@ LocalParasitics::pinCapacitance(const ParasiticNode *node,
       pin_cap = corner->sdc()->pinCapacitance(pin, rf, corner, min_max);
     }
     else if (network_->isTopLevelPort(pin))
-      pin_cap = corner->sdc()->portExtCap(port, rf, corner, min_max);
+      pin_cap = corner->sdc()->portExtCap(port, rf, min_max);
   }
   return pin_cap;
 }

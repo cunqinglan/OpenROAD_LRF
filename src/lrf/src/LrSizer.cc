@@ -5,6 +5,7 @@
 #include "NetlistTransformation.hh"
 #include "sta/PathExpanded.hh"
 #include "sta/Sdc.hh"
+#include "sta/Mode.hh"
 #include <vector>
 #include <utility>
 
@@ -34,10 +35,10 @@ LrSizer::criticalPathSizing()
   // update the critical path LMs.
   // Step3: resize gates on the critical paths. 
   // Sort failing endpoints by slack from resizer.
-  const sta::VertexSet* endpoints = sta_->endpoints();
+  const sta::VertexSet &endpoints = sta_->endpoints();
   std::vector<std::pair<sta::Vertex*, sta::Slack>> violating_ends;
   float clock_period = 0.0;
-  for (auto *clock : *sta_->cmdMode()->sdc()->clocks()) {
+  for (auto *clock : sta_->cmdMode()->sdc()->clocks()) {
     float period = clock->period();
     if (period > clock_period) {
       clock_period = period;
@@ -48,7 +49,7 @@ LrSizer::criticalPathSizing()
     throw std::runtime_error("LrSizer::criticalPathSizing: found zero clock period");
   }
   // Step 1: Collect all violating endpoints (negative slack).
-  for (sta::Vertex* end : *endpoints) {
+  for (sta::Vertex* end : endpoints) {
     const sta::Slack end_slack = sta_->slack(end, max_);
     if (end_slack < 0.0) {
       violating_ends.emplace_back(end, end_slack);

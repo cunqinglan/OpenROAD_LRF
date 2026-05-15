@@ -79,7 +79,7 @@ makeSteinerTreeFromSta(const sta::Pin* drvr_pin,
     return nullptr;
   }
 
-  sta::Vector<est::PinLoc>& pinlocs = tree->pinlocs();
+  std::vector<est::PinLoc>& pinlocs = tree->pinlocs();
   while (pin_iter->hasNext()) {
     const sta::Pin* pin = pin_iter->next();
     if (!pin) {
@@ -131,7 +131,7 @@ makeSteinerTreeFromSta(const sta::Pin* drvr_pin,
 
 struct NodeInfo
 {
-  SteinerPt parent = est::SteinerTree::null_pt;
+  SteinerPt parent = est::SteinerTree::kNullPt;
   int level = 0;
 };
 
@@ -157,14 +157,14 @@ computeParentLevel(const std::vector<std::vector<int>>& adj, SteinerPt root)
 {
   const int n = static_cast<int>(adj.size());
   std::vector<NodeInfo> info(n);
-  if (root == est::SteinerTree::null_pt || root < 0 || root >= n) {
+  if (root == est::SteinerTree::kNullPt || root < 0 || root >= n) {
     return info;
   }
 
   std::vector<char> visited(n, 0);
   std::queue<int> q;
   visited[root] = 1;
-  info[root].parent = est::SteinerTree::null_pt;
+  info[root].parent = est::SteinerTree::kNullPt;
   info[root].level = 0;
   q.push(root);
 
@@ -188,7 +188,7 @@ static bool
 isTree(const std::vector<std::vector<int>>& adj, SteinerPt root)
 {
   const int n = static_cast<int>(adj.size());
-  if (n == 0 || root == est::SteinerTree::null_pt || root < 0 || root >= n) {
+  if (n == 0 || root == est::SteinerTree::kNullPt || root < 0 || root >= n) {
     return false;
   }
 
@@ -226,9 +226,9 @@ static SteinerPt
 ancestorK(const std::vector<NodeInfo>& info, SteinerPt node, int k)
 {
   SteinerPt cur = node;
-  while (k > 0 && cur != est::SteinerTree::null_pt) {
+  while (k > 0 && cur != est::SteinerTree::kNullPt) {
     const SteinerPt p = info[cur].parent;
-    if (p == est::SteinerTree::null_pt) {
+    if (p == est::SteinerTree::kNullPt) {
       break;
     }
     cur = p;
@@ -261,7 +261,7 @@ orientedTreeFromAdj(const est::SteinerTree& old_tree,
   const auto info = computeParentLevel(adj, root);
   for (int i = 0; i < n; i++) {
     const int p = info[i].parent;
-    out.branch[i].n = (p == est::SteinerTree::null_pt) ? i : p;
+    out.branch[i].n = (p == est::SteinerTree::kNullPt) ? i : p;
   }
 
   long long wl = 0;
@@ -370,11 +370,11 @@ rebranchTopologyInPlace(est::SteinerTree* tree,
     }
 
     const SteinerPt new_parent = ancestorK(info, s.pt, k_i);
-    if (new_parent == est::SteinerTree::null_pt || new_parent == s.pt) {
+    if (new_parent == est::SteinerTree::kNullPt || new_parent == s.pt) {
       continue;
     }
     const SteinerPt old_parent = info[s.pt].parent;
-    if (old_parent == est::SteinerTree::null_pt || new_parent == old_parent) {
+    if (old_parent == est::SteinerTree::kNullPt || new_parent == old_parent) {
       continue;
     }
 
@@ -472,7 +472,7 @@ computeSinkCriticality(const sta::Pin* drvr_pin,
         sta::Path* path = path_iter.next();
         
         // Check if this path belongs to the target corner
-        if (path->pathAnalysisPt(sta)->corner() == corner) {
+        if (path->scene(sta) == corner) {
           // Get slack for this specific path
           sta::Slack slack = path->slack(sta);
           

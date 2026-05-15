@@ -353,7 +353,7 @@ public:
   size_t slewCount() const { return slews_.size(); }
   void resizeSlews(size_t slew_count);
   bool isRoot() const;
-  void copyInfoFromVertex(size_t ap_count, size_t slew_rf_count);
+  void copyInfoFromVertex(sta::Graph *graph, size_t ap_count, size_t slew_rf_count);
   void setType(PtVertexType type) { type_ = type; }
   PtVertexType type() const { return type_; }
   sta::Pin *pin() const { return vertex_ ? vertex_->pin() : nullptr; }

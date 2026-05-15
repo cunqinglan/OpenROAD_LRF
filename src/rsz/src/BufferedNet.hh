@@ -228,6 +228,10 @@ class BufferedNet
     lms_.clear();
     lms_.assign(lms, lms + count);
   }
+  // LRF: physical buffer instance pinned by exportBufferTree so the
+  // topology can be matched back to the netlist post-write.
+  sta::Instance *bufInst() const { return buf_inst_; }
+  void setBufInst(sta::Instance *inst) { buf_inst_ = inst; }
 
   static constexpr int null_layer = -1;
 
@@ -315,6 +319,7 @@ class BufferedNet
   float buffer_cost_ = 0;
   float leakage_ = 0;
   std::vector<float> lms_;
+  sta::Instance *buf_inst_ = nullptr;
 };
 
 // Template magic to make it easier to write algorithms descending

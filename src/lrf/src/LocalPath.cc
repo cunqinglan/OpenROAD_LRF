@@ -16,7 +16,6 @@ PtVertexPathIterator::PtVertexPathIterator(PtVertex &pt_vertex,
   : search_(sta->search()),
     filtered_(false),
     rf_(nullptr),
-    path_ap_(nullptr),
     min_max_(nullptr),
     paths_(pt_vertex.paths()),
     path_count_(0),
@@ -63,10 +62,8 @@ PtVertexPathIterator::findNext()
       const Tag *tag = path->tag(search_);
       if ((rf_ == nullptr
            || tag->rfIndex() == rf_->index())
-          && (path_ap_ == nullptr
-              || tag->pathAPIndex() == path_ap_->index())
           && (min_max_ == nullptr
-              || tag->pathAnalysisPt(search_)->pathMinMax() == min_max_)) {
+              || tag->minMax() == min_max_)) {
         next_ = path;
         return;
       }

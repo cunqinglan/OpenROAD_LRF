@@ -18,6 +18,16 @@ using namespace sta;
 typedef std::map<sta::DcalcAPIndex, LMValue> DcalcAPToLMValueMap;
 typedef std::map<sta::DcalcAPIndex, LMValueSeq> DcalcAPToLMValueSeqMap;
 
+// Replacement for upstream-removed sta::SearchPredNonLatch2.
+// = SearchPred1 + exclude timing-check edges + exclude latch D->Q edges.
+class SearchPredNonLatch : public sta::SearchPred1
+{
+public:
+  SearchPredNonLatch(const sta::StaState *sta) : sta::SearchPred1(sta) {}
+  bool searchThru(sta::Edge *edge, const sta::Mode *mode) const override;
+  using sta::SearchPred1::searchThru;
+};
+
 class LRHelper: public dbStaState
 {
 public:
@@ -85,7 +95,7 @@ protected:
   void levelSort(Sta *sta);
   void clearLms(Edge *edge);
 
-  SearchPredNonLatch2* search_pred_;
+  SearchPredNonLatch* search_pred_;
   BfsFwdIterator* iter_;
   VertexSeq sorted_lm_vertices_;
   bool levelized_valid_;

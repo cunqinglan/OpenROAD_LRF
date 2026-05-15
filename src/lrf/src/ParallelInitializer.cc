@@ -7,6 +7,8 @@
 #include "rsz/Resizer.hh"
 #include "est/EstimateParasitics.h"
 #include "sta/EquivCells.hh"
+#include "sta/Mode.hh"
+#include "sta/Sdc.hh"
 #include "sta/Liberty.hh"
 #include "sta/Network.hh"
 #include "sta/PortDirection.hh"
@@ -193,7 +195,7 @@ public:
     while (lv > cur && !current_level_.compare_exchange_weak(cur, lv));
   }
 
-  void levelFinished() override
+  void levelFinished()
   {
     // Called serially after all threads finish this level.
     Level lv = current_level_.load();
@@ -362,7 +364,7 @@ public:
     while (lv > cur && !current_level_.compare_exchange_weak(cur, lv));
   }
 
-  void levelFinished() override
+  void levelFinished()
   {
     Level lv = current_level_.load();
     if (upsized_ > prev_upsized_) {
@@ -442,11 +444,11 @@ ParallelInitializer::estimateMaxSlew(sta::LibertyPort* port, float load_cap,
           }
         }
       }
-      sta::ArcDelay arc_delay;
-      sta::Slew arc_slew;
-      model->gateDelay(dcalc_ap->operatingConditions(),
-                       in_slew, load_cap, false, arc_delay, arc_slew);
-      max_slew = std::max(max_slew, sta::delayAsFloat(arc_slew));
+      float arc_delay = 0, arc_slew = 0;
+      model->gateDelay(scene->sdc()->operatingConditions(min_max),
+                       sta::delayAsFloat(in_slew), load_cap,
+                       arc_delay, arc_slew);
+      max_slew = std::max(max_slew, arc_slew);
     }
   }
   return max_slew;
@@ -825,8 +827,8 @@ ParallelInitializer::fixSlewViolationsParallel()
   // Final verification.
   sta_->findDelays();
   int remaining = 0;
-  const lrf::DcalcAnalysisPt* dcalc_ap2
-      = sta_->cmdScene()->findDcalcAnalysisPt(MinMax::max());
+  const sta::DcalcAPIndex final_ap_index
+      = sta_->cmdScene()->dcalcAnalysisPtIndex(sta::MinMax::max());
   sta::VertexIterator viter2(graph_);
   while (viter2.hasNext()) {
     Vertex* vertex = viter2.next();
@@ -840,7 +842,7 @@ ParallelInitializer::fixSlewViolationsParallel()
     if (!exists) limit = default_max_slew;
     float worst = 0.0f;
     for (auto rf : RiseFall::range()) {
-      float s = graph_->slew(vertex, rf, dcalc_ap2->index());
+      float s = graph_->slew(vertex, rf, final_ap_index);
       worst = std::max(worst, s);
     }
     if (worst > limit) remaining++;

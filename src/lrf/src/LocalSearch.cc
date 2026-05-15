@@ -171,11 +171,11 @@ LocalArrivalVisitor::findVertexArrival(PtVertex &pt_vertex)
 
   if (!network_->isTopLevelPort(pin)
       && sdc->hasInputDelay(pin)) {
-    search_->seedInputSegmentArrival(pin, vertex, tag_bldr_);
+    search_->seedInputSegmentArrival(pin, vertex, pt_graph_->scene()->mode(), tag_bldr_);
   }
 
   if (sdc->isPathDelayInternalFrom(pin)) {
-    search_->makeUnclkedPaths(vertex, false, true, tag_bldr_);
+    search_->makeUnclkedPaths(vertex, false, true, tag_bldr_, pt_graph_->scene()->mode());
   }
   if (sdc->isLeafPinClock(pin)) {
     search_->localSeedClkArrivals(pin, vertex, tag_bldr_);
@@ -183,7 +183,7 @@ LocalArrivalVisitor::findVertexArrival(PtVertex &pt_vertex)
 
   bool is_clk = tag_bldr_->hasClkTag();
   if (vertex->isRegClk() && !is_clk) {
-    search_->makeUnclkedPaths(vertex, true, false, tag_bldr_);
+    search_->makeUnclkedPaths(vertex, true, false, tag_bldr_, pt_graph_->scene()->mode());
   }
 
   if (arrival_changed)
@@ -323,7 +323,7 @@ LocalPathVisitor::localVisitArc(PtVertex &from_pt_vertex,
     if (edge.hasBase()) {
       thru_ok = searchThru(from_pt_vertex.vertex(), from_rf,
                            edge.edge(), to_pt_vertex.vertex(),
-                           to_rf);
+                           to_rf, pt_graph_->scene()->mode());
     } else {
       // Virtual edge: always pass
       thru_ok = true;
@@ -390,19 +390,19 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
 	&& (variables_->clkThruTristateEnabled()
 	    || !(role == TimingRole::tristateEnable()
 		 || role == TimingRole::tristateDisable()))) {
-      const Clock *gclk = from_tag->genClkSrcPathClk(this);
+      const Clock *gclk = from_tag->genClkSrcPathClk();
       if (gclk) {
-	Genclks *genclks = search_->genclks();
+	Genclks *genclks = pt_graph_->scene()->mode()->genclks();
 	VertexSet *fanins = genclks->fanins(gclk);
 	// Note: encountering a latch d->q edge means find the
-	// latch feedback edges, but they are referenced for 
+	// latch feedback edges, but they are referenced for
 	// other edges in the gen clk fanout.
-	EdgeSet *fdbk_edges = genclks->latchFdbkEdges(gclk);
+	EdgeSet &fdbk_edges = genclks->latchFdbkEdges(gclk);
 	if ((role == TimingRole::combinational()
 	     || role == TimingRole::wire()
 	     || !gclk->combinational())
-	    && fanins->hasKey(to_pt_vertex.vertex())
-	    && !(fdbk_edges && fdbk_edges->hasKey(edge))) {
+	    && fanins->count(to_pt_vertex.vertex()) > 0
+	    && fdbk_edges.count(edge) == 0) {
           // No derate in local timing; use arc delay directly.
           arc_delay = pt_graph_->arcDelay(pt_edge, arc, pt_graph_->apIndex());
           const sta::DcalcAPIndex ap_index_opp =
@@ -466,7 +466,7 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
     if (!(role == TimingRole::wire()
           && sdc->clkDisabledByHpinThru(clk, from_pin, to_pin))
         && !(clks
-             && !clks->hasKey(const_cast<Clock*>(from_tag->clock())))) {
+             && clks->count(const_cast<Clock*>(from_tag->clock())) == 0)) {
       bool to_propagates_clk =
         !sdc->clkStopPropagation(clk, from_pin, from_rf, to_pin, to_rf)
         && (variables_->clkThruTristateEnabled()
@@ -494,7 +494,7 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
       // No derate in local timing; use arc delay directly.
       arc_delay = pt_graph_->arcDelay(pt_edge, arc, pt_graph_->apIndex());
 
-      if (!delayInf(arc_delay)) {
+      if (!delayInf(arc_delay, this)) {
         to_arrival = from_arrival + arc_delay;
       }
       
@@ -670,8 +670,8 @@ LocalRequiredCmp::requiredsSave(PtVertex &pt_vertex,
     Path *path = path_iter.next();
     size_t path_index = ptPathIndex(pt_vertex, path);
     Required req = requireds_[path_index];
-    Required &prev_req = path->required();
-    bool changed = !delayEqual(prev_req, req);
+    const Required &prev_req = path->required();
+    bool changed = !delayEqual(prev_req, req, sta);
     requireds_changed |= changed;
     path->setRequired(req);
   }
@@ -777,7 +777,7 @@ bool LocalRequiredVisitor::localVisitFromToPath(
     if (to_tag_group && to_tag_group->hasTag(to_tag)) {
       size_t to_path_index = to_tag_group->pathIndex(to_tag);
       Path &to_path = to_pt_vertex.paths()[to_path_index];
-      Required &to_required = to_path.required();
+      const Required &to_required = to_path.required();
       Required from_required = to_required - arc_delay;
       required_cmp_->requiredSet(path_index, from_required, req_min, this);
     }

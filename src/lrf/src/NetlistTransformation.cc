@@ -5,6 +5,8 @@
 #include "LrRebuffer.hh"
 #include "TaskArranger.hh"
 #include "sta/GraphDelayCalc.hh"
+#include "sta/Mode.hh"
+#include "sta/Sdc.hh"
 #include "sta/Liberty.hh"
 #include "sta/Graph.hh"
 #include "sta/EquivCells.hh"
@@ -1564,7 +1566,7 @@ ParallelVisitor::init(float average_delay, float average_power, float wns,
 
   // Compute slack_margin from WNS and clock period
   float clock_period = 0.0f;
-  for (auto *clock : *db_sta_->sdc()->clocks()) {
+  for (auto *clock : db_sta_->cmdMode()->sdc()->clocks()) {
     if (clock->period() > clock_period) {
       clock_period = clock->period();
       break;

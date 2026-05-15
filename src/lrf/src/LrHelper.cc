@@ -10,6 +10,7 @@
 #include "sta/Network.hh"
 #include "sta/Bfs.hh"
 #include "search/Levelize.hh"
+#include "search/Latches.hh"
 #include "sta/SearchPred.hh"
 #include "sta/Scene.hh"
 #include "sta/TimingRole.hh"
@@ -46,8 +47,8 @@ bool VertexLevelLess::operator()(const Vertex* vertex1,
   return (level1 < level2)
          || (level1 == level2
              // Break ties for stable results.
-             && stringLess(network_->pathName(vertex1->pin()),
-                           network_->pathName(vertex2->pin())));
+             && network_->pathName(vertex1->pin()) <
+                  network_->pathName(vertex2->pin()));
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -87,10 +88,21 @@ SortVertexVisitor::copy() const
 }
 
 //////////////////////////////////////////////////////////////////////
+// SearchPredNonLatch (replacement for upstream-removed SearchPredNonLatch2)
+
+bool
+SearchPredNonLatch::searchThru(sta::Edge *edge, const sta::Mode *mode) const
+{
+  return sta::SearchPred1::searchThru(edge, mode)
+      && !edge->role()->isTimingCheck()
+      && !sta_->latches()->isLatchDtoQ(edge, mode);
+}
+
+//////////////////////////////////////////////////////////////////////
 // LRHelper
 
 LRHelper::LRHelper(dbSta* sta) :
-  search_pred_(new SearchPredNonLatch2(sta)),
+  search_pred_(new SearchPredNonLatch(sta)),
   iter_(new BfsFwdIterator(BfsIndex::topo, search_pred_, sta)),
   levelized_valid_(false),
   lm_history_(sta->graph())
@@ -166,8 +178,8 @@ LRHelper::KKTProjection(Sta *sta) {
        vertex_it != sorted_vertices.rend(); ++vertex_it) {
     in_sum_index--;
     Vertex *vertex = *vertex_it;
-    if (!hasFanin(vertex, search_pred_, graph_) ||
-        !hasFanout(vertex, search_pred_, graph_)) {
+    if (!hasFanin(vertex, search_pred_, graph_, sta_->cmdMode()) ||
+        !hasFanout(vertex, search_pred_, graph_, sta_->cmdMode())) {
       continue;
     }
     LMValueSeq out_lm_sums = computeOutLmSum(vertex);
@@ -197,8 +209,8 @@ LRHelper::checkKKTForAllVertices() {
   sta::Edge *min_lm_edge = nullptr;
   for (auto vertex_it = ordered.begin(); 
     vertex_it != ordered.end(); ++vertex_it) {
-    if (!hasFanin(*vertex_it, search_pred_, graph_) || 
-        !hasFanout(*vertex_it, search_pred_, graph_) ||
+    if (!hasFanin(*vertex_it, search_pred_, graph_, sta_->cmdMode()) || 
+        !hasFanout(*vertex_it, search_pred_, graph_, sta_->cmdMode()) ||
         network_->isRegClkPin((*vertex_it)->pin())) {
       continue;
     }
@@ -368,7 +380,7 @@ LRHelper::computeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_map)
   vertex_it != ordered.end(); ++vertex_it) {
     Vertex *vertex = *vertex_it;
 
-    if (!hasFanin(vertex, search_pred_, graph_)) {
+    if (!hasFanin(vertex, search_pred_, graph_, sta_->cmdMode())) {
       for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
         ap_lm_map[scene->dcalcAnalysisPtIndex(min_max)].push_back(0.0);
       }
@@ -420,7 +432,7 @@ LRHelper::computeOutLmSum(Vertex *vertex) const
 {
   LMValueSeq out_lm_sums(graph_->apCount(), 0.0);
   VertexOutEdgeIterator out_edge_iter(vertex, graph_);
-  if (!hasFanout(vertex, search_pred_, graph_)) {
+  if (!hasFanout(vertex, search_pred_, graph_, sta_->cmdMode())) {
     // No outputs, return zero sums。 In fact, if no outputs, the out_lm_sums
     // will not be used.
     return out_lm_sums;
@@ -481,12 +493,12 @@ LRHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta, sta::Scene 
   const RiseFall *from_rf = arc->fromEdge()->asRiseFall();
   const RiseFall *to_rf = arc->toEdge()->asRiseFall();
   const MinMax *delay_minmax = min_max;
-  Delay delay = sta->arcDelay(edge, arc, scene, min_max);
+  Delay delay = sta->arcDelay(edge, arc, ap_index);
   size_t lm_idx = arc->index() * graph_->apCount() + ap_index;
   Vertex *from_vertex = edge->from(graph_);
   Vertex *to_vertex = edge->to(graph_);
-  Arrival from_aat = sta->pinArrival(from_vertex->pin(), from_rf, delay_minmax);
-  Required to_rat = sta->vertexRequired(to_vertex, to_rf, delay_minmax);
+  Arrival from_aat = sta->arrival(from_vertex->pin(), from_rf->asRiseFallBoth(), delay_minmax);
+  Required to_rat = sta->required(to_vertex, to_rf->asRiseFallBoth(), sta->scenes(), delay_minmax);
   LMValue *lms = edge->arcLms();
 
   // Disabled edge: unconstrained timing values.
@@ -496,8 +508,8 @@ LRHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta, sta::Scene 
     lms[lm_idx] = 0.0;
     return;
   }
-  from_aat = std::max(from_aat, 1e-17f);
-  to_rat = std::max(to_rat, 1e-17f);
+  from_aat = std::max(from_aat, sta::Arrival(1e-17f));
+  to_rat = std::max(to_rat, sta::Required(1e-17f));
 
   if (delay_minmax == MinMax::max()) {
     // printf("LRHelper::updateEndPointArcLms: edge %s AP corner %s, delay min/max %s: aat %f, rat %f, delay %f, original LM %f\n",
@@ -530,7 +542,7 @@ LRHelper::updateEndPointArcLms(Edge *edge, TimingArc *arc, Sta *sta, sta::Scene 
 void 
 LRHelper::updateEdgeLms(Edge *edge, Sta *sta) {
   // First annotate endpoints
-  for (Vertex *vertex : *(sta->endpoints())) {
+  for (Vertex *vertex : sta->endpoints()) {
     vertex->setIsEndpoint(true);
   }
   for (sta::Scene *scene : (this)->scenes()) for (const sta::MinMax *min_max : sta::MinMax::range()) {
@@ -553,11 +565,11 @@ LRHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, sta::Scene *scene, 
   RiseFall const *from_rf = arc->fromEdge()->asRiseFall();
   RiseFall  const *to_rf = arc->toEdge()->asRiseFall();
   MinMax const *delay_minmax = min_max;
-  Arrival from_aat = sta->vertexArrival(from_vertex, from_rf, 
-      clk_edge_wildcard, nullptr,  delay_minmax);
-  Arrival to_aat = sta->vertexArrival(to_vertex, to_rf,
-      clk_edge_wildcard, nullptr,  delay_minmax);
-  Delay delay = sta->arcDelay(edge, arc, scene, min_max);
+  Arrival from_aat = sta->arrival(from_vertex, from_rf,
+      clk_edge_wildcard, sta->scenes(), delay_minmax);
+  Arrival to_aat = sta->arrival(to_vertex, to_rf,
+      clk_edge_wildcard, sta->scenes(), delay_minmax);
+  Delay delay = sta->arcDelay(edge, arc, ap_index);
   LMValue *lms = edge->arcLms();
   LMValue origin = lms[lm_idx];
 
@@ -570,9 +582,9 @@ LRHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, sta::Scene *scene, 
     lms[lm_idx] = 0.0;
     return;
   }
-  from_aat = std::max(from_aat, 0.0f);
-  to_aat = std::max(to_aat, 0.0f);
-  
+  from_aat = std::max(from_aat, sta::Arrival(0.0f));
+  to_aat = std::max(to_aat, sta::Arrival(0.0f));
+
   if (delay_minmax == MinMax::max()) {
     if (to_aat == 0.0) to_aat = 1.0e-12;
     lms[lm_idx] = lms[lm_idx] * (from_aat + delay) / to_aat;
@@ -684,8 +696,8 @@ public:
   }
 
   void visit(Vertex *vertex) override {
-    if (!hasFanin(vertex, helper_->search_pred_, helper_->graph_) ||
-        !hasFanout(vertex, helper_->search_pred_, helper_->graph_))
+    if (!hasFanin(vertex, helper_->search_pred_, helper_->graph_, helper_->sta_->cmdMode()) ||
+        !hasFanout(vertex, helper_->search_pred_, helper_->graph_, helper_->sta_->cmdMode()))
       return;
 
     VertexId vid = helper_->graph_->id(vertex);
@@ -729,7 +741,7 @@ LRHelper::parallelComputeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_map)
     dispatch_queue_->dispatch([this, &ap_lm_map, start, end](int) {
       for (size_t i = start; i < end; i++) {
         Vertex *vertex = sorted_lm_vertices_[i];
-        if (!hasFanin(vertex, search_pred_, graph_)) {
+        if (!hasFanin(vertex, search_pred_, graph_, sta_->cmdMode())) {
           for (auto &[ap, seq] : ap_lm_map)
             seq[i] = 0.0;
           continue;
@@ -794,8 +806,8 @@ LRHelper::parallelCheckKKTForAllVertices()
 
       for (size_t idx = start; idx < end; idx++) {
         Vertex *vertex = sorted_lm_vertices_[idx];
-        if (!hasFanin(vertex, search_pred_, graph_) ||
-            !hasFanout(vertex, search_pred_, graph_) ||
+        if (!hasFanin(vertex, search_pred_, graph_, sta_->cmdMode()) ||
+            !hasFanout(vertex, search_pred_, graph_, sta_->cmdMode()) ||
             network_->isRegClkPin(vertex->pin()))
           continue;
 
@@ -939,7 +951,7 @@ LRHelper::parallelUpdateAllEdgeLms(Sta *sta)
   copyState(sta);
 
   // Pre-mark endpoints on main thread (not thread-safe to do in parallel)
-  for (Vertex *vertex : *(sta->endpoints())) {
+  for (Vertex *vertex : sta->endpoints()) {
     vertex->setIsEndpoint(true);
   }
 

@@ -86,8 +86,8 @@ ParallelLibData::makeSwappableCellsCache(rsz::Resizer* resizer)
   for (const sta::LibertyCell* source_cell : unique_equiv_cells) {
     sta::LibertyCellSeq *equive_cells = sta_->equivCells(const_cast<sta::LibertyCell*>(source_cell));
     for (sta::LibertyCell* equiv_cell : *equive_cells) {
-      std::vector<sta::LibertyCellSeq> swappable_cells = resizer->getSwappableCells(equiv_cell);
-      swappable_cells_cache_[equiv_cell] = swappable_cells;
+      sta::LibertyCellSeq swappable = resizer->getSwappableCells(equiv_cell);
+      swappable_cells_cache_[equiv_cell] = {swappable};
     }
   }
   swap_cell_presaved_ = true;
