@@ -190,6 +190,21 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   if (!ori_cell)
     return result;
 
+  // Skip degenerate PtGraph: ref_inst's driver vertex was filtered out
+  // (typically a tie cell — output isConstant → SearchPred0::searchTo
+  // returns false in collectLocalVertices, so no RefOutput exists). With
+  // no RefOutput, downstream cost / violation accumulators see nothing
+  // and the swap decision degenerates to leakage-only — pure waste.
+  bool has_ref_output = false;
+  for (size_t i = 1; i < pt_graph->vertexCount(); i++) {
+    if (pt_graph->ptVertex(i).type() == PtVertexType::RefOutput) {
+      has_ref_output = true;
+      break;
+    }
+  }
+  if (!has_ref_output)
+    return result;
+
   // --- Determine pruning mode ---
   enum class EvalMode { FULL, PRUNED, REORDER };
   EvalMode mode = EvalMode::FULL;

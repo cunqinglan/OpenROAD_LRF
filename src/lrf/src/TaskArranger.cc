@@ -6,6 +6,7 @@
 #include "NetlistTransformation.hh"
 #include "TopologyChecker.hh"
 #include "search/Levelize.hh"
+#include "search/Sim.hh"
 #include "sta/ObjectTable.hh"
 #include "sta/Search.hh"
 #include "sta/Network.hh"
@@ -92,6 +93,14 @@ TaskArranger::init()
 {
   if (vertices_.empty()) {
     printf("TaskArranger::init making graph...\n");
+    // Force constant propagation BEFORE makeGraph: hasUsableDriver reads
+    // vertex->isConstant() (via SearchPredNonLatch2::searchTo) to decide
+    // whether to mark a vertex as the no-op pass-through type. If Sim's
+    // valid_ flag is stale (e.g. tie cells inserted by repair_design without
+    // an intervening updateTiming), const-prop is skipped and brand-new tie
+    // cells read as isConstant=false → they slip through as COMBINATIONAL.
+    // ensureConstantsPropagated is idempotent — no-op when already valid.
+    sim()->ensureConstantsPropagated();
     makeGraph();
     initVertexRefCounts(true);
     ensureGraphVertices();
@@ -267,11 +276,9 @@ TaskArranger::checkGraph() const
   fflush(stdout);
   for (size_t vid = 0; vid < vertices_.size(); vid++) {
     const InstVertex &inst_vertex = vertices_[vid];
-    if (inst_vertex.type() == VertexType::NONE) {
-      printf("ERROR: Vertex %zu has type NONE in checkGraph.\n", vid);
-      fflush(stdout);
-      continue;
-    }
+    // VertexType::NONE is now a valid "schedule but do nothing" marker
+    // (used for tie cells / const-prop'd outputs); it must still pass the
+    // checks below, so don't continue here.
     if (inst_vertex.objectIdx() == object_idx_null) {
       throw std::runtime_error("Vertex object idx is null in checkGraph.");
     }
@@ -320,6 +327,26 @@ TaskArranger::checkGraph() const
   }
 }
 
+bool
+TaskArranger::hasUsableDriver(sta::Instance *inst)
+{
+  // Reuse SearchPredNonLatch2 (the predicate LocalSta uses for
+  // collectLocalVertices). If every output driver vertex is filtered
+  // (searchTo == false → isConstant), the instance has nothing for
+  // PtGraph to model and shouldn't be visited.
+  sta::SearchPredNonLatch2 pred(this);
+  bool any = false;
+  sta::InstancePinIterator *it = network_->pinIterator(inst);
+  while (it->hasNext()) {
+    sta::Pin *pin = it->next();
+    if (!network_->isDriver(pin)) continue;
+    sta::Vertex *v = graph_->pinDrvrVertex(pin);
+    if (v && pred.searchTo(v)) { any = true; break; }
+  }
+  delete it;
+  return any;
+}
+
 void getInstanceNum(sta::StaState* sta, int& com_count, int& root_count)
 {
   com_count = 0;
@@ -366,27 +393,32 @@ TaskArranger::makeVertices()
         VertexId vid = num_com_ + num_root_insts;
         InstVertex &vertex = vertices_[vid];
         vertex.init(inst, this);
-        vertex.setObjectIdx(vid);  
+        vertex.setObjectIdx(vid);
         setInstanceId1(inst, vid);
         vertex.setType(VertexType::SEQUENTIAL);
         // const char *inst_name = network_->name(inst);
-        // printf("  Initialized sequential vertex %d: inst=%p, name=%s\n", 
+        // printf("  Initialized sequential vertex %d: inst=%p, name=%s\n",
         //        vid, (void*)inst, inst_name);
         // fflush(stdout);
-        
+
         num_root_insts++;
       } else {
         VertexId vid = num_com_insts;
         InstVertex &vertex = vertices_[vid];
         vertex.init(inst, this);
-        vertex.setObjectIdx(vid);  
+        vertex.setObjectIdx(vid);
         setInstanceId1(inst, vid);
-        vertex.setType(VertexType::COMBINATIONAL);
+        // Tie cells / fully const-prop'd outputs: keep the vertex (so MEE
+        // sibling edges through its fanout net still form, and downstream
+        // ref counts release when this vertex is scheduled) but leave its
+        // type as the default NONE — visit() short-circuits on NONE.
+        if (hasUsableDriver(inst))
+          vertex.setType(VertexType::COMBINATIONAL);
         // const char* inst_name = network_->name(inst);
-        // printf("  Initialized combinational vertex %d: inst=%p, name=%s\n", 
+        // printf("  Initialized combinational vertex %d: inst=%p, name=%s\n",
         //        vid, (void*)inst, inst_name);
         // fflush(stdout);
-        
+
         num_com_insts++;
       }
     }
@@ -413,14 +445,17 @@ TaskArranger::makeVertices()
     fflush(stdout);
   }
   
-  // Verify vertex layout invariant: [0, num_com_) must all be COMBINATIONAL,
-  // and [num_com_, end) must all be non-COMBINATIONAL.
+  // Verify vertex layout invariant: [0, num_com_) must all be COMBINATIONAL
+  // or NONE (tie cells / const-prop'd outputs sit here as no-op
+  // "schedule but pass" placeholders); [num_com_, end) must be SEQUENTIAL
+  // or TOP — never COMBINATIONAL.
   for (size_t i = 0; i < num_com_; i++) {
-    if (vertices_[i].type() != VertexType::COMBINATIONAL) {
+    VertexType t = vertices_[i].type();
+    if (t != VertexType::COMBINATIONAL && t != VertexType::NONE) {
       throw std::runtime_error(
           "makeVertices: vertex " + std::to_string(i)
           + " in combinational range [0, " + std::to_string(num_com_)
-          + ") has non-COMBINATIONAL type");
+          + ") has unexpected type");
     }
   }
   for (size_t i = num_com_; i < vertices_.size(); i++) {
@@ -788,12 +823,16 @@ TaskArranger::reduceEdgeFromRoots()
 void 
 TaskArranger::getZeroRefComInstVertices(std::vector<InstVertex*>& zero_ref_vertices)
 {
+  // Include both COMBINATIONAL and NONE-typed (no-op tie-cell) vertices —
+  // NONE vertices must still be scheduled so their decreOutRefCount releases
+  // downstream fanouts. visit() short-circuits on NONE without doing work.
   for (InstVertex& inst_vertex : vertices_) {
-    if (inst_vertex.type() == VertexType::COMBINATIONAL) {
-      VertexId vid = id(&inst_vertex);
-      if (vertex_ref_counts_[vid].load() == 0) {
-        zero_ref_vertices.push_back(&inst_vertex);
-      }
+    if (inst_vertex.type() == VertexType::SEQUENTIAL
+        || inst_vertex.type() == VertexType::TOP)
+      continue;
+    VertexId vid = id(&inst_vertex);
+    if (vertex_ref_counts_[vid].load() == 0) {
+      zero_ref_vertices.push_back(&inst_vertex);
     }
   }
 }
@@ -864,7 +903,9 @@ TaskArranger::visitAll(ParallelVisitor *visitor)
     visitors_.emplace_back(visitor->copy());
   }
 
-  // Dispatch all combinational instances (no dependency graph)
+  // Dispatch all combinational instances (no dependency graph). NONE-typed
+  // pass-through vertices are skipped here — visitAll has no ref-count
+  // plumbing, so there's nothing to release for them.
   const size_t total = vertices_.size();
   size_t com_count = 0;
   for (size_t i = 0; i < total; i++) {
@@ -1223,6 +1264,18 @@ TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta,
 void
 TaskArranger::runTask(ParallelVisitor *visitor, InstVertex* inst_vertex)
 {
+  if (inst_vertex->type() == VertexType::NONE) {
+    // Tie-cell pass-through (set in makeVertices): no PtGraph, no visit;
+    // only release ref-counts so downstream fanouts unblock. Bypasses both
+    // the visit/visitSlewOnly branches below regardless of move_mask_.
+    std::set<VertexId> zero_ref_vertices = decreOutRefCount(inst_vertex);
+    for (VertexId zero_ref_id : zero_ref_vertices) {
+      InstVertex* zero_ref_vertex = vertex(zero_ref_id);
+      createTask(zero_ref_vertex);
+    }
+    tickProgress();
+    return;
+  }
   if (inst_vertex->move_mask_ == 0) {
     visitor->visitSlewOnly(inst_vertex->inst());
   } else {
