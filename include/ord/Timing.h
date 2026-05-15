@@ -217,7 +217,8 @@ class Timing
                                       float density_weight = 0.0f,
                                       float timing_margin = 0.01f,
                                       float erc_violation_weight = -1.0f,
-                                      float erc_limit_scale = 0.95f);
+                                      float erc_limit_scale = 0.95f,
+                                      bool resize_ff = false);
   void testCombinedResizeBuffering(size_t max_resize_num,
                                              size_t iterations,
                                              size_t num_no_improve_tolerance,
