@@ -217,6 +217,8 @@ target_link_libraries(ord
     dbSta
     odb
     OpenSTA
+    rsz_lib    # for Design::updateParasiticsNoDeleteNetwork (est_lib transitive)
+    lrf_lib    # for Timing::runInitialization / testXxx LR entry wrappers
 )
 
 ################################################################

@@ -1370,7 +1370,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
            std::chrono::duration<double>(end - start).count());
 
     auto t_sync0 = std::chrono::high_resolution_clock::now();
-    est_parasitics->updateParasitics();
+    est_parasitics->updateWireParasiticsNoDeleteNetworkIncremental();
     local_sta->syncParasiticMapFromGlobal();
     auto t_sync1 = std::chrono::high_resolution_clock::now();
     sta->delaysInvalid();

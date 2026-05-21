@@ -152,6 +152,55 @@ class Timing
                                              int max_paths = 100,
                                              float slack_threshold = 1e30);
 
+  // ── LR sizing entries ───────────────────────────────────────
+  // Standalone Sharma 4-step parallel initializer. Mutates dbSta in place;
+  // call once before any LR test* entry.
+  void runInitialization(bool minimize_leakage = true);
+
+  // resize
+  void testParallelResizeByArray(size_t max_resize_num,
+                                 size_t iterations,
+                                 size_t num_no_improve_tolerance,
+                                 bool ratcons = false,
+                                 float PT_tradeoff = 100.0,
+                                 const char* lr_helper_method = "RapidLRHelper",
+                                 float density_weight = 0.0f,
+                                 bool resize_ff = false);
+
+  // buffering (LRF rebuffering)
+  void testParallelResizeByArrayWithBuffering(
+      size_t max_resize_num,
+      size_t iterations,
+      size_t num_no_improve_tolerance,
+      bool ratcons = false,
+      float PT_tradeoff = 100.0,
+      const char* lr_helper_method = "RapidLRHelper",
+      float density_weight = 0.0f);
+
+  // bufferingsdp (LRF slack-DP rebuffering)
+  void testParallelResizeByArrayWithSdpBuffering(
+      size_t max_resize_num,
+      size_t iterations,
+      size_t num_no_improve_tolerance,
+      bool ratcons = false,
+      float PT_tradeoff = 100.0,
+      const char* lr_helper_method = "RapidLRHelper",
+      float density_weight = 0.0f,
+      float timing_margin = 0.01f);
+
+  // sdp (two-phase: init+resize → precheck-resize + SDP buffering)
+  void testInitResizeThenSdpBuffering(
+      size_t max_resize_num,
+      size_t iterations,
+      size_t num_no_improve_tolerance,
+      bool ratcons = false,
+      float PT_tradeoff = 100.0,
+      const char* lr_helper_method = "RapidLRHelper",
+      float density_weight = 0.0f,
+      float timing_margin = 0.01f,
+      float erc_violation_weight = -1.0f,
+      float erc_limit_scale = 0.95f);
+
  private:
   sta::dbSta* getSta();
   const sta::MinMax* getMinMax(MinMax type);

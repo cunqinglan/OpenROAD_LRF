@@ -19,8 +19,10 @@
 #include "grt/GlobalRouter.h"
 #include "ifp/InitFloorplan.hh"
 #include "odb/db.h"
+#include "est/EstimateParasitics.h"
 #include "ord/OpenRoad.hh"
 #include "ord/Tech.h"
+#include "rsz/Resizer.hh"
 #include "sta/Sta.hh"
 #include "tcl.h"
 #include "tclDecls.h"
@@ -344,6 +346,23 @@ rsz::Resizer* Design::getResizer()
 {
   return getOpenRoad()->getResizer();
 }
+
+/////////////////////////////////////////////////////////////
+// Functions for LR sizing
+/////////////////////////////////////////////////////////////
+
+void Design::updateParasiticsNoDeleteNetwork()
+{
+  // Matches develop_newOR PhyLS semantics: full re-estimate that keeps the
+  // per-Scene Parasitics containers in place (only individual per-net
+  // entries are replaced), so concurrent LR ISTA readers/writers see a
+  // stable container.
+  getResizer()->getEstimateParasitics()->updateWireParasiticsNoDeleteNetwork();
+}
+
+/////////////////////////////////////////////////////////////
+// End functions for LR sizing
+/////////////////////////////////////////////////////////////
 
 /* static */
 odb::dbDatabase* Design::createDetachedDb()

@@ -188,6 +188,13 @@ class Design
   // Needed by standalone startup, not for general use.
   ord::OpenRoad* getOpenRoad();
 
+  // Functions for LR sizing
+  // Full re-estimate of wire parasitics without rebuilding the sta network
+  // (only clears cached driver-pin map). Called once before LRF entry to
+  // ensure parasitics are present for all nets.
+  void updateParasiticsNoDeleteNetwork();
+  // End functions for LR sizing
+
   // This returns a database that is not the one associated with
   // the rest of the application.  It is usable as a standalone
   // db but should not passed to any other Design or Tech APIs.

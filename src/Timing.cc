@@ -13,6 +13,7 @@
 
 #include "db_sta/dbNetwork.hh"
 #include "db_sta/dbSta.hh"
+#include "lrf/TestLrf.hh"
 #include "odb/db.h"
 #include "ord/Design.h"
 #include "ord/OpenRoad.hh"
@@ -639,6 +640,172 @@ std::vector<TimingPathInfo> Timing::getTimingPaths(MinMax minmax,
     result.push_back(std::move(path_info));
   }
   return result;
+}
+
+/////////////////////////////////////////////////////////////
+// LR sizing entry points
+//
+// Each method below is a thin Python boundary wrapper that hands control to
+// lrf::TestLrf. The pattern is identical across all entries: fetch resizer/
+// sta/block, refresh parasitics once, then dispatch to the LRF backend.
+/////////////////////////////////////////////////////////////
+
+void Timing::runInitialization(bool minimize_leakage)
+{
+  int thread_count = ord::OpenRoad::openRoad()->getThreadCount();
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.runInitializationStandalone(sta,
+                                       resizer,
+                                       design_->getBlock(),
+                                       thread_count,
+                                       minimize_leakage);
+}
+
+void Timing::testParallelResizeByArray(size_t max_resize_num,
+                                       size_t iterations,
+                                       size_t num_no_improve_tolerance,
+                                       bool ratcons,
+                                       float PT_tradeoff,
+                                       const char* lr_helper_method,
+                                       float density_weight,
+                                       bool resize_ff)
+{
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testParallelResizeByArray with %zu threads (resize_ff=%d)\n",
+         thread_num,
+         resize_ff);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testParallelLrResizeByArray(sta,
+                                       resizer,
+                                       design_->getBlock(),
+                                       thread_num,
+                                       max_resize_num,
+                                       iterations,
+                                       num_no_improve_tolerance,
+                                       ratcons,
+                                       PT_tradeoff,
+                                       lr_helper_method,
+                                       density_weight,
+                                       /*checkpoint_dir=*/"",
+                                       /*timing_margin=*/0.01f,
+                                       resize_ff);
+}
+
+void Timing::testParallelResizeByArrayWithBuffering(
+    size_t max_resize_num,
+    size_t iterations,
+    size_t num_no_improve_tolerance,
+    bool ratcons,
+    float PT_tradeoff,
+    const char* lr_helper_method,
+    float density_weight)
+{
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf("Starting testParallelResizeByArrayWithBuffering with %zu threads\n",
+         thread_num);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testParallelLrResizeByArrayWithBuffering(sta,
+                                                    resizer,
+                                                    design_->getBlock(),
+                                                    thread_num,
+                                                    max_resize_num,
+                                                    iterations,
+                                                    num_no_improve_tolerance,
+                                                    ratcons,
+                                                    PT_tradeoff,
+                                                    lr_helper_method,
+                                                    density_weight);
+}
+
+void Timing::testParallelResizeByArrayWithSdpBuffering(
+    size_t max_resize_num,
+    size_t iterations,
+    size_t num_no_improve_tolerance,
+    bool ratcons,
+    float PT_tradeoff,
+    const char* lr_helper_method,
+    float density_weight,
+    float timing_margin)
+{
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf(
+      "Starting testParallelResizeByArrayWithSdpBuffering with %zu threads, "
+      "timing_margin=%.4f\n",
+      thread_num,
+      timing_margin);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testParallelLrResizeByArrayWithSdpBuffering(
+      sta,
+      resizer,
+      design_->getBlock(),
+      thread_num,
+      max_resize_num,
+      iterations,
+      num_no_improve_tolerance,
+      ratcons,
+      PT_tradeoff,
+      lr_helper_method,
+      density_weight,
+      /*debug=*/false,
+      /*buffering_start_iter=*/5,
+      timing_margin);
+}
+
+void Timing::testInitResizeThenSdpBuffering(size_t max_resize_num,
+                                            size_t iterations,
+                                            size_t num_no_improve_tolerance,
+                                            bool ratcons,
+                                            float PT_tradeoff,
+                                            const char* lr_helper_method,
+                                            float density_weight,
+                                            float timing_margin,
+                                            float erc_violation_weight,
+                                            float erc_limit_scale)
+{
+  size_t thread_num = ord::OpenRoad::openRoad()->getThreadCount();
+  printf(
+      "Starting testInitResizeThenSdpBuffering with %zu threads, "
+      "timing_margin=%.4f, erc_violation_weight=%.3g, erc_limit_scale=%.3f\n",
+      thread_num,
+      timing_margin,
+      erc_violation_weight,
+      erc_limit_scale);
+  fflush(stdout);
+  design_->updateParasiticsNoDeleteNetwork();
+  rsz::Resizer* resizer = design_->getResizer();
+  sta::dbSta* sta = getSta();
+  lrf::TestLrf test_lrf;
+  test_lrf.testInitResizeThenSdpBuffering(sta,
+                                          resizer,
+                                          design_->getBlock(),
+                                          thread_num,
+                                          max_resize_num,
+                                          iterations,
+                                          num_no_improve_tolerance,
+                                          ratcons,
+                                          PT_tradeoff,
+                                          lr_helper_method,
+                                          density_weight,
+                                          /*debug=*/false,
+                                          /*buffering_start_iter=*/5,
+                                          timing_margin,
+                                          erc_violation_weight,
+                                          erc_limit_scale);
 }
 
 }  // namespace ord

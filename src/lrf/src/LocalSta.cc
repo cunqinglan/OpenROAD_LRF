@@ -102,7 +102,7 @@ void
 LocalSta::updateGlobalParasiticsAndSync(est::EstimateParasitics *est_parasitics)
 {
   auto t0 = std::chrono::high_resolution_clock::now();
-  est_parasitics->updateParasitics();
+  est_parasitics->updateWireParasiticsNoDeleteNetworkParallel();
   auto t1 = std::chrono::high_resolution_clock::now();
   local_parasitics_->initParasiticMapFromBase();
   auto t2 = std::chrono::high_resolution_clock::now();

@@ -1259,7 +1259,7 @@ LrRebuffer::persistBufferParasitics()
 
   auto persistNet = [&](const sta::Net *net) {
     if (!net) return;
-    estimate_parasitics_->estimateWireParasitic(net);
+    estimate_parasitics_->estimateWireParasiticNoDeleteNetwork(net);
   };
 
   using BnetType = rsz::BufferedNetType;

@@ -177,6 +177,34 @@ class EstimateParasitics : public sta::dbStaState, public ParasiticsService
   void estimateGlobalRouteParasitics(odb::dbNet* net, grt::GRoute& route);
   void clearParasitics();
 
+  //////////////////////////////////////////////////
+  // API for LR ISTA  (ported from PhyLS develop_newOR,
+  //                   adapted to OpenSTA 3.0 Scene API)
+  //////////////////////////////////////////////////
+  void updateWireParasiticsNoDeleteNetwork();
+  void updateWireParasiticsNoDeleteNetworkParallel();
+  // Incremental version: only re-estimate nets in parasitics_invalid_.
+  void updateWireParasiticsNoDeleteNetworkIncremental();
+  void estimateWireParasiticNoDeleteNetwork(const sta::Net* net);
+  void estimateWireParasiticSteinerNoDeleteNetwork(const sta::Pin* drvr_pin,
+                                                   const sta::Net* net);
+  // Thread-safe variants: parallelism is safe because workers only write to
+  // each net's own ParasiticNetwork inside an already-existing per-Scene
+  // Parasitics container ("NoDeleteNetwork" — the container is NOT torn down
+  // and rebuilt, only individual net entries are replaced).
+  void estimateWireParasiticNoDeleteNetworkParallel(const sta::Net* net);
+  void estimateWireParasiticSteinerNoDeleteNetworkParallel(
+      const sta::Pin* drvr_pin,
+      const sta::Net* net);
+  void estimateWireParasiticSteinerLrf(
+      const sta::Pin* drvr_pin,
+      const sta::Net* net,
+      sta::ArcDelayCalc* external_arc_delay_calc,
+      sta::Parasitic*& out_parasitic_network);
+  /////////////////////////////////////////////////
+  // End of APIs for LR ISTA
+  /////////////////////////////////////////////////
+
   ////////////////////////////////////////////////////////////////
   // Returns nullptr if net has less than 2 pins or any pin is not placed.
   SteinerTree* makeSteinerTree(odb::Point drvr_location,
@@ -208,6 +236,8 @@ class EstimateParasitics : public sta::dbStaState, public ParasiticsService
                                     const sta::Net* net,
                                     sta::SpefWriter* spef_writer);
   void makePadParasitic(const sta::Net* net, sta::SpefWriter* spef_writer);
+  // PhyLS LR ISTA: thread-safe pad parasitic builder.
+  void makePadParasiticParallel(const sta::Net* net);
   bool isPadNet(const sta::Net* net) const;
   bool isPadPin(const sta::Pin* pin) const;
   bool isPad(const sta::Instance* inst) const;
