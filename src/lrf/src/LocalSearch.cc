@@ -783,7 +783,10 @@ bool LocalRequiredVisitor::localVisitFromToPath(
     }
     else {
       // we don't consider crpr. So this should not happen.
-      throw std::runtime_error("Local required analysis found to vertex without tag");
+      if (to_tag_group == nullptr) {
+        throw std::runtime_error("Local required analysis found to vertex with no tag group");
+      } else
+        throw std::runtime_error("Local required analysis found to vertex without tag");
     }
   } else {
     printf("WARNING: Local required analysis does not propagate through latch D->Q edges.\n");
