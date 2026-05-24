@@ -208,46 +208,67 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     return result;
 
   // --- Determine pruning mode ---
+  // Parallel-safety: pruning_control_->state is shared across all worker
+  // threads, so during the parallel pass it is treated as READ-ONLY. We copy
+  // this instance's prior entry into a local `cur`, mutate `cur`, and stage it
+  // into the thread-local local_pruning_state_ map. flushPruningState() merges
+  // the staged entries back into the shared map serially after the workers
+  // join (see ParallelVisitor::finishVisit). This removes the concurrent
+  // find()/operator[] race on the shared unordered_map (SIGABRT in free()).
   enum class EvalMode { FULL, PRUNED, REORDER };
   EvalMode mode = EvalMode::FULL;
-  CellPruningState *pstate = nullptr;
+  CellPruningState cur;     // working copy, staged into local_pruning_state_
+  bool has_prior = false;   // inst had a prior entry in the shared map
 
-  if (pruning_control_ && pruning_control_->enabled) {
-    auto it = pruning_control_->state.find(inst);
-    if (it != pruning_control_->state.end() && !it->second.ordered_cells.empty()) {
-      pstate = &it->second;
-      pstate->iters_since_reorder++;
-      if (pstate->iters_since_reorder >= pstate->M) {
-        mode = EvalMode::REORDER;
-      } else {
-        bool has_ori = false;
-        for (auto *c : pstate->ordered_cells) {
-          if (c == ori_cell) { has_ori = true; break; }
-        }
-        mode = has_ori ? EvalMode::PRUNED : EvalMode::REORDER;
+  if (pruning_control_) {
+    auto it = pruning_control_->state.find(inst);  // read-only on shared map
+    if (it != pruning_control_->state.end()) {
+      cur = it->second;     // snapshot prior M / iters / ordered_cells
+      has_prior = true;
+    }
+  }
+
+  if (pruning_control_ && pruning_control_->enabled
+      && has_prior && !cur.ordered_cells.empty()) {
+    cur.iters_since_reorder++;
+    if (cur.iters_since_reorder >= cur.M) {
+      mode = EvalMode::REORDER;
+    } else {
+      bool has_ori = false;
+      for (auto *c : cur.ordered_cells) {
+        if (c == ori_cell) { has_ori = true; break; }
       }
+      mode = has_ori ? EvalMode::PRUNED : EvalMode::REORDER;
     }
   }
 
   // --- Build candidate list ---
   std::vector<sta::LibertyCell*> candidates;
   if (mode == EvalMode::PRUNED) {
-    candidates = pstate->ordered_cells;
+    candidates = cur.ordered_cells;
+    // PRUNED skips the write block below; the only state change is the
+    // iters_since_reorder bump above, so stage cur now.
+    local_pruning_state_[inst] = std::move(cur);
   } else {
     candidates = collectCandidates(ori_cell);
   }
-  if (candidates.size() < 2)
+  if (candidates.size() < 2) {
+    // REORDER bumped iters but won't reach the write block on this early-out;
+    // persist the bump so the counter advances exactly as before.
+    if (pruning_control_ && mode == EvalMode::REORDER)
+      local_pruning_state_[inst] = std::move(cur);
     return result;
+  }
 
   // Reorder ori_cell to LAST position. Pass 1 loop leaves PtGraph in the
   // last candidate's timing state; putting ori last means:
   //   - No-change path (best == ori): early-return + writeBack writes the
   //     correct ori state (instead of whatever last candidate was).
   //   - Change path: Pass 3 virtualReplaces to best, writeBack correct.
-  // Cost: the "best == candidates.back()" Pass 3 skip optimization at L337
-  // never triggers since back() == ori and best != ori in change path, but
-  // empirically that skip rarely fired anyway (recompute_final_count ==
-  // change_count in traces).
+  // Cost: the "best == candidates.back()" recompute skip in the change path
+  // below ("Recompute final timing for best cell") never triggers since
+  // back() == ori and best != ori there, but empirically that skip rarely
+  // fired anyway (recompute_final_count == change_count in traces).
   {
     auto it = std::find(candidates.begin(), candidates.end(), ori_cell);
     if (it != candidates.end() && it != candidates.end() - 1)
@@ -351,9 +372,9 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
                            static_cast<size_t>(cost_cells.size() * pruning_control_->P));
     keep = std::min(keep, cost_cells.size());
 
-    CellPruningState &ps = pruning_control_->state[inst];
-
-    // Adaptive M: large jump in ori_cell rank → diverging → reorder sooner
+    // Adaptive M: large jump in ori_cell rank → diverging → reorder sooner.
+    // cur.M holds the prior M (snapshot above, or the default for a first-time
+    // instance).
     if (mode == EvalMode::REORDER) {
       int jump = static_cast<int>(cost_cells.size());
       for (size_t i = 0; i < cost_cells.size(); i++) {
@@ -362,15 +383,19 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
           break;
         }
       }
-      ps.M = (jump <= static_cast<int>(keep))
-           ? std::min(ps.M + 1, 10)   // converging
-           : std::max(ps.M - 1, 1);   // diverging
+      cur.M = (jump <= static_cast<int>(keep))
+           ? std::min(cur.M + 1, 10)   // converging
+           : std::max(cur.M - 1, 1);   // diverging
     }
 
-    ps.ordered_cells.clear();
+    cur.ordered_cells.clear();
     for (size_t i = 0; i < keep; i++)
-      ps.ordered_cells.push_back(cost_cells[i].second);
-    ps.iters_since_reorder = 0;
+      cur.ordered_cells.push_back(cost_cells[i].second);
+    cur.iters_since_reorder = 0;
+
+    // Stage into the thread-local map; merged into the shared map by
+    // flushPruningState() after the parallel pass.
+    local_pruning_state_[inst] = std::move(cur);
   }
 
   // If best is the original cell, no change
@@ -551,7 +576,24 @@ ResizeOperator::copy() const
   op->col_padding_ = col_padding_;
   op->row_padding_ = row_padding_;
   op->pruning_control_ = pruning_control_;
+  // local_pruning_state_ is intentionally NOT copied: each thread's operator
+  // starts with an empty staging map.
   return op;
+}
+
+void
+ResizeOperator::flushPruningState()
+{
+  // Merge this operator's thread-local staging map into the shared
+  // PruningControl::state. Called serially (main thread) after all worker
+  // threads have joined, so the writes below are race-free. Each instance is
+  // visited at most once per pass, so keys never collide across threads.
+  // Idempotent: clearing after the merge makes a second call a no-op.
+  if (!pruning_control_)
+    return;
+  for (auto &kv : local_pruning_state_)
+    pruning_control_->state[kv.first] = std::move(kv.second);
+  local_pruning_state_.clear();
 }
 
 void
@@ -1568,6 +1610,16 @@ ParallelVisitor::ParallelVisitor(sta::dbSta *db_sta, LocalSta *local_sta,
 ParallelVisitor::~ParallelVisitor()
 {
   delete eval_ctx_.arc_delay_calc;
+}
+
+void
+ParallelVisitor::finishVisit(bool print_profile)
+{
+  // Per-visitor end-of-pass work, run serially after all workers have joined.
+  if (operator_)
+    operator_->flushPruningState();
+  if (print_profile)
+    printRuntimeProfile();
 }
 
 void

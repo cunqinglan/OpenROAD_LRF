@@ -934,11 +934,11 @@ TaskArranger::visitAll(ParallelVisitor *visitor)
   }
   finishTasks();
 
-  // Cleanup visitors
+  // Cleanup visitors: finishVisit() merges each thread's staged pruning state
+  // into the shared map (serial — workers joined) and prints the profile when
+  // verbose.
   for (auto v : visitors_) {
-    if (verbose_) {
-      v->printRuntimeProfile();
-    }
+    v->finishVisit(verbose_);
     delete v;
   }
   visitors_.clear();
@@ -1251,16 +1251,16 @@ TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta,
   }
   finishTasks();
 
-  // Aggregate pruning stats from visitors before deleting them
+  // Aggregate pruning stats from visitors before deleting them. (Reads
+  // per-visitor counters only, not the shared state map, so it is safe to run
+  // before finishVisit() merges the staged pruning state below.)
   updatePruningStats();
 
-  int cnt = 0;
+  // finishVisit() merges each thread's staged pruning state into the shared
+  // map (serial — workers joined) and prints the profile when verbose.
   for (auto v : visitors_) {
-    if (verbose_) {
-      v->printRuntimeProfile();
-    }
+    v->finishVisit(verbose_);
     delete v;
-    cnt++;
   }
   visitors_.clear();
 

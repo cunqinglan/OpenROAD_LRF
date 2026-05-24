@@ -943,6 +943,7 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
            (double)sta_->worstSlack(MinMax::max()));
     printf("critical path sizing time: %f s\n",
            std::chrono::duration<double>(end_cps - start_cps).count());
+    cp_visitor->finishVisit();  // merge staged pruning state before teardown
     delete cp_visitor;
   }
 
@@ -1476,6 +1477,7 @@ IncreSta::parallelResizeByArrayWithPrecheck(
            (double)sta_->worstSlack(MinMax::max()));
     printf("critical path sizing time: %f s\n",
            std::chrono::duration<double>(end_cps - start_cps).count());
+    cp_visitor->finishVisit();  // merge staged pruning state before teardown
     delete cp_visitor;
   }
 
@@ -1772,6 +1774,7 @@ IncreSta::parallelResizeAndBuffering(rsz::Resizer *resizer, float avg_delay,
            (double)sta_->worstSlack(MinMax::max()));
     printf("critical path sizing time: %f s\n",
            std::chrono::duration<double>(end_cps - start_cps).count());
+    cp_visitor->finishVisit();  // merge staged pruning state before teardown
     delete cp_visitor;
   }
 
