@@ -171,6 +171,7 @@ public:
   virtual void setSlackMargin(float) {}
   virtual void setEvalContext(EvalContext *) {}
   virtual PruningControl *pruningControl() const { return nullptr; }
+  virtual void flushPruningState() {}
 };
 
 // ─── ResizeOperator ──────────────────────────────────────
@@ -194,6 +195,7 @@ public:
   void setRowPadding(int p) { row_padding_ = p; }
   void setPruningControl(PruningControl *prune_control) { pruning_control_ = prune_control; }
   PruningControl *pruningControl() const override { return pruning_control_; }
+  void flushPruningState() override;
   friend class CombinedOperator;
 
 protected:
@@ -213,6 +215,7 @@ protected:
   int col_padding_ = 3;
   int row_padding_ = 1;
   PruningControl *pruning_control_ = nullptr;
+  std::unordered_map<sta::Instance*, CellPruningState> local_pruning_state_;
 };
 
 // ─── ResizePrecheckOperator ──────────────────────────────
@@ -394,6 +397,14 @@ public:
   void visitSlewOnly(sta::Instance *inst);
   virtual void applyChangesToDb(rsz::Resizer *resizer);
   virtual ParallelVisitor *copy() const;
+
+  // Per-visitor end-of-pass work, called serially after finishTasks() (workers
+  // joined):
+  //   - merge this visitor's thread-local pruning state into the shared map
+  //   - optionally print the runtime profile
+  // Call sites: visitOrdered()/visitAll() teardown, and before each cp_visitor
+  // delete in IncreSta (LrSizer's serial path). Not called from the destructor.
+  void finishVisit(bool print_profile = false);
 
   // Single operator slot — the visitor only calls evaluate/apply on this.
   void setOperator(std::unique_ptr<LrOperator> op) { operator_ = std::move(op); }

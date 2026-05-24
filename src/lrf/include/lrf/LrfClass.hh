@@ -167,7 +167,14 @@ struct ResizeBenefit {
 struct CellPruningState {
   std::vector<sta::LibertyCell*> ordered_cells;  // slack-filtered candidates sorted by cost (ascending)
   int M = 3;                    // reorder interval (adapts per-instance)
-  int iters_since_reorder = 0;  // iterations since last ordering
+  int iters_since_reorder = 0;  // evaluate() calls since last ordering
+  // NOTE: M / iters_since_reorder count ResizeOperator::evaluate() calls, NOT
+  // LR iterations. When cps (criticalPathSizing) is enabled it runs a second
+  // ResizeOperator pass per LR iteration sharing this PruningControl, so
+  // critical-path instances advance iters_since_reorder twice per LR iteration
+  // (effective reorder period ~M/2 LR iterations for them). This is benign —
+  // the cps pass reorders against the same-iteration ordering — but don't read
+  // M as "reorder every M LR iterations".
 };
 
 // Global pruning control, lives in IncreSta, persists across all LR iterations.
