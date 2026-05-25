@@ -17,6 +17,9 @@
 #include <vector>
 #include <set>
 #include <stdexcept>
+#include <atomic>
+#include <mutex>
+#include <cstdlib>
 
 #include "PtGraph.hh"
 #include "LocalSta.hh"
@@ -39,6 +42,91 @@ size_t ptPathIndex(PtVertex &pt_vertex, Path *path)
     return 0;
   return static_cast<size_t>(idx);
 }
+
+namespace {
+
+// 调试开关:export LRF_TAG_DEBUG=1 打开(默认关闭,大设计上不刷屏)。只读一次。
+bool
+lrfTagDebugEnabled()
+{
+  static const bool enabled = (std::getenv("LRF_TAG_DEBUG") != nullptr);
+  return enabled;
+}
+
+// 详细 dump 封顶,避免系统性 mismatch 把日志刷爆;超出后只计数。
+constexpr int kLrfTagDebugMaxDumps = 20;
+std::atomic<int> g_lrf_tag_miss_count{0};
+std::mutex g_lrf_tag_debug_mutex;
+
+// 在 required 出错点演示这条因果链:
+//   [事实1] arrival 阶段为 to_vertex 算出了一个新 tag(时钟 tag、带局部 crpr),
+//           但该顶点保留了原始 tag group —— group 里存的是该 tag 的「原始版本」。
+//   [事实2] required 阶段重算出同一个新 tag,拿去保留的 group 里 hasTag 查不到 → 触发错误。
+// 关键:用 Tag::matchNoCrpr(忽略 crpr 的匹配)在 group 里找「除 crpr 外完全相同」的
+// sibling。若找到,说明 hasTag miss 的差异**恰恰就在 crpr**,程序化坐实假设。
+void
+dumpRequiredTagMiss(const StaState *sta,
+                    Network *network,
+                    PtVertex &to_pt_vertex,
+                    Tag *to_tag,
+                    TagGroup *to_tag_group)
+{
+  int n = g_lrf_tag_miss_count.fetch_add(1, std::memory_order_relaxed);
+  if (n >= kLrfTagDebugMaxDumps) {
+    if (n == kLrfTagDebugMaxDumps) {
+      std::lock_guard<std::mutex> lock(g_lrf_tag_debug_mutex);
+      printf("[LRF_TAG_DEBUG] 已达 %d 次详细 dump 上限,后续 miss 只计数不打印。\n",
+             kLrfTagDebugMaxDumps);
+      fflush(stdout);
+    }
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(g_lrf_tag_debug_mutex);
+  const char *vname =
+      to_pt_vertex.pin() ? network->name(to_pt_vertex.pin()) : "virtual";
+
+  // 找「除 crpr 外全等」的原始 sibling。
+  Tag *no_crpr_sibling = nullptr;
+  for (auto const &entry : *to_tag_group->pathIndexMap()) {
+    Tag *gt = entry.first;
+    if (Tag::matchNoCrpr(to_tag, gt)) {
+      no_crpr_sibling = gt;
+      break;
+    }
+  }
+
+  printf("\n[LRF_TAG_DEBUG][REQUIRED-MISS #%d] to_vertex=%s  (crprActive=%d)\n",
+         n, vname, sta->crprActive());
+  printf("  [事实2] required 现算出的 to_tag 不在保留的 tag group 中:\n");
+  printf("      missing to_tag = %s\n", to_tag->to_string(sta).c_str());
+  printf("  retained group: idx=%u pathCount=%zu\n",
+         static_cast<unsigned>(to_tag_group->index()),
+         to_tag_group->pathCount());
+
+  if (no_crpr_sibling) {
+    printf("  [事实1] group 里存在一个「除 crpr 外完全相同」的原始 sibling:\n");
+    printf("      orig sibling   = %s\n",
+           no_crpr_sibling->to_string(sta).c_str());
+    printf("  ==> 确认:差异字段 = CRPR 时钟路径"
+           "(local crpr_vertex=%u, orig crpr_vertex=%u)。"
+           "局部不 derate 翻转了 arc_delay_min_max_eq,"
+           "使 thruClkInfo 设了不同的 crpr_clk_path。\n",
+           static_cast<unsigned>(to_tag->clkInfo()->crprClkVertexId(sta)),
+           static_cast<unsigned>(no_crpr_sibling->clkInfo()->crprClkVertexId(sta)));
+  } else {
+    printf("  ==> 差异不在 crpr(group 里没有「除 crpr 外全等」的 sibling)。"
+           "差异在 rf/corner/clk_edge/is_clk/genclk/segment/states 之一,"
+           "见下方完整 dump 对比:\n");
+    size_t i = 0;
+    for (auto const &entry : *to_tag_group->pathIndexMap()) {
+      printf("      [%zu] %s\n", i++, entry.first->to_string(sta).c_str());
+    }
+  }
+  fflush(stdout);
+}
+
+}  // namespace
 
 LocalPathVisitor::LocalPathVisitor(StaState *state, PtGraph *pt_graph)
   : PathVisitor(state),
@@ -762,16 +850,14 @@ bool LocalRequiredVisitor::localVisitFromToPath(
 {
   // Don't propagate required times through latch D->Q edges.
   if (pt_edge.role() != TimingRole::latchDtoQ()) {
-    // Guard: to_pt_vertex may not have been assigned a tag group during
-    // arrival analysis (e.g. null vertex skipped in findLocalArrivals).
+    // Guard: to_pt_vertex has no tag group. Confirmed at runtime (LRF_TAG_DEBUG
+    // on smallBoom) that the global STA also has none here (PtGraph::initPaths
+    // copies tag_group_index_max when search()->tagGroup(vertex) is null) — e.g.
+    // SRAM Q outputs that carry no propagated clock path. The original STA
+    // RequiredVisitor::visitFromToPath handles this same case silently, and
+    // these vertices are naturally excluded from local slack (no paths to
+    // iterate), so skipping is correct.
     if (to_pt_vertex.tagGroupIndex() == sta::tag_group_index_max) {
-      const char *to_name = to_pt_vertex.pin() ? network_->name(to_pt_vertex.pin()) : "virtual";
-      const char *from_name = from_pt_vertex.pin() ? network_->name(from_pt_vertex.pin()) : "virtual";
-      printf("WARNING: localVisitFromToPath skipping to_vertex %s with no tag group "
-             "(from_vertex: %s, edge role: %s)\n",
-             to_name, from_name,
-             pt_edge.role()->to_string().c_str());
-      fflush(stdout);
       return true;
     }
     size_t path_index = ptPathIndex(from_pt_vertex, from_path);
@@ -785,8 +871,15 @@ bool LocalRequiredVisitor::localVisitFromToPath(
       required_cmp_->requiredSet(path_index, from_required, req_min, this);
     }
     else {
-      // we don't consider crpr. So this should not happen.
-      throw std::runtime_error("Local required analysis found to vertex without tag");
+      // 这里曾经直接 throw,但在 dispatch 工作线程里抛异常会逃出线程函数 →
+      // std::terminate → SIGABRT。而这个 mismatch 本身是局部图设计的预期产物:
+      // 局部不 derate,使时钟路径上 arc_delay_min_max_eq 翻转,thruClkInfo 为
+      // to_tag 设了与原始不同的 crpr_clk_path,于是这个「局部 crpr 版本」的
+      // 时钟 tag 不在 to_vertex 保留的原始 tag group 里(详见 dumpRequiredTagMiss)。
+      // 与 localVisitEdge / tag_group_index_max 两处 guard 一致:跳过该路径,不抛。
+      if (lrfTagDebugEnabled())
+        dumpRequiredTagMiss(this, network_, to_pt_vertex, to_tag, to_tag_group);
+      return true;
     }
   } else {
     printf("WARNING: Local required analysis does not propagate through latch D->Q edges.\n");
