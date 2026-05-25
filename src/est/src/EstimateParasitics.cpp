@@ -888,7 +888,7 @@ odb::dbTechLayer* EstimateParasitics::getPinLayer(const sta::Pin* pin)
   if (iterm) {
     int min_layer_idx = std::numeric_limits<int>::max();
     for (const auto& [layer, rect] : iterm->getGeometries()) {
-      if (layer->getRoutingLevel() < min_layer_idx) {
+      if (layer && layer->getRoutingLevel() < min_layer_idx) {
         min_layer_idx = layer->getRoutingLevel();
         pin_layer = layer;
       }
@@ -970,17 +970,28 @@ void EstimateParasitics::parasiticNodeConnectPins(
       } else {
         if (tree_layer != nullptr && !layer_res_.empty()) {
           odb::dbTechLayer* pin_layer = getPinLayer(pin);
-          for (int layer_number = pin_layer->getNumber();
-               layer_number < tree_layer->getNumber();
-               layer_number++) {
-            odb::dbTechLayer* cut_layer
-                = db_->getTech()->findLayer(layer_number);
-            if (cut_layer->getType() == odb::dbTechLayerType::CUT) {
-              double cut_res
-                  = std::max(layer_res_[layer_number][corner->index()], 1.0e-3);
-              parasitics_->makeResistor(
-                  parasitic, resistor_id++, cut_res, node, pin_node);
+          if (pin_layer != nullptr) {
+            for (int layer_number = pin_layer->getNumber();
+                 layer_number < tree_layer->getNumber();
+                 layer_number++) {
+              odb::dbTechLayer* cut_layer
+                  = db_->getTech()->findLayer(layer_number);
+              if (cut_layer->getType() == odb::dbTechLayerType::CUT) {
+                double cut_res
+                    = std::max(layer_res_[layer_number][corner->index()], 1.0e-3);
+                parasitics_->makeResistor(
+                    parasitic, resistor_id++, cut_res, node, pin_node);
+              }
             }
+          } else {
+            // pin 所属 instance 未放置(getGeometries 为空)→ getPinLayer 返回
+            // nullptr。回退到平均 cut 电阻,避免解引用空指针段错误(与
+            // fix_path_init 分支一致;timing-driven 布局中 resizer 新插入的
+            // cell 此刻可能尚未落位)。
+            double cut_res
+                = std::max(computeAverageCutResistance(corner), 1.0e-3);
+            parasitics_->makeResistor(
+                parasitic, resistor_id++, cut_res, node, pin_node);
           }
         } else {
           double cut_res

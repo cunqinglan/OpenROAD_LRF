@@ -4358,7 +4358,10 @@ void GlobalRouter::makeItermPins(Net* net,
 
       for (odb::dbBox* box : mterm->getGeometry()) {
         odb::dbTechLayer* tech_layer = box->getTechLayer();
-        if (tech_layer->getType() != odb::dbTechLayerType::ROUTING) {
+        // box->getTechLayer() 可能为 nullptr(非 routing 几何),不判空直接
+        // getType() 会段错误(与 fix_path_init 一致)。
+        if (!tech_layer
+            || tech_layer->getType() != odb::dbTechLayerType::ROUTING) {
           continue;
         }
 
