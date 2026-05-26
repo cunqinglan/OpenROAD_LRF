@@ -11,6 +11,7 @@
 #include "sta/Liberty.hh"
 #include "sta/Sdc.hh"
 #include "sta/Search.hh"
+#include "sta/SearchPred.hh"
 #include "search/TagGroup.hh"
 #include "LocalSta.hh"
 
@@ -182,7 +183,8 @@ PtGraph::vertexLevel(VertexId vertex_id) const
 }
 
 void
-PtGraph::makeGraph(sta::InstanceSet &inst_seq, sta::Instance *ref_inst)
+PtGraph::makeGraph(sta::InstanceSet &inst_seq, sta::Instance *ref_inst,
+                   sta::SearchPred *search_pred)
 {
   ref_inst_ = ref_inst;
   ref_lib_cell_ = sta_->network()->libertyCell(ref_inst);
@@ -191,7 +193,7 @@ PtGraph::makeGraph(sta::InstanceSet &inst_seq, sta::Instance *ref_inst)
            sta_->network()->name(ref_inst));
     fflush(stdout);
   }
-  makePtVertexAndPtEdge(inst_seq);
+  makePtVertexAndPtEdge(inst_seq, search_pred);
   setGraphMade(true);
   initVertexAndEdges();
   createParasiticsNetworks();
@@ -200,14 +202,15 @@ PtGraph::makeGraph(sta::InstanceSet &inst_seq, sta::Instance *ref_inst)
 }
 
 void 
-PtGraph::makeGraph(sta::VertexSet &vertex_set, sta::Instance *ref_inst) 
+PtGraph::makeGraph(sta::VertexSet &vertex_set, sta::Instance *ref_inst,
+                   sta::SearchPred *search_pred)
 {
   ref_inst_ = ref_inst;
   ref_lib_cell_ = sta_->network()->libertyCell(ref_inst);
   if (ref_lib_cell_ == nullptr) {
     throw std::runtime_error("PtGraph::makeGraph: ref_inst has no liberty cell");
   }
-  makePtVertexAndPtEdge(vertex_set);
+  makePtVertexAndPtEdge(vertex_set, search_pred);
   setGraphMade(true);
   initVertexAndEdges();
   createParasiticsNetworks();
@@ -222,7 +225,8 @@ PtGraph::createParasiticsNetworks()
 }
 
 void
-PtGraph::makePtVertexAndPtEdge(sta::VertexSet &vertex_set)
+PtGraph::makePtVertexAndPtEdge(sta::VertexSet &vertex_set,
+                               sta::SearchPred *search_pred)
 {
   sta::Graph *graph = sta_->graph();
   sta::Network *network = sta_->network();
@@ -235,14 +239,15 @@ PtGraph::makePtVertexAndPtEdge(sta::VertexSet &vertex_set)
     sta::Vertex *vertex = const_cast<sta::Vertex*>(pair.first);
     VertexId pt_vertex_id = pair.second;
     if (network->isDriver(vertex->pin())) {
-      makePtInstEdge(vertex, pt_vertex_id);
+      makePtInstEdge(vertex, pt_vertex_id, search_pred);
       makePtWireEdge(vertex, pt_vertex_id);
     }
   }
 }
 
 void
-PtGraph::makePtVertexAndPtEdge(sta::InstanceSet &inst_seq)
+PtGraph::makePtVertexAndPtEdge(sta::InstanceSet &inst_seq,
+                               sta::SearchPred *search_pred)
 {
   sta::Graph *graph = sta_->graph();
   sta::Network *network = sta_->network();
@@ -267,26 +272,51 @@ PtGraph::makePtVertexAndPtEdge(sta::InstanceSet &inst_seq)
     sta::Vertex *vertex = const_cast<sta::Vertex*>(pair.first);
     VertexId pt_vertex_id = pair.second;
     if (network->isDriver(vertex->pin())) {
-      makePtInstEdge(vertex, pt_vertex_id);
+      makePtInstEdge(vertex, pt_vertex_id, search_pred);
       makePtWireEdge(vertex, pt_vertex_id);
     }
   }
 }
 
-void 
-PtGraph::makePtInstEdge(sta::Vertex *drvr_vertex, VertexId drvr_pt_id)
+void
+PtGraph::makePtInstEdge(sta::Vertex *drvr_vertex, VertexId drvr_pt_id,
+                        sta::SearchPred *search_pred)
 {
   sta::Network *network = sta_->network();
   sta::Instance *drvr_inst = network->instance(drvr_vertex->pin());
   if (!network->libertyCell(drvr_inst)) {
     return;
   }
+  // A constant driver output (searchTo false) is not part of OpenSTA's
+  // analyzed graph: nothing propagates to it and its in-arc delays were never
+  // computed, so every gate in-edge built here would only re-import the global
+  // graph's -INF sentinel arc delay. to_vertex == drvr_vertex for all these
+  // edges, so reject the whole driver at once. This catches constant sibling
+  // RefDrivers that collectLocalFaninSiblingVertices keeps only to avoid an
+  // orphan RefInput, and multi-output cells whose other output kept the
+  // instance past hasUsableDriver. Wire out-edges are still built by
+  // makePtWireEdge, so RefInput keeps its RefDriver.
+  if (search_pred && !search_pred->searchTo(drvr_vertex))
+    return;
   sta::Graph *graph = sta_->graph();
   sta::VertexInEdgeIterator in_edge_iter(drvr_vertex, graph);
   while (in_edge_iter.hasNext()) {
     sta::Edge *in_edge = in_edge_iter.next();
     sta::Vertex *from_vertex = in_edge->from(graph);
-    
+
+    // Skip the remaining gate arcs the search predicate would not propagate
+    // through. Otherwise a disabled or constant-fanin arc (e.g. an input tied
+    // off by const-prop) still gets a PtEdge whose arc_delay was copied
+    // (copyInfoFromEdge) as the global graph's -INF init sentinel and never
+    // recomputed (findGateLocalDelays skips it on searchFrom), then leaks into
+    // delayLmSum as a ~1e30 garbage term and produces phantom resize
+    // "benefits". Evaluated here at construction time while the sta::Edge* is
+    // still valid (before any concurrent replaceCell).
+    if (search_pred
+        && (!search_pred->searchThru(in_edge)
+            || !search_pred->searchFrom(from_vertex)))
+      continue;
+
     auto it_from = vertex_map_.find(from_vertex);
     if (it_from != vertex_map_.end()) {
       VertexId from_pt_id = it_from->second;
@@ -1329,9 +1359,9 @@ PtGraph::annotateVerticesType()
       auto it = vertex_map_.find(load_vertex);
       if (it == vertex_map_.end()) {
         // Commonly these vertices are !searchFrom vertices
-        printf("PtGraph::annotateRefFaninVertices: load vertex %s not found in vertex_map_\n",
-               load_vertex->to_string(sta_).c_str());
-        fflush(stdout);
+        // printf("PtGraph::annotateRefFaninVertices: load vertex %s not found in vertex_map_\n",
+        //        load_vertex->to_string(sta_).c_str());
+        // fflush(stdout);
         continue;
       }
       PtVertex &ref_in = ptVertex(it->second);
@@ -1350,14 +1380,9 @@ PtGraph::annotateVerticesType()
         continue;
       auto it = vertex_map_.find(drvr_vertex);
       if (it == vertex_map_.end()) {
-        printf("PtGraph::annotateVerticesType: drvr vertex missing: "
-               "inst=%s pin=%s isConstant=%d hasFanout=%d disabledConstraint=%d\n",
-               sta_->network()->pathName(ref_inst_),
-               sta_->network()->pathName(pin),
-               drvr_vertex->isConstant(),
-               drvr_vertex->hasFanout(),
-               drvr_vertex->isDisabledConstraint());
-        fflush(stdout);
+        // Expected: a constant output driver (searchTo == false) is not
+        // collected, so a multi-output cell's constant output pin has no
+        // PtVertex. Silently skip (no RefOutput to annotate).
         continue;
       }
       PtVertex &ref_out = ptVertex(it->second);

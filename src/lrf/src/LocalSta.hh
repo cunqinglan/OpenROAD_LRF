@@ -53,24 +53,27 @@ public:
   virtual void copyState(const Sta *sta);
 
   void collectLocalGraph(Instance *inst, InstanceSet &local_instances);
-  void collectLocalVertices(Instance *inst, VertexSet &local_vertices);
+  bool collectLocalVertices(Instance *inst, VertexSet &local_vertices);
   // FF variant of collectLocalVertices: accepts sequential ref instances and
   // skips fanin-sibling expansion on clock pins (otherwise every sister FF on
   // the same clock leaf would join the local graph as a SiblingLoad). The
   // CK pin's own load vertex is still inserted so the CK→D setup check edge
   // resolves both endpoints.
-  void collectLocalVerticesFF(Instance *inst, VertexSet &local_vertices);
+  bool collectLocalVerticesFF(Instance *inst, VertexSet &local_vertices);
   // Lightweight: ref-instance pins + direct wire fanout loads only
   // (no fanin sibling collection, no downstream driver traversal).
-  void collectDriverFanoutOnly(Instance *inst, VertexSet &local_vertices);
-  void makePtGraph(PtGraph *pt_graph, Instance *inst,
+  bool collectDriverFanoutOnly(Instance *inst, VertexSet &local_vertices);
+  // makePtGraph* return false when the instance has no usable (non-constant)
+  // output driver — nothing to model, caller should skip. makePtGraphFF always
+  // returns true (FF is evaluated for CK→D setup regardless of Q constness).
+  bool makePtGraph(PtGraph *pt_graph, Instance *inst,
                           DcalcAnalysisPt *dcalc_ap = nullptr);
   // Lightweight PtGraph: skips fanin siblings; no pruneInsignificantSiblings.
-  void makePtGraphDriverOnly(PtGraph *pt_graph, Instance *inst,
+  bool makePtGraphDriverOnly(PtGraph *pt_graph, Instance *inst,
                              DcalcAnalysisPt *dcalc_ap = nullptr);
   // FF PtGraph: accepts sequential ref instance, bounded clock-pin
   // expansion, and adds CK→D setup CheckEdges via PtGraph::addCheckEdgesForRefInst.
-  void makePtGraphFF(PtGraph *pt_graph, Instance *inst,
+  bool makePtGraphFF(PtGraph *pt_graph, Instance *inst,
                      DcalcAnalysisPt *dcalc_ap = nullptr);
   PtGraph *makePtGraph(Instance *inst, bool update_timing_first = false);
 

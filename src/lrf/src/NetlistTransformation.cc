@@ -190,20 +190,8 @@ ResizeOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
   if (!ori_cell)
     return result;
 
-  // Skip degenerate PtGraph: ref_inst's driver vertex was filtered out
-  // (typically a tie cell — output isConstant → SearchPred0::searchTo
-  // returns false in collectLocalVertices, so no RefOutput exists). With
-  // no RefOutput, downstream cost / violation accumulators see nothing
-  // and the swap decision degenerates to leakage-only — pure waste.
-  bool has_ref_output = false;
-  for (size_t i = 1; i < pt_graph->vertexCount(); i++) {
-    if (pt_graph->ptVertex(i).type() == PtVertexType::RefOutput) {
-      has_ref_output = true;
-      break;
-    }
-  }
-  if (!has_ref_output)
-    return result;
+  // (Degenerate no-RefOutput check removed: ParallelVisitor::visit now skips
+  // instances with no usable driver before evaluate, via makePtGraph's bool.)
 
   // --- Determine pruning mode ---
   // Parallel-safety: pruning_control_->state is shared across all worker
@@ -1682,20 +1670,32 @@ ParallelVisitor::visit(sta::Instance *inst, sta::VertexId vid)
   pt_graph_.reset(new PtGraph(db_sta_));
   const LrOperator::PtGraphLevel level = operator_
       ? operator_->ptGraphLevel() : LrOperator::PtGraphLevel::Full;
+  // makePtGraph* return false when the instance has no usable (non-constant)
+  // output driver. FF always returns true (sequential cells are evaluated for
+  // CK→D setup regardless of Q constness).
+  bool usable = true;
   if (level == LrOperator::PtGraphLevel::DriverOnly) {
-    local_sta_->makePtGraphDriverOnly(pt_graph_.get(), inst);
+    usable = local_sta_->makePtGraphDriverOnly(pt_graph_.get(), inst);
   } else if (level == LrOperator::PtGraphLevel::FF) {
-    local_sta_->makePtGraphFF(pt_graph_.get(), inst);
+    usable = local_sta_->makePtGraphFF(pt_graph_.get(), inst);
     // FF mode: setup CheckEdge delays are not part of findLocalDelays; the
     // operator's evaluate() must call findLocalCheckDelays after each cell
     // candidate's findLocalDelays.
   } else {
-    local_sta_->makePtGraph(pt_graph_.get(), inst);
+    usable = local_sta_->makePtGraph(pt_graph_.get(), inst);
     pt_graph_->pruneInsignificantSiblings();
   }
   auto end_pt = std::chrono::high_resolution_clock::now();
   runtime_map_["pt_graph_construction"] +=
       std::chrono::duration<double>(end_pt - start_pt).count();
+
+  // No usable driver (all outputs constant): nothing to optimize. Skip before
+  // evaluate — subsumes the old degenerate (no-RefOutput) check in
+  // ResizeOperator::evaluate.
+  if (!usable) {
+    runtime_map_["skip_count"] += 1.0;
+    return false;
+  }
 
   eval_ctx_.pt_graph = pt_graph_.get();
 
