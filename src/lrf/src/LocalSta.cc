@@ -140,79 +140,94 @@ LocalSta::collectLocalGraph(Instance *inst, InstanceSet &local_instances)
   collected_ = true;
 }
 
-void
+bool
 LocalSta::collectLocalVertices(Instance *inst, VertexSet &local_vertices)
 {
   if (network_->libertyCell(inst)->hasSequentials()) {
     // For sequential cells, skip
-    throw std::runtime_error("LocalSta::collectLocalVertices: Sequential cells not supported");
+    printf("[LRF-DIAG] collectLocalVertices skipping sequential cell: inst=%s\n",
+           network_->pathName(inst));
+    fflush(stdout);
+    return false;
+    // throw std::runtime_error("LocalSta::collectLocalVertices: Sequential cells not supported");
   }
   InstancePinIterator *pin_iter = network_->pinIterator(inst);
+  bool has_usable_driver = false;
   while (pin_iter->hasNext()) {
     Pin *pin = pin_iter->next();
     if (network_->isDriver(pin)) {
       sta::Vertex *drvr_vertex = graph_->pinDrvrVertex(pin);
+      if (drvr_vertex == nullptr)
+        continue;
       if (search_pred_->searchTo(drvr_vertex)) {
         local_vertices.insert(drvr_vertex);
         collectLocalFanoutVertices(drvr_vertex, local_vertices);
+        has_usable_driver = true;
       }
     }
     if (network_->isLoad(pin)) {
       sta::Vertex *load_vertex = graph_->pinLoadVertex(pin);
       if (load_vertex == nullptr)
         continue;
-      // Always include ref instance's own load pins for complete
-      // RefInput annotation; fanin expansion is still gated by searchFrom.
-      local_vertices.insert(load_vertex);
       if (search_pred_->searchFrom(load_vertex)) {
+        local_vertices.insert(load_vertex);
         collectLocalFaninSiblingVertices(load_vertex, local_vertices);
       }
     }
   }
   delete pin_iter;
+  return has_usable_driver;
 }
 
-void
+bool
 LocalSta::collectLocalVerticesFF(Instance *inst, VertexSet &local_vertices)
 {
   // Mirror of collectLocalVertices, but:
-  //   1. No throw on hasSequentials() — FF cells are accepted.
-  //   2. For clock pins, fanin sibling expansion is suppressed (every
-  //      sister FF on the same clock leaf would otherwise become a
+  //   1. No skip on hasSequentials() — FF cells are accepted.
+  //   2. Clock pins: the CK load vertex is still inserted unconditionally (so
+  //      the CK→D setup CheckEdge added by PtGraph::addCheckEdgesForRefInst
+  //      resolves both ends), but fanin-sibling expansion is suppressed (every
+  //      sister FF on the same clock leaf would otherwise join as a
   //      SiblingLoad and explode the local graph).
-  // The CK pin's own load vertex is still inserted so the CK→D setup
-  // CheckEdge added by PtGraph::addCheckEdgesForRefInst resolves both ends.
+  //   3. Data load pins follow collectLocalVertices: collected/expanded only
+  //      when searchFrom passes (constant / disabled inputs are dropped, and
+  //      with them their never-reduced RefDriver nets).
   InstancePinIterator *pin_iter = network_->pinIterator(inst);
+  bool has_usable_driver = false;
   while (pin_iter->hasNext()) {
     Pin *pin = pin_iter->next();
     if (network_->isDriver(pin)) {
       sta::Vertex *drvr_vertex = graph_->pinDrvrVertex(pin);
+      if (drvr_vertex == nullptr)
+        continue;
       if (search_pred_->searchTo(drvr_vertex)) {
         local_vertices.insert(drvr_vertex);
         collectLocalFanoutVertices(drvr_vertex, local_vertices);
+        has_usable_driver = true;
       }
     }
     if (network_->isLoad(pin)) {
       sta::Vertex *load_vertex = graph_->pinLoadVertex(pin);
       if (load_vertex == nullptr)
         continue;
-      local_vertices.insert(load_vertex);
-
       sta::LibertyPort *lib_port = network_->libertyPort(pin);
       const bool is_clk_pin = (lib_port && lib_port->isClock());
       if (is_clk_pin) {
-        // Bounded expansion on clock pins: don't recurse into sibling FFs.
-        // We don't need to add the CK driver vertex either — the CheckEdge
-        // is between the FF's own CK and D vertices, and CK arrival/slew
-        // for delay calc will be read from the global graph.
+        // CK load must be present for the CK→D CheckEdge; no sibling expansion
+        // (don't recurse into sister FFs on the clock leaf). The CK driver is
+        // not needed — CK arrival/slew for delay calc is read from the global
+        // graph.
+        local_vertices.insert(load_vertex);
         continue;
       }
       if (search_pred_->searchFrom(load_vertex)) {
+        local_vertices.insert(load_vertex);
         collectLocalFaninSiblingVertices(load_vertex, local_vertices);
       }
     }
   }
   delete pin_iter;
+  return has_usable_driver;
 }
 
 void
@@ -282,9 +297,11 @@ LocalSta::collectLocalFaninSiblingVertices(Vertex *load_vertex,
     Vertex *drvr_vertex = graph_->pinDrvrVertex(drvr_pin);
     if (drvr_vertex == nullptr)
       continue;
-    if (!search_pred_->searchTo(drvr_vertex)) {
-      // Still collect the driver so RefInput won't become a root without RefDriver
-      local_vertices.insert(drvr_vertex);
+    if (!search_pred_->searchFrom(drvr_vertex)) {
+      // Since ref input is not constant, so its driver should not be constant.
+      printf("Warining: LocalSta::collectLocalFaninSiblingVertices: driver vertex %s filtered out by searchFrom\n",
+            drvr_vertex->to_string(graph_).c_str());
+      fflush(stdout);
       continue;
     }
     local_vertices.insert(drvr_vertex);
@@ -298,17 +315,17 @@ LocalSta::collectLocalFaninSiblingVertices(Vertex *load_vertex,
     }
   }
 
+  // There is at least one none-constant driver made sure,
+  // because if all drivers are constant, we won't enter this function.
   for (auto load_pin : loads) {
     if (load_pin == load_vertex->pin())
       continue;
     Vertex *sibling_load_vertex = graph_->pinLoadVertex(load_pin);
     if (!sibling_load_vertex)
       continue;
-    // Always include sibling load so parasitic network traversal
-    // can find its PtVertex (avoids stale-pin crash in reducePiDfs).
-    local_vertices.insert(sibling_load_vertex);
     // Only expand to sibling's driver/fanin if search predicate allows.
     if (search_pred_->searchFrom(sibling_load_vertex)) {
+      local_vertices.insert(sibling_load_vertex);
       // Collect sibling driver vertices, skip check edges and latch edges
       VertexOutEdgeIterator in_inst_edge_iter(sibling_load_vertex, graph_);
       while (in_inst_edge_iter.hasNext()) {
@@ -340,16 +357,18 @@ LocalSta::collectLocalFaninSiblingVertices(Vertex *load_vertex,
   }
 }
 
-void
+bool
 LocalSta::collectDriverFanoutOnly(Instance *inst, VertexSet &local_vertices)
 {
   InstancePinIterator *pin_iter = network_->pinIterator(inst);
+  bool has_usable_driver = false;
   while (pin_iter->hasNext()) {
     Pin *pin = pin_iter->next();
     if (network_->isDriver(pin)) {
       Vertex *drvr = graph_->pinDrvrVertex(pin);
       if (drvr && search_pred_->searchTo(drvr)) {
         local_vertices.insert(drvr);
+        has_usable_driver = true;
         // Direct wire fanout loads only — no downstream driver collection
         VertexOutEdgeIterator edge_iter(drvr, graph_);
         while (edge_iter.hasNext()) {
@@ -363,12 +382,16 @@ LocalSta::collectDriverFanoutOnly(Instance *inst, VertexSet &local_vertices)
       }
     }
     if (network_->isLoad(pin)) {
-      Vertex *load = graph_->pinLoadVertex(pin);
-      if (load)
-        local_vertices.insert(load);
+      sta::Vertex *load_vertex = graph_->pinLoadVertex(pin);
+      if (load_vertex == nullptr)
+        continue;
+      if (search_pred_->searchFrom(load_vertex)) {
+        local_vertices.insert(load_vertex);
+      }
     }
   }
   delete pin_iter;
+  return has_usable_driver;
 }
 
 void
@@ -575,30 +598,19 @@ LocalSta::collectLocalFaninSiblings(Pin *load_pin, PinSet &visited_pins,
   }
 }
 
-// void 
-// LocalSta::makePtGraph(PtGraph *pt_graph, Instance *inst, 
-//                           sta::Scene *scene, const sta::MinMax *min_max)
-// {
-//   InstanceSet local_instances(sta_->network());
-//   collectLocalGraph(inst, local_instances);
-//   pt_graph->makeGraph(local_instances, inst);
-//   if (scene == nullptr) {
-//     Scene *corner = sta_->findScene(0);
-//     dcalc_ap = corner->findDcalcAnalysisPt(MinMax::max());
-//     if (scene == nullptr) {
-//       throw std::runtime_error("LocalSta::makePtGraph: No dcalc analysis point found");
-//     }
-//   }
-//   pt_graph->setScene(scene, min_max);
-// }
-
-void
-LocalSta::makePtGraph(PtGraph *pt_graph, Instance *inst, 
+bool
+LocalSta::makePtGraph(PtGraph *pt_graph, Instance *inst,
                       sta::Scene *scene, const sta::MinMax *min_max)
 {
   VertexSet local_vertices(graph_);
-  collectLocalVertices(inst, local_vertices);
-  pt_graph->makeGraph(local_vertices, inst);
+  // Always build the graph (other callers, e.g. the makePtGraph(inst) overload,
+  // rely on a fully-built result). The returned bool only signals whether the
+  // instance has a usable (non-constant) output driver — ParallelVisitor::visit
+  // uses it to skip evaluate; the degenerate (no-RefOutput) graph is otherwise
+  // identical to what was built before. search_pred_ filters constant/disabled
+  // arcs so their -INF sentinel delays don't leak into delayLmSum.
+  bool usable = collectLocalVertices(inst, local_vertices);
+  pt_graph->makeGraph(local_vertices, inst, search_pred_);
   if (scene == nullptr) {
     scene = sta_->findScene("default");
     if (scene == nullptr) {
@@ -612,15 +624,18 @@ LocalSta::makePtGraph(PtGraph *pt_graph, Instance *inst,
     min_max = sta::MinMax::max();
   }
   pt_graph->setScene(scene, min_max);
+  return usable;
 }
 
-void
+bool
 LocalSta::makePtGraphDriverOnly(PtGraph *pt_graph, Instance *inst,
                                 sta::Scene *scene, const sta::MinMax *min_max)
 {
   VertexSet local_vertices(graph_);
-  collectDriverFanoutOnly(inst, local_vertices);
-  pt_graph->makeGraph(local_vertices, inst);
+  // Always build (see makePtGraph); bool only signals usable-driver for the
+  // visit() skip.
+  bool usable = collectDriverFanoutOnly(inst, local_vertices);
+  pt_graph->makeGraph(local_vertices, inst, search_pred_);
   if (scene == nullptr) {
     scene = sta_->findScene("default");
     if (scene == nullptr)
@@ -630,15 +645,19 @@ LocalSta::makePtGraphDriverOnly(PtGraph *pt_graph, Instance *inst,
     min_max = sta::MinMax::max();
   }
   pt_graph->setScene(scene, min_max);
+  return usable;
 }
 
-void
+bool
 LocalSta::makePtGraphFF(PtGraph *pt_graph, Instance *inst,
                         sta::Scene *scene, const sta::MinMax *min_max)
 {
   VertexSet local_vertices(graph_);
+  // FF is exempt from the usable-driver skip: a sequential cell is evaluated
+  // for its CK→D setup regardless of Q constness, so ignore the returned bool
+  // and always proceed.
   collectLocalVerticesFF(inst, local_vertices);
-  pt_graph->makeGraph(local_vertices, inst);
+  pt_graph->makeGraph(local_vertices, inst, search_pred_);
   // Add CK→D setup check edges (after the regular vertex/edge build, so
   // both endpoints are already in vertex_map_).
   pt_graph->addCheckEdgesForRefInst();
@@ -649,6 +668,7 @@ LocalSta::makePtGraphFF(PtGraph *pt_graph, Instance *inst,
     min_max = sta::MinMax::max();
   }
   pt_graph->setScene(scene, min_max);
+  return true;
 }
 
 PtGraph *

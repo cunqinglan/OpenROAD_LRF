@@ -19,6 +19,7 @@ class Sta;
 class LibertyCell;
 class Scene;
 class MinMax;
+class SearchPred;
 }
 
 namespace lrf {
@@ -41,11 +42,19 @@ public:
   PtVertexSeq &ptVertices() { return pt_vertices_; }
   const PtEdgeSeq &ptEdges() const { return pt_edges_; }
 
-  void makeGraph(sta::InstanceSet &inst_seq, sta::Instance *ref_inst);
-  void makeGraph(sta::VertexSet &vertex_set, sta::Instance *ref_inst);
-  void makePtVertexAndPtEdge(sta::InstanceSet &inst_seq);
-  void makePtVertexAndPtEdge(sta::VertexSet &vertex_set);
-  void makePtInstEdge(sta::Vertex *drvr_vertex, sta::VertexId drvr_pt_id);
+  // search_pred (from LocalSta) filters gate arcs at construction so the
+  // PtGraph mirrors OpenSTA's analyzed timing graph; null = no filtering
+  // (standalone test builds). See makePtInstEdge for why this matters.
+  void makeGraph(sta::InstanceSet &inst_seq, sta::Instance *ref_inst,
+                 sta::SearchPred *search_pred = nullptr);
+  void makeGraph(sta::VertexSet &vertex_set, sta::Instance *ref_inst,
+                 sta::SearchPred *search_pred = nullptr);
+  void makePtVertexAndPtEdge(sta::InstanceSet &inst_seq,
+                             sta::SearchPred *search_pred = nullptr);
+  void makePtVertexAndPtEdge(sta::VertexSet &vertex_set,
+                             sta::SearchPred *search_pred = nullptr);
+  void makePtInstEdge(sta::Vertex *drvr_vertex, sta::VertexId drvr_pt_id,
+                      sta::SearchPred *search_pred = nullptr);
   void makePtWireEdge(sta::Vertex *drvr_vertex, sta::VertexId drvr_pt_id);
   // Walk each load pin of ref_inst_ and add its setup-check in-edge as a
   // PtEdge of type CheckEdge. Skips pins whose libertyPort is a clock pin.
