@@ -1283,6 +1283,26 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
                           dcalc_pin, arc, in_slew, load_cap, parasitic,
                           load_pin_index_map, dcalc_ap);
 
+      // [SLEW-PROBE] temp: if this gate arc produced a garbage delay, dump its
+      // inputs to see whether a garbage in_slew (or load_cap) is the cause.
+      {
+        auto gb = [](double v){ double a = v < 0 ? -v : v; return a > 1e15 && a < 5e29; };
+        if (gb(delayAsFloat(dcalc_result.gateDelay()))) {
+          static std::atomic<int> sn{0};
+          int k = sn.fetch_add(1, std::memory_order_relaxed);
+          if (k < 12) {
+            printf("[SLEW-PROBE #%d] drvr=%s from=%s in_slew=%e load_cap=%e parasitic=%p "
+                   "-> gateDelay=%e drvrSlew=%e\n",
+                   k, dcalc_pin ? network_->pathName(dcalc_pin) : "?",
+                   from_pt_vertex.pin() ? network_->pathName(from_pt_vertex.pin()) : "?",
+                   delayAsFloat(in_slew), (double) load_cap, (const void *) parasitic,
+                   delayAsFloat(dcalc_result.gateDelay()),
+                   delayAsFloat(dcalc_result.drvrSlew()));
+            fflush(stdout);
+          }
+        }
+      }
+
       annotateDelaysSlews(pt_edge, arc, dcalc_result,
                           load_pin_index_map, dcalc_ap, pt_graph);
     } else {

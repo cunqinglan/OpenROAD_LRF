@@ -539,6 +539,23 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
     to_tag = search_->thruTag(to_tag, edge, to_rf, min_max, path_ap, tag_cache_);
   from_arrival = search_->clkPathArrival(from_path, from_clk_info,
                                                clk_edge, min_max, path_ap);
+        // [BIRTH-CLK] temp probe: clkPathArrival returns garbage while the raw
+        // from_path arrival is clean -> garbage born in clkPathArrival.
+        {
+          auto gb = [](double v){ double a = v < 0 ? -v : v; return a > 1e15 && a < 5e29; };
+          if (gb(delayAsFloat(from_arrival))
+              && !gb(delayAsFloat(from_path->arrival()))) {
+            static std::atomic<int> bn{0};
+            int k = bn.fetch_add(1, std::memory_order_relaxed);
+            if (k < 12) {
+              printf("[BIRTH-CLK #%d] from=%s to=%s raw_from_arr=%e -> clkPathArrival=%e\n",
+                     k, from_pin ? network_->name(from_pin) : "?",
+                     to_pin ? network_->name(to_pin) : "?",
+                     delayAsFloat(from_path->arrival()), delayAsFloat(from_arrival));
+              fflush(stdout);
+            }
+          }
+        }
 	to_arrival = from_arrival + arc_delay;
       }
       else 
@@ -599,6 +616,24 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
       //          to_tag->to_string(this).c_str(), delayAsFloat(arc_delay));
       //   fflush(stdout);
       // }
+    }
+  }
+  // [BIRTH-ARR] temp probe: clean from_arrival -> garbage to_arrival = arrival
+  // garbage born HERE (vs propagated). Garbage = |x| in (1e15, 5e29).
+  {
+    auto gb = [](double v){ double a = v < 0 ? -v : v; return a > 1e15 && a < 5e29; };
+    if (to_tag && gb(delayAsFloat(to_arrival)) && !gb(delayAsFloat(from_arrival))) {
+      static std::atomic<int> bn{0};
+      int k = bn.fetch_add(1, std::memory_order_relaxed);
+      if (k < 12) {
+        printf("[BIRTH-ARR #%d] from=%s to=%s role=%s from_arr=%e arc_delay=%e -> to_arr=%e\n",
+               k, from_pin ? network_->name(from_pin) : "?",
+               to_pin ? network_->name(to_pin) : "?",
+               pt_edge.role()->to_string().c_str(),
+               delayAsFloat(from_arrival), delayAsFloat(arc_delay),
+               delayAsFloat(to_arrival));
+        fflush(stdout);
+      }
     }
   }
   if (to_tag) {
@@ -684,9 +719,6 @@ LocalArrivalVisitor::localSetVertexArrivals(PtVertex &pt_vertex, TagGroupBldr *t
       tag_bldr->ptCopyPaths(prev_tag_group, prev_paths);
     }
   }
-  // We don't consider filtered paths since we don't consider
-  // false path in the local graph (we can prevent it from the
-  // Local graph extraction phase).
 }
 
 void 
@@ -868,17 +900,27 @@ bool LocalRequiredVisitor::localVisitFromToPath(
       Path &to_path = to_pt_vertex.paths()[to_path_index];
       Required &to_required = to_path.required();
       Required from_required = to_required - arc_delay;
+      // [BIRTH-REQ] temp probe: clean to_required -> garbage from_required = required
+      // garbage born HERE (vs propagated). Garbage = |x| in (1e15, 5e29).
+      {
+        auto gb = [](double v){ double a = v < 0 ? -v : v; return a > 1e15 && a < 5e29; };
+        if (gb(delayAsFloat(from_required)) && !gb(delayAsFloat(to_required))) {
+          static std::atomic<int> bn{0};
+          int k = bn.fetch_add(1, std::memory_order_relaxed);
+          if (k < 12) {
+            printf("[BIRTH-REQ #%d] from=%s to=%s role=%s to_req=%e arc_delay=%e -> from_req=%e\n",
+                   k, from_pt_vertex.pin() ? network_->name(from_pt_vertex.pin()) : "?",
+                   to_pt_vertex.pin() ? network_->name(to_pt_vertex.pin()) : "?",
+                   pt_edge.role()->to_string().c_str(),
+                   delayAsFloat(to_required), delayAsFloat(arc_delay),
+                   delayAsFloat(from_required));
+            fflush(stdout);
+          }
+        }
+      }
       required_cmp_->requiredSet(path_index, from_required, req_min, this);
     }
     else {
-      // 这里曾经直接 throw,但在 dispatch 工作线程里抛异常会逃出线程函数 →
-      // std::terminate → SIGABRT。而这个 mismatch 本身是局部图设计的预期产物:
-      // 局部不 derate,使时钟路径上 arc_delay_min_max_eq 翻转,thruClkInfo 为
-      // to_tag 设了与原始不同的 crpr_clk_path,于是这个「局部 crpr 版本」的
-      // 时钟 tag 不在 to_vertex 保留的原始 tag group 里(详见 dumpRequiredTagMiss)。
-      // 与 localVisitEdge / tag_group_index_max 两处 guard 一致:跳过该路径,不抛。
-      if (lrfTagDebugEnabled())
-        dumpRequiredTagMiss(this, network_, to_pt_vertex, to_tag, to_tag_group);
       return true;
     }
   } else {
