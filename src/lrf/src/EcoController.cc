@@ -271,7 +271,7 @@ EcoController::runIteration(size_t iter,
   // ④ Snapshot metrics
   IterationHelper::Metrics cur = helper.snapshot(runtime);
   printf("WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW (%.1fs)\n",
-         cur.wns_ps, cur.tns_ps, cur.leakage * 1e10, runtime);
+         cur.wns_ps, cur.tns_ps, cur.leakage * 1e6, runtime);
 
   // ⑤ Decide
   EcoDecision decision = decide(iter, cur, best);

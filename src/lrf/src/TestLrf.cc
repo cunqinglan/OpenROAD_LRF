@@ -1210,7 +1210,7 @@ IterationHelper::recordRow(size_t iter, const char *phase,
            iter, phase,
            cur.wns_ps, best.wns_ps, cur.wns_ps - prev.wns_ps,
            cur.tns_ps, best.tns_ps, cur.tns_ps - prev.tns_ps,
-           cur.leakage * 1e10, best.leakage * 1e10,
+           cur.leakage * 1e6, best.leakage * 1e6,
            decision, cur.runtime_s);
   rows_.push_back(buf);
   // Print header + data every row so the log is always self-describing,
@@ -1233,7 +1233,7 @@ IterationHelper::printSummary(const Metrics &best)
     printf("%s\n", row.c_str());
   printf("--------------------------------------------------------------------------------------------------------------------------\n");
   printf(" Best checkpoint: WNS %.3f ps, TNS %.3f ps, Leakage %.3f uW\n",
-         best.wns_ps, best.tns_ps, best.leakage * 1e10);
+         best.wns_ps, best.tns_ps, best.leakage * 1e6);
   printf("==============================================================================================\n");
   fflush(stdout);
 }
@@ -1384,7 +1384,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
 
     printf("Worst Negative Slack: %f\n", wns * 1e12);
     printf("Total Negative Slack: %f\n", tns * 1e12);
-    printf("Total Leakage Power: %f\n", leakage * 1e10);
+    printf("Total Leakage Power: %f uW\n", leakage * 1e6);
 
     {
       char label[32];
@@ -1404,7 +1404,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     IterationHelper::Metrics cur;
     cur.wns_ps = wns * 1e12;
     cur.tns_ps = tns * 1e12;
-    cur.leakage = leakage * 1e-10;  // back to raw watts
+    cur.leakage = leakage;  // raw watts (same scale as snapshot()/best)
     cur.runtime_s = std::chrono::duration<double>(end - start).count();
 
     decision = eco.decide(i, cur, best);
@@ -1527,7 +1527,7 @@ TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
     IterationHelper::Metrics cur = helper.snapshot(runtime);
     incre_sta->recordMetrics(cur.wns_ps, cur.tns_ps, cur.leakage);
     printf("WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW (%.1fs)\n",
-           cur.wns_ps, cur.tns_ps, cur.leakage * 1e10, runtime);
+           cur.wns_ps, cur.tns_ps, cur.leakage * 1e6, runtime);
 
     double cur_wns = cur.wns_ps / 1e12;
     double best_wns_s = best.wns_ps / 1e12;
@@ -1769,7 +1769,7 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
     IterationHelper::Metrics cur = helper.snapshot(runtime);
     incre_sta->recordMetrics(cur.wns_ps, cur.tns_ps, cur.leakage);
     printf("After resize: WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW (%.1fs)\n",
-           cur.wns_ps, cur.tns_ps, cur.leakage * 1e10, runtime);
+           cur.wns_ps, cur.tns_ps, cur.leakage * 1e6, runtime);
     fflush(stdout);
 
     // ── Resize ECO decision ──
@@ -1812,7 +1812,7 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
              "TNS %.3f -> %.3f ps (delta=%+.3f), Leakage %.3f uW (%.1fs)\n",
              wns_before, buf_cur.wns_ps, wns_delta,
              tns_before, buf_cur.tns_ps, tns_delta,
-             buf_cur.leakage * 1e10, buf_runtime);
+             buf_cur.leakage * 1e6, buf_runtime);
       fflush(stdout);
 
       // Buffering ECO: accept/revert only (no halve, no lmUpdate-before-revert).
@@ -1934,7 +1934,7 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
     IterationHelper::Metrics cur = helper.snapshot(runtime);
     incre_sta->recordMetrics(cur.wns_ps, cur.tns_ps, cur.leakage);
     printf("After resize: WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW (%.1fs)\n",
-           cur.wns_ps, cur.tns_ps, cur.leakage * 1e10, runtime);
+           cur.wns_ps, cur.tns_ps, cur.leakage * 1e6, runtime);
     fflush(stdout);
 
     // ── Resize ECO decision ──
@@ -1978,7 +1978,7 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
              "TNS %.3f -> %.3f ps (delta=%+.3f), Leakage %.3f uW (%.1fs)\n",
              wns_before, buf_cur.wns_ps, wns_delta,
              tns_before, buf_cur.tns_ps, tns_delta,
-             buf_cur.leakage * 1e10, buf_runtime);
+             buf_cur.leakage * 1e6, buf_runtime);
       fflush(stdout);
 
       // Buffering ECO: accept/revert only (no halve, no lmUpdate-before-revert).
@@ -2108,7 +2108,7 @@ TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
     IterationHelper::Metrics cur = helper.snapshot(runtime);
     incre_sta->recordMetrics(cur.wns_ps, cur.tns_ps, cur.leakage);
     printf("Phase A after resize: WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW (%.1fs)\n",
-           cur.wns_ps, cur.tns_ps, cur.leakage * 1e10, runtime);
+           cur.wns_ps, cur.tns_ps, cur.leakage * 1e6, runtime);
     fflush(stdout);
 
     decision = eco.decide(i, cur, best);
@@ -2176,7 +2176,7 @@ TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
     IterationHelper::Metrics cur = helper.snapshot(runtime);
     incre_sta->recordMetrics(cur.wns_ps, cur.tns_ps, cur.leakage);
     printf("Phase B after resize: WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW (%.1fs)\n",
-           cur.wns_ps, cur.tns_ps, cur.leakage * 1e10, runtime);
+           cur.wns_ps, cur.tns_ps, cur.leakage * 1e6, runtime);
     fflush(stdout);
 
     decision = eco.decide(i, cur, best);
@@ -2219,7 +2219,7 @@ TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
              "TNS %.3f -> %.3f ps (delta=%+.3f), Leakage %.3f uW (%.1fs)\n",
              wns_before, buf_cur.wns_ps, wns_delta,
              tns_before, buf_cur.tns_ps, tns_delta,
-             buf_cur.leakage * 1e10, buf_runtime);
+             buf_cur.leakage * 1e6, buf_runtime);
       fflush(stdout);
 
       EcoDecision buf_decision = buffer_eco.decide(i, buf_cur, best);
@@ -2319,7 +2319,7 @@ TestLrf::testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,
     IterationHelper::Metrics cur = helper.snapshot(runtime);
     incre_sta->recordMetrics(cur.wns_ps, cur.tns_ps, cur.leakage);
     printf("After resize: WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW (%.1fs)\n",
-           cur.wns_ps, cur.tns_ps, cur.leakage * 1e10, runtime);
+           cur.wns_ps, cur.tns_ps, cur.leakage * 1e6, runtime);
     fflush(stdout);
 
     // ── ECO decision ──
@@ -2361,7 +2361,7 @@ TestLrf::testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,
              "TNS %.3f -> %.3f ps (delta=%+.3f), Leakage %.3f uW (%.1fs)\n",
              wns_before, buf_cur.wns_ps, wns_delta,
              tns_before, buf_cur.tns_ps, tns_delta,
-             buf_cur.leakage * 1e10, buf_runtime);
+             buf_cur.leakage * 1e6, buf_runtime);
       fflush(stdout);
 
       // Accept if WNS improved or within 1.1x slack margin
@@ -2492,7 +2492,7 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
     IterationHelper::Metrics cur = helper.snapshot(runtime);
     incre_sta->recordMetrics(cur.wns_ps, cur.tns_ps, cur.leakage);
     printf("WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW\n",
-           cur.wns_ps, cur.tns_ps, cur.leakage * 1e10);
+           cur.wns_ps, cur.tns_ps, cur.leakage * 1e6);
     fflush(stdout);
 
     double cur_wns = cur.wns_ps / 1e12;
@@ -2641,7 +2641,7 @@ TestLrf::testBufferOnly(sta::dbSta* sta,
     IterationHelper::Metrics cur = helper.snapshot(runtime);
     incre_sta->recordMetrics(cur.wns_ps, cur.tns_ps, cur.leakage);
     printf("WNS: %.3f ps, TNS: %.3f ps, Leakage: %.3f uW\n",
-           cur.wns_ps, cur.tns_ps, cur.leakage * 1e10);
+           cur.wns_ps, cur.tns_ps, cur.leakage * 1e6);
     fflush(stdout);
 
     double cur_wns = cur.wns_ps / 1e12;
@@ -2710,7 +2710,7 @@ TestLrf::testSingleBufferPass(sta::dbSta* sta,
   IterationHelper helper(sta, block, local_sta, resizer);
   IterationHelper::Metrics before = helper.snapshot();
   printf("Before: WNS=%.3f ps  TNS=%.3f ps  Leakage=%.3f uW\n",
-         before.wns_ps, before.tns_ps, before.leakage * 1e10);
+         before.wns_ps, before.tns_ps, before.leakage * 1e6);
 
   local_sta->initParallel();
   incre_sta->lmUpdate();
@@ -2731,11 +2731,11 @@ TestLrf::testSingleBufferPass(sta::dbSta* sta,
 
   IterationHelper::Metrics after = helper.snapshot(runtime);
   printf("After:  WNS=%.3f ps  TNS=%.3f ps  Leakage=%.3f uW (%.1fs)\n",
-         after.wns_ps, after.tns_ps, after.leakage * 1e10, runtime);
+         after.wns_ps, after.tns_ps, after.leakage * 1e6, runtime);
   printf("Delta:  dWNS=%+.3f ps  dTNS=%+.3f ps  dLeakage=%+.3f uW  runtime=%.1fs\n",
          after.wns_ps - before.wns_ps,
          after.tns_ps - before.tns_ps,
-         (after.leakage - before.leakage) * 1e10,
+         (after.leakage - before.leakage) * 1e6,
          runtime);
   fflush(stdout);
 
@@ -2809,7 +2809,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
 
     printf("Worst Negative Slack: %f\n", wns * 1e12);
     printf("Total Negative Slack: %f\n", tns * 1e12);
-    printf("Total Leakage Power: %f\n", leakage * 1e10);
+    printf("Total Leakage Power: %f uW\n", leakage * 1e6);
     fflush(stdout);
 
     // Adaptive instance filter: after iter > 3, always use adaptive topN.
@@ -2970,7 +2970,7 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBuffering(sta::dbSta* sta,
 
     printf("Worst Negative Slack after RSZ: %f\n", wns * 1e12);
     printf("Total Negative Slack after RSZ: %f\n", tns * 1e12);
-    printf("Total Leakage Power after RSZ: %f\n", leakage * 1e10);
+    printf("Total Leakage Power after RSZ: %f uW\n", leakage * 1e6);
     fflush(stdout);
 
     // Post-convergence regression: immediate rollback + halve
@@ -3076,7 +3076,7 @@ TestLrf::testPrecedingResizeCheck(sta::dbSta* sta,
   float avg_delay = incre_sta->averageDelayOnCritPath();
   float avg_leakage = incre_sta->averageLeakage();
   printf("Average Delay on Critical Path: %f ps\n", avg_delay * 1e12);
-  printf("Average Leakage: %f\n", avg_leakage * 1e10);
+  printf("Average Leakage: %f uW\n", avg_leakage * 1e6);
 
   auto results = incre_sta->precedingResizeCheck(resizer, avg_delay, avg_leakage,
                                                  PT_tradeoff, top_ratio);
