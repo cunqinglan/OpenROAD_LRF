@@ -211,6 +211,16 @@ public:
   // Combined index (== scene->dcalcAnalysisPtIndex(min_max_)).
   sta::DcalcAPIndex apIndex() const;
 
+  // Final-eval mode: do a precise (no-skip) eval before writing back to global.
+  // When this is true, ALL sibling-skip paths (LM-pruned isSiblingSkipped AND
+  // precheck-mode SiblingEdge) are BYPASSED so findDriverDelays1 / arrival /
+  // required compute the full, precise timing for every edge. Required before
+  // updateTimingFromPtGraph: otherwise the writeback propagates precheck-stale
+  // (or zeroSlewAndWireDelays-poisoned sentinel) slew/arrival/required to the
+  // global graph and corrupts global TNS/WNS (the -4.67e26 class of garbage).
+  bool isFinalEvalMode() const { return final_eval_mode_; }
+  void setFinalEvalMode(bool v) { final_eval_mode_ = v; }
+
   // PtGraph-local PiElmore parasitics
   PtPiElmore* findPtParasitic(VertexId drvr_id,
                                const sta::RiseFall *rf,
@@ -243,6 +253,7 @@ protected:
   bool precheck_mode_ = false;
   sta::Scene *scene_ = nullptr;
   const sta::MinMax *min_max_ = nullptr;
+  bool final_eval_mode_ = false;
 
   // PtGraph-local PiElmore parasitics storage.
   // Key: driver VertexId. Value: vector indexed by rf * ap_count + ap_index.
@@ -460,6 +471,24 @@ public:
   ~PrecheckModeGuard() { pg_->setPrecheckMode(prev_); }
   PrecheckModeGuard(const PrecheckModeGuard &) = delete;
   PrecheckModeGuard &operator=(const PrecheckModeGuard &) = delete;
+private:
+  PtGraph *pg_;
+  bool prev_;
+};
+
+// RAII guard: turn final-eval mode on for the scope, restore on exit.
+// Use immediately before updateTimingFromPtGraph so the final findLocalDelays /
+// findLocalArrivals / findLocalRequireds pass bypasses all sibling-skip paths
+// and writes precise timing back to global.
+class FinalEvalModeGuard {
+public:
+  explicit FinalEvalModeGuard(PtGraph *pg)
+      : pg_(pg), prev_(pg->isFinalEvalMode()) {
+    pg_->setFinalEvalMode(true);
+  }
+  ~FinalEvalModeGuard() { pg_->setFinalEvalMode(prev_); }
+  FinalEvalModeGuard(const FinalEvalModeGuard &) = delete;
+  FinalEvalModeGuard &operator=(const FinalEvalModeGuard &) = delete;
 private:
   PtGraph *pg_;
   bool prev_;

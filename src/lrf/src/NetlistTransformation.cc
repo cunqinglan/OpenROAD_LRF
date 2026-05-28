@@ -1728,6 +1728,21 @@ ParallelVisitor::visit(sta::Instance *inst, sta::VertexId vid)
 
   // Always write back timing so downstream instances see up-to-date
   // slew/arrival on shared vertices, even when no resize/buffer is chosen.
+  //
+  // ROOT FIX: before writing back, do ONE final precise eval with
+  // FinalEvalModeGuard so that all sibling-skip paths (LM-pruned
+  // isSiblingSkipped and precheck-mode SiblingEdge) are BYPASSED. Without
+  // this, the PtGraph still carries the precheck/skip residue: SiblingDrvr
+  // pins whose in-edges were all skipped have slew = init sentinel (set by
+  // zeroSlewAndWireDelays), gateDelay extrapolates that into ~ -4e29 garbage
+  // arc delays, and writePathsToGraph propagates the garbage arrival/required
+  // into the global graph as -4.67e26-scale TNS/WNS.
+  {
+    FinalEvalModeGuard final_eval_guard(pt_graph_.get());
+    local_sta_->findLocalDelays(pt_graph_.get(), eval_ctx_.arc_delay_calc);
+    local_sta_->findLocalArrivals(pt_graph_.get());
+    local_sta_->findLocalRequireds(pt_graph_.get());
+  }
   auto start_wb = std::chrono::high_resolution_clock::now();
   updateTimingFromPtGraph(pt_graph_.get());
   auto end_wb = std::chrono::high_resolution_clock::now();
@@ -1767,6 +1782,9 @@ ParallelVisitor::visitSlewOnly(sta::Instance *inst)
 {
   pt_graph_.reset(new PtGraph(db_sta_));
   local_sta_->makePtGraph(pt_graph_.get(), inst);
+  // Final-eval mode: bypass sibling-skip so LM-pruned SiblingEdges are still
+  // processed and the writeback carries precise slew/arrival/required.
+  FinalEvalModeGuard final_eval_guard(pt_graph_.get());
   local_sta_->findLocalDelays(pt_graph_.get(), eval_ctx_.arc_delay_calc);
   local_sta_->findLocalArrivals(pt_graph_.get());
   local_sta_->findLocalRequireds(pt_graph_.get());

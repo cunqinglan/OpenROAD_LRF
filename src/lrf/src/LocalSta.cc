@@ -144,12 +144,8 @@ bool
 LocalSta::collectLocalVertices(Instance *inst, VertexSet &local_vertices)
 {
   if (network_->libertyCell(inst)->hasSequentials()) {
-    // For sequential cells, skip
-    printf("[LRF-DIAG] collectLocalVertices skipping sequential cell: inst=%s\n",
-           network_->pathName(inst));
-    fflush(stdout);
+    // Sequential cells are skipped (no resize candidate generation in this path).
     return false;
-    // throw std::runtime_error("LocalSta::collectLocalVertices: Sequential cells not supported");
   }
   InstancePinIterator *pin_iter = network_->pinIterator(inst);
   bool has_usable_driver = false;
@@ -297,13 +293,10 @@ LocalSta::collectLocalFaninSiblingVertices(Vertex *load_vertex,
     Vertex *drvr_vertex = graph_->pinDrvrVertex(drvr_pin);
     if (drvr_vertex == nullptr)
       continue;
-    if (!search_pred_->searchFrom(drvr_vertex)) {
-      // Since ref input is not constant, so its driver should not be constant.
-      printf("Warining: LocalSta::collectLocalFaninSiblingVertices: driver vertex %s filtered out by searchFrom\n",
-            drvr_vertex->to_string(graph_).c_str());
-      fflush(stdout);
+    // Filter out constant/disabled drivers — ref input is not constant, so
+    // its driver should not be constant either; skip if searchFrom rejects it.
+    if (!search_pred_->searchFrom(drvr_vertex))
       continue;
-    }
     local_vertices.insert(drvr_vertex);
     VertexInEdgeIterator in_edge_iter(drvr_vertex, graph_);
     while (in_edge_iter.hasNext()) {
@@ -1126,13 +1119,12 @@ LocalSta::findDriverDelays1(PtVertex &drvr_pt_vertex,
 
     // Skip pruned sibling arcs (LM < threshold) to avoid expensive
     // liberty table lookups for second-order timing edges.
-    if (pt_edge.isSiblingSkipped())
-      continue;
-
-    // Precheck mode: skip SiblingEdge gateDelay; sibling LM contribution
-    // is recovered via PtGraph::siblingDeltaDelayLmSum() at cost time.
-    if (pt_graph->isPrecheckMode()
-        && pt_edge.type() == PtEdgeType::SiblingEdge)
+    // Final-eval mode (before updateTimingFromPtGraph) bypasses this skip
+    // so all edges are processed and slew/delay are precise -- otherwise
+    // zeroSlewAndWireDelays poisons the driver's slew with the init sentinel
+    // (~ -1e30), which gateDelay extrapolates into e29-scale garbage that
+    // then leaks into global TNS via writePathsToGraph.
+    if (pt_edge.isSiblingSkipped() && !pt_graph->isFinalEvalMode())
       continue;
 
     // PtGraph edges already passed searchThru at construction time.

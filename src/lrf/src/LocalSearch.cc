@@ -227,7 +227,9 @@ LocalPathVisitor::localVisitFaninPaths(PtVertex &to_pt_vertex)
     PtVertexInEdgeIterator pt_edge_iter(to_pt_vertex.objectIdx(), pt_graph_);
     while (pt_edge_iter.hasNext()) {
       PtEdge &pt_edge = pt_edge_iter.next();
-      if (pt_edge.isSiblingSkipped())
+      // Final-eval mode bypasses sibling-skip so precise arrival is propagated
+      // before writePathsToGraph copies it back to global.
+      if (pt_edge.isSiblingSkipped() && !pt_graph_->isFinalEvalMode())
         continue;
       PtVertex &from_pt_vertex = pt_graph_->ptVertex(pt_edge.ptFromId());
       bool pass;
@@ -255,7 +257,9 @@ LocalPathVisitor::localVisitFanoutPaths(PtVertex &from_pt_vertex)
     PtVertexOutEdgeIterator edge_iter(from_pt_vertex.objectIdx(), pt_graph_);
     while (edge_iter.hasNext()) {
       PtEdge &pt_edge = edge_iter.next();
-      if (pt_edge.isSiblingSkipped())
+      // Final-eval mode bypasses sibling-skip so precise required is propagated
+      // before writePathsToGraph copies it back to global.
+      if (pt_edge.isSiblingSkipped() && !pt_graph_->isFinalEvalMode())
         continue;
       PtVertex &to_pt_vertex = pt_graph_->ptVertex(pt_edge.ptToId());
       bool pass;
