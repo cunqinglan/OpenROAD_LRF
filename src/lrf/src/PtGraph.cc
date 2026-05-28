@@ -1,7 +1,6 @@
 #include "PtGraph.hh"
 #include "Sta.hh"
 #include <algorithm>
-#include <atomic>
 #include <cstdio>
 #include <numeric>
 #include <deque>
@@ -784,18 +783,11 @@ PtGraph::writeSlewToGraph(const PtVertex &pt_vertex, sta::Vertex *sta_vertex)
     if (sta_vertex->slewAnnotated(rf, slew_min_max))
       continue;
     sta::Slew s = slew(pt_vertex, rf, ap);
-    // Diagnostic: if a slot still holds the init sentinel, some traversal
-    // path didn't reach it. Print which (vertex,rf) so we can locate the
-    // missing dcalc path instead of silently writing -INF into STA.
-    if (sta::delayAsFloat(s) == sentinel) {
-      sta::Pin *pin = sta_vertex->pin();
-      printf("[LRF-DIAG] writeSlewToGraph sentinel slot: pin=%s rf=%s ap=%zu "
-             "ptType=%d -- slot never written by local dcalc; skipping writeback\n",
-             pin ? sta_->network()->pathName(pin) : "(null)",
-             rf->name(), ap, (int)pt_vertex.type());
-      fflush(stdout);
+    // Skip writing the init sentinel: it means no local dcalc path reached
+    // this slot, so the global slew is the authoritative value (do not
+    // overwrite it with -INF).
+    if (sta::delayAsFloat(s) == sentinel)
       continue;
-    }
     sta_graph->setSlew(sta_vertex, rf, ap, s);
   }
 }
@@ -813,44 +805,6 @@ PtGraph::writePathsToGraph(const PtVertex &pt_vertex, sta::Vertex *sta_vertex)
     return;
   size_t count = pt_tg->pathCount();
   for (size_t i = 0; i < count; i++) {
-    // [LRF-DIAG] path-vs-delay probe: a local arrival/required that is large but
-    // NOT the clean +-1e30 init sentinel (|x| in (1e15, 5e29)) is derived garbage
-    // (e.g. the -4.67e26 that corrupts global TNS). Dump the path value AND this
-    // vertex's incoming arc delays: a garbage in-arc delay => delay problem;
-    // clean in-arc delays but garbage arrival => path/propagation problem.
-    const float arr = sta::delayAsFloat(pt_paths[i].arrival());
-    const float req = sta::delayAsFloat(pt_paths[i].required());
-    auto is_garbage = [](float v) { float a = v < 0 ? -v : v;
-                                    return a > 1e15f && a < 5e29f; };
-    if (is_garbage(arr) || is_garbage(req)) {
-      static std::atomic<int> diag_n{0};
-      int k = diag_n.fetch_add(1, std::memory_order_relaxed);
-      if (k < 12) {
-        sta::Pin *pin = sta_vertex->pin();
-        printf("[LRF-DIAG] writePathsToGraph GARBAGE PATH pin=%s i=%zu "
-               "arrival=%e required=%e ptType=%d\n",
-               pin ? sta_->network()->pathName(pin) : "(null)",
-               i, (double) arr, (double) req, (int) pt_vertex.type());
-        if (dcalc_ap_) {
-          const sta::DcalcAPIndex ap = dcalc_ap_->index();
-          PtVertexInEdgeIterator ie(pt_vertex.objectIdx(), this);
-          while (ie.hasNext()) {
-            PtEdge &e = ie.next();
-            sta::TimingArcSet *as = e.timingArcSet();
-            if (!as)
-              continue;
-            for (const sta::TimingArc *arc : as->arcs()) {
-              const float d = sta::delayAsFloat(arcDelay(e, arc, ap));
-              printf("      in-arc from_pt=%u role=%s arcDelay=%e\n",
-                     e.ptFromId(),
-                     e.role() ? e.role()->to_string().c_str() : "?",
-                     (double) d);
-            }
-          }
-        }
-        fflush(stdout);
-      }
-    }
     sta_paths[i].setArrival(pt_paths[i].arrival());
     sta_paths[i].setRequired(pt_paths[i].required());
   }
@@ -1465,8 +1419,22 @@ PtGraph::annotateVerticesType()
       while (sib_out.hasNext()) {
         PtEdge &se = sib_out.next();
         PtVertex &sib_to = pt_vertices_[se.ptToId()];
-        if (sib_to.type() == PtVertexType::None)
-          sib_to.setType(PtVertexType::SiblingDrvr);
+        if (sib_to.type() != PtVertexType::None)
+          continue;
+
+        // A "pure" SiblingDrvr is by definition slew-irrelevant — nothing in
+        // the local graph reads its slew, so it has no local fanout. If it
+        // DOES have fanout, a downstream gateDelay will read its slew, and
+        // pruning its in-edge as SiblingEdge in precheck would leave the slew
+        // at the init sentinel (via zeroSlewAndWireDelays) → ~ -4e29 garbage
+        // gateDelay → corrupts arrival/required and leaks to global TNS.
+        // Such compound (fanin + sibling) vertices stay None: findDriverDelays
+        // then processes them normally and computes the slew. Do NOT mark
+        // them RefDriver — that attribute is reserved for "directly drives
+        // ref_inst" and triggers parasitic-update side effects that do not
+        // apply to internal nodes.
+        sib_to.setType(sib_to.hasFanout() ? PtVertexType::None
+                                          : PtVertexType::SiblingDrvr);
       }
     }
   }

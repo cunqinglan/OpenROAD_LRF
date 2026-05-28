@@ -193,6 +193,16 @@ public:
   // siblingDeltaDelayLmSum(): Σ delay_diff × Δin_slew × arc_lm.
   bool isPrecheckMode() const { return precheck_mode_; }
   void setPrecheckMode(bool v) { precheck_mode_ = v; }
+
+  // Final-eval mode: do a precise (no-skip) eval before writing back to global.
+  // When this is true, ALL sibling-skip paths (LM-pruned isSiblingSkipped AND
+  // precheck-mode SiblingEdge) are BYPASSED so findDriverDelays1 / arrival /
+  // required compute the full, precise timing for every edge. Required before
+  // updateTimingFromPtGraph: otherwise the writeback propagates precheck-stale
+  // (or zeroSlewAndWireDelays-poisoned sentinel) slew/arrival/required to the
+  // global graph and corrupts global TNS/WNS (the -4.67e26 class of garbage).
+  bool isFinalEvalMode() const { return final_eval_mode_; }
+  void setFinalEvalMode(bool v) { final_eval_mode_ = v; }
   float siblingDeltaDelayLmSum(sta::DcalcAnalysisPt *dcalc_ap = nullptr);
   void setDcalcAnalysisPt(sta::DcalcAnalysisPt *dcalc_ap) { dcalc_ap_ = dcalc_ap; }
   sta::DcalcAnalysisPt *dcalcAnalysisPt() const { return dcalc_ap_; }
@@ -227,6 +237,7 @@ protected:
   sta::Instance *ref_inst_ = nullptr;
   sta::LibertyCell *ref_lib_cell_ = nullptr;
   bool precheck_mode_ = false;
+  bool final_eval_mode_ = false;
   sta::DcalcAnalysisPt *dcalc_ap_ = nullptr;
 
   // PtGraph-local PiElmore parasitics storage.
@@ -442,6 +453,24 @@ public:
   ~PrecheckModeGuard() { pg_->setPrecheckMode(prev_); }
   PrecheckModeGuard(const PrecheckModeGuard &) = delete;
   PrecheckModeGuard &operator=(const PrecheckModeGuard &) = delete;
+private:
+  PtGraph *pg_;
+  bool prev_;
+};
+
+// RAII guard: turn final-eval mode on for the scope, restore on exit.
+// Use immediately before updateTimingFromPtGraph so the final findLocalDelays /
+// findLocalArrivals / findLocalRequireds pass bypasses all sibling-skip paths
+// and writes precise timing back to global.
+class FinalEvalModeGuard {
+public:
+  explicit FinalEvalModeGuard(PtGraph *pg)
+      : pg_(pg), prev_(pg->isFinalEvalMode()) {
+    pg_->setFinalEvalMode(true);
+  }
+  ~FinalEvalModeGuard() { pg_->setFinalEvalMode(prev_); }
+  FinalEvalModeGuard(const FinalEvalModeGuard &) = delete;
+  FinalEvalModeGuard &operator=(const FinalEvalModeGuard &) = delete;
 private:
   PtGraph *pg_;
   bool prev_;

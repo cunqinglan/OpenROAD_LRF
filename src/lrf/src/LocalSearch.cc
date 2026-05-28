@@ -314,7 +314,9 @@ LocalPathVisitor::localVisitFaninPaths(PtVertex &to_pt_vertex)
     PtVertexInEdgeIterator pt_edge_iter(to_pt_vertex.objectIdx(), pt_graph_);
     while (pt_edge_iter.hasNext()) {
       PtEdge &pt_edge = pt_edge_iter.next();
-      if (pt_edge.isSiblingSkipped())
+      // Final-eval mode bypasses sibling-skip so precise arrival is propagated
+      // before writePathsToGraph copies it back to global.
+      if (pt_edge.isSiblingSkipped() && !pt_graph_->isFinalEvalMode())
         continue;
       PtVertex &from_pt_vertex = pt_graph_->ptVertex(pt_edge.ptFromId());
       bool pass;
@@ -342,7 +344,9 @@ LocalPathVisitor::localVisitFanoutPaths(PtVertex &from_pt_vertex)
     PtVertexOutEdgeIterator edge_iter(from_pt_vertex.objectIdx(), pt_graph_);
     while (edge_iter.hasNext()) {
       PtEdge &pt_edge = edge_iter.next();
-      if (pt_edge.isSiblingSkipped())
+      // Final-eval mode bypasses sibling-skip so precise required is propagated
+      // before writePathsToGraph copies it back to global.
+      if (pt_edge.isSiblingSkipped() && !pt_graph_->isFinalEvalMode())
         continue;
       PtVertex &to_pt_vertex = pt_graph_->ptVertex(pt_edge.ptToId());
       bool pass;
@@ -539,23 +543,6 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
     to_tag = search_->thruTag(to_tag, edge, to_rf, min_max, path_ap, tag_cache_);
   from_arrival = search_->clkPathArrival(from_path, from_clk_info,
                                                clk_edge, min_max, path_ap);
-        // [BIRTH-CLK] temp probe: clkPathArrival returns garbage while the raw
-        // from_path arrival is clean -> garbage born in clkPathArrival.
-        {
-          auto gb = [](double v){ double a = v < 0 ? -v : v; return a > 1e15 && a < 5e29; };
-          if (gb(delayAsFloat(from_arrival))
-              && !gb(delayAsFloat(from_path->arrival()))) {
-            static std::atomic<int> bn{0};
-            int k = bn.fetch_add(1, std::memory_order_relaxed);
-            if (k < 12) {
-              printf("[BIRTH-CLK #%d] from=%s to=%s raw_from_arr=%e -> clkPathArrival=%e\n",
-                     k, from_pin ? network_->name(from_pin) : "?",
-                     to_pin ? network_->name(to_pin) : "?",
-                     delayAsFloat(from_path->arrival()), delayAsFloat(from_arrival));
-              fflush(stdout);
-            }
-          }
-        }
 	to_arrival = from_arrival + arc_delay;
       }
       else 
@@ -616,24 +603,6 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
       //          to_tag->to_string(this).c_str(), delayAsFloat(arc_delay));
       //   fflush(stdout);
       // }
-    }
-  }
-  // [BIRTH-ARR] temp probe: clean from_arrival -> garbage to_arrival = arrival
-  // garbage born HERE (vs propagated). Garbage = |x| in (1e15, 5e29).
-  {
-    auto gb = [](double v){ double a = v < 0 ? -v : v; return a > 1e15 && a < 5e29; };
-    if (to_tag && gb(delayAsFloat(to_arrival)) && !gb(delayAsFloat(from_arrival))) {
-      static std::atomic<int> bn{0};
-      int k = bn.fetch_add(1, std::memory_order_relaxed);
-      if (k < 12) {
-        printf("[BIRTH-ARR #%d] from=%s to=%s role=%s from_arr=%e arc_delay=%e -> to_arr=%e\n",
-               k, from_pin ? network_->name(from_pin) : "?",
-               to_pin ? network_->name(to_pin) : "?",
-               pt_edge.role()->to_string().c_str(),
-               delayAsFloat(from_arrival), delayAsFloat(arc_delay),
-               delayAsFloat(to_arrival));
-        fflush(stdout);
-      }
     }
   }
   if (to_tag) {
@@ -900,24 +869,6 @@ bool LocalRequiredVisitor::localVisitFromToPath(
       Path &to_path = to_pt_vertex.paths()[to_path_index];
       Required &to_required = to_path.required();
       Required from_required = to_required - arc_delay;
-      // [BIRTH-REQ] temp probe: clean to_required -> garbage from_required = required
-      // garbage born HERE (vs propagated). Garbage = |x| in (1e15, 5e29).
-      {
-        auto gb = [](double v){ double a = v < 0 ? -v : v; return a > 1e15 && a < 5e29; };
-        if (gb(delayAsFloat(from_required)) && !gb(delayAsFloat(to_required))) {
-          static std::atomic<int> bn{0};
-          int k = bn.fetch_add(1, std::memory_order_relaxed);
-          if (k < 12) {
-            printf("[BIRTH-REQ #%d] from=%s to=%s role=%s to_req=%e arc_delay=%e -> from_req=%e\n",
-                   k, from_pt_vertex.pin() ? network_->name(from_pt_vertex.pin()) : "?",
-                   to_pt_vertex.pin() ? network_->name(to_pt_vertex.pin()) : "?",
-                   pt_edge.role()->to_string().c_str(),
-                   delayAsFloat(to_required), delayAsFloat(arc_delay),
-                   delayAsFloat(from_required));
-            fflush(stdout);
-          }
-        }
-      }
       required_cmp_->requiredSet(path_index, from_required, req_min, this);
     }
     else {

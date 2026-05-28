@@ -141,12 +141,8 @@ bool
 LocalSta::collectLocalVertices(Instance *inst, VertexSet &local_vertices)
 {
   if (network_->libertyCell(inst)->hasSequentials()) {
-    // For sequential cells, skip
-    printf("[LRF-DIAG] collectLocalVertices skipping sequential cell: inst=%s\n",
-           network_->pathName(inst));
-    fflush(stdout);
+    // Sequential cells are skipped (no resize candidate generation in this path).
     return false;
-    // throw std::runtime_error("LocalSta::collectLocalVertices: Sequential cells not supported");
   }
   InstancePinIterator *pin_iter = network_->pinIterator(inst);
   bool has_usable_driver = false;
@@ -160,15 +156,6 @@ LocalSta::collectLocalVertices(Instance *inst, VertexSet &local_vertices)
         local_vertices.insert(drvr_vertex);
         collectLocalFanoutVertices(drvr_vertex, local_vertices);
         has_usable_driver = true;
-      } else {
-        printf("[LRF-DIAG] collectLocalVertices drvr filtered: inst=%s pin=%s "
-               "isConstant=%d hasFanout=%d disabledConstraint=%d\n",
-               network_->pathName(inst),
-               network_->pathName(pin),
-               drvr_vertex ? drvr_vertex->isConstant() : -1,
-               drvr_vertex ? drvr_vertex->hasFanout() : -1,
-               drvr_vertex ? drvr_vertex->isDisabledConstraint() : -1);
-        fflush(stdout);
       }
     }
     if (network_->isLoad(pin)) {
@@ -303,13 +290,10 @@ LocalSta::collectLocalFaninSiblingVertices(Vertex *load_vertex,
     Vertex *drvr_vertex = graph_->pinDrvrVertex(drvr_pin);
     if (drvr_vertex == nullptr)
       continue;
-    if (!search_pred_->searchFrom(drvr_vertex)) {
-      // Since ref input is not constant, so its driver should not be constant.
-      printf("Warining: LocalSta::collectLocalFaninSiblingVertices: driver vertex %s filtered out by searchFrom\n",
-            drvr_vertex->to_string(graph_).c_str());
-      fflush(stdout);
+    // Filter out constant/disabled drivers — ref input is not constant, so
+    // its driver should not be constant either; skip if searchFrom rejects it.
+    if (!search_pred_->searchFrom(drvr_vertex))
       continue;
-    }
     local_vertices.insert(drvr_vertex);
     VertexInEdgeIterator in_edge_iter(drvr_vertex, graph_);
     while (in_edge_iter.hasNext()) {
@@ -1129,13 +1113,12 @@ LocalSta::findDriverDelays1(PtVertex &drvr_pt_vertex,
 
     // Skip pruned sibling arcs (LM < threshold) to avoid expensive
     // liberty table lookups for second-order timing edges.
-    if (pt_edge.isSiblingSkipped())
-      continue;
-
-    // Precheck mode: skip SiblingEdge gateDelay; sibling LM contribution
-    // is recovered via PtGraph::siblingDeltaDelayLmSum() at cost time.
-    if (pt_graph->isPrecheckMode()
-        && pt_edge.type() == PtEdgeType::SiblingEdge)
+    // Final-eval mode (before updateTimingFromPtGraph) bypasses this skip
+    // so all edges are processed and slew/delay are precise -- otherwise
+    // zeroSlewAndWireDelays poisons the driver's slew with the init sentinel
+    // (~ -1e30), which gateDelay extrapolates into e29-scale garbage that
+    // then leaks into global TNS via writePathsToGraph.
+    if (pt_edge.isSiblingSkipped() && !pt_graph->isFinalEvalMode())
       continue;
 
     // PtGraph edges already passed searchThru at construction time.
@@ -1282,26 +1265,6 @@ LocalSta::findDriverArcDelays(PtVertex &drvr_pt_vertex,
       dcalc_result = arc_delay_calc->gateDelay(
                           dcalc_pin, arc, in_slew, load_cap, parasitic,
                           load_pin_index_map, dcalc_ap);
-
-      // [SLEW-PROBE] temp: if this gate arc produced a garbage delay, dump its
-      // inputs to see whether a garbage in_slew (or load_cap) is the cause.
-      {
-        auto gb = [](double v){ double a = v < 0 ? -v : v; return a > 1e15 && a < 5e29; };
-        if (gb(delayAsFloat(dcalc_result.gateDelay()))) {
-          static std::atomic<int> sn{0};
-          int k = sn.fetch_add(1, std::memory_order_relaxed);
-          if (k < 12) {
-            printf("[SLEW-PROBE #%d] drvr=%s from=%s in_slew=%e load_cap=%e parasitic=%p "
-                   "-> gateDelay=%e drvrSlew=%e\n",
-                   k, dcalc_pin ? network_->pathName(dcalc_pin) : "?",
-                   from_pt_vertex.pin() ? network_->pathName(from_pt_vertex.pin()) : "?",
-                   delayAsFloat(in_slew), (double) load_cap, (const void *) parasitic,
-                   delayAsFloat(dcalc_result.gateDelay()),
-                   delayAsFloat(dcalc_result.drvrSlew()));
-            fflush(stdout);
-          }
-        }
-      }
 
       annotateDelaysSlews(pt_edge, arc, dcalc_result,
                           load_pin_index_map, dcalc_ap, pt_graph);
