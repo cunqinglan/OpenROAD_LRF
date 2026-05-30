@@ -1,5 +1,8 @@
+#include <memory>
+
 #include "lrf/IncreSta.hh"
 #include "LocalSta.hh"
+#include "LocalDmpDelayCalc.hh"
 #include "LrHelper.hh"
 #include "sta/Liberty.hh"
 #include "sta/Path.hh"
@@ -1239,8 +1242,9 @@ IncreSta::probeRszBnet(rsz::Resizer *resizer, float PT_tradeoff, int top_n)
   sta::Network *network = network_;
   sta::Graph *graph = sta_->graph();
 
+  std::unique_ptr<sta::ArcDelayCalc> probe_calc(lrf::makeLocalDelayCalc(sta_));
   EvalContext probe_ctx;
-  probe_ctx.arc_delay_calc = sta_->arcDelayCalc();
+  probe_ctx.arc_delay_calc = probe_calc.get();
   probe_ctx.average_delay = avg_delay;
   probe_ctx.average_leakage = avg_leakage;
   probe_ctx.PT_tradeoff = PT_tradeoff;

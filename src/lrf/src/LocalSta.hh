@@ -515,27 +515,4 @@ public:
 };
 
 
-class LRSInstanceVisitor {
-public:
-  LRSInstanceVisitor(LocalSta *local_sta);
-  ~LRSInstanceVisitor();
-  LRSInstanceVisitor *copy() const;
-  void visit(Instance *inst);
-
-protected:
-  LocalSta *local_sta_;
-  Instance *inst_;
-  PtGraph *local_graph_;
-  ArcDelayCalc *delay_arc_calc_;
-
-  // Containers for parasitics
-  ConcreteParasiticMap drvr_parasitic_map_;
-  ConcreteParasiticNetworkMap parasitic_network_map_;
-  std::vector<DcalcAnalysisPt*> dcalc_ap_set_;
-
-private:
-  friend class TestLrf;
-};
-
-
 } // namespace lrf

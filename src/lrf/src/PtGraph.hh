@@ -12,6 +12,7 @@
 #include "sta/Map.hh"
 #include "lrf/LrfClass.hh"
 #include "PtPiElmore.hh"
+#include "PtElmoreCeff.hh"
 #include <stdexcept>
 
 namespace sta {
@@ -217,6 +218,15 @@ public:
   void clearPtParasitics();
   void clearPtParasitics(VertexId drvr_id);
 
+  // PtGraph-local ElmoreCeff parasitics (parallel storage, populated
+  // alongside PtPiElmore when LRF_USE_ELMORECEFF is set).
+  PtElmoreCeff* findPtElmoreCeff(VertexId drvr_id,
+                                  const sta::RiseFall *rf,
+                                  int ap_index);
+  PtElmoreCeff& makePtElmoreCeff(VertexId drvr_id,
+                                  const sta::RiseFall *rf,
+                                  int ap_index);
+
 protected:
   void initVertexAndEdges();
   void annotateVerticesType();
@@ -243,6 +253,10 @@ protected:
   // PtGraph-local PiElmore parasitics storage.
   // Key: driver VertexId. Value: vector indexed by rf * ap_count + ap_index.
   std::unordered_map<VertexId, std::vector<PtPiElmore>> pt_parasitics_;
+
+  // PtGraph-local ElmoreCeff parasitics storage. Same indexing scheme as
+  // pt_parasitics_. Empty unless LRF_USE_ELMORECEFF is set.
+  std::unordered_map<VertexId, std::vector<PtElmoreCeff>> pt_ec_parasitics_;
 
 private:
   friend class PtEdge;

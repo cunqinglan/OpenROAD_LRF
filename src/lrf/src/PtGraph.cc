@@ -165,12 +165,42 @@ void
 PtGraph::clearPtParasitics()
 {
   pt_parasitics_.clear();
+  pt_ec_parasitics_.clear();
 }
 
 void
 PtGraph::clearPtParasitics(VertexId drvr_id)
 {
   pt_parasitics_.erase(drvr_id);
+  pt_ec_parasitics_.erase(drvr_id);
+}
+
+PtElmoreCeff*
+PtGraph::findPtElmoreCeff(VertexId drvr_id,
+                          const sta::RiseFall *rf,
+                          int ap_index)
+{
+  auto it = pt_ec_parasitics_.find(drvr_id);
+  if (it == pt_ec_parasitics_.end())
+    return nullptr;
+  int idx = rf->index() * ap_count_ + ap_index;
+  auto &vec = it->second;
+  if (idx < 0 || idx >= (int)vec.size())
+    return nullptr;
+  return &vec[idx];
+}
+
+PtElmoreCeff&
+PtGraph::makePtElmoreCeff(VertexId drvr_id,
+                          const sta::RiseFall *rf,
+                          int ap_index)
+{
+  auto &vec = pt_ec_parasitics_[drvr_id];
+  size_t total = sta::RiseFall::index_count * ap_count_;
+  if (vec.size() < total)
+    vec.resize(total);
+  int idx = rf->index() * ap_count_ + ap_index;
+  return vec[idx];
 }
 
 sta::Level

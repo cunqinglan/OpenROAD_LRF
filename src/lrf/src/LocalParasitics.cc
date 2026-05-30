@@ -13,6 +13,8 @@
 
 #include "LocalReduceParasitic.hh"
 #include "PtPiElmore.hh"
+#include "PtElmoreCeff.hh"
+#include "LocalDmpDelayCalc.hh"  // useElmoreCeff()
 
 namespace lrf {
 
@@ -87,11 +89,23 @@ LocalParasitics::recomputePtParasitics(PtGraph *pt_graph)
             pt_vertex.objectIdx(), rf, dcalc_ap->index());
         pt_pi.clear();
         LocalReduceToPiElmore reducer(this, pt_graph);
-        reducer.makePtPiElmore(parasitic_network, drvr_pin, drvr_node,
-                               ap->couplingCapFactor(), rf,
-                               dcalc_ap->corner(),
-                               dcalc_ap->constraintMinMax(), ap,
-                               pt_pi);
+        if (useElmoreCeff()) {
+          // Single DFS produces BOTH PtPiElmore and PtElmoreCeff.
+          PtElmoreCeff &pt_ec = pt_graph->makePtElmoreCeff(
+              pt_vertex.objectIdx(), rf, dcalc_ap->index());
+          reducer.makePtPiElmoreAndCeff(parasitic_network, drvr_pin, drvr_node,
+                                        ap->couplingCapFactor(), rf,
+                                        dcalc_ap->corner(),
+                                        dcalc_ap->constraintMinMax(), ap,
+                                        pt_pi, pt_ec);
+        }
+        else {
+          reducer.makePtPiElmore(parasitic_network, drvr_pin, drvr_node,
+                                 ap->couplingCapFactor(), rf,
+                                 dcalc_ap->corner(),
+                                 dcalc_ap->constraintMinMax(), ap,
+                                 pt_pi);
+        }
       }
     }
   }
@@ -124,11 +138,23 @@ LocalParasitics::recomputeSinglePtParasitic(PtGraph *pt_graph, VertexId drvr_vid
           drvr_vid, rf, dcalc_ap->index());
       pt_pi.clear();
       LocalReduceToPiElmore reducer(this, pt_graph);
-      reducer.makePtPiElmore(parasitic_network, drvr_pin, drvr_node,
-                             ap->couplingCapFactor(), rf,
-                             dcalc_ap->corner(),
-                             dcalc_ap->constraintMinMax(), ap,
-                             pt_pi);
+      if (useElmoreCeff()) {
+        // Single DFS produces BOTH PtPiElmore and PtElmoreCeff.
+        PtElmoreCeff &pt_ec = pt_graph->makePtElmoreCeff(
+            drvr_vid, rf, dcalc_ap->index());
+        reducer.makePtPiElmoreAndCeff(parasitic_network, drvr_pin, drvr_node,
+                                      ap->couplingCapFactor(), rf,
+                                      dcalc_ap->corner(),
+                                      dcalc_ap->constraintMinMax(), ap,
+                                      pt_pi, pt_ec);
+      }
+      else {
+        reducer.makePtPiElmore(parasitic_network, drvr_pin, drvr_node,
+                               ap->couplingCapFactor(), rf,
+                               dcalc_ap->corner(),
+                               dcalc_ap->constraintMinMax(), ap,
+                               pt_pi);
+      }
     }
   }
 }

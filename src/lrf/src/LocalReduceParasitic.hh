@@ -1,8 +1,13 @@
 #pragma once
+#include <cstdint>
+#include <unordered_map>
+
 #include "sta/Map.hh"
 #include "sta/NetworkClass.hh"
 #include "sta/StaState.hh"
 #include "sta/Parasitics.hh"
+
+#include "PtElmoreCeff.hh"  // for kInvalidTreeNodeIdx in default args
 
 namespace sta {
 class Parasitic;
@@ -17,6 +22,7 @@ class ParasiticAnalysisPt;
 
 namespace lrf {
 class PtPiElmore;
+class PtElmoreCeff;
 }
 
 namespace lrf {
@@ -33,6 +39,10 @@ class LocalReduceToPi : public StaState
 {
 public:
   LocalReduceToPi(StaState *sta, const PtGraph *pt_graph);
+  // ec_sink (optional): if non-null, the Pi reduction DFS additionally
+  // emits the full RC tree topology into ec_sink in a single pass. Used
+  // by LocalParasitics when LRF_USE_ELMORECEFF is on, to avoid walking
+  // the parasitic network twice (once for Pi, once for ElmoreCeff).
   void reduceToPi(const Parasitic *parasitic_network,
                   const Pin *drvr_pin,
 		  ParasiticNode *drvr_node,
@@ -43,11 +53,16 @@ public:
 		  const ParasiticAnalysisPt *ap,
 		  float &c2,
 		  float &rpi,
-		  float &c1);
+		  float &c1,
+		  PtElmoreCeff *ec_sink = nullptr);
   bool pinCapsOneValue() { return pin_caps_one_value_; }
   float downstreamCap(ParasiticNode *node);
 
 protected:
+  // ec_sink/ec_parent_idx/branch_R_from_parent: dual-output mode for
+  // ElmoreCeff. When ec_sink is non-null, pre-order pushes a tree node
+  // (parent, branch_R, local_cap) into ec_sink->tree_ and records the
+  // pin → tree-idx mapping for the per-load Elmore pass.
   void reducePiDfs(const Pin *drvr_pin,
 		   ParasiticNode *node,
 		   ParasiticResistor *from_res,
@@ -56,7 +71,10 @@ protected:
 		   double &y2,
 		   double &y3,
 		   double &dwn_cap,
-                   double &max_resistance);
+                   double &max_resistance,
+                   PtElmoreCeff *ec_sink = nullptr,
+                   uint32_t ec_parent_idx = kInvalidTreeNodeIdx,
+                   double branch_R_from_parent = 0.0);
   void visit(ParasiticNode *node);
   bool isVisited(ParasiticNode *node);
   void leave(ParasiticNode *node);
@@ -80,6 +98,11 @@ protected:
   ParasiticNodeValueMap node_values_;
   ParasiticResistorSet loop_resistors_;
   bool pin_caps_one_value_;
+
+  // Transient pin→tree-idx map populated during dual-output reducePiDfs;
+  // consumed by reduceElmoreDfsToPt to emit per-load Elmore into both
+  // PtPiElmore and PtElmoreCeff. Cleared at the start of each reduce.
+  std::unordered_map<const sta::Pin *, uint32_t> ec_pin_to_tree_idx_;
 
   const PtGraph *pt_graph_;
 };
@@ -115,12 +138,48 @@ public:
                       const MinMax *min_max,
                       const ParasiticAnalysisPt *ap,
                       PtPiElmore &result);
+
+  // Dual-output variant: walks the parasitic network ONCE and emits
+  // BOTH PtPiElmore (Pi reduction + per-load Elmore) and PtElmoreCeff
+  // (full RC tree topology + per-load Elmore). Used by LocalParasitics
+  // when LRF_USE_ELMORECEFF is on, to avoid duplicate DFS walks.
+  void makePtPiElmoreAndCeff(const Parasitic *parasitic_network,
+                             const Pin *drvr_pin,
+                             ParasiticNode *drvr_node,
+                             float coupling_cap_factor,
+                             const RiseFall *rf,
+                             const Corner *corner,
+                             const MinMax *min_max,
+                             const ParasiticAnalysisPt *ap,
+                             PtPiElmore &result_pi,
+                             PtElmoreCeff &result_ec);
+
+  // ec_sink optional: when non-null, also emits per-load Elmore into
+  // ec_sink->loads_, indexed by the pin → tree-idx map populated during
+  // reducePiDfs's pre-order topology push.
   void reduceElmoreDfsToPt(const Pin *drvr_pin,
                            ParasiticNode *node,
                            ParasiticResistor *from_res,
                            double elmore,
-                           PtPiElmore &result);
+                           PtPiElmore &result,
+                           PtElmoreCeff *ec_sink = nullptr);
 };
 
+
+// Sibling to LocalReduceToPiElmore. Produces PtElmoreCeff: same Pi
+// reduction + per-load Elmore as PtPiElmore, PLUS the full RC tree
+// topology (post-order vector of {parent_idx, branch_R, local_cap})
+// needed by Phase B1.3's Algorithm 2 and Phase B2's Eq.15 moments.
+//
+// The DFS shape mirrors reduceElmoreDfsToPt; it bolts a topology-recording
+// (The env=on PtElmoreCeff build path goes through
+// LocalReduceToPiElmore::makePtPiElmoreAndCeff above — a single DFS emits
+// BOTH PtPiElmore and PtElmoreCeff. There is intentionally no standalone
+// `LocalReduceToElmoreCeff` class: it would semantically be a sibling
+// of LocalReduceToPi, not a subclass, but extracting a shared base just
+// for that is not worth the churn while env=off remains the default. If
+// B4 ever flips the default and drops the env=off path, the dual-output
+// hack disappears at the same time and a clean ElmoreCeff-only reducer
+// can be reintroduced then.)
 
 } // namespace lrf

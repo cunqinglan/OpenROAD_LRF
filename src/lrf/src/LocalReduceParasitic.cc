@@ -34,6 +34,7 @@
 #include "sta/Parasitics.hh"
 #include "PtGraph.hh"
 #include "PtPiElmore.hh"
+#include "PtElmoreCeff.hh"
 
 namespace lrf {
 
@@ -66,7 +67,8 @@ LocalReduceToPi::reduceToPi(const Parasitic *parasitic_network,
 		       const ParasiticAnalysisPt *ap,
 		       float &c2,
 		       float &rpi,
-		       float &c1)
+		       float &c1,
+		       PtElmoreCeff *ec_sink)
 {
   includes_pin_caps_ = parasitics_->includesPinCaps(parasitic_network),
   coupling_cap_multiplier_ = coupling_cap_factor;
@@ -77,10 +79,19 @@ LocalReduceToPi::reduceToPi(const Parasitic *parasitic_network,
   resistor_map_ = parasitics_->parasiticNodeResistorMap(parasitic_network);
   capacitor_map_ = parasitics_->parasiticNodeCapacitorMap(parasitic_network);
 
+  if (ec_sink) {
+    ec_sink->clear();
+    ec_pin_to_tree_idx_.clear();
+  }
+
   double y1, y2, y3, dcap;
   double max_resistance = 0.0;
   reducePiDfs(drvr_pin, drvr_node, nullptr, 0.0,
-              y1, y2, y3, dcap, max_resistance);
+              y1, y2, y3, dcap, max_resistance,
+              ec_sink, kInvalidTreeNodeIdx, 0.0);
+
+  if (ec_sink)
+    ec_sink->setTotalCap(static_cast<float>(dcap));
 
   if (y2 == 0.0 && y3 == 0.0) {
     // Capacitive load.
@@ -108,15 +119,36 @@ LocalReduceToPi::reducePiDfs(const Pin *drvr_pin,
 			double &y2,
 			double &y3,
 			double &dwn_cap,
-                        double &max_resistance)
+                        double &max_resistance,
+                        PtElmoreCeff *ec_sink,
+                        uint32_t ec_parent_idx,
+                        double branch_R_from_parent)
 {
-  double coupling_cap = 0.0;
-  ParasiticCapacitorSeq &capacitors = capacitor_map_[node];
-  for (ParasiticCapacitor *capacitor : capacitors)
-    coupling_cap += parasitics_->value(capacitor);
-  dwn_cap = parasitics_->nodeGndCap(node)
-    + coupling_cap * coupling_cap_multiplier_
-    + localPinCapacitance(node);
+  const float local_cap_at_node =
+      static_cast<float>(parasitics_->nodeGndCap(node)
+                         + ([&]() {
+                             double coupling_cap = 0.0;
+                             for (ParasiticCapacitor *c : capacitor_map_[node])
+                               coupling_cap += parasitics_->value(c);
+                             return coupling_cap * coupling_cap_multiplier_;
+                           })()
+                         + localPinCapacitance(node));
+  dwn_cap = local_cap_at_node;
+
+  // PRE-ORDER tree push for ElmoreCeff: parent index is smaller than
+  // child indices, so a reverse iteration over tree_ gives post-order
+  // for Algorithm 2.
+  uint32_t my_ec_idx = kInvalidTreeNodeIdx;
+  if (ec_sink) {
+    my_ec_idx = static_cast<uint32_t>(ec_sink->tree().size());
+    ec_sink->tree().push_back(PtRcNode{
+        ec_parent_idx,
+        static_cast<float>(branch_R_from_parent),
+        local_cap_at_node,
+    });
+    if (const Pin *pin = parasitics_->pin(node))
+      ec_pin_to_tree_idx_[pin] = my_ec_idx;
+  }
 
   y1 = dwn_cap;
   y2 = y3 = 0.0;
@@ -140,7 +172,8 @@ LocalReduceToPi::reducePiDfs(const Pin *drvr_pin,
           double r = parasitics_->value(resistor);
           double yd1, yd2, yd3, dcap;
           reducePiDfs(drvr_pin, onode, resistor, src_resistance + r,
-                      yd1, yd2, yd3, dcap, max_resistance);
+                      yd1, yd2, yd3, dcap, max_resistance,
+                      ec_sink, my_ec_idx, r);
           // Rule 3.  Upstream traversal of a series resistor.
           // Rule 4.  Parallel admittances add.
           y1 += yd1;
@@ -355,11 +388,38 @@ LocalReduceToPiElmore::makePtPiElmore(const Parasitic *parasitic_network,
 }
 
 void
+LocalReduceToPiElmore::makePtPiElmoreAndCeff(const Parasitic *parasitic_network,
+                                             const Pin *drvr_pin,
+                                             ParasiticNode *drvr_node,
+                                             float coupling_cap_factor,
+                                             const RiseFall *rf,
+                                             const Corner *corner,
+                                             const MinMax *min_max,
+                                             const ParasiticAnalysisPt *ap,
+                                             PtPiElmore &result_pi,
+                                             PtElmoreCeff &result_ec)
+{
+  // Pass 1: single DFS computes Pi moments AND pushes the full RC tree
+  // into result_ec. result_ec.total_cap_ is set from the root's downstream
+  // cap. ec_pin_to_tree_idx_ is populated for pass 2.
+  float c2, rpi, c1;
+  reduceToPi(parasitic_network, drvr_pin, drvr_node, coupling_cap_factor,
+             rf, corner, min_max, ap, c2, rpi, c1,
+             /*ec_sink=*/&result_ec);
+  result_pi.setPiModel(c2, rpi, c1);
+
+  // Pass 2: single DFS records per-load Elmore into BOTH parasitics.
+  reduceElmoreDfsToPt(drvr_pin, drvr_node, nullptr, 0.0,
+                      result_pi, /*ec_sink=*/&result_ec);
+}
+
+void
 LocalReduceToPiElmore::reduceElmoreDfsToPt(const Pin *drvr_pin,
                                            ParasiticNode *node,
                                            ParasiticResistor *from_res,
                                            double elmore,
-                                           PtPiElmore &result)
+                                           PtPiElmore &result,
+                                           PtElmoreCeff *ec_sink)
 {
   const Pin *pin = parasitics_->pin(node);
   if (from_res && pin) {
@@ -372,6 +432,12 @@ LocalReduceToPiElmore::reduceElmoreDfsToPt(const Pin *drvr_pin,
           ? pt_graph_->ptVertex(load_vertex) : nullptr;
       VertexId vid = pt_v ? pt_v->objectIdx() : sta::object_id_null;
       result.addLoad(vid, pin, elmore);
+      if (ec_sink) {
+        auto it = ec_pin_to_tree_idx_.find(pin);
+        const uint32_t tree_idx = (it != ec_pin_to_tree_idx_.end())
+            ? it->second : kInvalidTreeNodeIdx;
+        ec_sink->addLoad(vid, pin, tree_idx, static_cast<float>(elmore));
+      }
     }
   }
   visit(node);
@@ -383,7 +449,8 @@ LocalReduceToPiElmore::reduceElmoreDfsToPt(const Pin *drvr_pin,
         && !isLoopResistor(resistor)) {
       float r = parasitics_->value(resistor);
       double onode_elmore = elmore + r * downstreamCap(onode);
-      reduceElmoreDfsToPt(drvr_pin, onode, resistor, onode_elmore, result);
+      reduceElmoreDfsToPt(drvr_pin, onode, resistor, onode_elmore, result,
+                          ec_sink);
     }
   }
   leave(node);

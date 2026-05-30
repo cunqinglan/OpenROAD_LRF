@@ -18,6 +18,7 @@
 #include "sta/TimingRole.hh"
 #include "sta/ClkNetwork.hh"
 #include "LocalParasitics.hh"
+#include "LocalDmpDelayCalc.hh"
 #include "sta/Corner.hh"
 #include "sta/Sdc.hh"
 #include "sta/InputDrive.hh"
@@ -1332,20 +1333,13 @@ LocalSta::annotateLoadDelays(PtVertex &drvr_pt_vertex,
               load_pt_vertex.objectIdx(), exists);
           if (exists && elmore > 0.0f) {
             Slew drvr_slew = dcalc_result.drvrSlew();
-            // Same formula as DmpCeff::dspfWireDelaySlew
             LibertyPort *load_port = load_pt_vertex.libertyPort();
             LibertyLibrary *load_lib = load_port
                 ? load_port->libertyCell()->libertyLibrary() : nullptr;
-            float vth = 0.5f, vl = 0.2f, vh = 0.8f, slew_derate = 1.0f;
-            if (load_lib) {
-              vth = load_lib->inputThreshold(to_rf);
-              vl = load_lib->slewLowerThreshold(to_rf);
-              vh = load_lib->slewUpperThreshold(to_rf);
-              slew_derate = load_lib->slewDerateFromLibrary();
-            }
-            ArcDelay wire_delay = -elmore * log(1.0 - vth);
-            Slew load_slew = drvr_slew
-                + elmore * log((1.0 - vl) / (1.0 - vh)) / slew_derate;
+            ArcDelay wire_delay;
+            Slew load_slew;
+            LocalDmpDelayCalc::elmoreWireDelaySlew(
+                elmore, drvr_slew, load_lib, to_rf, wire_delay, load_slew);
 
             pt_graph->setWireArcDelay(wire_pt_edge, to_rf, ap_index, wire_delay);
             const Slew &cur_slew = pt_graph->slew(load_pt_vertex, to_rf, ap_index);
@@ -1978,6 +1972,19 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
   parasitic = nullptr;
   load_cap = 0.0f;
 
+  // ElmoreCeff path (opt-in via LRF_USE_ELMORECEFF). Prefer the full RC
+  // tree representation when the ElmoreCeff calc is in use — its
+  // gateDelay dynamic_casts to PtElmoreCeff and runs Algorithm 2.
+  if (useElmoreCeff()) {
+    PtElmoreCeff *pt_ec = pt_graph->findPtElmoreCeff(
+        drvr_pt_vertex.objectIdx(), rf, dcalc_ap->index());
+    if (pt_ec && pt_ec->totalCap() > 0.0f) {
+      parasitic = pt_ec;
+      load_cap = pt_ec->totalCap();
+      return;
+    }
+  }
+
   // PtGraph-local PiElmore parasitic (highest priority).
   // Uses objectIdx indexing — works for both real and virtual vertices.
   // Includes synthetic Pi set by buildSyntheticParasitics.
@@ -2597,37 +2604,6 @@ LocalSta::violationSumAfterSwap(sta::Instance *inst,
   return v;
 }
 
-
-/////////////////////////////////////////////////////
-// LRSInstanceVisitor methods
-/////////////////////////////////////////////////////
-LRSInstanceVisitor::LRSInstanceVisitor(LocalSta *local_sta) :
-  local_sta_(local_sta),
-  inst_(nullptr),
-  local_graph_(nullptr),
-  delay_arc_calc_(local_sta->getSta()->arcDelayCalc()->copy())
-{
-}
-
-LRSInstanceVisitor::~LRSInstanceVisitor()
-{
-  delete local_graph_;
-  delete delay_arc_calc_;
-}
-
-void
-LRSInstanceVisitor::visit(Instance *inst)
-{
-  inst_ = inst;
-  local_graph_ = new PtGraph(local_sta_->getSta());
-  local_sta_->makePtGraph(local_graph_, inst_);
-}
-
-LRSInstanceVisitor 
-*LRSInstanceVisitor::copy() const
-{
-  return new LRSInstanceVisitor(local_sta_);
-}
 
 bool
 LocalSta::virtualReplaceCell(PtGraph *pt_graph, LibertyCell *new_cell)

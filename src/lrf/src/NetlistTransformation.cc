@@ -1,6 +1,7 @@
 #include "NetlistTransformation.hh"
 #include "PlacementDensityMap.hh"
 #include "LocalSta.hh"
+#include "LocalDmpDelayCalc.hh"
 #include "PtGraph.hh"
 #include "LrRebuffer.hh"
 #include "TaskArranger.hh"
@@ -1589,7 +1590,7 @@ ParallelVisitor::ParallelVisitor(sta::dbSta *db_sta, LocalSta *local_sta,
                                  rsz::Resizer *resizer)
   : db_sta_(db_sta), local_sta_(local_sta), resizer_(resizer)
 {
-  eval_ctx_.arc_delay_calc = local_sta_->arcDelayCalc()->copy();
+  eval_ctx_.arc_delay_calc = lrf::makeLocalDelayCalc(local_sta_);
   eval_ctx_.runtime_map = &runtime_map_;
 }
 
