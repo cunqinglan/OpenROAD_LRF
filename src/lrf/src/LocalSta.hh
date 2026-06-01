@@ -66,14 +66,14 @@ public:
   // returns true (FF is evaluated for CK→D setup regardless of Q constness).
   bool collectDriverFanoutOnly(Instance *inst, VertexSet &local_vertices);
   bool makePtGraph(PtGraph *pt_graph, Instance *inst,
-                          sta::Scene *scene = nullptr, const sta::MinMax *min_max = nullptr);
+                          sta::Scene *scene = nullptr, const sta::MinMax *min_max = sta::MinMax::max());
   // Lightweight PtGraph: skips fanin siblings; no pruneInsignificantSiblings.
   bool makePtGraphDriverOnly(PtGraph *pt_graph, Instance *inst,
-                             sta::Scene *scene = nullptr, const sta::MinMax *min_max = nullptr);
+                             sta::Scene *scene = nullptr, const sta::MinMax *min_max = sta::MinMax::max());
   // FF PtGraph: accepts sequential ref instance, bounded clock-pin
   // expansion, and adds CK→D setup CheckEdges via PtGraph::addCheckEdgesForRefInst.
   bool makePtGraphFF(PtGraph *pt_graph, Instance *inst,
-                     sta::Scene *scene = nullptr, const sta::MinMax *min_max = nullptr);
+                     sta::Scene *scene = nullptr, const sta::MinMax *min_max = sta::MinMax::max());
   PtGraph *makePtGraph(Instance *inst, bool update_timing_first = false);
 
   sta::dbSta *getSta() { return sta_; }

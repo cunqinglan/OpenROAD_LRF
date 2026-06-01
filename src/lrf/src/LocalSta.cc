@@ -610,12 +610,7 @@ LocalSta::makePtGraph(PtGraph *pt_graph, Instance *inst,
       throw std::runtime_error("LocalSta::makePtGraph: No scene found");
     }
   }
-  // Callers (e.g. ParallelVisitor::visit) often omit min_max, leaving it null;
-  // PtGraph::apIndex() -> scene->dcalcAnalysisPtIndex(min_max) would then
-  // dereference null. LR resize is setup-driven, so default to max.
-  if (min_max == nullptr) {
-    min_max = sta::MinMax::max();
-  }
+  // min_max defaults to sta::MinMax::max() (LR resize is setup-driven).
   pt_graph->setScene(scene, min_max);
   return usable;
 }
@@ -633,9 +628,6 @@ LocalSta::makePtGraphDriverOnly(PtGraph *pt_graph, Instance *inst,
     scene = sta_->findScene("default");
     if (scene == nullptr)
       throw std::runtime_error("LocalSta::makePtGraphDriverOnly: No scene found");
-  }
-  if (min_max == nullptr) {
-    min_max = sta::MinMax::max();
   }
   pt_graph->setScene(scene, min_max);
   return usable;
@@ -656,9 +648,6 @@ LocalSta::makePtGraphFF(PtGraph *pt_graph, Instance *inst,
   pt_graph->addCheckEdgesForRefInst();
   if (scene == nullptr) {
     scene = sta_->findScene("default");
-  }
-  if (min_max == nullptr) {
-    min_max = sta::MinMax::max();
   }
   pt_graph->setScene(scene, min_max);
   return true;
