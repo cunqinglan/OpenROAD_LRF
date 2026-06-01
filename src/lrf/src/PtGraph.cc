@@ -781,12 +781,14 @@ PtGraph::tagGroup(const PtVertex &pt_vertex)
 void
 PtGraph::writeSlewToGraph(const PtVertex &pt_vertex, sta::Vertex *sta_vertex)
 {
-  if (!dcalc_ap_)
+  if (!scene_ || !min_max_)
     return;
   sta::Graph *sta_graph = sta_->graph();
-  const sta::MinMax *slew_min_max = dcalc_ap_->slewMinMax();
+  // PtGraph stores the default scene/min_max (== the default dcalc analysis
+  // point); apIndex() == scene_->dcalcAnalysisPtIndex(min_max_).
+  const sta::MinMax *slew_min_max = min_max_;
   const float sentinel = slew_min_max->initValue();
-  const size_t ap = dcalc_ap_->index();
+  const size_t ap = apIndex();
   for (const sta::RiseFall *rf : sta::RiseFall::range()) {
     if (sta_vertex->slewAnnotated(rf, slew_min_max))
       continue;

@@ -15,8 +15,10 @@
 #include "sta/Liberty.hh"
 #include "sta/TimingRole.hh"
 #include "sta/DispatchQueue.hh"
+#include "sta/Mode.hh"
 #include "db_sta/dbSta.hh"
 #include "LocalSta.hh"
+#include "LrHelper.hh"
 #include "rsz/Resizer.hh"
 
 
@@ -100,7 +102,10 @@ TaskArranger::init()
     // an intervening updateTiming), const-prop is skipped and brand-new tie
     // cells read as isConstant=false → they slip through as COMBINATIONAL.
     // ensureConstantsPropagated is idempotent — no-op when already valid.
-    sim()->ensureConstantsPropagated();
+    // OpenSTA 3.0: Sim is per-Mode (StaState::sim() is gone); propagate for
+    // every mode (single-mode in the LR flow, but stay robust).
+    for (sta::Mode *mode : modes())
+      mode->sim()->ensureConstantsPropagated();
     makeGraph();
     initVertexRefCounts(true);
     ensureGraphVertices();
@@ -334,7 +339,7 @@ TaskArranger::hasUsableDriver(sta::Instance *inst)
   // collectLocalVertices). If every output driver vertex is filtered
   // (searchTo == false → isConstant), the instance has nothing for
   // PtGraph to model and shouldn't be visited.
-  sta::SearchPredNonLatch2 pred(this);
+  lrf::SearchPredNonLatch pred(this);
   bool any = false;
   sta::InstancePinIterator *it = network_->pinIterator(inst);
   while (it->hasNext()) {
