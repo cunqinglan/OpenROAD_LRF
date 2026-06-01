@@ -426,6 +426,13 @@ float Timing::getTotalNegativeSlack(MinMax minmax)
   return sta->totalNegativeSlack(getMinMax(minmax));
 }
 
+// PhyLS LR API alias (agent_phyls expects timing.getTns()); the develop_lr
+// fork exposed getTns, upstream uses getTotalNegativeSlack.
+float Timing::getTns(MinMax minmax)
+{
+  return getTotalNegativeSlack(minmax);
+}
+
 int Timing::getEndpointCount()
 {
   sta::dbSta* sta = getSta();

@@ -139,6 +139,8 @@ class Timing
   // ── Summary metrics ─────────────────────────────────────────
   float getWorstSlack(MinMax minmax = Max);
   float getTotalNegativeSlack(MinMax minmax = Max);
+  // PhyLS LR API alias for getTotalNegativeSlack (agent calls timing.getTns()).
+  float getTns(MinMax minmax = Max);
   int getEndpointCount();
 
   // ── Endpoint slack map (histogram data source) ──────────────

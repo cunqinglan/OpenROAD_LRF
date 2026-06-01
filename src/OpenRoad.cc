@@ -346,7 +346,8 @@ void OpenRoad::readDef(const char* filename,
                        dbChip* chip,
                        bool continue_on_errors,
                        bool floorplan_init,
-                       bool incremental)
+                       bool incremental,
+                       bool skip_connections)
 {
   if (!floorplan_init && !incremental && chip && chip->getBlock()) {
     logger_->info(ORD, 48, "Loading an additional DEF.");
@@ -365,6 +366,9 @@ void OpenRoad::readDef(const char* filename,
   }
   if (continue_on_errors) {
     def_reader.continueOnErrors();
+  }
+  if (skip_connections) {
+    def_reader.skipConnections();
   }
   def_reader.readChip(search_libs, filename, chip);
 }

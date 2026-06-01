@@ -218,6 +218,7 @@ void definReader::skipWires()
 }
 void definReader::skipConnections()
 {
+  _skip_connections = true;
   _netR->skipConnections();
 }
 void definReader::skipSpecialWires()
@@ -1832,6 +1833,11 @@ void definReader::readChip(std::vector<dbLib*>& libs,
                            const bool issue_callback)
 {
   init();
+  // init() rebuilds _netR with a fresh definNet, so re-apply the skip flag
+  // that OpenRoad::readDef() may have set before readChip().
+  if (_skip_connections) {
+    _netR->skipConnections();
+  }
   setLibs(libs);
   chip_ = chip;
   if (chip_ == nullptr) {

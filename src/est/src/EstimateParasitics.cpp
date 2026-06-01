@@ -901,7 +901,11 @@ odb::dbTechLayer* EstimateParasitics::getPinLayer(const sta::Pin* pin)
   if (iterm) {
     int min_layer_idx = std::numeric_limits<int>::max();
     for (const auto& [layer, rect] : iterm->getGeometries()) {
-      if (layer->getType() == odb::dbTechLayerType::ROUTING
+      // layer may be null (non-routing geometry -> getTechLayer() returns
+      // null); dereferencing getType() without a guard segfaults. In
+      // timing-driven placement, resizer-inserted cells can still be unplaced,
+      // leaving empty/non-routing geometry here.
+      if (layer && layer->getType() == odb::dbTechLayerType::ROUTING
           && layer->getRoutingLevel() < min_layer_idx) {
         min_layer_idx = layer->getRoutingLevel();
         pin_layer = layer;
@@ -983,16 +987,26 @@ void EstimateParasitics::parasiticNodeConnectPins(
         if (tree_layer != nullptr && !layer_res_.empty()) {
           odb::dbTechLayer* pin_layer = getPinLayer(pin);
 
-          insertViaResistances(pin_layer,
-                               tree_layer,
-                               parasitics,
-                               parasitic,
-                               pin_node,
-                               node,
-                               resistor_id,
-                               corner,
-                               net,
-                               max_node_index);
+          if (pin_layer != nullptr) {
+            insertViaResistances(pin_layer,
+                                 tree_layer,
+                                 parasitics,
+                                 parasitic,
+                                 pin_node,
+                                 node,
+                                 resistor_id,
+                                 corner,
+                                 net,
+                                 max_node_index);
+          } else {
+            // pin's instance is unplaced (empty getGeometries) -> getPinLayer
+            // returned null. Fall back to average cut resistance instead of
+            // dereferencing pin_layer in insertViaResistances.
+            const double cut_res
+                = std::max(computeAverageCutResistance(corner), 1.0e-3);
+            parasitics->makeResistor(
+                parasitic, resistor_id++, cut_res, node, pin_node);
+          }
         } else {
           double cut_res
               = std::max(computeAverageCutResistance(corner), 1.0e-3);
@@ -1504,8 +1518,9 @@ void EstimateParasitics::estimateWireParasiticNoDeleteNetwork(
   sta::PinSet* drivers = network_->drivers(net);
   sta::PinSet visited(network_);
   if (drivers && !drivers->empty()) {
-    sta::PinSet::Iterator drvr_iter(drivers);
-    const sta::Pin* drvr_pin = drvr_iter.next();
+    // OpenSTA 3.0: PinSet has no Iterator; take the first driver directly
+    // (guarded by !drivers->empty() above).
+    const sta::Pin* drvr_pin = *drivers->begin();
     // Adapted: isIdealClock now needs a Mode; check all modes (treat as
     // ideal clock only if every mode considers it so).
     bool all_modes_ideal_clock = true;
@@ -1726,8 +1741,9 @@ void EstimateParasitics::estimateWireParasiticNoDeleteNetworkParallel(
   // drivers() result was pre-populated, so this is a cache hit (no write).
   sta::PinSet* drivers = network_->drivers(net);
   if (drivers && !drivers->empty()) {
-    sta::PinSet::Iterator drvr_iter(drivers);
-    const sta::Pin* drvr_pin = drvr_iter.next();
+    // OpenSTA 3.0: PinSet has no Iterator; take the first driver directly
+    // (guarded by !drivers->empty() above).
+    const sta::Pin* drvr_pin = *drivers->begin();
     bool all_modes_ideal_clock = true;
     for (sta::Mode* mode : sta_->modes()) {
       if (!sta_->isIdealClock(drvr_pin, mode)) {

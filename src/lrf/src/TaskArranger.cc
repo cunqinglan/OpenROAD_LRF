@@ -1130,8 +1130,12 @@ SearchMEEPred::searchFrom(const sta::Vertex* from_vertex, const sta::Mode* mode)
   }
   sta::LibertyCell* from_cell = sta_->network()->libertyCell(from_inst);
   if (!from_cell) return false;
+  // OpenSTA 3.0: SearchPred1 doesn't override searchFrom and its
+  // `using SearchPred::searchFrom` makes a qualified SearchPred1::searchFrom
+  // call resolve to the pure-virtual base. Call SearchPred0's concrete impl
+  // (which SearchPred1 inherits unchanged) directly.
   return (!from_cell->hasSequentials()
-          && SearchPred1::searchFrom(from_vertex, mode));
+          && SearchPred0::searchFrom(from_vertex, mode));
 }
 
 bool
@@ -1143,8 +1147,10 @@ SearchMEEPred::searchTo(const sta::Vertex* to_vertex, const sta::Mode* mode) con
   }
   sta::LibertyCell* to_cell = sta_->network()->libertyCell(to_inst);
   if (!to_cell) return false;
+  // OpenSTA 3.0: see searchFrom note above — SearchPred1::searchTo resolves
+  // to the pure-virtual base via using-decl; call SearchPred0's concrete impl.
   return (!to_cell->hasSequentials()
-          && SearchPred1::searchTo(to_vertex, mode));
+          && SearchPred0::searchTo(to_vertex, mode));
 }
 
 void

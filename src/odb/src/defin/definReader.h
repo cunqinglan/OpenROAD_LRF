@@ -256,6 +256,9 @@ class definReader : public definBase
   std::unique_ptr<definPinProps> _pin_propsR;
   std::vector<definBase*> _interfaces;
   bool _continue_on_errors{false};
+  // Persist skipConnections across readChip()'s init(), which rebuilds _netR
+  // and would otherwise reset definNet's _skip_signal_connections.
+  bool _skip_connections{false};
   std::string _block_name;
   std::string version_;
   char hier_delimiter_{0};
