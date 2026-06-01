@@ -8,10 +8,12 @@
 #include <chrono>
 #include "odb/db.h"
 #include "PtPiElmore.hh"
+#include "PtElmoreCeff.hh"
 #include "rsz/Resizer.hh"
 #include "LocalSta.hh"
 #include "LocalSearch.hh"
 #include "LocalReduceParasitic.hh"
+#include "LocalDmpDelayCalc.hh"  // useElmoreCeff()
 #include "sta/FuncExpr.hh"
 #include "sta/Fuzzy.hh"
 #include "sta/TimingRole.hh"
@@ -1081,6 +1083,12 @@ LrRebuffer::computeNetSensitivity(const sta::Pin *drvr_pin,
   const sta::DcalcAPIndex ap_count = graph_->apCount();
 
   // ---- Bakoglu gate: 1{D_current > D_opt} via PtPiElmore ----
+  // env=off main reduce builds PtPiElmore for every net. env=on builds
+  // only PtElmoreCeff; Bakoglu's formula still wants Pi parameters
+  // (rpi / c1+c2 / per-load Elmore), so we JIT-build Pi for just this
+  // driver via ensurePtPiElmore. Result is cached in pt_graph until
+  // the next clearPtParasitics, so multiple rf accesses or repeated
+  // Bakoglu hits on the same net are free.
   VertexId drvr_vid = drvr_pt_vertex.objectIdx();
   local_sta_->recomputeSinglePtParasitic(pt_graph, drvr_vid);
 
@@ -1088,7 +1096,8 @@ LrRebuffer::computeNetSensitivity(const sta::Pin *drvr_pin,
   float r_eq = 0.0f;
   float c_eq = 0.0f;
   for (const sta::RiseFall *rf : sta::RiseFall::range()) {
-    PtPiElmore *pt_pi = pt_graph->findPtParasitic(drvr_vid, rf, ap_index);
+    PtPiElmore *pt_pi = local_sta_->localParasitics()->ensurePtPiElmore(
+        pt_graph, drvr_vid, rf, ap_index);
     if (!pt_pi)
       continue;
     for (const auto &load : pt_pi->loads())
@@ -3330,6 +3339,21 @@ LrRebuffer::buildSyntheticParasitics(VertexId drvr_vertex_id,
           }
           pt_pi.addLoad(load.vertex_id, load.pin, elmore);
         }
+
+        // Under env=on, also produce a PtElmoreCeff for the synthetic net
+        // so the virtual buffer / virtual load gateDelay path uses
+        // Algorithm 2 + Eq.15 (consistent with the main reduce path). The
+        // Pi above stays in place for any Bakoglu re-gate on the virtual
+        // driver (also needed for env=off rebuffering of buffered nets).
+        if (useElmoreCeff()) {
+          PtElmoreCeff &pt_ec = pt_graph->makePtElmoreCeff(
+              current_drvr_id, rf, dcalc_ap->index());
+          LocalReduceToPiElmore ec_reducer(this, pt_graph);
+          ec_reducer.makePtElmoreCeffOnly(syn_net, nullptr, drvr_node,
+                                          coupling_cap_factor, rf,
+                                          corner, min_max, ap, pt_ec);
+        }
+
         delete syn_net;
       }
     }

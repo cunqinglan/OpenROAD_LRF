@@ -166,6 +166,60 @@ LocalParasitics::recomputeSinglePtParasitic(PtGraph *pt_graph, VertexId drvr_vid
 }
 
 
+PtPiElmore *
+LocalParasitics::ensurePtPiElmore(PtGraph *pt_graph,
+                                  VertexId drvr_vid,
+                                  const RiseFall *rf,
+                                  int ap_index)
+{
+  // Fast path: already built (e.g. env=off main reduce path, or a previous
+  // Bakoglu hit on this net within the same LR iteration).
+  if (PtPiElmore *existing =
+          pt_graph->findPtParasitic(drvr_vid, rf, ap_index))
+    return existing;
+
+  // env=on main reduce skips Pi build (only PtElmoreCeff). Bakoglu needs
+  // Pi parameters (rpi/c1+c2 + per-load Elmore). Build it lazily for just
+  // this (vid, rf, ap_index) so the rest of env=on stays Pi-free.
+  const PtVertex &pt_vertex = pt_graph->ptVertex(drvr_vid);
+  if (!pt_vertex.vertex() || !pt_vertex.vertex()->pin())
+    return nullptr;
+  const Pin *drvr_pin = pt_vertex.vertex()->pin();
+  if (clk_network_->isIdealClock(drvr_pin))
+    return nullptr;
+
+  // Locate the matching DcalcAnalysisPt by ap_index. PtGraph stores parasitics
+  // indexed by dcalc_ap->index() (= ap_index here); recover the corner / ap
+  // by scanning. Cheap — typically a handful of corners.
+  const DcalcAnalysisPt *dcalc_ap = nullptr;
+  for (const DcalcAnalysisPt *dap : corners_->dcalcAnalysisPts()) {
+    if (dap->index() == ap_index) {
+      dcalc_ap = dap;
+      break;
+    }
+  }
+  if (!dcalc_ap) return nullptr;
+
+  ParasiticAnalysisPt *ap = dcalc_ap->parasiticAnalysisPt();
+  const Net *net = findParasiticNet(drvr_pin);
+  Parasitic *parasitic_network = findLocalParasiticNetwork(net, ap);
+  if (!parasitic_network) return nullptr;
+
+  ParasiticNode *drvr_node =
+      parasitics_->findParasiticNode(parasitic_network, drvr_pin);
+  if (!drvr_node) return nullptr;
+
+  PtPiElmore &pt_pi = pt_graph->makePtParasitic(drvr_vid, rf, ap_index);
+  pt_pi.clear();
+  LocalReduceToPiElmore reducer(this, pt_graph);
+  reducer.makePtPiElmore(parasitic_network, drvr_pin, drvr_node,
+                         ap->couplingCapFactor(), rf,
+                         dcalc_ap->corner(),
+                         dcalc_ap->constraintMinMax(), ap,
+                         pt_pi);
+  return &pt_pi;
+}
+
 Parasitic *
 LocalParasitics::findLocalParasiticNetwork(const Net *net, const ParasiticAnalysisPt *ap) const
 {

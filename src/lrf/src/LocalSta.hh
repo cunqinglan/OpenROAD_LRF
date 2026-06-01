@@ -238,6 +238,7 @@ public:
   sta::Slack localSlackOnSinks(PtGraph *pt_graph);
   sta::Slack localWorstSlackOnSinks(PtGraph *pt_graph);
   void recomputeSinglePtParasitic(PtGraph *pt_graph, sta::VertexId drvr_vid);
+  LocalParasitics *localParasitics() { return local_parasitics_; }
   bool virtualReplaceCell(PtGraph *pt_graph, sta::LibertyCell *new_cell);
   // Swap ref cell with selective parasitic recompute: skip RefOutput
   // drivers whose output port cap is unchanged after cell swap.
