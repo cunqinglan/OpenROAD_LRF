@@ -411,6 +411,11 @@ LocalReduceToPiElmore::makePtPiElmoreAndCeff(const Parasitic *parasitic_network,
   // Pass 2: single DFS records per-load Elmore into BOTH parasitics.
   reduceElmoreDfsToPt(drvr_pin, drvr_node, nullptr, 0.0,
                       result_pi, /*ec_sink=*/&result_ec);
+
+  // Pass 3: paper Algorithm 1 (4 array sweeps over tree_) populates
+  // delay[n] and impulse_sq[n] on every PtRcNode for use by Eq.15 +
+  // Algorithm 2 at gateDelay time. Slew-invariant — cache once here.
+  result_ec.precomputeMoments();
 }
 
 void
@@ -453,6 +458,130 @@ LocalReduceToPiElmore::reduceElmoreDfsToPt(const Pin *drvr_pin,
                           ec_sink);
     }
   }
+  leave(node);
+}
+
+////////////////////////////////////////////////////////////////
+// EC-only path (no PtPiElmore alloc, no y2/y3, no setDownstreamCap,
+// no reduceElmoreDfsToPt — Algorithm 1 reconstructs everything that
+// gateDelay needs from the cached tree topology).
+////////////////////////////////////////////////////////////////
+void
+LocalReduceToPiElmore::makePtElmoreCeffOnly(
+    const Parasitic *parasitic_network,
+    const Pin *drvr_pin,
+    ParasiticNode *drvr_node,
+    float coupling_cap_factor,
+    const RiseFall *rf,
+    const Corner *corner,
+    const MinMax *min_max,
+    const ParasiticAnalysisPt *ap,
+    PtElmoreCeff &result_ec)
+{
+  // Setup identical to reduceToPi's setup block — we still need the
+  // parasitic node maps + pin-cap helpers, just not the Pi math that
+  // sits on top of them.
+  includes_pin_caps_ = parasitics_->includesPinCaps(parasitic_network);
+  coupling_cap_multiplier_ = coupling_cap_factor;
+  rf_ = rf;
+  corner_ = corner;
+  min_max_ = min_max;
+  ap_ = ap;
+  resistor_map_ = parasitics_->parasiticNodeResistorMap(parasitic_network);
+  capacitor_map_ = parasitics_->parasiticNodeCapacitorMap(parasitic_network);
+
+  result_ec.clear();
+
+  // Single DFS: tree push (pre-order) + inline load record (my_idx is
+  // known immediately) + loop marking + total_cap accumulation.
+  float total_cap = 0.0f;
+  topologyAndLoadsDfs(drvr_pin, drvr_node, /*from_res=*/nullptr,
+                      /*parent_tree_idx=*/kInvalidTreeNodeIdx,
+                      /*branch_R_from_parent=*/0.0f,
+                      total_cap, result_ec);
+  result_ec.setTotalCap(total_cap);
+
+  // Algorithm 1 (4 array sweeps over tree_) populates delay[n] and
+  // impulse_sq[n] per node. These are what gateDelay actually reads at
+  // runtime; per-load PtRcLoad.elmore stays 0 (unused in env=on).
+  result_ec.precomputeMoments();
+}
+
+void
+LocalReduceToPiElmore::topologyAndLoadsDfs(
+    const Pin *drvr_pin,
+    ParasiticNode *node,
+    ParasiticResistor *from_res,
+    uint32_t parent_tree_idx,
+    float branch_R_from_parent,
+    float &total_cap_acc,
+    PtElmoreCeff &result_ec)
+{
+  visit(node);
+
+  // local_cap = gnd cap + coupling cap × multiplier + local pin cap.
+  // Same formula reducePiDfs uses; lifted here to avoid the y1/y2/y3
+  // entanglement.
+  double coupling_cap = 0.0;
+  ParasiticCapacitorSeq &capacitors = capacitor_map_[node];
+  for (ParasiticCapacitor *cap : capacitors)
+    coupling_cap += parasitics_->value(cap);
+  const float local_cap = static_cast<float>(
+      parasitics_->nodeGndCap(node)
+      + coupling_cap * coupling_cap_multiplier_
+      + localPinCapacitance(node));
+
+  // Pre-order push: my_idx > parent_tree_idx by construction, so
+  // reverse iteration over tree_ is natural post-order for Algorithm 2.
+  const uint32_t my_idx = static_cast<uint32_t>(result_ec.tree().size());
+  result_ec.tree().push_back(PtRcNode{
+      parent_tree_idx,
+      branch_R_from_parent,
+      local_cap,
+      0.0f,  // delay        — filled by precomputeMoments
+      0.0f,  // impulse_sq   — filled by precomputeMoments
+  });
+  total_cap_acc += local_cap;
+
+  // Inline load record — my_idx is known right now, so no need for the
+  // ec_pin_to_tree_idx_ Pin*→idx map the dual-output path uses.
+  // Guards mirror reduceElmoreDfsToPt's: skip root (from_res=nullptr),
+  // skip pin-less nodes, skip stale-vertex pins, only record real loads.
+  const Pin *pin = parasitics_->pin(node);
+  if (from_res && pin) {
+    sta::VertexId vid_check = network_->vertexId(pin);
+    if (vid_check != sta::object_id_null && network_->isLoad(pin)) {
+      sta::Vertex *load_vertex = graph_->vertex(vid_check);
+      const PtVertex *pt_v = load_vertex
+          ? pt_graph_->ptVertex(load_vertex) : nullptr;
+      VertexId vid = pt_v ? pt_v->objectIdx() : sta::object_id_null;
+      // elmore=0: gateDelay never reads this field in env=on (it uses
+      // tree_[load.tree_node_idx].delay instead).
+      result_ec.addLoad(vid, pin, my_idx, 0.0f);
+    }
+  }
+
+  // Recurse children. Loop / from-res / self-loop guards exactly as in
+  // reducePiDfs.
+  ParasiticResistorSeq &resistors = resistor_map_[node];
+  for (ParasiticResistor *resistor : resistors) {
+    if (isLoopResistor(resistor))
+      continue;
+    ParasiticNode *onode = parasitics_->otherNode(resistor, node);
+    if (onode == node || resistor == from_res)
+      continue;
+    if (isVisited(onode)) {
+      debugPrint(debug_, "parasitic_reduce", 2,
+                 " loop detected thru resistor %zu",
+                 parasitics_->id(resistor));
+      markLoopResistor(resistor);
+      continue;
+    }
+    const float r = static_cast<float>(parasitics_->value(resistor));
+    topologyAndLoadsDfs(drvr_pin, onode, resistor, my_idx, r,
+                        total_cap_acc, result_ec);
+  }
+
   leave(node);
 }
 

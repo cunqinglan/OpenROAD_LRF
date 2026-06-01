@@ -21,11 +21,16 @@ namespace lrf {
 //   3) per-load wire_delay/load_slew via plain Elmore (PtPiElmore per-load)
 // No iteration, no Newton, no root-find.
 //
-// Phase B1.2: extends PtPiElmore to cache the full RC tree topology.
-// Phase B1.3: replaces step (1)'s ceff = C_total with paper Algorithm 2
-//             (post-order Eq.11) using T_n = in_slew/ramp_factor.
-// Phase B2:   adds Algorithm 1 + Eq.15 refined per-node slew so T_n
-//             becomes per-node and load_slew uses Eq.15.
+// Phase B2 (current): full paper pipeline (paper §IV-A):
+//   1. NLDM(in_slew, C_total)  → slew_i₀  (seed driver output slew)
+//   2. Algorithm 2 (Eq.11 per-branch T_n via Eq.15 + cached impulse_sq)
+//                                → Ceff[root]
+//   3. NLDM(in_slew, Ceff)     → final drvr_slew, gate_delay
+//   4. per-load wire_delay = delay[load_n] (Elmore, cached)
+//      per-load load_slew   = sqrt(drvr_slew² + factor²·impulse_sq[load_n])
+//
+// No Newton, no fixed-point iteration. Two NLDM table lookups + cached
+// O(N) tree-array sweeps.
 class LocalElmoreCeffDelayCalc : public sta::LumpedCapDelayCalc
 {
 public:
@@ -44,6 +49,9 @@ public:
 
 protected:
   explicit LocalElmoreCeffDelayCalc(const LocalElmoreCeffDelayCalc &other);
+  // slew_factor lives on the dcalcSlewFactor() shared helper so that
+  // gateDelay (here) and LocalSta::annotateLoadDelays' virtual-load
+  // path apply the same Eq.15 factor.
 };
 
 sta::ArcDelayCalc *

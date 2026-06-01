@@ -163,6 +163,41 @@ public:
                            double elmore,
                            PtPiElmore &result,
                            PtElmoreCeff *ec_sink = nullptr);
+
+  // Pure ElmoreCeff path — does NOT compute Pi admittance moments
+  // (y2/y3), does NOT derive c2/rpi/c1, does NOT allocate/touch any
+  // PtPiElmore. Single DFS that:
+  //   - pushes tree topology pre-order into result_ec.tree_
+  //   - records loads inline (tree_node_idx known at push time)
+  //   - accumulates total_cap
+  //   - marks loop resistors
+  // Then result_ec.precomputeMoments() fills delay[n] and impulse_sq[n]
+  // via Algorithm 1.
+  //
+  // Per-load PtRcLoad.elmore is left at 0: in env=on, gateDelay reads
+  // tree_[load.tree_node_idx].delay (Eq.15 wire delay), not load.elmore.
+  void makePtElmoreCeffOnly(const Parasitic *parasitic_network,
+                            const Pin *drvr_pin,
+                            ParasiticNode *drvr_node,
+                            float coupling_cap_factor,
+                            const RiseFall *rf,
+                            const Corner *corner,
+                            const MinMax *min_max,
+                            const ParasiticAnalysisPt *ap,
+                            PtElmoreCeff &result_ec);
+
+protected:
+  // Single DFS used by makePtElmoreCeffOnly. Pre-order push to tree_,
+  // inline load record (uses the just-assigned my_idx), recursive
+  // descent with loop detection. No y2/y3, no downstream_cap caching,
+  // no PtPiElmore touched.
+  void topologyAndLoadsDfs(const Pin *drvr_pin,
+                           ParasiticNode *node,
+                           ParasiticResistor *from_res,
+                           uint32_t parent_tree_idx,
+                           float branch_R_from_parent,
+                           float &total_cap_acc,
+                           PtElmoreCeff &result_ec);
 };
 
 

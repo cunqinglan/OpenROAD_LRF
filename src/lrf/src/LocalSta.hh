@@ -241,7 +241,12 @@ public:
   bool virtualReplaceCell(PtGraph *pt_graph, sta::LibertyCell *new_cell);
   // Swap ref cell with selective parasitic recompute: skip RefOutput
   // drivers whose output port cap is unchanged after cell swap.
-  bool virtualReplaceCellSelective(PtGraph *pt_graph, sta::LibertyCell *new_cell);
+  // recompute_time_out: optional. If non-null, accumulates wall-time spent
+  // inside the RefDriver/RefOutput recomputeSinglePtParasitic loops, so
+  // increAndGetLocalTimingCost can attribute recompute separately from
+  // setRefGate (the bare label-split there was buggy and reported 0).
+  bool virtualReplaceCellSelective(PtGraph *pt_graph, sta::LibertyCell *new_cell,
+                                   double *recompute_time_out = nullptr);
 
 protected:
   const Pin *findNetParasiticDrvrPin(sta::Net *net) const;

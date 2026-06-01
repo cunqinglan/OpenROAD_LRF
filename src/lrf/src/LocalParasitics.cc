@@ -85,21 +85,26 @@ LocalParasitics::recomputePtParasitics(PtGraph *pt_graph)
       if (!drvr_node)
         continue;
       for (const RiseFall *rf : RiseFall::range()) {
-        PtPiElmore &pt_pi = pt_graph->makePtParasitic(
-            pt_vertex.objectIdx(), rf, dcalc_ap->index());
-        pt_pi.clear();
         LocalReduceToPiElmore reducer(this, pt_graph);
         if (useElmoreCeff()) {
-          // Single DFS produces BOTH PtPiElmore and PtElmoreCeff.
+          // EC-only path: skip PtPiElmore allocation entirely. No y2/y3,
+          // no c2/rpi/c1, no per-load Elmore double-write — PtPiElmore is
+          // dead data in env=on (consumers are LR rebuffer Bakoglu only,
+          // which doesn't run in resize). LocalSta's Pi fallback paths
+          // (1366, 2029, 2047) are guarded by the EC-first short-circuit
+          // and remain inert when EC is built (it always is here).
           PtElmoreCeff &pt_ec = pt_graph->makePtElmoreCeff(
               pt_vertex.objectIdx(), rf, dcalc_ap->index());
-          reducer.makePtPiElmoreAndCeff(parasitic_network, drvr_pin, drvr_node,
+          reducer.makePtElmoreCeffOnly(parasitic_network, drvr_pin, drvr_node,
                                         ap->couplingCapFactor(), rf,
                                         dcalc_ap->corner(),
                                         dcalc_ap->constraintMinMax(), ap,
-                                        pt_pi, pt_ec);
+                                        pt_ec);
         }
         else {
+          PtPiElmore &pt_pi = pt_graph->makePtParasitic(
+              pt_vertex.objectIdx(), rf, dcalc_ap->index());
+          pt_pi.clear();
           reducer.makePtPiElmore(parasitic_network, drvr_pin, drvr_node,
                                  ap->couplingCapFactor(), rf,
                                  dcalc_ap->corner(),
@@ -134,21 +139,22 @@ LocalParasitics::recomputeSinglePtParasitic(PtGraph *pt_graph, VertexId drvr_vid
     if (!drvr_node)
       continue;
     for (const RiseFall *rf : RiseFall::range()) {
-      PtPiElmore &pt_pi = pt_graph->makePtParasitic(
-          drvr_vid, rf, dcalc_ap->index());
-      pt_pi.clear();
       LocalReduceToPiElmore reducer(this, pt_graph);
       if (useElmoreCeff()) {
-        // Single DFS produces BOTH PtPiElmore and PtElmoreCeff.
+        // EC-only: skip PtPiElmore alloc / Pi math. See recomputePtParasitics
+        // above for the rationale.
         PtElmoreCeff &pt_ec = pt_graph->makePtElmoreCeff(
             drvr_vid, rf, dcalc_ap->index());
-        reducer.makePtPiElmoreAndCeff(parasitic_network, drvr_pin, drvr_node,
+        reducer.makePtElmoreCeffOnly(parasitic_network, drvr_pin, drvr_node,
                                       ap->couplingCapFactor(), rf,
                                       dcalc_ap->corner(),
                                       dcalc_ap->constraintMinMax(), ap,
-                                      pt_pi, pt_ec);
+                                      pt_ec);
       }
       else {
+        PtPiElmore &pt_pi = pt_graph->makePtParasitic(
+            drvr_vid, rf, dcalc_ap->index());
+        pt_pi.clear();
         reducer.makePtPiElmore(parasitic_network, drvr_pin, drvr_node,
                                ap->couplingCapFactor(), rf,
                                dcalc_ap->corner(),

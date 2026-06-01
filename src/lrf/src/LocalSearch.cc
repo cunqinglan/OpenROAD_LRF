@@ -44,8 +44,6 @@ size_t ptPathIndex(PtVertex &pt_vertex, Path *path)
 }
 
 namespace {
-
-// 调试开关:export LRF_TAG_DEBUG=1 打开(默认关闭,大设计上不刷屏)。只读一次。
 bool
 lrfTagDebugEnabled()
 {
@@ -53,17 +51,10 @@ lrfTagDebugEnabled()
   return enabled;
 }
 
-// 详细 dump 封顶,避免系统性 mismatch 把日志刷爆;超出后只计数。
 constexpr int kLrfTagDebugMaxDumps = 20;
 std::atomic<int> g_lrf_tag_miss_count{0};
 std::mutex g_lrf_tag_debug_mutex;
 
-// 在 required 出错点演示这条因果链:
-//   [事实1] arrival 阶段为 to_vertex 算出了一个新 tag(时钟 tag、带局部 crpr),
-//           但该顶点保留了原始 tag group —— group 里存的是该 tag 的「原始版本」。
-//   [事实2] required 阶段重算出同一个新 tag,拿去保留的 group 里 hasTag 查不到 → 触发错误。
-// 关键:用 Tag::matchNoCrpr(忽略 crpr 的匹配)在 group 里找「除 crpr 外完全相同」的
-// sibling。若找到,说明 hasTag miss 的差异**恰恰就在 crpr**,程序化坐实假设。
 void
 dumpRequiredTagMiss(const StaState *sta,
                     Network *network,
@@ -385,6 +376,15 @@ LocalPathVisitor::localVisitEdge(PtVertex &from_pt_vertex,
         continue;
       }
       PathAnalysisPt *from_path_ap = from_path->pathAnalysisPt(this);
+      // Single-AP fast path: skip paths whose DcalcAnalysisPt isn't the
+      // PtGraph's target. findLocalDelays is already single-ap (uses
+      // pt_graph->dcalcAnalysisPt()); arrival/required were iterating all
+      // tag-group paths and re-doing work for every ap. For LR scoring
+      // only the target ap matters — non-target paths' arrivals/requireds
+      // are inputs nobody reads. Saves (N-1)/N of propagation work where
+      // N = #DcalcAnalysisPts.
+      if (from_path_ap->dcalcAnalysisPt() != pt_graph_->dcalcAnalysisPt())
+        continue;
       const MinMax *min_max = from_path_ap->pathMinMax();
       const RiseFall *from_rf = from_path->transition(this);
       TimingArc *arc1, *arc2;

@@ -933,7 +933,7 @@ TaskArranger::visitAll(ParallelVisitor *visitor)
   // into the shared map (serial — workers joined) and prints the profile when
   // verbose.
   for (auto v : visitors_) {
-    v->finishVisit(verbose_);
+    v->finishVisit(/*print_profile=*/true);  // always-on perf attribution
     delete v;
   }
   visitors_.clear();
@@ -1248,7 +1248,7 @@ TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta,
   // finishVisit() merges each thread's staged pruning state into the shared
   // map (serial — workers joined) and prints the profile when verbose.
   for (auto v : visitors_) {
-    v->finishVisit(verbose_);
+    v->finishVisit(/*print_profile=*/true);  // always-on perf attribution
     delete v;
   }
   visitors_.clear();

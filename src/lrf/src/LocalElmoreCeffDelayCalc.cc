@@ -111,8 +111,9 @@ LocalElmoreCeffDelayCalc::gateDelay(const Pin *drvr_pin,
   const RiseFall *rf = arc->toEdge()->asRiseFall();
   const LibertyLibrary *drvr_library = arc->to()->libertyLibrary();
   GateTimingModel *model = arc->gateModel(dcalc_ap);
+  const float in_slew_f = delayAsFloat(in_slew);
+  ArcDcalcResult result(load_pin_index_map.size());
 
-  // Step 1: Algorithm 2 (paper §III-B Eq.11) on the cached RC tree.
   // sta::Parasitic is a non-polymorphic empty base; polymorphism lives on
   // sta::ConcreteParasitic. Cast through it before checking PtElmoreCeff.
   PtElmoreCeff *pt_ec = nullptr;
@@ -122,52 +123,89 @@ LocalElmoreCeffDelayCalc::gateDelay(const Pin *drvr_pin,
     pt_ec = const_cast<PtElmoreCeff *>(dynamic_cast<const PtElmoreCeff *>(cp));
   }
 
-  // Ts seed: paper §IV-A step 1 uses NLDM(C_total) to get drvr_slew_initial,
-  // then Ts = drvr_slew/ramp_factor. B1.3 simplifies — use the input slew
-  // directly as the ramp duration source (it's the only slew available at
-  // gateDelay-time without an extra NLDM lookup). B2 will switch to the
-  // proper per-node Eq.15 slew chain so each branch gets its own Ts.
-  constexpr float kRampFactor = 0.8f;
-  const float Ts = delayAsFloat(in_slew) / kRampFactor;
-  const float ceff = pt_ec
-      ? pt_ec->computeCeffAlgo2(Ts)
-      : load_cap;
-
-  // Step 2: one direct NLDM table lookup with Ceff. No iteration.
-  ArcDcalcResult result(load_pin_index_map.size());
-  if (model) {
-    if (std::isnan(ceff) || std::isnan(delayAsFloat(in_slew)))
-      report_->error(1351, "lrf::LocalElmoreCeffDelayCalc: NaN in gate-delay input");
-    ArcDelay gate_delay;
-    Slew drvr_slew;
-    model->gateDelay(pinPvt(drvr_pin, dcalc_ap), delayAsFloat(in_slew), ceff,
-                     variables_->pocvEnabled(),
-                     gate_delay, drvr_slew);
-    result.setGateDelay(gate_delay);
-    result.setDrvrSlew(drvr_slew);
+  // Fast path: no PtElmoreCeff parasitic → single NLDM with the caller's
+  // load_cap. Mirrors LumpedCapDelayCalc behaviour, no Ceff math.
+  if (!pt_ec) {
+    if (model) {
+      ArcDelay gate_delay;
+      Slew drvr_slew;
+      model->gateDelay(pinPvt(drvr_pin, dcalc_ap), in_slew_f, load_cap,
+                       variables_->pocvEnabled(), gate_delay, drvr_slew);
+      result.setGateDelay(gate_delay);
+      result.setDrvrSlew(drvr_slew);
+    } else {
+      result.setGateDelay(delay_zero);
+      result.setDrvrSlew(delay_zero);
+    }
+    for (const auto [load_pin, load_idx] : load_pin_index_map) {
+      ArcDelay wire_delay = 0.0;
+      Slew load_slew = result.drvrSlew();
+      thresholdAdjust(load_pin, drvr_library, rf, wire_delay, load_slew);
+      result.setWireDelay(load_idx, wire_delay);
+      result.setLoadSlew(load_idx, load_slew);
+    }
+    return result;
   }
-  else {
+
+  if (!model) {
     result.setGateDelay(delay_zero);
     result.setDrvrSlew(delay_zero);
+    return result;
   }
 
-  // Step 3: per-load wire delay / load slew via plain Elmore (Phase B1).
-  // B2 will replace this with Eq.15 refined slew.
-  const Slew drvr_slew_final = result.drvrSlew();
+  if (std::isnan(in_slew_f))
+    report_->error(1351, "lrf::LocalElmoreCeffDelayCalc: NaN in_slew");
+
+  // --- Paper §IV-A 5-phase pipeline (B2 full implementation) ---
+
+  // Phase 1: NLDM(in_slew, C_total) → slew_i₀ seed.
+  // This is the only slew available before we know Ceff. Used to drive
+  // Eq.15 inside Algorithm 2 (paper accepts the single-refinement gap
+  // between this seed slew and the post-Ceff final slew).
+  ArcDelay gd_seed;
+  Slew     ds_seed;
+  model->gateDelay(pinPvt(drvr_pin, dcalc_ap), in_slew_f, pt_ec->totalCap(),
+                   variables_->pocvEnabled(), gd_seed, ds_seed);
+  const float slew_i_seed = delayAsFloat(ds_seed);
+
+  // Phase 2: Algorithm 2 (Eq.11) with per-branch T_n derived from Eq.15
+  // (impulse_sq cached on PtRcNode by precomputeMoments at reduce time).
+  const float slew_factor = dcalcSlewFactor();
+  const float ceff = pt_ec->computeCeffAlgo2WithRefinedSlew(
+      slew_i_seed, slew_factor);
+
+  // Phase 3: NLDM(in_slew, Ceff) → published gate_delay + final drvr_slew.
+  ArcDelay gate_delay;
+  Slew     drvr_slew;
+  model->gateDelay(pinPvt(drvr_pin, dcalc_ap), in_slew_f, ceff,
+                   variables_->pocvEnabled(), gate_delay, drvr_slew);
+  result.setGateDelay(gate_delay);
+  result.setDrvrSlew(drvr_slew);
+
+  // Phase 4: per-load annotation.
+  //   wire_delay[n] = delay[n]                                    (Algo.1)
+  //   load_slew[n]  = sqrt(drvr_slew² + factor² · impulse_sq[n])  (Eq.15
+  //                  with FINAL drvr_slew — paper §IV-A step 5)
+  // Falls back to plain Elmore for loads not mapped into tree_ (shouldn't
+  // happen with a well-formed PtElmoreCeff but defensive).
+  const float drvr_slew_f = delayAsFloat(drvr_slew);
+  const float drvr_slew_sq = drvr_slew_f * drvr_slew_f;
+  const float factor_sq = slew_factor * slew_factor;
+
   for (const auto [load_pin, load_idx] : load_pin_index_map) {
     ArcDelay wire_delay = 0.0;
-    Slew load_slew = drvr_slew_final;
-    if (pt_ec) {
-      float elmore = 0.0f;
-      bool exists = false;
-      pt_ec->findElmore(load_pin, elmore, exists);
-      if (exists && elmore > 0.0f) {
+    Slew load_slew = drvr_slew;
+
+    if (const PtRcLoad *load = pt_ec->findLoadByPin(load_pin)) {
+      if (load->tree_node_idx != kInvalidTreeNodeIdx) {
+        const PtRcNode &n = pt_ec->tree()[load->tree_node_idx];
+        wire_delay = n.delay;
+        load_slew = std::sqrt(drvr_slew_sq + factor_sq * n.impulse_sq);
+      } else if (load->elmore > 0.0f) {
         LocalDmpDelayCalc::elmoreWireDelaySlew(
-            elmore, drvr_slew_final, drvr_library, rf, wire_delay, load_slew);
+            load->elmore, drvr_slew, drvr_library, rf, wire_delay, load_slew);
       }
     }
-    // thresholdAdjust handles input-pin threshold differences between
-    // driver and load libraries; inherited from DelayCalcBase.
     thresholdAdjust(load_pin, drvr_library, rf, wire_delay, load_slew);
     result.setWireDelay(load_idx, wire_delay);
     result.setLoadSlew(load_idx, load_slew);

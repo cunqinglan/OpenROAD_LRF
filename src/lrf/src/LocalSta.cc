@@ -1324,7 +1324,45 @@ LocalSta::annotateLoadDelays(PtVertex &drvr_pt_vertex,
       Pin *load_pin = load_vertex ? load_vertex->pin() : nullptr;
 
       if (!load_pin) {
-        // Virtual load: try PtPiElmore Elmore delay for wire delay + load slew
+        // Virtual load: same Eq.15 formula as the per-load section inside
+        // LocalElmoreCeffDelayCalc::gateDelay, just looked up via VertexId
+        // because virtual loads don't have a Pin*.
+        //
+        // env=on path: PtElmoreCeff cached delay[n] + impulse_sq[n] →
+        //   wire_delay = delay[n]
+        //   load_slew  = sqrt(drvr_slew² + factor² · impulse_sq[n])  (Eq.15)
+        //
+        // env=off / fallback path: existing PtPiElmore + plain Elmore.
+        bool annotated_via_elmoreceff = false;
+        if (useElmoreCeff()) {
+          PtElmoreCeff *pt_ec = pt_graph->findPtElmoreCeff(
+              drvr_pt_vertex.objectIdx(), to_rf, ap_index);
+          if (pt_ec) {
+            const PtRcLoad *load_rec =
+                pt_ec->findLoadByVertexId(load_pt_vertex.objectIdx());
+            if (load_rec
+                && load_rec->tree_node_idx != kInvalidTreeNodeIdx) {
+              const PtRcNode &n = pt_ec->tree()[load_rec->tree_node_idx];
+              const Slew drvr_slew = dcalc_result.drvrSlew();
+              const float drvr_slew_f = delayAsFloat(drvr_slew);
+              const float factor = dcalcSlewFactor();
+              const ArcDelay wire_delay = n.delay;
+              const Slew load_slew = std::sqrt(
+                  drvr_slew_f * drvr_slew_f
+                  + factor * factor * n.impulse_sq);
+
+              pt_graph->setWireArcDelay(wire_pt_edge, to_rf, ap_index, wire_delay);
+              const Slew &cur_slew = pt_graph->slew(load_pt_vertex, to_rf, ap_index);
+              if (!merge || delayGreater(load_slew, cur_slew, slew_min_max, this)) {
+                pt_graph->setSlew(load_pt_vertex, to_rf, ap_index, load_slew);
+                load_changed = true;
+              }
+              annotated_via_elmoreceff = true;
+            }
+          }
+        }
+        if (annotated_via_elmoreceff) continue;
+
         PtPiElmore *pt_pi = pt_graph->findPtParasitic(
             drvr_pt_vertex.objectIdx(), to_rf, ap_index);
         if (pt_pi) {
@@ -1693,7 +1731,8 @@ LocalSta::initAndGetLocalTimingCost(PtGraph *pt_graph, ArcDelayCalc *arc_delay_c
 // RefDriver parasitics always recomputed (input pin cap changes on cell swap).
 // RefOutput parasitics only recomputed if the output port cap actually changed.
 bool
-LocalSta::virtualReplaceCellSelective(PtGraph *pt_graph, LibertyCell *new_cell)
+LocalSta::virtualReplaceCellSelective(PtGraph *pt_graph, LibertyCell *new_cell,
+                                       double *recompute_time_out)
 {
   if (!new_cell)
     return pt_graph->refGate() != nullptr;
@@ -1716,6 +1755,10 @@ LocalSta::virtualReplaceCellSelective(PtGraph *pt_graph, LibertyCell *new_cell)
   pt_graph->updateTimingArcSets();
   pt_graph->updateRefPorts();
 
+  // Recompute window — split out so the caller can attribute it cleanly
+  // (the old setRefGate label was swallowing all of this).
+  auto rt0 = std::chrono::high_resolution_clock::now();
+
   // Always recompute RefDriver parasitics (input cap changed).
   for (const auto &ptv : pt_graph->ptVertices()) {
     if (ptv.type() == PtVertexType::RefDriver)
@@ -1735,6 +1778,12 @@ LocalSta::virtualReplaceCellSelective(PtGraph *pt_graph, LibertyCell *new_cell)
     }
     oi++;
   }
+
+  if (recompute_time_out) {
+    auto rt1 = std::chrono::high_resolution_clock::now();
+    *recompute_time_out +=
+        std::chrono::duration<double>(rt1 - rt0).count();
+  }
   return true;
 }
 
@@ -1746,12 +1795,12 @@ LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph,
 {
   auto t0 = std::chrono::high_resolution_clock::now();
 
-  if (!virtualReplaceCellSelective(pt_graph, equiv_cell)) {
+  double recompute_time = 0.0;
+  if (!virtualReplaceCellSelective(pt_graph, equiv_cell, &recompute_time)) {
     return DelayLmSumResult{};
   }
 
-  auto t0b = std::chrono::high_resolution_clock::now();
-  auto t1 = t0b;
+  auto t1 = std::chrono::high_resolution_clock::now();
   findLocalDelays(pt_graph, arc_delay_calc);
   auto t2 = std::chrono::high_resolution_clock::now();
   auto t3 = t2;
@@ -1770,10 +1819,13 @@ LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph,
   auto t5 = std::chrono::high_resolution_clock::now();
 
   if (runtime_map) {
-    (*runtime_map)["vrc_setRefGate"] +=
-        std::chrono::duration<double>(t0b - t0).count();
-    (*runtime_map)["vrc_recomputeParasitics"] +=
-        std::chrono::duration<double>(t1 - t0b).count();
+    // virtualReplaceCellSelective total: t1 - t0. Recompute is reported
+    // separately by the function via recompute_time; setRefGate label
+    // gets the residual (snapshot + setRefGate + arc-set + refPorts).
+    const double vrc_total =
+        std::chrono::duration<double>(t1 - t0).count();
+    (*runtime_map)["vrc_setRefGate"] += vrc_total - recompute_time;
+    (*runtime_map)["vrc_recomputeParasitics"] += recompute_time;
     (*runtime_map)["findLocalDelays"] +=
         std::chrono::duration<double>(t2 - t1).count();
     (*runtime_map)["findLocalArrivals"] +=
@@ -2006,6 +2058,18 @@ LocalSta::localParasiticLoad(PtVertex &drvr_pt_vertex,
   if (drvr_pin) {
     local_parasitics_->recomputeSinglePtParasitic(pt_graph,
                                                    drvr_pt_vertex.objectIdx());
+    // After recompute, re-check EC first when env=on: in EC-only mode
+    // PtPiElmore is never built, so the Pi check below would always
+    // miss and we'd fall through to the netCaps fallback (wrong cap).
+    if (useElmoreCeff()) {
+      PtElmoreCeff *pt_ec = pt_graph->findPtElmoreCeff(
+          drvr_pt_vertex.objectIdx(), rf, dcalc_ap->index());
+      if (pt_ec && pt_ec->totalCap() > 0.0f) {
+        parasitic = pt_ec;
+        load_cap = pt_ec->totalCap();
+        return;
+      }
+    }
     pt_pi = pt_graph->findPtParasitic(
         drvr_pt_vertex.objectIdx(), rf, dcalc_ap->index());
     if (pt_pi && pt_pi->capacitance() > 0.0f) {

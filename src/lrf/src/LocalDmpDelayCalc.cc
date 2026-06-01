@@ -271,6 +271,21 @@ useElmoreCeff()
   return flag;
 }
 
+float
+dcalcSlewFactor()
+{
+  // Cached read. Default = √(2π) ≈ 2.5066 (paper §III-C slow-corner
+  // heuristic). LRF_DCALC_SLEW_FACTOR=<float> overrides (e.g. 1.0 for
+  // fast-corner sensitivity tests). Non-positive overrides ignored.
+  static const float factor = []() {
+    const char *e = std::getenv("LRF_DCALC_SLEW_FACTOR");
+    if (!e) return 2.5066282746310002f;
+    const float v = std::strtof(e, nullptr);
+    return (v > 0.0f) ? v : 2.5066282746310002f;
+  }();
+  return factor;
+}
+
 sta::ArcDelayCalc *
 makeLocalDelayCalc(StaState *sta)
 {

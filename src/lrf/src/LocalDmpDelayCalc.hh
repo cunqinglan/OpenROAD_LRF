@@ -131,6 +131,13 @@ protected:
 // False keeps the existing DMP + PtPiElmore path.
 bool useElmoreCeff();
 
+// Cached read of LRF_DCALC_SLEW_FACTOR env var (read once at first call).
+// Eq.15 (paper §III-C) factor — √(2π) ≈ 2.507 by default (paper's slow-
+// corner heuristic). Shared by LocalElmoreCeffDelayCalc::gateDelay and
+// LocalSta::annotateLoadDelays virtual-load branch so they apply the
+// same Eq.15 formula to per-load slews.
+float dcalcSlewFactor();
+
 // Factory — owns the returned pointer; caller deletes.
 // Returns LocalDmpDelayCalc by default; LRF_USE_ELMORECEFF=1 selects
 // the (sibling) LocalElmoreCeffDelayCalc. Common base is sta::ArcDelayCalc.
