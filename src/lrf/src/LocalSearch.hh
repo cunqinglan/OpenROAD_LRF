@@ -197,6 +197,7 @@ class LocalRequiredCmp
 public:
   LocalRequiredCmp();
   void requiredsInit(PtVertex &pt_vertex,
+		     const PtGraph *pt_graph,
 		     const StaState *sta);
   void requiredSet(size_t path_index,
 		   Required &required,
@@ -204,6 +205,7 @@ public:
 		   const StaState *sta);
   // Return true if the requireds changed.
   bool requiredsSave(PtVertex &pt_vertex,
+		     const PtGraph *pt_graph,
 		     const StaState *sta);
   Required required(size_t path_index);
 
@@ -256,8 +258,13 @@ protected:
 class PtVertexPathIterator: public Iterator<Path*>
 {
 public:
+  // pt_graph (optional, nullptr OK) supplies the dispatcher that resolves
+  // local-encoded tag_group_index_ values minted at C1b.  When null, only
+  // global tag group indices are resolvable — fine for unit-test callers
+  // outside the LR worker pipeline.
   PtVertexPathIterator(PtVertex &pt_vertex,
-           const sta::StaState *sta);
+                       const sta::StaState *sta,
+                       const PtGraph *pt_graph = nullptr);
   ~PtVertexPathIterator();
   virtual bool hasNext();
   virtual Path *next();
@@ -267,6 +274,7 @@ protected:
   void findNext();
 
   const Search *search_;
+  const PtGraph *pt_graph_;
   bool filtered_;
   const RiseFall *rf_;
   const PathAnalysisPt *path_ap_;

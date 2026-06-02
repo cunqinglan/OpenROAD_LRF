@@ -139,7 +139,7 @@ LrRebuffer::annotateLoadSlacksSlackDp(BnetPtr& tree, sta::VertexId drvr_vid)
   sta::DcalcAnalysisPt *target_dcalc_ap = eval_ctx_->pt_graph->dcalcAnalysisPt();
   sta::Arrival drvr_arrival[sta::RiseFall::index_count] = {0, 0};
   PtVertex &drvr_pv = eval_ctx_->pt_graph->ptVertex(drvr_vid);
-  PtVertexPathIterator drvr_iter(drvr_pv, local_sta_);
+  PtVertexPathIterator drvr_iter(drvr_pv, local_sta_, eval_ctx_->pt_graph);
   while (drvr_iter.hasNext()) {
     sta::Path *p = drvr_iter.next();
     if (p->dcalcAnalysisPt(local_sta_) == target_dcalc_ap) {
@@ -2521,6 +2521,31 @@ LrRebuffer::writeLmsToGraph()
 // no tag group and no paths; this copies tag_index, arrival, required from
 // the PtVertex paths so that subsequent PtGraph construction on adjacent nets
 // sees valid timing data instead of garbage.
+// Find the upstream (driver-side) sta::Vertex's global TagGroup.  Used for
+// Option-B writeback of buffer-inserted vertices whose pt_vertex carries a
+// local-encoded TG index — we cannot safely register that local TG into the
+// global tag_group_set_ (findTagGroup writes the unlocked-read set, racing
+// against concurrent parallel readers), so we borrow whatever global TG the
+// upstream vertex already has and tag-match copy the local arrivals into the
+// matching slots.  Returns nullptr if no in-edge or no upstream TG exists.
+static sta::TagGroup *
+findUpstreamGlobalTagGroupImpl(sta::Vertex *sta_vertex,
+                               sta::Graph *graph,
+                               sta::Search *search)
+{
+  sta::VertexInEdgeIterator edge_iter(sta_vertex, graph);
+  while (edge_iter.hasNext()) {
+    sta::Edge *edge = edge_iter.next();
+    sta::Vertex *from_v = edge->from(graph);
+    if (!from_v)
+      continue;
+    sta::TagGroup *tg = search->tagGroup(from_v);
+    if (tg)
+      return tg;
+  }
+  return nullptr;
+}
+
 void
 LrRebuffer::initNewStaVertexPaths(const PtVertex &pt_vertex,
                                   sta::Vertex *sta_vertex)
@@ -2528,7 +2553,60 @@ LrRebuffer::initNewStaVertexPaths(const PtVertex &pt_vertex,
   sta::Path *pt_paths = pt_vertex.paths();
   if (!pt_paths)
     return;
-  sta::TagGroup *pt_tg = search_->tagGroup(pt_vertex.tagGroupIndex());
+  uint32_t encoded = static_cast<uint32_t>(pt_vertex.tagGroupIndex());
+
+  // Local-encoded tag groups (minted by LocalArrivalVisitor C1b for virtual
+  // buffer vertices): borrow the upstream sta::Vertex's existing global TG
+  // as the writeback layout and tag-match copy local arrivals into matching
+  // slots.  Tags present only in the local TG (typically CRPR variants
+  // introduced by local-no-derate) are dropped — acceptable for buffer cells
+  // which do not change clock domains.  No findTagGroup write, so no race
+  // against concurrent unlocked readers in parallel arrival workers.
+  if (PtGraph::isLocalTagGroupIndex(encoded)) {
+    sta::TagGroup *layout =
+        findUpstreamGlobalTagGroupImpl(sta_vertex, graph_, search_);
+    if (!layout)
+      return;
+    PtGraph *pt_graph_local = eval_ctx_->pt_graph;
+    if (!pt_graph_local)
+      return;
+    sta::TagGroup *local_tg =
+        pt_graph_local->resolveTagGroup(static_cast<int>(encoded));
+    if (!local_tg)
+      return;
+
+    size_t path_count = layout->pathCount();
+    sta::Path *sta_paths = graph_->makePaths(sta_vertex, path_count);
+
+    // Init each slot per the global layout — every slot gets a valid Tag*
+    // and a sentinel arrival.  Matching slots below overwrite arrival/required.
+    sta::Arrival init_arr = sta::delayInitValue(sta::MinMax::max());
+    for (auto const& entry : *layout->pathIndexMap()) {
+      sta::Tag *tag = entry.first;
+      size_t slot = entry.second;
+      sta_paths[slot].init(sta_vertex, tag, init_arr, this);
+    }
+
+    // Tag-match copy from local_tg paths into the global layout's slots.
+    for (auto const& entry : *local_tg->pathIndexMap()) {
+      sta::Tag *tag = entry.first;
+      size_t local_slot = entry.second;
+      size_t global_slot;
+      bool exists;
+      layout->pathIndex(tag, global_slot, exists);
+      if (exists) {
+        sta_paths[global_slot].setArrival(pt_paths[local_slot].arrival());
+        sta_paths[global_slot].setRequired(pt_paths[local_slot].required());
+      }
+    }
+    sta_vertex->setTagGroupIndex(layout->index());
+    layout->incrRefCount();
+    return;
+  }
+
+  PtGraph *pt_graph = eval_ctx_->pt_graph;
+  sta::TagGroup *pt_tg = pt_graph ? pt_graph->tagGroup(pt_vertex)
+                                  : search_->tagGroup(pt_vertex.tagGroupIndex());
   if (!pt_tg)
     return;
 
@@ -2588,8 +2666,13 @@ LrRebuffer::writeTimingToGraph()
 
       case BnetType::load: {
         // Consume the wire edge ID (keep indices in sync with buildVirtualBuffer)
-        if (ei >= best_vinfo_.edge_ids.size())
+        if (ei >= best_vinfo_.edge_ids.size()) {
+          printf("Warning: writeTimingToGraph: edge index desync at load "
+                 "(ei=%zu >= edge_ids.size()=%zu); aborting tree walk\n",
+                 ei, best_vinfo_.edge_ids.size());
+          fflush(stdout);
           break;
+        }
         EdgeId pt_wire_eid = best_vinfo_.edge_ids[ei++];
 
         const sta::Pin *load_pin = tree->loadPin();
@@ -2614,8 +2697,15 @@ LrRebuffer::writeTimingToGraph()
 
       case BnetType::buffer: {
         if (vi + 1 >= best_vinfo_.vertex_ids.size()
-            || ei + 1 >= best_vinfo_.edge_ids.size())
+            || ei + 1 >= best_vinfo_.edge_ids.size()) {
+          printf("Warning: writeTimingToGraph: index desync at buffer "
+                 "(vi=%zu vertex_ids.size()=%zu, ei=%zu edge_ids.size()=%zu); "
+                 "aborting tree walk\n",
+                 vi, best_vinfo_.vertex_ids.size(),
+                 ei, best_vinfo_.edge_ids.size());
+          fflush(stdout);
           break;
+        }
 
         // Consume PtGraph virtual IDs (same order as buildVirtualBuffer)
         VertexId pt_buf_in_vid = best_vinfo_.vertex_ids[vi++];
@@ -2627,8 +2717,14 @@ LrRebuffer::writeTimingToGraph()
 
         // Find real buffer instance recorded during exportBufferTree
         sta::Instance *buf_inst = tree->bufInst();
-        if (!buf_inst)
+        if (!buf_inst) {
+          // Indices already advanced above, but the downstream subtree is
+          // skipped here -> any sibling branch will read desynced vi/ei.
+          printf("Warning: writeTimingToGraph: buffer node has no bufInst; "
+                 "subtree timing skipped, sibling indices may desync\n");
+          fflush(stdout);
           break;
+        }
         const sta::Pin *buf_in_pin = nullptr;
         const sta::Pin *buf_out_pin = nullptr;
         sta::InstancePinIterator *pin_iter = network_->pinIterator(buf_inst);
@@ -2641,8 +2737,14 @@ LrRebuffer::writeTimingToGraph()
         }
         delete pin_iter;
 
-        if (!buf_in_pin || !buf_out_pin)
+        if (!buf_in_pin || !buf_out_pin) {
+          printf("Warning: writeTimingToGraph: buffer instance %s missing "
+                 "in/out pin; subtree timing skipped, sibling indices may "
+                 "desync\n",
+                 network_->name(buf_inst));
+          fflush(stdout);
           break;
+        }
 
         sta::Vertex *real_buf_in = sta_graph->pinLoadVertex(buf_in_pin);
         sta::Vertex *real_buf_out = sta_graph->pinDrvrVertex(buf_out_pin);
@@ -2659,7 +2761,16 @@ LrRebuffer::writeTimingToGraph()
           initNewStaVertexPaths(pt_buf_out, real_buf_out);
         }
 
-        // Recurse into subtree with buf_output as new driver
+        // Recurse into subtree with buf_output as new driver.
+        // If real_buf_out is null the recursion no-ops at the entry guard,
+        // leaving the subtree's vi/ei unconsumed -> sibling branches desync.
+        if (!real_buf_out) {
+          printf("Warning: writeTimingToGraph: buffer instance %s has no "
+                 "output driver vertex; subtree indices not consumed, sibling "
+                 "indices may desync\n",
+                 network_->name(buf_inst));
+          fflush(stdout);
+        }
         walkTree(real_buf_out, tree->ref());
         break;
       }

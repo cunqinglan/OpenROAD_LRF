@@ -12,8 +12,10 @@
 
 namespace lrf {
 PtVertexPathIterator::PtVertexPathIterator(PtVertex &pt_vertex,
-                                 const sta::StaState *sta)
+                                 const sta::StaState *sta,
+                                 const PtGraph *pt_graph)
   : search_(sta->search()),
+    pt_graph_(pt_graph),
     filtered_(false),
     rf_(nullptr),
     path_ap_(nullptr),
@@ -35,7 +37,13 @@ PtVertexPathIterator::PtVertexPathIterator(PtVertex &pt_vertex,
       fflush(stdout);
       // Leave path_count_=0 so findNext() is not called — nothing to iterate.
     } else {
-      sta::TagGroup *tag_group = search_->tagGroup(pt_vertex.tagGroupIndex());
+      // Dispatch through PtGraph when supplied so local-encoded indices
+      // (high bit kLocalTagGroupBit) resolve to the PtGraph-local pool.
+      // Fall back to global search_->tagGroup for legacy callers passing
+      // pt_graph == nullptr.
+      sta::TagGroup *tag_group = pt_graph_
+          ? pt_graph_->resolveTagGroup(tag_group_index)
+          : search_->tagGroup(tag_group_index);
       if (tag_group == nullptr) {
         printf("PtVertexPathIterator: vertex objectIdx=%u tagGroupIndex=%d but tagGroup is null;"
                " treating as empty.\n",

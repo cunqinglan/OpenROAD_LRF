@@ -1871,7 +1871,7 @@ LocalSta::localSlackAroundRef(PtGraph *pt_graph)
     // We offer two options for local slack calculation:
     if (pt_vertex.type() == PtVertexType::RefDriver
         || pt_vertex.type() == PtVertexType::RefOutput) {
-      PtVertexPathIterator path_iter(pt_vertex, this);
+      PtVertexPathIterator path_iter(pt_vertex, this, pt_graph);
       while (path_iter.hasNext()) {
         Path *path = path_iter.next();
         // We should select the wanted analysis point here.
@@ -1937,7 +1937,7 @@ LocalSta::localSlackOnSinks(PtGraph *pt_graph)
       continue;
 
     // Verify tag group match
-    sta::TagGroup *pt_tg = search_->tagGroup(pt_vertex.tagGroupIndex());
+    sta::TagGroup *pt_tg = pt_graph->tagGroup(pt_vertex);
     sta::TagGroup *sta_tg = search_->tagGroup(sta_vertex);
     if (!pt_tg || !sta_tg || pt_tg->index() != sta_tg->index()) {
       printf("Warning: localSlackOnSinks: tag group mismatch on vertex %s "
@@ -1993,7 +1993,7 @@ LocalSta::localWorstSlackOnSinks(PtGraph *pt_graph)
     sta::Path *sta_paths = sta_vertex->paths();
     if (!sta_paths) continue;
 
-    sta::TagGroup *pt_tg = search_->tagGroup(pt_vertex.tagGroupIndex());
+    sta::TagGroup *pt_tg = pt_graph->tagGroup(pt_vertex);
     sta::TagGroup *sta_tg = search_->tagGroup(sta_vertex);
     if (!pt_tg || !sta_tg || pt_tg->index() != sta_tg->index())
       continue;
@@ -2161,7 +2161,7 @@ LocalSta::printLocalArrivals(PtGraph *pt_graph) const
   for (auto& pt_vertex : pt_graph->ptVertices()) {
     if (pt_vertex.type() == PtVertexType::Sentinel)
       continue;
-    PtVertexPathIterator path_iter(pt_vertex, this);
+    PtVertexPathIterator path_iter(pt_vertex, this, pt_graph);
     while (path_iter.hasNext()) {
       Path *path = path_iter.next();
       printf("%s::printLocalArrivals: Vertex %s arrival path: %s, arrival = %f\n",
@@ -2180,7 +2180,7 @@ LocalSta::printLocalRequireds(PtGraph *pt_graph) const
   for (auto& pt_vertex : pt_graph->ptVertices()) {
     if (pt_vertex.type() == PtVertexType::Sentinel)
       continue;
-    PtVertexPathIterator path_iter(pt_vertex, this);
+    PtVertexPathIterator path_iter(pt_vertex, this, pt_graph);
     while (path_iter.hasNext()) {
       Path *path = path_iter.next();
       printf("%s::printLocalRequireds: Vertex %s required path: %s, required = %f\n",
@@ -2205,7 +2205,7 @@ LocalSta::printLocalTiming(PtGraph *pt_graph) const
     printf("%s::printLocalTiming: Vertex %s\n",
            debug_label_.c_str(),
            vname.c_str());
-    PtVertexPathIterator path_iter(pt_vertex, this);
+    PtVertexPathIterator path_iter(pt_vertex, this, pt_graph);
     while (path_iter.hasNext()) {
       Path *path = path_iter.next();
       printf("  Path: %s, arrival = %f, required = %f\n",
@@ -2790,7 +2790,7 @@ LocalSta::printPerSinkArrivals(PtGraph *pt_graph, const char *label)
     sta::Path *sta_paths = sta_vertex->paths();
     if (!sta_paths) continue;
 
-    sta::TagGroup *pt_tg = search_->tagGroup(pt_vertex.tagGroupIndex());
+    sta::TagGroup *pt_tg = pt_graph->tagGroup(pt_vertex);
     sta::TagGroup *sta_tg = search_->tagGroup(sta_vertex);
     if (!pt_tg || !sta_tg || pt_tg->index() != sta_tg->index())
       continue;

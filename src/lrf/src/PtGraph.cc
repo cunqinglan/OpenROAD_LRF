@@ -795,9 +795,34 @@ PtGraph::updateRefPorts()
 }
 
 sta::TagGroup *
-PtGraph::tagGroup(const PtVertex &pt_vertex)
+PtGraph::tagGroup(const PtVertex &pt_vertex) const
 {
-  return sta_->search()->tagGroup(pt_vertex.tagGroupIndex());
+  return resolveTagGroup(static_cast<int>(pt_vertex.tagGroupIndex()));
+}
+
+uint32_t
+PtGraph::mintLocalTagGroup(sta::TagGroupBldr *bldr, const sta::StaState *sta)
+{
+  uint32_t encoded =
+      kLocalTagGroupBit | static_cast<uint32_t>(local_tag_pool_.size());
+  std::unique_ptr<sta::TagGroup> tg(bldr->makeTagGroup(encoded, sta));
+  local_tag_pool_.push_back(std::move(tg));
+  return encoded;
+}
+
+sta::TagGroup *
+PtGraph::resolveTagGroup(int encoded_idx) const
+{
+  uint32_t u = static_cast<uint32_t>(encoded_idx);
+  if (u == sta::tag_group_index_max)
+    return nullptr;
+  if (u & kLocalTagGroupBit) {
+    uint32_t local_idx = u & ~kLocalTagGroupBit;
+    if (local_idx >= local_tag_pool_.size())
+      return nullptr;
+    return local_tag_pool_[local_idx].get();
+  }
+  return sta_->search()->tagGroup(static_cast<int>(u));
 }
 
 void

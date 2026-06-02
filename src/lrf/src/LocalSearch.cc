@@ -14,6 +14,7 @@
 #include "sta/Corner.hh"
 #include "sta/PortDirection.hh"
 
+#include <cstdint>
 #include <vector>
 #include <set>
 #include <stdexcept>
@@ -359,12 +360,11 @@ LocalPathVisitor::localVisitEdge(PtVertex &from_pt_vertex,
                         PtEdge &pt_edge, PtVertex &to_pt_vertex)
 {
   if (from_pt_vertex.tagGroupIndex() == sta::tag_group_index_max)
-    return true; 
-  TagGroup *from_tag_group = 
-              search_->tagGroup(from_pt_vertex.tagGroupIndex());
+    return true;
+  TagGroup *from_tag_group = pt_graph_->tagGroup(from_pt_vertex);
   if (from_tag_group) {
     TimingArcSet *arc_set = pt_edge.timingArcSet();
-    PtVertexPathIterator from_iter(from_pt_vertex, search_);
+    PtVertexPathIterator from_iter(from_pt_vertex, search_, pt_graph_);
     while (from_iter.hasNext()) {
       Path *from_path = from_iter.next();
       // Check if the path has a valid tag index before accessing it
@@ -653,7 +653,7 @@ LocalArrivalVisitor::localSetVertexArrivals(PtVertex &pt_vertex, TagGroupBldr *t
 {
   if (pt_vertex.tagGroupIndex() == sta::tag_group_index_max)
     return;
-  TagGroup *prev_tag_group = search_->tagGroup(pt_vertex.tagGroupIndex());
+  TagGroup *prev_tag_group = pt_graph_->tagGroup(pt_vertex);
   Path *prev_paths = pt_vertex.paths();
   TagGroup *tag_group = search_->findExistingTagGroup(tag_bldr);
 
@@ -676,10 +676,29 @@ LocalArrivalVisitor::localSetVertexArrivals(PtVertex &pt_vertex, TagGroupBldr *t
       // Allocate fresh paths and update tagGroupIndex to match the new layout,
       // so PtVertexPathIterator uses the correct path_count from tag_group.
       if (tag_group) {
+        // C1a: builder content matches an existing global TG — adopt it.
         size_t path_count = tag_bldr->pathCount();
         Path *paths = pt_graph_->makePaths(pt_vertex.objectIdx(), path_count);
         tag_bldr->copyPaths(tag_group, paths);
         pt_vertex.setTagGroupIndex(tag_group->index());
+      } else {
+        // C1b: builder content has no global match (typical for newly
+        // inserted virtual buffer pins whose tag layout differs from the
+        // upstream driver's existing global TG).  Mint a PtGraph-local TG
+        // so arrival can propagate through this vertex during the current
+        // LR pass.  The TG lives in PtGraph::local_tag_pool_ and dies with
+        // the PtGraph at the next ParallelVisitor::visit().  At commit
+        // time, LrRebuffer::initNewStaVertexPaths skips vertices with this
+        // local encoding — promoting to global tag_group_set_ would
+        // require a findTagGroup write that races against concurrent
+        // parallel readers in other workers' arrival phase.
+        size_t path_count = tag_bldr->pathCount();
+        Path *paths = pt_graph_->makePaths(pt_vertex.objectIdx(), path_count);
+        uint32_t encoded = pt_graph_->mintLocalTagGroup(tag_bldr, this);
+        TagGroup *local_tg =
+            pt_graph_->resolveTagGroup(static_cast<int>(encoded));
+        tag_bldr->copyPaths(local_tg, paths);
+        pt_vertex.setTagGroupIndex(static_cast<int>(encoded));
       }
     } else {
       // VertexSet-based graph may omit some instance pins, so not all
@@ -694,7 +713,7 @@ void
 LocalArrivalVisitor::printArrivals()
 {
   for (auto& pt_vertex : pt_graph_->ptVertices()) {
-    PtVertexPathIterator path_iter(pt_vertex, search_);
+    PtVertexPathIterator path_iter(pt_vertex, search_, pt_graph_);
     size_t path_num = 0;
     while (path_iter.hasNext()) {
       Path *path = path_iter.next();
@@ -714,12 +733,12 @@ LocalRequiredCmp::LocalRequiredCmp() : have_requireds_(false)
 {
 }
 
-void 
+void
 LocalRequiredCmp::requiredsInit(PtVertex &pt_vertex,
+                                 const PtGraph *pt_graph,
                                  const StaState *sta)
 {
-  Search *sta_search = sta->search();
-  TagGroup *tag_group = sta_search->tagGroup(pt_vertex.tagGroupIndex());
+  TagGroup *tag_group = pt_graph->tagGroup(pt_vertex);
   if (tag_group) {
     size_t path_count = tag_group->pathCount();
     requireds_.resize(path_count);
@@ -752,6 +771,7 @@ LocalRequiredCmp::required(size_t path_index)
 
 bool
 LocalRequiredCmp::requiredsSave(PtVertex &pt_vertex,
+			   const PtGraph *pt_graph,
 			   const StaState *sta)
 {
   bool requireds_changed = false;
@@ -760,7 +780,7 @@ LocalRequiredCmp::requiredsSave(PtVertex &pt_vertex,
   // into the local graph during PtGraph::initPaths().
   if (!have_requireds_)
     return false;
-  PtVertexPathIterator path_iter(pt_vertex, sta);
+  PtVertexPathIterator path_iter(pt_vertex, sta, pt_graph);
   while (path_iter.hasNext()) {
     Path *path = path_iter.next();
     size_t path_index = ptPathIndex(pt_vertex, path);
@@ -819,11 +839,11 @@ LocalRequiredVisitor::seedLocalRootRequireds(PtVertex &pt_vertex)
 void
 LocalRequiredVisitor::findVertexRequired(PtVertex &pt_vertex)
 {
-  required_cmp_->requiredsInit(pt_vertex, this);
+  required_cmp_->requiredsInit(pt_vertex, pt_graph_, this);
   localVisitFanoutPaths(pt_vertex);
 
   // Save requireds in cmp back to paths
-  required_cmp_->requiredsSave(pt_vertex, this);
+  required_cmp_->requiredsSave(pt_vertex, pt_graph_, this);
 }
 
 void
@@ -863,7 +883,7 @@ bool LocalRequiredVisitor::localVisitFromToPath(
     }
     size_t path_index = ptPathIndex(from_pt_vertex, from_path);
     const MinMax *req_min = min_max->opposite();
-    TagGroup *to_tag_group = search_->tagGroup(to_pt_vertex.tagGroupIndex());
+    TagGroup *to_tag_group = pt_graph_->tagGroup(to_pt_vertex);
     if (to_tag_group && to_tag_group->hasTag(to_tag)) {
       size_t to_path_index = to_tag_group->pathIndex(to_tag);
       Path &to_path = to_pt_vertex.paths()[to_path_index];
@@ -885,7 +905,7 @@ void
 LocalRequiredVisitor::printRequireds()
 {
   for (auto& pt_vertex : pt_graph_->ptVertices()) {
-    PtVertexPathIterator path_iter(pt_vertex, search_);
+    PtVertexPathIterator path_iter(pt_vertex, search_, pt_graph_);
     size_t path_num = 0;
     while (path_iter.hasNext()) {
       Path *path = path_iter.next();

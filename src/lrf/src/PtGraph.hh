@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+#include <memory>
 #include <vector>
 #include <map>
 #include <unordered_map>
@@ -20,6 +22,8 @@ class Sta;
 class LibertyCell;
 class DcalcAnalysisPt;
 class SearchPred;
+class TagGroup;
+class TagGroupBldr;
 }
 
 namespace lrf {
@@ -67,7 +71,7 @@ public:
   // the ref instance.
   void updateTimingArcSets();
   void updateRefPorts();
-  sta::TagGroup *tagGroup(const PtVertex &pt_vertex);
+  sta::TagGroup *tagGroup(const PtVertex &pt_vertex) const;
 
   sta::EdgeId makeEdge(sta::Edge *edge, sta::VertexId pt_from, sta::VertexId pt_to);
   sta::VertexId makeVertex(sta::Vertex *vertex);
@@ -227,6 +231,40 @@ public:
                                   const sta::RiseFall *rf,
                                   int ap_index);
 
+  // ─── PtGraph-local TagGroup pool ────────────────────────────────────────
+  // PtVertex tag_group_index_ values with this high bit set are *local*
+  // indices into the pool below (instead of indices into the global
+  // sta::Search tag_group_set_).  Used to fix C1b in localSetVertexArrivals:
+  // when findExistingTagGroup returns null for a builder, we mint a
+  // PtGraph-local TagGroup so arrival can still propagate through the
+  // virtual buffer vertex during this LR visit.
+  //
+  // The pool lives and dies with the PtGraph (one PtGraph per parallel
+  // worker, reset between instances).  At commit time, vertices whose
+  // tag_group_index_ has this bit set are NOT written back to the global
+  // sta::Vertex paths — they would require a `findTagGroup` write into the
+  // shared `tag_group_set_`, which is not thread-safe against concurrent
+  // unlocked readers in other workers' arrival phase.  The next global
+  // findArrivals/findRequireds pass re-derives timing for newly inserted
+  // buffer pins.
+  static constexpr uint32_t kLocalTagGroupBit = 0x80000000u;
+  // C1b mint site: constructs a TagGroup from the builder, pushes it into
+  // the local pool, and returns its encoded index (with kLocalTagGroupBit
+  // already set).  The minted TG's own index() field reflects the encoded
+  // value, so resolveTagGroup(returned) round-trips back to the same TG.
+  uint32_t mintLocalTagGroup(sta::TagGroupBldr *bldr, const sta::StaState *sta);
+  // Central dispatcher used by all "tag_group_index_ -> TagGroup*" lookups.
+  // Handles sentinel (tag_group_index_max), local-encoded indices, and
+  // ordinary global indices in one place.
+  sta::TagGroup *resolveTagGroup(int encoded_idx) const;
+  // True iff the encoded index has the local-pool high bit.  Used by
+  // writeback paths to skip vertices whose tag layout exists only in this
+  // PtGraph's local pool.
+  static bool isLocalTagGroupIndex(uint32_t encoded) {
+    return encoded != sta::tag_group_index_max
+        && (encoded & kLocalTagGroupBit);
+  }
+
 protected:
   void initVertexAndEdges();
   void annotateVerticesType();
@@ -257,6 +295,10 @@ protected:
   // PtGraph-local ElmoreCeff parasitics storage. Same indexing scheme as
   // pt_parasitics_. Empty unless LRF_USE_ELMORECEFF is set.
   std::unordered_map<VertexId, std::vector<PtElmoreCeff>> pt_ec_parasitics_;
+
+  // PtGraph-local TagGroup pool.  See block comment above kLocalTagGroupBit
+  // for ownership and encoding rules.
+  std::vector<std::unique_ptr<sta::TagGroup>> local_tag_pool_;
 
 private:
   friend class PtEdge;
