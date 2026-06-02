@@ -96,7 +96,12 @@ private:
   LocalSta *local_sta_;
   rsz::Resizer *resizer_;
   std::vector<std::string> rows_;
-  Metrics last_cur_;      // cur from previous recordRow; used to compute dWNS/dTNS (delta-vs-prev-iter, not delta-vs-best)
+  Metrics last_best_;     // previous row's post-execute best == the committed
+                          // netlist the current operator started from. Used as
+                          // the dWNS/dTNS baseline so each row's delta reflects
+                          // what THAT operator actually achieved (not a diff vs
+                          // a reverted-away snapshot).
+  bool    have_last_best_ = false;
 };
 
 class  TestLrf

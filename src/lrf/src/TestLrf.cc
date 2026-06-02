@@ -1189,10 +1189,14 @@ IterationHelper::recordRow(size_t iter, const char *phase,
                            const Metrics &cur, const Metrics &best,
                            const char *decision)
 {
-  // dWNS/dTNS = delta vs the PREVIOUS iter's cur (not vs best).
-  // For iter 1 there is no previous iter, so fall back to `best`
-  // (which is the pre-LR baseline snapshot taken right before the loop).
-  const Metrics &prev = rows_.empty() ? best : last_cur_;
+  // dWNS/dTNS = delta vs the state THIS operator started from, i.e. the
+  // previous row's post-execute best (after each row the netlist is left at
+  // that row's committed `best`, which is exactly where the next operator
+  // begins). This makes the delta reflect what this operator actually did:
+  // a reverted operator shows the (negative) regression it was reverted for,
+  // not a phantom jump off a discarded snapshot. For the first row there is
+  // no previous row, so fall back to `best` (delta 0).
+  const Metrics &prev = have_last_best_ ? last_best_ : best;
 
   char buf[512];
   snprintf(buf, sizeof(buf),
@@ -1209,7 +1213,8 @@ IterationHelper::recordRow(size_t iter, const char *phase,
   printf("[ITER]%s\n", buf);
   fflush(stdout);
 
-  last_cur_ = cur;
+  last_best_ = best;
+  have_last_best_ = true;
 }
 
 void
