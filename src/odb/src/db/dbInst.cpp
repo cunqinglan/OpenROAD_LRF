@@ -1145,25 +1145,12 @@ bool dbInst::swapMaster(dbMaster* new_master_)
              oldMasterName,
              newMasterName);
 
-  if (block->journal_) {
-    dbLib* old_lib = old_master_->getLib();
-    dbLib* new_lib = new_master_->getLib();
-    block->journal_->beginAction(dbJournal::kSwapObject);
-    block->journal_->pushParam(dbInstObj);
-    block->journal_->pushParam(inst->getId());
-    block->journal_->pushParam(old_lib->getId());
-    block->journal_->pushParam(old_master_->getId());
-    block->journal_->pushParam(new_lib->getId());
-    block->journal_->pushParam(new_master_->getId());
-    block->journal_->endAction();
-  }
-
-  for (auto cb : block->callbacks_) {
-    cb->inDbInstSwapMasterBefore(this, new_master_);
-  }
-
   //
-  // Ensure the mterms are equivalent
+  // Ensure the mterms are equivalent BEFORE journal/callbacks.
+  // Previously journal + callbacks ran first; if the mterm check failed, the
+  // journal kept a phantom kSwapObject entry and the STA "Before" callback
+  // (which deletes graph edges) ran with no matching "After" callback,
+  // corrupting STA state and ECO undo.
   //
   std::vector<_dbMTerm*> new_terms;
 
@@ -1213,6 +1200,24 @@ bool dbInst::swapMaster(dbMaster* new_master_)
                                  newMasterName,
                                  this->getConstName());
     return false;
+  }
+
+  // MTerms verified equivalent — safe to journal and fire callbacks now.
+  if (block->journal_) {
+    dbLib* old_lib = old_master_->getLib();
+    dbLib* new_lib = new_master_->getLib();
+    block->journal_->beginAction(dbJournal::kSwapObject);
+    block->journal_->pushParam(dbInstObj);
+    block->journal_->pushParam(inst->getId());
+    block->journal_->pushParam(old_lib->getId());
+    block->journal_->pushParam(old_master_->getId());
+    block->journal_->pushParam(new_lib->getId());
+    block->journal_->pushParam(new_master_->getId());
+    block->journal_->endAction();
+  }
+
+  for (auto cb : block->callbacks_) {
+    cb->inDbInstSwapMasterBefore(this, new_master_);
   }
 
   // Clear preferred APs before the ITerms are remapped to the new master.
