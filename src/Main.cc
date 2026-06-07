@@ -83,7 +83,7 @@ using std::string;
   X(pdn)                                 \
   X(rsz)                                 \
   X(odb)                                 \
-  X(ord)
+  X(ord)                          
 
 #define FOREACH_TOOL(X) FOREACH_TOOL_WITHOUT_OPENROAD(X)
 

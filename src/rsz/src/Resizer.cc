@@ -61,6 +61,7 @@
 #include "sta/Fuzzy.hh"
 #include "sta/Graph.hh"
 #include "sta/GraphClass.hh"
+#include "sta/EquivCells.hh"
 #include "sta/GraphDelayCalc.hh"
 #include "sta/InputDrive.hh"
 #include "sta/LeakagePower.hh"
@@ -2212,6 +2213,138 @@ sta::LibertyCellSeq Resizer::getSwappableCells(sta::LibertyCell* source_cell)
   }
 
   swappable_cells_cache_[source_cell] = swappable_cells;
+  return swappable_cells;
+}
+
+// LRF: predicate form of the getSwappableCells filters (no area/leakage limit).
+bool
+Resizer::isLegalCellCandidate(sta::LibertyCell *equiv_cell, sta::LibertyCell *source_cell)
+{
+  dbMaster* master = db_network_->staToDb(source_cell);
+  if (dontUse(equiv_cell) || !isLinkCell(equiv_cell)) {
+    return false;
+  }
+  if (!sta::equivCellsArcs(source_cell, equiv_cell)) {
+    return false;
+  }
+  dbMaster* equiv_cell_master = db_network_->staToDb(equiv_cell);
+  if (!equiv_cell_master) {
+    return false;
+  }
+  if (sizing_keep_site_) {
+    if (master->getSite() != equiv_cell_master->getSite()) {
+      return false;
+    }
+  }
+  if (sizing_keep_vt_) {
+    if (cellVTType(master).vt_index != cellVTType(equiv_cell_master).vt_index) {
+      return false;
+    }
+  }
+  if (match_cell_footprint_) {
+    if (source_cell->footprint() != equiv_cell->footprint()) {
+      return false;
+    }
+  }
+  if (!source_cell->userFunctionClass().empty()) {
+    if (source_cell->userFunctionClass() != equiv_cell->userFunctionClass()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+namespace {
+// Helper struct to aggregate data during the single pass over equiv cells.
+struct VTGroup {
+  sta::LibertyCellSeq cells;
+  double total_leakage = 0.0;
+  int count = 0;
+};
+}  // namespace
+
+// LRF: swappable cells grouped by VT category, groups ordered by avg leakage.
+std::vector<sta::LibertyCellSeq>
+Resizer::makeSwappableCellsVec(sta::LibertyCell *source_cell)
+{
+  dbMaster* master = db_network_->staToDb(source_cell);
+  if (master == nullptr || !master->isCore()) {
+    return {};
+  }
+
+  std::map<VTCategory, VTGroup> groups;
+  sta::LibertyCellSeq* equiv_cells = sta_->equivCells(source_cell);
+
+  if (equiv_cells) {
+    for (sta::LibertyCell* equiv_cell : *equiv_cells) {
+      if (!isLegalCellCandidate(equiv_cell, source_cell)) {
+        continue;
+      }
+      dbMaster* equiv_cell_master = db_network_->staToDb(equiv_cell);
+
+      VTGroup& group = groups[cellVTType(equiv_cell_master)];
+      group.cells.push_back(equiv_cell);
+
+      std::optional<float> cell_leakage = cellLeakage(equiv_cell);
+      if (cell_leakage) {
+        group.total_leakage += *cell_leakage;
+        group.count++;
+      }
+    }
+  } else {
+    VTGroup& group = groups[cellVTType(master)];
+    group.cells.push_back(source_cell);
+  }
+
+  if (groups.size() == 1) {
+    std::vector<sta::LibertyCellSeq> single_result;
+    single_result.push_back(std::move(groups.begin()->second.cells));
+    return single_result;
+  }
+
+  std::vector<VTGroup*> sorted_groups;
+  sorted_groups.reserve(groups.size());
+  for (auto& [vt_cat, group] : groups) {
+    if (!group.cells.empty()) {
+      sorted_groups.push_back(&group);
+    }
+  }
+
+  std::sort(sorted_groups.begin(), sorted_groups.end(),
+    [](const VTGroup* a, const VTGroup* b) {
+      float avg_a = (a->count > 0) ? (a->total_leakage / a->count) : 0.0f;
+      float avg_b = (b->count > 0) ? (b->total_leakage / b->count) : 0.0f;
+      return avg_a < avg_b;
+    });
+
+  std::vector<sta::LibertyCellSeq> final_result;
+  final_result.reserve(sorted_groups.size());
+  for (VTGroup* group : sorted_groups) {
+    final_result.emplace_back(std::move(group->cells));
+  }
+
+  return final_result;
+}
+
+// LRF: heap-allocated swappable cells list (no area/leakage limit filtering).
+sta::LibertyCellSeq *
+Resizer::makeSwappableCells(sta::LibertyCell* source_cell)
+{
+  odb::dbMaster* master = db_network_->staToDb(source_cell);
+  if (master == nullptr || !master->isCore()) {
+    return nullptr;
+  }
+  sta::LibertyCellSeq* swappable_cells = new sta::LibertyCellSeq();
+  sta::LibertyCellSeq* equiv_cells = sta_->equivCells(source_cell);
+  if (equiv_cells) {
+    for (sta::LibertyCell* equiv_cell : *equiv_cells) {
+      if (isLegalCellCandidate(equiv_cell, source_cell)) {
+        swappable_cells->push_back(equiv_cell);
+      }
+    }
+  } else {
+    swappable_cells->push_back(source_cell);
+  }
   return swappable_cells;
 }
 

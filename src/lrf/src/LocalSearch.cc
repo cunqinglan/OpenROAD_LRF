@@ -1,0 +1,912 @@
+
+
+#include "sta/Search.hh"
+#include "search/TagGroup.hh"
+#include "search/Tag.hh"
+#include "sta/SearchPred.hh"
+#include "search/ClkInfo.hh"
+#include "sta/Network.hh"
+#include "sta/Sdc.hh"
+#include "sta/Debug.hh"
+#include "search/Genclks.hh"
+#include "sta/Fuzzy.hh"
+#include "sta/Scene.hh"
+#include "sta/PortDirection.hh"
+
+#include <cstdint>
+#include <vector>
+#include <set>
+#include <stdexcept>
+#include <atomic>
+#include <mutex>
+#include <cstdlib>
+
+#include "PtGraph.hh"
+#include "LocalSta.hh"
+#include "LocalSearch.hh"
+
+
+
+namespace lrf {
+size_t ptPathIndex(PtVertex &pt_vertex, Path *path)
+{
+  // IMPORTANT CONTRACT:
+  // The index must match the TagGroup path order (0..pathCount-1).
+  // This is true iff `path` points inside `pt_vertex.paths()`.
+  // Guard against nullptr and mismatched storage to avoid UB.
+  Path *paths = pt_vertex.paths();
+  if (paths == nullptr || path == nullptr)
+    return 0;
+  ptrdiff_t idx = path - paths;
+  if (idx < 0)
+    return 0;
+  return static_cast<size_t>(idx);
+}
+
+namespace {
+bool
+lrfTagDebugEnabled()
+{
+  static const bool enabled = (std::getenv("LRF_TAG_DEBUG") != nullptr);
+  return enabled;
+}
+
+constexpr int kLrfTagDebugMaxDumps = 20;
+std::atomic<int> g_lrf_tag_miss_count{0};
+std::mutex g_lrf_tag_debug_mutex;
+
+void
+dumpRequiredTagMiss(const StaState *sta,
+                    Network *network,
+                    PtVertex &to_pt_vertex,
+                    Tag *to_tag,
+                    TagGroup *to_tag_group)
+{
+  int n = g_lrf_tag_miss_count.fetch_add(1, std::memory_order_relaxed);
+  if (n >= kLrfTagDebugMaxDumps) {
+    if (n == kLrfTagDebugMaxDumps) {
+      std::lock_guard<std::mutex> lock(g_lrf_tag_debug_mutex);
+      printf("[LRF_TAG_DEBUG] 已达 %d 次详细 dump 上限,后续 miss 只计数不打印。\n",
+             kLrfTagDebugMaxDumps);
+      fflush(stdout);
+    }
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(g_lrf_tag_debug_mutex);
+  std::string vname =
+      to_pt_vertex.pin() ? network->name(to_pt_vertex.pin()) : std::string("virtual");
+
+  // 找「除 crpr 外全等」的原始 sibling。
+  Tag *no_crpr_sibling = nullptr;
+  for (auto const &entry : *to_tag_group->pathIndexMap()) {
+    Tag *gt = entry.first();
+    if (Tag::matchNoCrpr(to_tag, gt)) {
+      no_crpr_sibling = gt;
+      break;
+    }
+  }
+
+  printf("\n[LRF_TAG_DEBUG][REQUIRED-MISS #%d] to_vertex=%s  (crprActive=%d)\n",
+         n, vname.c_str(), sta->crprActive(sta->modes()[0]));
+  printf("  [事实2] required 现算出的 to_tag 不在保留的 tag group 中:\n");
+  printf("      missing to_tag = %s\n", to_tag->to_string(sta).c_str());
+  printf("  retained group: idx=%u pathCount=%zu\n",
+         static_cast<unsigned>(to_tag_group->index()),
+         to_tag_group->pathCount());
+
+  if (no_crpr_sibling) {
+    printf("  [事实1] group 里存在一个「除 crpr 外完全相同」的原始 sibling:\n");
+    printf("      orig sibling   = %s\n",
+           no_crpr_sibling->to_string(sta).c_str());
+    printf("  ==> 确认:差异字段 = CRPR 时钟路径"
+           "(local crpr_vertex=%u, orig crpr_vertex=%u)。"
+           "局部不 derate 翻转了 arc_delay_min_max_eq,"
+           "使 thruClkInfo 设了不同的 crpr_clk_path。\n",
+           static_cast<unsigned>(to_tag->clkInfo()->crprClkVertexId(sta)),
+           static_cast<unsigned>(no_crpr_sibling->clkInfo()->crprClkVertexId(sta)));
+  } else {
+    printf("  ==> 差异不在 crpr(group 里没有「除 crpr 外全等」的 sibling)。"
+           "差异在 rf/corner/clk_edge/is_clk/genclk/segment/states 之一,"
+           "见下方完整 dump 对比:\n");
+    size_t i = 0;
+    for (auto const &entry : *to_tag_group->pathIndexMap()) {
+      printf("      [%zu] %s\n", i++, entry.first()->to_string(sta).c_str());
+    }
+  }
+  fflush(stdout);
+}
+
+}  // namespace
+
+LocalPathVisitor::LocalPathVisitor(StaState *state, PtGraph *pt_graph)
+  : PathVisitor(state),
+    pt_graph_(pt_graph)
+{
+}
+
+LocalPathVisitor::LocalPathVisitor(StaState *state, PtGraph *pt_graph, const std::string &debug_label)
+  : PathVisitor(state),
+    pt_graph_(pt_graph),
+    debug_label_(debug_label)
+{
+}
+
+LocalPathVisitor::~LocalPathVisitor()
+{
+}
+
+LocalArrivalVisitor::LocalArrivalVisitor(StaState *state, PtGraph *pt_graph)
+  : LocalPathVisitor(state, pt_graph)
+{
+  // In this initialization, a loop searchPred is created,
+  // but not used in this local class.
+  LocalArrivalVisitor::init0();
+  LocalArrivalVisitor::init();
+}
+
+LocalArrivalVisitor::LocalArrivalVisitor(StaState *state, PtGraph *pt_graph, const std::string &debug_label)
+  : LocalPathVisitor(state, pt_graph, debug_label)
+{
+  // In this initialization, a loop searchPred is created,
+  // but not used in this local class.
+  LocalArrivalVisitor::init0();
+  LocalArrivalVisitor::init();
+}
+
+VertexVisitor *
+LocalPathVisitor::copy() const
+{
+  throw std::runtime_error("LocalPathVisitor::copy: Not implemented yet");
+  return nullptr;
+}
+
+LocalArrivalVisitor::~LocalArrivalVisitor()
+{
+}
+
+void LocalArrivalVisitor::init0()
+{
+  tag_bldr_ = new TagGroupBldr(true, this);
+}
+
+void 
+LocalArrivalVisitor::init()
+{
+  pred_ = search_ ? search_->evalPred() : nullptr;
+}
+
+void
+LocalArrivalVisitor::findLocalArrivals()
+{
+  for (VertexId vertex_id : pt_graph_->sortedVertexIds()) {
+    PtVertex &pt_vertex = pt_graph_->ptVertex(vertex_id);
+    if (pt_vertex.type() == PtVertexType::Sentinel) continue;
+
+    findVertexArrival(vertex_id);
+  }
+}
+
+void 
+LocalArrivalVisitor::visit(Vertex *vertex)
+{
+  PtVertex &pt_vertex = *pt_graph_->ptVertex(vertex);
+  findVertexArrival(pt_vertex);
+}
+  
+void
+LocalArrivalVisitor::findVertexArrival(VertexId vertex_id)
+{
+  PtVertex &pt_vertex = pt_graph_->ptVertex(vertex_id);
+  if (!pt_vertex.hasFanin())
+    // When the vertex is not a refoutput, its arrival is
+    // not used in local slack calculation. Since the output
+    // slack is calculated by top/bottom req - arc_delay.
+    // But when the vertex is a refoutput, its arrival
+    // is needed.
+    seedLocalRootArrivals(pt_vertex);
+  else if (pt_vertex.type() == PtVertexType::RefInput) {
+    // RefInput: arrival was copied from global graph by initVertexAndEdges.
+    // Recomputing from RefDriver would use the root's raw input_delay
+    // (missing input transition delay), producing incorrect values.
+    // Keep the global graph value and only recompute the arrival from
+    // the RefDriver gate arc + updated delay.
+    // TODO: proper fix is to make root arrival include input driver delay.
+    findVertexArrival(pt_vertex);
+  }
+  else
+    findVertexArrival(pt_vertex);
+}
+
+void
+LocalArrivalVisitor::seedLocalRootArrivals(PtVertex &pt_vertex)
+{
+  // Since we have copy paths from the original timing graph
+  // to the local graph, we can just skip this seeding process.
+  return;
+}
+
+void
+LocalArrivalVisitor::findVertexArrival(PtVertex &pt_vertex)
+{
+  if (!pt_vertex.hasBase()) {
+    // Virtual vertex: simplified arrival propagation
+    findVirtualVertexArrival(pt_vertex);
+    return;
+  }
+
+  Pin *pin = pt_vertex.pin();
+  Vertex *vertex = pt_vertex.vertex();
+
+  bool arrival_changed = true;
+
+  tag_bldr_->init(vertex);
+  has_fanin_one_ = graph_->hasFaninOne(vertex);
+
+  if (!modes()[0]->sdc()->isPathDelayInternalFromBreak(pin)) {
+    localVisitFaninPaths(pt_vertex);
+  }
+
+  if (!network_->isTopLevelPort(pin)
+      && modes()[0]->sdc()->hasInputDelay(pin)) {
+    search_->seedInputSegmentArrival(pin, vertex, modes()[0], tag_bldr_);
+  }
+
+  if (modes()[0]->sdc()->isPathDelayInternalFrom(pin)) {
+    search_->makeUnclkedPaths(vertex, false, true, tag_bldr_, modes()[0]);
+  }
+  if (modes()[0]->sdc()->isLeafPinClock(pin)) {
+    search_->localSeedClkArrivals(pin, vertex, tag_bldr_);
+  }
+
+  bool is_clk = tag_bldr_->hasClkTag();
+  if (vertex->isRegClk() && !is_clk) {
+    search_->makeUnclkedPaths(vertex, true, false, tag_bldr_, modes()[0]);
+  }
+
+  if (arrival_changed)
+    localSetVertexArrivals(pt_vertex, tag_bldr_);
+}
+
+void
+LocalArrivalVisitor::findVirtualVertexArrival(PtVertex &pt_vertex)
+{
+  if (!pt_vertex.hasFanin()) {
+    // Virtual root: arrivals already seeded
+    return;
+  }
+
+  // Use proxy vertex (set by LrRebuffer when building virtual sub-graph)
+  // for tag_bldr init. Path::init needs a real vertex for graph->id().
+  Vertex *init_vertex = pt_vertex.proxyVertex();
+  if (init_vertex == nullptr) {
+    printf("Warning: findVirtualVertexArrival: no proxy vertex for virtual_%u\n",
+           pt_vertex.objectIdx());
+    fflush(stdout);
+    return;
+  }
+
+  tag_bldr_->init(init_vertex);
+  has_fanin_one_ = true;
+
+  localVisitFaninPaths(pt_vertex);
+
+  localSetVertexArrivals(pt_vertex, tag_bldr_);
+}
+
+void
+LocalPathVisitor::localVisitFaninPaths(PtVertex &to_pt_vertex)
+{
+  // Skip vertices with preset input delays.
+  bool search_to = to_pt_vertex.hasBase()
+      ? pred_->searchTo(to_pt_vertex.vertex()) : true;
+
+  if (search_to) {
+    PtVertexInEdgeIterator pt_edge_iter(to_pt_vertex.objectIdx(), pt_graph_);
+    while (pt_edge_iter.hasNext()) {
+      PtEdge &pt_edge = pt_edge_iter.next();
+      // Final-eval mode bypasses sibling-skip so precise arrival is propagated
+      // before writePathsToGraph copies it back to global.
+      if (pt_edge.isSiblingSkipped() && !pt_graph_->isFinalEvalMode())
+        continue;
+      PtVertex &from_pt_vertex = pt_graph_->ptVertex(pt_edge.ptFromId());
+      bool pass;
+      // PtGraph edges already passed searchThru at construction time.
+      // Skip searchThru to avoid dereferencing potentially stale sta::Edge*.
+      if (pt_edge.hasBase()) {
+        pass = pred_->searchFrom(from_pt_vertex.vertex());
+      } else {
+        pass = true;
+      }
+      if (pass) {
+        if (!localVisitEdge(from_pt_vertex, pt_edge, to_pt_vertex))
+          break;
+      }
+    }
+  }
+}
+
+void
+LocalPathVisitor::localVisitFanoutPaths(PtVertex &from_pt_vertex)
+{
+  bool search_from = from_pt_vertex.hasBase()
+      ? pred_->searchFrom(from_pt_vertex.vertex()) : true;
+  if (search_from) {
+    PtVertexOutEdgeIterator edge_iter(from_pt_vertex.objectIdx(), pt_graph_);
+    while (edge_iter.hasNext()) {
+      PtEdge &pt_edge = edge_iter.next();
+      // Final-eval mode bypasses sibling-skip so precise required is propagated
+      // before writePathsToGraph copies it back to global.
+      if (pt_edge.isSiblingSkipped() && !pt_graph_->isFinalEvalMode())
+        continue;
+      PtVertex &to_pt_vertex = pt_graph_->ptVertex(pt_edge.ptToId());
+      bool pass;
+      if (pt_edge.hasBase()) {
+        pass = pred_->searchTo(to_pt_vertex.vertex());
+      } else {
+        pass = true;
+      }
+      if (pass) {
+        if (!localVisitEdge(from_pt_vertex, pt_edge, to_pt_vertex))
+          break;
+      }
+    }
+  }
+}
+
+bool
+LocalPathVisitor::localVisitEdge(PtVertex &from_pt_vertex, 
+                        PtEdge &pt_edge, PtVertex &to_pt_vertex)
+{
+  if (from_pt_vertex.tagGroupIndex() == sta::tag_group_index_max)
+    return true;
+  TagGroup *from_tag_group = pt_graph_->tagGroup(from_pt_vertex);
+  if (from_tag_group) {
+    TimingArcSet *arc_set = pt_edge.timingArcSet();
+    PtVertexPathIterator from_iter(from_pt_vertex, search_, pt_graph_);
+    while (from_iter.hasNext()) {
+      Path *from_path = from_iter.next();
+      // Check if the path has a valid tag index before accessing it
+      TagIndex tag_idx = from_path->tagIndex(this);
+      if (tag_idx == sta::tag_group_index_max || tag_idx >= search_->tagCount()) {
+        printf("Warning: LocalPathVisitor::localVisitEdge: Skipping invalid path on vertex %s that may have been corrupted by copyPaths.\n",
+               from_pt_vertex.pin() ? network_->name(from_pt_vertex.pin()) : "virtual");
+        fflush(stdout);
+        continue;
+      }
+
+      // Single-AP fast path: skip paths whose DcalcAnalysisPt isn't the
+      // PtGraph's target. findLocalDelays is already single-ap (uses
+      // pt_graph->dcalcAnalysisPt()); arrival/required were iterating all
+      // tag-group paths and re-doing work for every ap. For LR scoring
+      // only the target ap matters — non-target paths' arrivals/requireds
+      // are inputs nobody reads. Saves (N-1)/N of propagation work where
+      // N = #DcalcAnalysisPts.
+      if (from_path->dcalcAnalysisPtIndex(this) != pt_graph_->apIndex())
+        continue;
+      const MinMax *min_max = from_path->minMax(this);
+      const RiseFall *from_rf = from_path->transition(this);
+      TimingArc *arc1, *arc2;
+      arc_set->arcsFrom(from_rf, arc1, arc2);
+      if (!localVisitArc(from_pt_vertex, from_rf, from_path, pt_edge,
+                         arc1, to_pt_vertex, min_max))
+        return false;
+      if (!localVisitArc(from_pt_vertex, from_rf, from_path, pt_edge,
+                         arc2, to_pt_vertex, min_max))
+        return false;
+    }
+  }
+  return true;
+}
+
+bool 
+LocalPathVisitor::localVisitArc(PtVertex &from_pt_vertex, 
+                                 const RiseFall *from_rf,
+                                 Path *from_path,
+                                 PtEdge &edge,
+                                 TimingArc *arc,
+                                 PtVertex &to_pt_vertex,
+                                 const MinMax *min_max)
+{
+  if (arc) {
+    const RiseFall *to_rf = arc->toEdge()->asRiseFall();
+    bool thru_ok;
+    if (edge.hasBase()) {
+      thru_ok = searchThru(from_pt_vertex.vertex(), from_rf,
+                           edge.edge(), to_pt_vertex.vertex(),
+                           to_rf, modes()[0]);
+    } else {
+      // Virtual edge: always pass
+      thru_ok = true;
+    }
+    if (thru_ok)
+      return localVisitFromPath(from_pt_vertex.pin(),
+                                from_pt_vertex,
+                                from_rf,
+                                from_path,
+                                edge,
+                                arc,
+                                to_pt_vertex.pin(),
+                                to_pt_vertex,
+                                to_rf,
+                                min_max);
+  }
+  return true;
+}
+
+bool 
+LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
+                                  PtVertex &from_pt_vertex,
+                                  const RiseFall *from_rf,
+                                  Path *from_path,
+                                  PtEdge &pt_edge,
+                                  TimingArc *arc,
+                                  const Pin *to_pin,
+                                  PtVertex &to_pt_vertex,
+                                  const RiseFall *to_rf,
+                                  const MinMax *min_max)
+{
+  Edge *edge = pt_edge.edge();
+  const TimingRole *role = pt_edge.role();
+  Tag *from_tag = from_path->tag(this);
+  Tag *to_tag = nullptr;
+  Arrival from_arrival = from_path->arrival();
+  ArcDelay arc_delay = 0.0;
+  Arrival to_arrival;
+
+  // Virtual edge: combinational pass-through (tag unchanged)
+  // Skip thruTag since it dereferences the null base edge.
+  if (!pt_edge.hasBase()) {
+    to_tag = from_tag;
+    arc_delay = pt_graph_->arcDelay(pt_edge, arc, pt_graph_->scene()->dcalcAnalysisPtIndex(min_max));
+    to_arrival = from_arrival + arc_delay;
+    if (to_tag) {
+      return localVisitFromToPath(from_pt_vertex, from_rf,
+                                  from_tag, from_path, from_arrival,
+                                  pt_edge, arc, arc_delay,
+                                  to_pt_vertex, to_rf, to_tag, to_arrival,
+                                  min_max);
+    }
+    return true;
+  }
+
+  const ClkInfo *from_clk_info = from_tag->clkInfo();
+  const ClockEdge *clk_edge = from_clk_info->clkEdge();
+  const Clock *clk = from_clk_info->clock();
+
+  if (from_clk_info->isGenClkSrcPath()) {
+    printf("Local arrival analysis supports gen clk src paths.\n");
+    if (!modes()[0]->sdc()->clkStopPropagation(clk,from_pin,from_rf,to_pin,to_rf)
+	&& (variables_->clkThruTristateEnabled()
+	    || !(role == TimingRole::tristateEnable()
+		 || role == TimingRole::tristateDisable()))) {
+      const Clock *gclk = from_tag->genClkSrcPathClk();
+      if (gclk) {
+	Genclks *genclks = modes()[0]->genclks();
+	VertexSet *fanins = genclks->fanins(gclk);
+	// Note: encountering a latch d->q edge means find the
+	// latch feedback edges, but they are referenced for 
+	// other edges in the gen clk fanout.
+	EdgeSet &fdbk_edges = genclks->latchFdbkEdges(gclk);
+	if ((role == TimingRole::combinational()
+	     || role == TimingRole::wire()
+	     || !gclk->combinational())
+	    && fanins->count(to_pt_vertex.vertex())
+	    && !fdbk_edges.count(edge)) {
+          // No derate in local timing; use arc delay directly.
+          arc_delay = pt_graph_->arcDelay(pt_edge, arc,
+                                          pt_graph_->scene()->dcalcAnalysisPtIndex(min_max));
+          const sta::DcalcAPIndex ap_index_opp = pt_graph_->scene()->dcalcAnalysisPtIndex(min_max->opposite());
+          Delay arc_delay_opp = pt_graph_->arcDelay(pt_edge, arc,
+                                                    ap_index_opp);
+          bool arc_delay_min_max_eq =
+            fuzzyEqual(delayAsFloat(arc_delay), delayAsFloat(arc_delay_opp));
+	  to_tag = search_->thruClkTag(from_path, from_pt_vertex.vertex(), from_tag, true,
+                                       edge, to_rf, arc_delay_min_max_eq,
+                                       min_max, pt_graph_->scene());
+          to_arrival = from_arrival + arc_delay;
+	}
+      }
+    }
+  }
+  else if (role->genericRole() == TimingRole::regClkToQ()) {
+    // reg clk to q
+    if (clk == nullptr
+	|| !modes()[0]->sdc()->clkStopPropagation(from_pin, clk)) {
+    arc_delay = pt_graph_->arcDelay(pt_edge, arc, pt_graph_->scene()->dcalcAnalysisPtIndex(min_max));
+
+      // Propagate from unclocked reg/latch clk pins, which have no
+      // clk but are distinguished with a segment_start flag.
+      if ((clk_edge == nullptr
+	   && from_tag->isSegmentStart())
+	  // Do not propagate paths from input ports with default
+	  // input arrival clk thru CLK->Q edges.
+	  || (clk != modes()[0]->sdc()->defaultArrivalClock()
+	      // Only propagate paths from clocks that have not
+	      // passed thru reg/latch D->Q edges.
+	      && from_tag->isClock())) {
+  const RiseFall *clk_rf = clk_edge ? clk_edge->transition() : nullptr;
+	const ClkInfo *to_clk_info = from_clk_info;
+	if (from_clk_info->crprClkPath(this) == nullptr
+            || sta_->network()->direction(to_pin)->isInternal())
+	  to_clk_info = search_->clkInfoWithCrprClkPath(from_clk_info,
+                                                        from_path);
+  to_tag = search_->fromRegClkTag(from_pin, from_rf, clk, clk_rf,
+                                        to_clk_info, to_pin, to_rf, min_max, pt_graph_->scene());
+  if (to_tag)
+    to_tag = search_->thruTag(to_tag, edge, to_rf, tag_cache_);
+  from_arrival = search_->clkPathArrival(from_path, from_clk_info,
+                                               clk_edge, min_max);
+	to_arrival = from_arrival + arc_delay;
+      }
+      else 
+  to_tag = nullptr;
+    }
+  } 
+  else if (role == TimingRole::latchDtoQ()) {
+    printf("ERROR: Local arrival analysis does not support latch clk to q paths yet.\n");
+    fflush(stdout);
+    return true;
+  } else if (from_tag->isClock()) {
+    // clk to ff/dl/comb: replicate original STA logic to preserve tag group.
+    // Skipping this path drops tags from the tag group, causing ptCopyPaths
+    // to fail when the rebuilt tag set doesn't match prev_tag_group.
+    // Thread-safe: thruClkTag uses same locked findClkInfo/findTag as thruTag.
+    ClockSet *clks = modes()[0]->sdc()->findLeafPinClocks(from_pin);
+    if (!(role == TimingRole::wire()
+          && modes()[0]->sdc()->clkDisabledByHpinThru(clk, from_pin, to_pin))
+        && !(clks
+             && !clks->count(const_cast<Clock*>(from_tag->clock())))) {
+      bool to_propagates_clk =
+        !modes()[0]->sdc()->clkStopPropagation(clk, from_pin, from_rf, to_pin, to_rf)
+        && (variables_->clkThruTristateEnabled()
+            || !(role == TimingRole::tristateEnable()
+                 || role == TimingRole::tristateDisable()));
+      // No derate in local timing; use arc delay directly.
+      arc_delay = pt_graph_->arcDelay(pt_edge, arc,
+                                      pt_graph_->scene()->dcalcAnalysisPtIndex(min_max));
+      const sta::DcalcAPIndex ap_index_opp = pt_graph_->scene()->dcalcAnalysisPtIndex(min_max->opposite());
+      ArcDelay arc_delay_opp = pt_graph_->arcDelay(
+        pt_edge, arc, ap_index_opp);
+      bool arc_delay_min_max_eq =
+        fuzzyEqual(delayAsFloat(arc_delay), delayAsFloat(arc_delay_opp));
+      to_tag = search_->thruClkTag(from_path, from_pt_vertex.vertex(),
+                                   from_tag, to_propagates_clk, edge,
+                                   to_rf, arc_delay_min_max_eq,
+                                   min_max, pt_graph_->scene());
+      to_arrival = from_arrival + arc_delay;
+    }
+  }
+    else {
+    // This is a data path (unclocked or after clock capture)
+    if (!(modes()[0]->sdc()->isPathDelayInternalFromBreak(to_pin)
+          || modes()[0]->sdc()->isPathDelayInternalToBreak(from_pin))) {
+      to_tag = search_->thruTag(from_tag, edge, to_rf, tag_cache_);
+      // No derate in local timing; use arc delay directly.
+      arc_delay = pt_graph_->arcDelay(pt_edge, arc, pt_graph_->scene()->dcalcAnalysisPtIndex(min_max));
+
+      if (!delayInf(arc_delay, this)) {
+        to_arrival = from_arrival + arc_delay;
+      }
+      
+      // 调试：记录成功传播的 unclocked paths (已禁用以减少输出)
+      // if (is_unclocked && to_tag) {
+      //   printf("[PATH_PROPAGATE] %s path from %s to %s: tag=%s, delay=%.3f\n",
+      //          path_type, network_->name(from_pin), network_->name(to_pin),
+      //          to_tag->to_string(this).c_str(), delayAsFloat(arc_delay));
+      //   fflush(stdout);
+      // }
+    }
+  }
+  if (to_tag) {
+    return localVisitFromToPath(from_pt_vertex, from_rf,
+                                      from_tag, from_path, from_arrival,
+                                      pt_edge, arc, arc_delay,
+                                      to_pt_vertex, to_rf, to_tag, to_arrival,
+                                      min_max);
+  }
+  else {
+    return true;
+  }
+}
+
+bool
+LocalArrivalVisitor::localVisitFromToPath(
+                    PtVertex &from_pt_vertex,
+                    const RiseFall *from_rf,
+                    Tag *from_tag,
+                    Path *from_path,
+                    const Arrival &from_arrival,
+                    PtEdge &pt_edge,
+                    TimingArc *arc,
+                    ArcDelay arc_delay,
+                    PtVertex &to_pt_vertex,
+                    const RiseFall *to_rf,
+                    Tag *to_tag,
+                    Arrival &to_arrival,
+                    const MinMax *min_max)
+{
+  Path *match;
+  size_t path_index;
+  tag_bldr_->tagMatchPath(to_tag, match, path_index);
+
+  if (match == nullptr || delayGreater(to_arrival, match->arrival(), min_max, this)) {
+    // Virtual edges have no base sta::Edge; Path::init would crash at
+    // graph->id(prev_edge) if prev_path is non-null with a null edge.
+    // Local search never uses prev_path/prev_edge linkage, so nullptr is safe.
+    Path *prev = pt_edge.hasBase() ? from_path : nullptr;
+    tag_bldr_->setMatchPath(match, path_index, to_tag, to_arrival, prev, pt_edge.edge(), arc);
+  }
+  return true;
+}
+
+void
+LocalArrivalVisitor::localSetVertexArrivals(PtVertex &pt_vertex, TagGroupBldr *tag_bldr)
+{
+  if (pt_vertex.tagGroupIndex() == sta::tag_group_index_max)
+    return;
+  TagGroup *prev_tag_group = pt_graph_->tagGroup(pt_vertex);
+  Path *prev_paths = pt_vertex.paths();
+  TagGroup *tag_group = search_->findExistingTagGroup(tag_bldr);
+
+  if (tag_group == prev_tag_group) {
+    if (prev_paths == nullptr) {
+      // Normal for virtual vertices (paths_ starts null after initVirtualPaths).
+      // Use copyPaths to fully initialize Path objects including Tag*.
+      // ptCopyPaths must NOT be used here: it only writes arrival/prev, leaving
+      // Tag* uninitialized, causing crashes in tagIndex() later.
+      size_t path_count = tag_bldr->pathCount();
+      Path *paths = pt_graph_->makePaths(pt_vertex.objectIdx(), path_count);
+      tag_bldr->copyPaths(tag_group, paths);
+    } else {
+      // Normal incremental case: preserve required while updating arrivals.
+      tag_bldr->ptCopyPaths(prev_tag_group, prev_paths);
+    }
+  } else {
+    if (prev_paths == nullptr) {
+      // Virtual vertex, tag group changed on first initialization.
+      // Allocate fresh paths and update tagGroupIndex to match the new layout,
+      // so PtVertexPathIterator uses the correct path_count from tag_group.
+      if (tag_group) {
+        // C1a: builder content matches an existing global TG — adopt it.
+        size_t path_count = tag_bldr->pathCount();
+        Path *paths = pt_graph_->makePaths(pt_vertex.objectIdx(), path_count);
+        tag_bldr->copyPaths(tag_group, paths);
+        pt_vertex.setTagGroupIndex(tag_group->index());
+      } else {
+        // C1b: builder content has no global match (typical for newly
+        // inserted virtual buffer pins whose tag layout differs from the
+        // upstream driver's existing global TG).  Mint a PtGraph-local TG
+        // so arrival can propagate through this vertex during the current
+        // LR pass.  The TG lives in PtGraph::local_tag_pool_ and dies with
+        // the PtGraph at the next ParallelVisitor::visit().  At commit
+        // time, LrRebuffer::initNewStaVertexPaths skips vertices with this
+        // local encoding — promoting to global tag_group_set_ would
+        // require a findTagGroup write that races against concurrent
+        // parallel readers in other workers' arrival phase.
+        size_t path_count = tag_bldr->pathCount();
+        Path *paths = pt_graph_->makePaths(pt_vertex.objectIdx(), path_count);
+        uint32_t encoded = pt_graph_->mintLocalTagGroup(tag_bldr, this);
+        TagGroup *local_tg =
+            pt_graph_->resolveTagGroup(static_cast<int>(encoded));
+        tag_bldr->copyPaths(local_tg, paths);
+        pt_vertex.setTagGroupIndex(static_cast<int>(encoded));
+      }
+    } else {
+      // VertexSet-based graph may omit some instance pins, so not all
+      // fanin edges exist. tag_bldr has fewer tags (subset of prev).
+      // Update only recomputable arrivals; keep the rest unchanged.
+      tag_bldr->ptCopyPaths(prev_tag_group, prev_paths);
+    }
+  }
+}
+
+void 
+LocalArrivalVisitor::printArrivals()
+{
+  for (auto& pt_vertex : pt_graph_->ptVertices()) {
+    PtVertexPathIterator path_iter(pt_vertex, search_, pt_graph_);
+    size_t path_num = 0;
+    while (path_iter.hasNext()) {
+      Path *path = path_iter.next();
+      Arrival arrival = path->arrival();
+      std::string vname = pt_vertex.pin() ? network_->name(pt_vertex.pin()) : std::string("virtual");
+      printf("Vertex %s Path %zu Arrival: %f\n",
+             vname.c_str(), path_num, arrival);
+      path_num++;
+    }
+  }
+}
+
+////////////////////////////////////////////////////
+// Functions of LocalRequiredCmp and LocalRequiredVisitor
+////////////////////////////////////////////////////
+LocalRequiredCmp::LocalRequiredCmp() : have_requireds_(false)
+{
+}
+
+void
+LocalRequiredCmp::requiredsInit(PtVertex &pt_vertex,
+                                 const PtGraph *pt_graph,
+                                 const StaState *sta)
+{
+  TagGroup *tag_group = pt_graph->tagGroup(pt_vertex);
+  if (tag_group) {
+    size_t path_count = tag_group->pathCount();
+    requireds_.resize(path_count);
+    for (auto const [tag, path_index] : *tag_group->pathIndexMap()) {
+      const MinMax *min_max = tag->minMax();
+      requireds_[path_index] = delayInitValue(min_max->opposite());
+    }
+  }
+  have_requireds_ = false;
+}
+
+void
+LocalRequiredCmp::requiredSet(size_t path_index,
+			 Required &required,
+			 const MinMax *min_max,
+			 const StaState *sta)
+{
+  if (delayGreater(required, requireds_[path_index], min_max, sta)) {
+    requireds_[path_index] = required;
+    have_requireds_ = true;
+  }
+}
+
+Required
+LocalRequiredCmp::required(size_t path_index)
+{
+  return requireds_[path_index];
+}
+
+bool
+LocalRequiredCmp::requiredsSave(PtVertex &pt_vertex,
+			   const PtGraph *pt_graph,
+			   const StaState *sta)
+{
+  bool requireds_changed = false;
+  // If no required values were produced (no fanout propagation and no
+  // endpoint seeding), don't overwrite the requireds that were copied
+  // into the local graph during PtGraph::initPaths().
+  if (!have_requireds_)
+    return false;
+  PtVertexPathIterator path_iter(pt_vertex, sta, pt_graph);
+  while (path_iter.hasNext()) {
+    Path *path = path_iter.next();
+    size_t path_index = ptPathIndex(pt_vertex, path);
+    Required req = requireds_[path_index];
+    const Required &prev_req = path->required();
+    bool changed = !delayEqual(prev_req, req, sta);
+    requireds_changed |= changed;
+    path->setRequired(req);
+  }
+  return requireds_changed;
+}
+
+
+LocalRequiredVisitor::LocalRequiredVisitor(StaState *state, PtGraph *pt_graph)
+  : LocalPathVisitor(state, pt_graph),
+    required_cmp_(new LocalRequiredCmp())
+{
+}
+
+LocalRequiredVisitor::~LocalRequiredVisitor()
+{
+  delete required_cmp_;
+}
+
+void 
+LocalRequiredVisitor::findLocalRequireds()
+{
+  std::vector<size_t> vertex_ids = pt_graph_->sortedVertexIds();
+  for (size_t i = vertex_ids.size(); i > 0; --i) {
+    findVertexRequired(vertex_ids[i - 1]);
+  }
+}
+
+void 
+LocalRequiredVisitor::findVertexRequired(VertexId vertex_id)
+{
+  PtVertex &pt_vertex = pt_graph_->ptVertex(vertex_id);
+  if (pt_vertex.type() == PtVertexType::Sentinel)
+    return;
+  if (pt_vertex.tagGroupIndex() == sta::tag_group_index_max)
+    return;
+  if (!pt_vertex.hasFanout())
+    seedLocalRootRequireds(pt_vertex);
+  else
+    findVertexRequired(pt_vertex);
+}
+
+void
+LocalRequiredVisitor::seedLocalRootRequireds(PtVertex &pt_vertex)
+{
+  // Since we have copy paths from the original timing graph
+  // to the local graph, we can just skip this seeding process.
+  return;
+}
+
+void
+LocalRequiredVisitor::findVertexRequired(PtVertex &pt_vertex)
+{
+  required_cmp_->requiredsInit(pt_vertex, pt_graph_, this);
+  localVisitFanoutPaths(pt_vertex);
+
+  // Save requireds in cmp back to paths
+  required_cmp_->requiredsSave(pt_vertex, pt_graph_, this);
+}
+
+void
+LocalRequiredVisitor::visit(Vertex *vertex)
+{
+  PtVertex &pt_vertex = *pt_graph_->ptVertex(vertex);
+  findVertexRequired(pt_vertex);
+}
+
+bool LocalRequiredVisitor::localVisitFromToPath(
+                    PtVertex &from_pt_vertex,
+                    const RiseFall *from_rf,
+                    Tag *from_tag,
+                    Path *from_path,
+                    const Arrival &from_arrival,
+                    PtEdge &pt_edge,
+                    TimingArc *arc,
+                    ArcDelay arc_delay,
+                    PtVertex &to_pt_vertex,
+                    const RiseFall *to_rf,
+                    Tag *to_tag,
+                    Arrival &to_arrival,
+                    const MinMax *min_max)
+{
+  // Don't propagate required times through latch D->Q edges.
+  if (pt_edge.role() != TimingRole::latchDtoQ()) {
+    // Guard: to_pt_vertex has no tag group. Confirmed at runtime (LRF_TAG_DEBUG
+    // on smallBoom) that the global STA also has none here (PtGraph::initPaths
+    // copies tag_group_index_max when search()->tagGroup(vertex) is null) — e.g.
+    // SRAM Q outputs that carry no propagated clock path. The original STA
+    // RequiredVisitor::visitFromToPath handles this same case silently, and
+    // these vertices are naturally excluded from local slack (no paths to
+    // iterate), so skipping is correct.
+    if (to_pt_vertex.tagGroupIndex() == sta::tag_group_index_max) {
+      return true;
+    }
+    size_t path_index = ptPathIndex(from_pt_vertex, from_path);
+    const MinMax *req_min = min_max->opposite();
+    TagGroup *to_tag_group = pt_graph_->tagGroup(to_pt_vertex);
+    if (to_tag_group && to_tag_group->hasTag(to_tag)) {
+      size_t to_path_index = to_tag_group->pathIndex(to_tag);
+      Path &to_path = to_pt_vertex.paths()[to_path_index];
+      const Required &to_required = to_path.required();
+      Required from_required = to_required - arc_delay;
+      required_cmp_->requiredSet(path_index, from_required, req_min, this);
+    }
+    else {
+      return true;
+    }
+  } else {
+    printf("WARNING: Local required analysis does not propagate through latch D->Q edges.\n");
+    fflush(stdout);
+  }
+  return true;
+}
+
+void
+LocalRequiredVisitor::printRequireds()
+{
+  for (auto& pt_vertex : pt_graph_->ptVertices()) {
+    PtVertexPathIterator path_iter(pt_vertex, search_, pt_graph_);
+    size_t path_num = 0;
+    while (path_iter.hasNext()) {
+      Path *path = path_iter.next();
+      Required required = path->required();
+      std::string vname = pt_vertex.pin() ? network_->name(pt_vertex.pin()) : std::string("virtual");
+      printf("Vertex %s Path %zu Required: %f\n",
+             vname.c_str(), path_num, required);
+      path_num++;
+    }
+  }
+}
+
+
+} // namespace lrf

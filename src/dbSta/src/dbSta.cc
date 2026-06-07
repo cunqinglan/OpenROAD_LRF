@@ -32,6 +32,7 @@
 #include "boost/json/src.hpp"
 #include "dbSdcNetwork.hh"
 #include "db_sta/dbNetwork.hh"
+#include "lrf/IncreSta.hh"
 #include "odb/PtrSetMap.h"
 #include "odb/db.h"
 #include "odb/dbBlockCallBackObj.h"
@@ -295,6 +296,23 @@ void dbSta::makeNetwork()
 void dbSta::makeSdcNetwork()
 {
   sdc_network_ = new dbSdcNetwork(network_);
+}
+
+// LRF: incremental STA engine (Lagrangian-relaxation gate sizing).
+lrf::IncreSta* dbSta::getIncreSta()
+{
+  if (!incre_sta_) {
+    makeIncreSta();
+  }
+  return incre_sta_;
+}
+
+void dbSta::makeIncreSta()
+{
+  if (incre_sta_) {
+    delete incre_sta_;
+  }
+  incre_sta_ = new lrf::IncreSta(this);
 }
 
 // Extend the default StaLevelizeObserver (Search + GraphDelayCalc forwarding)

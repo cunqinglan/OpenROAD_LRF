@@ -28,6 +28,10 @@ namespace ord {
 class OpenRoad;
 }
 
+namespace lrf {
+class IncreSta;
+}  // namespace lrf
+
 namespace sta {
 
 // std::any and typeid do not work on incomplete types
@@ -155,6 +159,10 @@ class dbSta : public Sta, public odb::dbDatabaseObserver
   // this dbSta instance (e.g. TCL interpreter, units, etc.)
   std::unique_ptr<dbSta> makeBlockSta(odb::dbBlock* block);
 
+  // LRF: incremental STA engine
+  void makeIncreSta();
+  lrf::IncreSta* getIncreSta();
+
   odb::dbDatabase* db() { return db_; }
   dbNetwork* getDbNetwork() { return db_network_; }
   dbStaReport* getDbReport() { return db_report_; }
@@ -250,6 +258,7 @@ class dbSta : public Sta, public odb::dbDatabaseObserver
   utl::Logger* logger_ = nullptr;
 
   dbNetwork* db_network_ = nullptr;
+  lrf::IncreSta* incre_sta_ = nullptr;
   dbStaReport* db_report_ = nullptr;
   std::unique_ptr<dbStaCbk> db_cbk_;
   std::set<dbStaState*> sta_states_;

@@ -875,14 +875,17 @@ void RepairDesign::checkDriverArcSlew(const sta::Scene* corner,
   sta::Pin* in_pin = network_->findPin(inst, arc->from()->name());
 
   if (model && in_pin) {
+    sta::Vertex* in_vertex = graph_->pinLoadVertex(in_pin);
+    if (!in_vertex) {
+      return;
+    }
     const bool use_ideal_clk_slew
         = arc->set()->role()->genericRole() == sta::TimingRole::regClkToQ()
           && sta_->cmdMode()->clkNetwork()->isIdealClock(in_pin);
     float in_slew
         = use_ideal_clk_slew
               ? sta_->cmdMode()->clkNetwork()->idealClkSlew(in_pin, in_rf, max_)
-              : float(graph_->slew(
-                    graph_->pinLoadVertex(in_pin), in_rf, dcalc_ap));
+              : float(graph_->slew(in_vertex, in_rf, dcalc_ap));
     const sta::Pvt* pvt = corner->sdc()->pvt(inst, max_);
     if (pvt == nullptr) {
       pvt = corner->sdc()->operatingConditions(max_);
@@ -936,6 +939,9 @@ bool RepairDesign::repairDriverSlew(const sta::Scene* corner,
                 && role != sta::TimingRole::clockTreePathMin()
                 && role != sta::TimingRole::clockTreePathMax()) {
               for (sta::TimingArc* arc : arc_set->arcs()) {
+                if (arc->to() != port) {
+                  continue;
+                }
                 checkDriverArcSlew(
                     corner, inst, arc, load_cap, limit_w_margin, violation);
               }

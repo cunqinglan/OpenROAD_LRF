@@ -49,6 +49,12 @@
 #include "stt/SteinerTreeBuilder.h"
 #include "utl/Logger.h"
 
+namespace lrf {
+class LrRebuffer;
+class TestRebuffer;
+class Initializer;
+}  // namespace lrf
+
 namespace rsz {
 class SetupLegacyBase;
 struct SlackEstimatorParams;
@@ -646,6 +652,13 @@ class Resizer : public sta::dbStaState, public sta::dbNetworkObserver
   sta::LibertyCellSeq getFastBufferSizes(sta::LibertyCell* source_cell) const;
   sta::LibertyCellSeq getVTEquivCells(sta::LibertyCell* source_cell);
 
+  // LRF: swappable-cell candidate helpers (used by lrf sizing).
+  bool isLegalCellCandidate(sta::LibertyCell* equiv_cell,
+                            sta::LibertyCell* source_cell);
+  sta::LibertyCellSeq* makeSwappableCells(sta::LibertyCell* source_cell);
+  std::vector<sta::LibertyCellSeq> makeSwappableCellsVec(
+      sta::LibertyCell* source_cell);
+
   bool getCin(const sta::LibertyCell* cell, float& cin);
   // Resize drvr_pin instance to target slew.
   // Return 1 if resized.
@@ -1035,6 +1048,9 @@ class Resizer : public sta::dbStaState, public sta::dbNetworkObserver
   friend class ConcreteSwapArithModules;
   friend class Rebuffer;
   friend class OdbCallBack;
+  friend class lrf::LrRebuffer;
+  friend class lrf::TestRebuffer;
+  friend class lrf::Initializer;
   friend class SetupLegacyBase;
   friend class RepairTargetCollector;
   friend class DelayEstimatorReporter;

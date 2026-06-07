@@ -284,6 +284,8 @@ add_subdirectory(par)
 add_subdirectory(est)
 add_subdirectory(syn)
 add_subdirectory(web)
+# LRF
+add_subdirectory(lrf)
 
 ################################################################
 
@@ -332,6 +334,8 @@ target_link_libraries(openroad
   ppl
   stt
   dbSta
+  # ensure lrf symbols available to the final executable
+  lrf_lib
   OpenSTA
   odb
   odbtcl
@@ -363,6 +367,10 @@ target_link_libraries(openroad
   ${TCL_LIBRARY}
   ${CMAKE_THREAD_LIBS_INIT}
   ${Boost_LIBRARIES}
+  # LRF
+  # Link lrf if you want to expose its TCL/Python interface in the openroad binary.
+  # For now, leave it commented if not needed to avoid extra link deps.
+  # lrf
 )
 
 target_compile_definitions(openroad PRIVATE BUILD_TYPE="${CMAKE_BUILD_TYPE}")

@@ -193,6 +193,32 @@ class EstimateParasitics : public sta::dbStaState, public ParasiticsService
   void ensureWireParasitic(const sta::Pin* drvr_pin, const sta::Net* net);
   void highlightSteiner(const sta::Pin* drvr);
 
+  //////////////////////////////////////////////////
+  // API for LR ISTA
+  //////////////////////////////////////////////////
+  void updateParasiticsNoDeleteNetwork(const sta::Net* net);
+  void updateWireParasiticsNoDeleteNetwork();
+  void updateWireParasiticsNoDeleteNetworkParallel();
+  // Incremental version: only re-estimate nets in parasitics_invalid_.
+  void updateWireParasiticsNoDeleteNetworkIncremental();
+  void estimateWireParasiticNoDeleteNetwork(const sta::Net* net);
+  void estimateWireParasiticSteinerNoDeleteNetwork(const sta::Pin* drvr_pin,
+                                                   const sta::Net* net);
+  // Thread-safe variants: bypass Sta::makeParasiticNetwork to avoid
+  // delaysInvalidFromFanin (not thread-safe). Uses parasitics_->makeParasiticNetwork
+  // directly (has LockGuard). Caller must call sta_->delaysInvalid() after.
+  void estimateWireParasiticNoDeleteNetworkParallel(const sta::Net* net);
+  void estimateWireParasiticSteinerNoDeleteNetworkParallel(const sta::Pin* drvr_pin,
+                                                           const sta::Net* net);
+  void checkIfParasiticsNetworkExists(const sta::Net* net);
+  void estimateWireParasiticSteinerLrf(const sta::Pin* drvr_pin,
+                                        const sta::Net* net,
+                                        sta::ArcDelayCalc* external_arc_delay_calc,
+                                        sta::Parasitic *&parasitic_network);
+  /////////////////////////////////////////////////
+  // End of APIs for LR ISTA
+  /////////////////////////////////////////////////
+
   sta::dbNetwork* getDbNetwork() { return db_network_; }
   odb::dbBlock* getBlock() { return block_; }
   grt::GlobalRouter* getGlobalRouter() { return global_router_; }
@@ -216,6 +242,7 @@ class EstimateParasitics : public sta::dbStaState, public ParasiticsService
                                     const sta::Net* net,
                                     sta::SpefWriter* spef_writer);
   void makePadParasitic(const sta::Net* net, sta::SpefWriter* spef_writer);
+  void makePadParasiticParallel(const sta::Net* net);
   bool isPadNet(const sta::Net* net) const;
   bool isPadPin(const sta::Pin* pin) const;
   bool isPad(const sta::Instance* inst) const;

@@ -18,6 +18,10 @@
 #include "sta/Transition.hh"
 #include "utl/Logger.h"
 
+namespace sta {
+class Instance;
+}
+
 namespace est {
 class EstimateParasitics;
 }
@@ -257,6 +261,22 @@ class BufferedNet
   bool fitsEnvelope(Metrics target);
   const sta::Scene* corner() { return corner_; }
 
+  // Functions for LrRebuffer
+  float bufferCost() const { return buffer_cost_; }
+  void setBufferCost(float cost) { buffer_cost_ = cost; }
+  float leakage() const { return leakage_; }
+  void setLeakage(float leakage) { leakage_ = leakage; }
+  std::vector<float>& lms() { return lms_; }
+  void setLms(const std::vector<float>& lms) { lms_ = lms; }
+  void setLms(std::vector<float>&& lms) noexcept { lms_ = std::move(lms); }
+  void setLms(float *lms, int count) {
+    lms_.clear();
+    lms_.assign(lms, lms + count);
+  }
+  // Set by exportBufferTree after physical insertion; used by writeLmsToGraph.
+  sta::Instance* bufInst() const { return buf_inst_; }
+  void setBufInst(sta::Instance* inst) { buf_inst_ = inst; }
+
  private:
   BufferedNetType type_;
   odb::Point location_;
@@ -296,6 +316,16 @@ class BufferedNet
   FixedDelay arrival_delay_ = FixedDelay::ZERO;
 
   const sta::Scene* corner_ = nullptr;
+
+  // LMs vector to pass from load to driver.
+  std::vector<float> lms_;
+
+  // LM delay sum from here to load, used for LrRebuffer.
+  float buffer_cost_ = 0;
+  // Accumulated buffer leakage from here to loads, used for LrRebuffer.
+  float leakage_ = 0;
+  // Set by exportBufferTree: the physical instance created for this buffer node.
+  sta::Instance* buf_inst_ = nullptr;
 };
 
 // Template magic to make it easier to write algorithms descending

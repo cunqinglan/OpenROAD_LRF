@@ -1894,7 +1894,7 @@ int Rebuffer::exportBufferTree(const BufferedNetPtr& choice,
         // In this rebuffer logic, target loads can be on different dbNets.
         // So we pass 'true' to 'loads_on_diff_nets' argument.
         odb::Point buffer_loc = node->location();
-        odb::dbInst* buf_inst = db_network_->staToDb(
+        sta::Instance* sta_buf_inst =
             resizer_->insertBufferBeforeLoads(net,
                                               &child_loads,
                                               buffer_cell,
@@ -1902,10 +1902,13 @@ int Rebuffer::exportBufferTree(const BufferedNetPtr& choice,
                                               instance_base_name,
                                               kDefaultNetBaseName,
                                               odb::dbNameUniquifyType::ALWAYS,
-                                              true /*loads_on_diff_nets*/));
+                                              true /*loads_on_diff_nets*/);
 
+        odb::dbInst* buf_inst = db_network_->staToDb(sta_buf_inst);
         if (buf_inst) {
           count++;
+          // Record the physical instance on the BnetPtr node for LM write-back.
+          node->setBufInst(sta_buf_inst);
 
           sta::LibertyPort *input, *output;
           buffer_cell->bufferPorts(input, output);

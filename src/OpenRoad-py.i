@@ -57,6 +57,7 @@ get_db_block();
 %template(ITerms) std::vector<odb::dbITerm*>;
 %template(BTerms) std::vector<odb::dbBTerm*>;
 %template(EndpointSlacks) std::vector<ord::EndpointSlack>;
+%template(Insts) std::vector<odb::dbInst*>;
 %include "ord/Tech.h"
 %include "ord/Design.h"
 
