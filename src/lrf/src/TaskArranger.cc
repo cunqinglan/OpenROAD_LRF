@@ -3,6 +3,7 @@
 #include <thread>
 
 #include "TaskArranger.hh"
+#include "LrfUtil.hh"
 #include "NetlistTransformation.hh"
 #include "TopologyChecker.hh"
 #include "search/Levelize.hh"
@@ -62,8 +63,6 @@ bool InstVertex::hasFanins() const
 {
   return in_edges_ != edge_id_null;
 }
-
-bool TaskArranger::verbose_ = false;
 
 void
 InstEdge::init(VertexId from, VertexId to)
@@ -145,7 +144,7 @@ TaskArranger::ensureGraphVertices()
   // Pre-warm the graph by accessing all relevant vertices.
   // This forces OpenSTA to allocate vertices in the graph, preventing
   // reallocation/pointer invalidation during parallel execution.
-  printf("TaskArranger::ensureGraphVertices pre-warming graph...\n");
+  if (lrfVerbose()) printf("TaskArranger::ensureGraphVertices pre-warming graph...\n");
   fflush(stdout);
   
   sta::Graph *graph = graph_;
@@ -196,7 +195,7 @@ TaskArranger::ensureGraphVertices()
       }
     }
   }
-  printf("TaskArranger::ensureGraphVertices done.\n");
+  if (lrfVerbose()) printf("TaskArranger::ensureGraphVertices done.\n");
   fflush(stdout);
 }
 
@@ -892,8 +891,10 @@ TaskArranger::visitAll(ParallelVisitor *visitor)
   for (auto v : visitors_) delete v;
   visitors_.clear();
 
-  printf("visitAll: %zu combinational instances out of %zu total, %u threads\n",
-         num_com_, vertices_.size(), thread_count_);
+  if (lrfVerbose()) {
+    printf("visitAll: %zu combinational instances out of %zu total, %u threads\n",
+           num_com_, vertices_.size(), thread_count_);
+  }
   fflush(stdout);
 
   // Create visitor copies for each thread
@@ -1013,7 +1014,7 @@ void
 TaskArranger::createTask(InstVertex* inst_vertex)
 {
   // Record the instance name being visited
-  if (verbose_)
+  if (lrfVerbose())
   {
     std::lock_guard<std::mutex> lock(visited_inst_names_mutex_);
     if (visited_inst_vertices_.size() > max_resize_num_) {
@@ -1056,18 +1057,18 @@ TaskArranger::updatePruningStats(PruningControl *pc_override)
     return;
 
   float change_rate = static_cast<float>(last_change_count_) / last_visit_count_;
-  printf("Pruning: change_rate=%.4f (%d/%d)",
+  if (lrfVerbose()) printf("Pruning: change_rate=%.4f (%d/%d)",
          change_rate, last_change_count_, last_visit_count_);
 
   if (pc) {
-    printf(", iteration=%d, enabled=%d, K=%d", pc->iteration, pc->enabled, pc->K);
+    if (lrfVerbose()) printf(", iteration=%d, enabled=%d, K=%d", pc->iteration, pc->enabled, pc->K);
     if (pc->K == -1 && change_rate < pc->change_threshold) {
       pc->K = pc->iteration;
       pc->enabled = true;
-      printf("\nPruning: K detected at iteration %d, pruning enabled", pc->K);
+      if (lrfVerbose()) printf("\nPruning: K detected at iteration %d, pruning enabled", pc->K);
     }
   }
-  printf("\n");
+  if (lrfVerbose()) printf("\n");
   fflush(stdout);
 }
 
@@ -1228,7 +1229,7 @@ TaskArranger::visitOrdered(sta::dbSta *sta, LocalSta *local_sta,
 
   visitors_.reserve(thread_count_);
   visitors_.push_back(visitor);
-  printf("Visit with %u threads\n", thread_count_);
+  if (lrfVerbose()) printf("Visit with %u threads\n", thread_count_);
   fflush(stdout);
   for (size_t i = 1; i < thread_count_; i++) {
     visitors_.emplace_back(visitor->copy());
@@ -1320,8 +1321,9 @@ TaskArranger::tickProgress()
   while (pct >= cur && cur <= 100) {
     if (next_milestone_.compare_exchange_weak(cur, cur + 10,
                                               std::memory_order_relaxed)) {
-      printf("[%s progress] %zu/%zu (%d%%)\n",
-             progress_tag_, done, total_tasks_, cur);
+      if (lrfVerbose())
+        printf("[%s progress] %zu/%zu (%d%%)\n",
+               progress_tag_, done, total_tasks_, cur);
       fflush(stdout);
       break;
     }

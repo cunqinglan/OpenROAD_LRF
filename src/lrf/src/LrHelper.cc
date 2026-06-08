@@ -2,6 +2,7 @@
 // Simplified helper implementation for initial lrf build.
 #include "lrf/LrfClass.hh"
 #include "LrHelper.hh"
+#include "LrfUtil.hh"
 #include "LmHistory.hh"
 #include "sta/TimingArc.hh"
 #include "sta/Graph.hh"
@@ -467,8 +468,8 @@ LRHelper::clearLms(Edge *edge) {
 
 void
 LRHelper::updateAllEdgeLms(Sta *sta) {
-  printf("Size of sorted_lm_vertices_: %zu\n", sorted_lm_vertices_.size());
-  printf("Using LRHelper strategy: %s\n", strategyName().c_str());
+  if (lrfVerbose()) printf("Size of sorted_lm_vertices_: %zu\n", sorted_lm_vertices_.size());
+  if (lrfVerbose()) printf("Using LRHelper strategy: %s\n", strategyName().c_str());
   fflush(stdout);
   sta->findRequireds();
   copyState(sta);
@@ -783,7 +784,7 @@ LRHelper::parallelComputeInLmSums(DcalcAPToLMValueSeqMap &ap_lm_map)
 bool
 LRHelper::parallelCheckKKTForAllVertices()
 {
-  printf("LRHelper::parallelCheckKKTForAllVertices()\n");
+  if (lrfVerbose()) printf("LRHelper::parallelCheckKKTForAllVertices()\n");
   fflush(stdout);
 
   const size_t n = sorted_lm_vertices_.size();
@@ -887,7 +888,7 @@ LRHelper::parallelCheckKKTForAllVertices()
   }
   dispatch_queue_->finishTasks();
 
-  printf("LRHelper::parallelCheckKKTForAllVertices(): max LM (%s) & min LM (%s) value encountered: %.6f, %.6f\n",
+  if (lrfVerbose()) printf("LRHelper::parallelCheckKKTForAllVertices(): max LM (%s) & min LM (%s) value encountered: %.6f, %.6f\n",
          global_max_lm_edge ? global_max_lm_edge->to_string(graph_).c_str() : "N/A",
          global_min_lm_edge ? global_min_lm_edge->to_string(graph_).c_str() : "N/A",
          global_max_lm, global_min_lm);
@@ -898,7 +899,7 @@ LRHelper::parallelCheckKKTForAllVertices()
 bool
 LRHelper::parallelKKTProjection(Sta *sta)
 {
-  printf("LRHelper::parallelKKTProjection() with %d threads\n", thread_count_);
+  if (lrfVerbose()) printf("LRHelper::parallelKKTProjection() with %d threads\n", thread_count_);
   fflush(stdout);
 
   // Fallback to serial if single-threaded
@@ -938,9 +939,9 @@ LRHelper::parallelKKTProjection(Sta *sta)
   // Step 4: Parallel KKT check
   bool kkt_satisfied = parallelCheckKKTForAllVertices();
   if (kkt_satisfied) {
-    printf("LRHelper::parallelKKTProjection(): KKT conditions satisfied\n");
+    if (lrfVerbose()) printf("LRHelper::parallelKKTProjection(): KKT conditions satisfied\n");
   } else {
-    printf("LRHelper::parallelKKTProjection(): KKT conditions NOT satisfied\n");
+    if (lrfVerbose()) printf("LRHelper::parallelKKTProjection(): KKT conditions NOT satisfied\n");
   }
   fflush(stdout);
   return kkt_satisfied;
@@ -949,8 +950,8 @@ LRHelper::parallelKKTProjection(Sta *sta)
 void
 LRHelper::parallelUpdateAllEdgeLms(Sta *sta)
 {
-  printf("Size of sorted_lm_vertices_: %zu\n", sorted_lm_vertices_.size());
-  printf("Using LRHelper strategy: %s (parallel, %d threads)\n",
+  if (lrfVerbose()) printf("Size of sorted_lm_vertices_: %zu\n", sorted_lm_vertices_.size());
+  if (lrfVerbose()) printf("Using LRHelper strategy: %s (parallel, %d threads)\n",
          strategyName().c_str(), thread_count_);
   fflush(stdout);
 

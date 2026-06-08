@@ -25,6 +25,7 @@
 #include "sta/Parasitics.hh"
 #include "parasitics/ConcreteParasiticsPvt.hh"
 #include "LocalSta.hh"
+#include "LrfUtil.hh"
 #include "PtGraph.hh"
 #include "LocalSearch.hh"
 #include "TaskArranger.hh"
@@ -103,7 +104,7 @@ LocalSta::updateGlobalParasiticsAndSync(est::EstimateParasitics *est_parasitics)
   auto t1 = std::chrono::high_resolution_clock::now();
   local_parasitics_->initParasiticMapFromBase();
   auto t2 = std::chrono::high_resolution_clock::now();
-  printf("[PARASITIC_TIMING] updateWireParasitics: %.4f s, initParasiticMap: %.4f s\n",
+  if (lrfVerbose()) printf("[PARASITIC_TIMING] updateWireParasitics: %.4f s, initParasiticMap: %.4f s\n",
          std::chrono::duration<double>(t1 - t0).count(),
          std::chrono::duration<double>(t2 - t1).count());
   fflush(stdout);

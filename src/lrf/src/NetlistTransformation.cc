@@ -1,4 +1,5 @@
 #include "NetlistTransformation.hh"
+#include "LrfUtil.hh"
 #include "PlacementDensityMap.hh"
 #include "LocalSta.hh"
 #include "LocalDmpDelayCalc.hh"
@@ -1629,7 +1630,9 @@ ParallelVisitor::init(float average_delay, float average_power, float wns,
   float slack_margin = (wns >= 0.0f)
       ? 1.05f
       : std::max(-std::min(wns, 0.0f) / clock_period + 1.0f, 1.05f);
-  printf("slack_margin: %f\n", slack_margin);
+  if (lrfVerbose()) {
+    printf("slack_margin: %f\n", slack_margin);
+  }
   fflush(stdout);
 
   // Also expose via EvalContext so LrRebuffer::evaluateOption gate uses the
@@ -1828,6 +1831,8 @@ ParallelVisitor::copy() const
 void
 ParallelVisitor::printRuntimeProfile() const
 {
+  if (!lrfVerbose())
+    return;
   printf("ParallelVisitor Runtime Profile:\n");
   for (const auto &entry : runtime_map_) {
     printf("  %-30s: %.6f seconds\n", entry.first.c_str(), entry.second);

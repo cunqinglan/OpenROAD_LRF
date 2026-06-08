@@ -11,6 +11,7 @@
 #include "LrHelper.hh"
 #include "lrf/IncreSta.hh"
 #include "lrf/TestLrf.hh"
+#include "LrfUtil.hh"
 #include "PlacementDensityMap.hh"
 #include "Initializer.hh"
 #include "ParallelInitializer.hh"
@@ -84,10 +85,12 @@ checkSlewViolations(sta::dbSta *sta, odb::dbBlock *block,
       count++;
     }
   }
-  if (count > 0)
-    printf("[VIOL] %s: %zu slew violations, total=%.4f ns\n", label, count, total_ns);
-  else
-    printf("[VIOL] %s: No slew violation\n", label);
+  if (lrfVerbose()) {
+    if (count > 0)
+      printf("[VIOL] %s: %zu slew violations, total=%.4f ns\n", label, count, total_ns);
+    else
+      printf("[VIOL] %s: No slew violation\n", label);
+  }
 }
 
 // ── Checkpoint save helper ──────────────────────────────────────
@@ -1298,8 +1301,10 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
                             float timing_margin,
                             bool resize_ff)
 {
-  printf("----- Testing Parallel LR Resize By Array (New Framework, timing_margin=%.4f) -----\n",
-         timing_margin);
+  if (lrfVerbose()) {
+    printf("----- Testing Parallel LR Resize By Array (New Framework, timing_margin=%.4f) -----\n",
+           timing_margin);
+  }
 
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
@@ -1317,7 +1322,9 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   IterationHelper helper(sta, block, local_sta, resizer);
   IterationHelper::Metrics best = helper.snapshot();
   incre_sta->recordMetrics(best.wns_ps, best.tns_ps, best.leakage);
-  printf("Initial WNS: %.3f ps, TNS: %.3f ps\n", best.wns_ps, best.tns_ps);
+  if (lrfVerbose()) {
+    printf("Initial WNS: %.3f ps, TNS: %.3f ps\n", best.wns_ps, best.tns_ps);
+  }
   float avg_delay = incre_sta->averageDelayOnCritPath();
   float avg_leakage = incre_sta->averageLeakage();
   local_sta->initParallel();
@@ -1346,22 +1353,30 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     auto start = std::chrono::high_resolution_clock::now();
 
     if (eco.usePrecheck()) {
-      printf("----- ECO Iteration %zu (precheck, ratio=%.4f) -----\n",
-             i+1, incre_sta->adaptiveTopRatio());
+      if (lrfVerbose()) {
+        printf("----- ECO Iteration %zu (precheck, ratio=%.4f) -----\n",
+               i+1, incre_sta->adaptiveTopRatio());
+      }
       incre_sta->parallelResizeByArrayWithPrecheck(resizer, avg_delay, avg_leakage,
                                                       PT_tradeoff, top_ratio);
     } else if (resize_ff) {
-      printf("----- LR ResizeByArrayWithFF Iteration %zu -----\n", i+1);
+      if (lrfVerbose()) {
+        printf("----- LR ResizeByArrayWithFF Iteration %zu -----\n", i+1);
+      }
       incre_sta->parallelResizeByArrayWithFF(resizer, avg_delay, avg_leakage,
                                              PT_tradeoff);
     } else {
-      printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
+      if (lrfVerbose()) {
+        printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
+      }
       incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
     }
 
     auto end = std::chrono::high_resolution_clock::now();
-    printf("Iteration %zu took %f seconds\n", i+1,
-           std::chrono::duration<double>(end - start).count());
+    if (lrfVerbose()) {
+      printf("Iteration %zu took %f seconds\n", i+1,
+             std::chrono::duration<double>(end - start).count());
+    }
 
     auto t_sync0 = std::chrono::high_resolution_clock::now();
     est_parasitics->updateWireParasiticsNoDeleteNetworkIncremental();
@@ -1376,9 +1391,15 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     float leakage = incre_sta->totalLeakageFast();
     auto t_sync3 = std::chrono::high_resolution_clock::now();
 
-    printf("Worst Negative Slack: %f\n", wns * 1e12);
-    printf("Total Negative Slack: %f\n", tns * 1e12);
-    printf("Total Leakage Power: %f uW\n", leakage * 1e6);
+    if (lrfVerbose()) {
+      printf("Worst Negative Slack: %f\n", wns * 1e12);
+    }
+    if (lrfVerbose()) {
+      printf("Total Negative Slack: %f\n", tns * 1e12);
+    }
+    if (lrfVerbose()) {
+      printf("Total Leakage Power: %f uW\n", leakage * 1e6);
+    }
 
     {
       char label[32];
@@ -1388,10 +1409,12 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     }
 
     fflush(stdout);
-    printf("[ITER_OVERHEAD] parasitic_sync=%.3f  global_sta=%.3f  leakage_calc=%.3f\n",
-           std::chrono::duration<double>(t_sync1 - t_sync0).count(),
-           std::chrono::duration<double>(t_sync2 - t_sync1).count(),
-           std::chrono::duration<double>(t_sync3 - t_sync2).count());
+    if (lrfVerbose()) {
+      printf("[ITER_OVERHEAD] parasitic_sync=%.3f  global_sta=%.3f  leakage_calc=%.3f\n",
+             std::chrono::duration<double>(t_sync1 - t_sync0).count(),
+             std::chrono::duration<double>(t_sync2 - t_sync1).count(),
+             std::chrono::duration<double>(t_sync3 - t_sync2).count());
+    }
     fflush(stdout);
 
     // ── ECO decision via EcoController ──
@@ -1408,7 +1431,9 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
 
     helper.recordRow(i+1, eco.inEco() ? "eco" : "phase1", cur, best,
                      eco.decisionStr(decision));
-    printf("Decision: %s\n", eco.decisionStr(decision));
+    if (lrfVerbose()) {
+      printf("Decision: %s\n", eco.decisionStr(decision));
+    }
     fflush(stdout);
 
     if (decision == EcoDecision::TERMINATE)
@@ -1424,7 +1449,9 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
     IterationHelper::Metrics final_m = helper.snapshot();
     if (final_m.wns_ps > best.wns_ps) {
       odb::dbDatabase::endEco(block);
-      printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
+      if (lrfVerbose()) {
+        printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
+      }
     } else {
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
@@ -1432,11 +1459,15 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
       sta->delaysInvalid();
       sta->updateTiming(true);
       local_sta->taskArranger()->markDirty();
-      printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+      if (lrfVerbose()) {
+        printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+      }
     }
   }
 
-  printf("==============================\n");
+  if (lrfVerbose()) {
+    printf("==============================\n");
+  }
   eco.printSummary();
   helper.printSummary(best);
   delete incre_sta;
@@ -1477,7 +1508,9 @@ TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
   IterationHelper helper(sta, block, local_sta, resizer);
   IterationHelper::Metrics best = helper.snapshot();
   incre_sta->recordMetrics(best.wns_ps, best.tns_ps, best.leakage);
-  printf("Initial WNS: %.3f ps, TNS: %.3f ps\n", best.wns_ps, best.tns_ps);
+  if (lrfVerbose()) {
+    printf("Initial WNS: %.3f ps, TNS: %.3f ps\n", best.wns_ps, best.tns_ps);
+  }
 
   float avg_delay = incre_sta->averageDelayOnCritPath();
   float avg_leakage = incre_sta->averageLeakage();
@@ -1502,12 +1535,16 @@ TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
     } else if (use_precheck) {
       // Phase2: precheck with adaptive ratio
       float ratio = incre_sta->adaptiveTopRatio();
-      printf("----- ECO Iteration %zu (precheck, ratio=%.4f) -----\n", i+1, ratio);
+      if (lrfVerbose()) {
+        printf("----- ECO Iteration %zu (precheck, ratio=%.4f) -----\n", i+1, ratio);
+      }
       incre_sta->parallelResizeByArrayWithPrecheck(resizer, avg_delay, avg_leakage,
                                                     PT_tradeoff, top_ratio);
     } else {
       // Phase2: full resize (no precheck)
-      printf("----- ECO Iteration %zu (full resize) -----\n", i+1);
+      if (lrfVerbose()) {
+        printf("----- ECO Iteration %zu (full resize) -----\n", i+1);
+      }
       incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
     }
 
@@ -1535,7 +1572,9 @@ TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
       accept_count++;
       consecutive_reverts = 0;  // reset — don't halve on next revert
       helper.recordRow(i+1, in_eco ? "eco" : "phase1", cur, best, "accept");
-      printf("Decision: accept (consecutive_reverts reset to 0)\n");
+      if (lrfVerbose()) {
+        printf("Decision: accept (consecutive_reverts reset to 0)\n");
+      }
 
     // ── Warmup accept (first 3 iterations) ──
     } else if (i < 3) {
@@ -1543,7 +1582,9 @@ TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::beginEco(block);
       helper.recordRow(i+1, "phase1", cur, best, "accept(warmup)");
-      printf("Decision: accept(warmup, iter %zu < 3)\n", i+1);
+      if (lrfVerbose()) {
+        printf("Decision: accept(warmup, iter %zu < 3)\n", i+1);
+      }
 
     // ── Revert ──
     } else {
@@ -1583,8 +1624,10 @@ TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
       char decision[64];
       snprintf(decision, sizeof(decision), "revert(consec=%zu)", consecutive_reverts);
       helper.recordRow(i+1, "eco", cur, best, decision);
-      printf("Decision: revert (consecutive=%zu, total=%zu)\n",
-             consecutive_reverts, total_revert_count);
+      if (lrfVerbose()) {
+        printf("Decision: revert (consecutive=%zu, total=%zu)\n",
+               consecutive_reverts, total_revert_count);
+      }
 
       if (consecutive_reverts > 5) {
         printf("Too many consecutive reverts (%zu), terminating.\n", consecutive_reverts);
@@ -1608,7 +1651,9 @@ TestLrf::testEcoResizeNoHalve(sta::dbSta* sta,
     sta->updateTiming(true);
   }
 
-  printf("==============================\n");
+  if (lrfVerbose()) {
+    printf("==============================\n");
+  }
   printf("ECO summary: %zu accepts, %zu total reverts\n",
          accept_count, total_revert_count);
   helper.printSummary(best);
@@ -1628,7 +1673,7 @@ TestLrf::runLr(sta::dbSta* sta, rsz::Resizer *resizer,
          cfg.density_weight, cfg.iterations);
   fflush(stdout);
 
-  TaskArranger::verbose_ = cfg.verbose;
+  // verbose is controlled by the LRF_VERBOSE env var via lrf::lrfVerbose().
 
   switch (cfg.mode) {
     case LrMode::RESIZE:
@@ -1718,7 +1763,9 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
   IterationHelper helper(sta, block, local_sta, resizer);
   IterationHelper::Metrics best = helper.snapshot();
   incre_sta->recordMetrics(best.wns_ps, best.tns_ps, best.leakage);
-  printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
+  if (lrfVerbose()) {
+    printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
+  }
 
   float avg_delay = incre_sta->averageDelayOnCritPath();
   float avg_leakage = incre_sta->averageLeakage();
@@ -1750,7 +1797,9 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
       incre_sta->parallelResizeByArrayWithPrecheck(
           resizer, avg_delay, avg_leakage, PT_tradeoff, ratio);
     } else {
-      printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
+      if (lrfVerbose()) {
+        printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
+      }
       incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
     }
     auto end = std::chrono::high_resolution_clock::now();
@@ -1774,7 +1823,9 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
 
     helper.recordRow(i+1, eco.inEco() ? "eco" : "resize", cur, best,
                      eco.decisionStr(decision));
-    printf("Decision: %s\n", eco.decisionStr(decision));
+    if (lrfVerbose()) {
+      printf("Decision: %s\n", eco.decisionStr(decision));
+    }
     fflush(stdout);
 
     if (decision == EcoDecision::TERMINATE)
@@ -1825,7 +1876,9 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
     IterationHelper::Metrics final_m = helper.snapshot();
     if (final_m.wns_ps > best.wns_ps) {
       odb::dbDatabase::endEco(block);
-      printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
+      if (lrfVerbose()) {
+        printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
+      }
     } else {
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
@@ -1833,7 +1886,9 @@ TestLrf::testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
       sta->delaysInvalid();
       sta->updateTiming(true);
       local_sta->taskArranger()->markDirty();
-      printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+      if (lrfVerbose()) {
+        printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+      }
     }
   }
 
@@ -1879,7 +1934,9 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
   IterationHelper helper(sta, block, local_sta, resizer);
   IterationHelper::Metrics best = helper.snapshot();
   incre_sta->recordMetrics(best.wns_ps, best.tns_ps, best.leakage);
-  printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
+  if (lrfVerbose()) {
+    printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
+  }
 
   float avg_delay = incre_sta->averageDelayOnCritPath();
   float avg_leakage = incre_sta->averageLeakage();
@@ -1915,7 +1972,9 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
       incre_sta->parallelResizeByArrayWithPrecheck(
           resizer, avg_delay, avg_leakage, PT_tradeoff, ratio);
     } else {
-      printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
+      if (lrfVerbose()) {
+        printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
+      }
       incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
     }
     auto end = std::chrono::high_resolution_clock::now();
@@ -1939,7 +1998,9 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
 
     helper.recordRow(i+1, eco.inEco() ? "eco" : "resize", cur, best,
                      eco.decisionStr(decision));
-    printf("Decision: %s\n", eco.decisionStr(decision));
+    if (lrfVerbose()) {
+      printf("Decision: %s\n", eco.decisionStr(decision));
+    }
     fflush(stdout);
 
     if (decision == EcoDecision::TERMINATE)
@@ -1991,7 +2052,9 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
     IterationHelper::Metrics final_m = helper.snapshot();
     if (final_m.wns_ps > best.wns_ps) {
       odb::dbDatabase::endEco(block);
-      printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
+      if (lrfVerbose()) {
+        printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
+      }
     } else {
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
@@ -1999,7 +2062,9 @@ TestLrf::testParallelLrResizeByArrayWithSdpBuffering(sta::dbSta* sta,
       sta->delaysInvalid();
       sta->updateTiming(true);
       local_sta->taskArranger()->markDirty();
-      printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+      if (lrfVerbose()) {
+        printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+      }
     }
   }
 
@@ -2038,8 +2103,6 @@ TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
          buffering_start_iter, timing_margin, erc_violation_weight,
          erc_limit_scale, resize_ff);
 
-  TaskArranger::verbose_ = true;
-
   sta->findRequireds();
   lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
   incre_sta->setDebug(debug);
@@ -2057,7 +2120,9 @@ TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
   IterationHelper helper(sta, block, local_sta, resizer);
   IterationHelper::Metrics best = helper.snapshot();
   incre_sta->recordMetrics(best.wns_ps, best.tns_ps, best.leakage);
-  printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
+  if (lrfVerbose()) {
+    printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
+  }
 
   float avg_delay = incre_sta->averageDelayOnCritPath();
   float avg_leakage = incre_sta->averageLeakage();
@@ -2099,7 +2164,9 @@ TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
           resizer, avg_delay, avg_leakage, PT_tradeoff,
           erc_violation_weight, erc_limit_scale);
     } else {
-      printf("----- Phase A: LR ResizeByArray Iteration %zu -----\n", i+1);
+      if (lrfVerbose()) {
+        printf("----- Phase A: LR ResizeByArray Iteration %zu -----\n", i+1);
+      }
       incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff,
                                        erc_violation_weight, erc_limit_scale);
     }
@@ -2123,7 +2190,9 @@ TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
 
     helper.recordRow(i+1, eco.inEco() ? "A-eco" : "A-resize", cur, best,
                      eco.decisionStr(decision));
-    printf("Phase A Decision: %s\n", eco.decisionStr(decision));
+    if (lrfVerbose()) {
+      printf("Phase A Decision: %s\n", eco.decisionStr(decision));
+    }
     fflush(stdout);
 
     // Phase A "until ECO triggers" semantic: any REVERT (or TERMINATE)
@@ -2191,7 +2260,9 @@ TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
 
     helper.recordRow(i+1, eco.inEco() ? "B-eco" : "B-resize", cur, best,
                      eco.decisionStr(decision));
-    printf("Phase B Decision: %s\n", eco.decisionStr(decision));
+    if (lrfVerbose()) {
+      printf("Phase B Decision: %s\n", eco.decisionStr(decision));
+    }
     fflush(stdout);
 
     if (decision == EcoDecision::TERMINATE)
@@ -2243,7 +2314,9 @@ TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
     IterationHelper::Metrics final_m = helper.snapshot();
     if (final_m.wns_ps > best.wns_ps) {
       odb::dbDatabase::endEco(block);
-      printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
+      if (lrfVerbose()) {
+        printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
+      }
     } else {
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
@@ -2251,7 +2324,9 @@ TestLrf::testInitResizeThenSdpBuffering(sta::dbSta* sta,
       sta->delaysInvalid();
       sta->updateTiming(true);
       local_sta->taskArranger()->markDirty();
-      printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+      if (lrfVerbose()) {
+        printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+      }
     }
   }
 
@@ -2291,7 +2366,9 @@ TestLrf::testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,
   IterationHelper helper(sta, block, local_sta, resizer);
   IterationHelper::Metrics best = helper.snapshot();
   incre_sta->recordMetrics(best.wns_ps, best.tns_ps, best.leakage);
-  printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
+  if (lrfVerbose()) {
+    printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
+  }
 
   float avg_delay = incre_sta->averageDelayOnCritPath();
   float avg_leakage = incre_sta->averageLeakage();
@@ -2311,7 +2388,9 @@ TestLrf::testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,
     // ── Resize phase ──
     incre_sta->lmUpdate();
     sta->findRequireds();
-    printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
+    if (lrfVerbose()) {
+      printf("----- LR ResizeByArray Iteration %zu -----\n", i+1);
+    }
     auto start = std::chrono::high_resolution_clock::now();
     incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
     auto end = std::chrono::high_resolution_clock::now();
@@ -2335,7 +2414,9 @@ TestLrf::testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,
 
     helper.recordRow(i+1, eco.inEco() ? "eco" : "resize", cur, best,
                      eco.decisionStr(decision));
-    printf("Decision: %s\n", eco.decisionStr(decision));
+    if (lrfVerbose()) {
+      printf("Decision: %s\n", eco.decisionStr(decision));
+    }
     fflush(stdout);
 
     if (decision == EcoDecision::TERMINATE)
@@ -2407,7 +2488,9 @@ TestLrf::testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,
     IterationHelper::Metrics final_m = helper.snapshot();
     if (final_m.wns_ps > best.wns_ps) {
       odb::dbDatabase::endEco(block);
-      printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
+      if (lrfVerbose()) {
+        printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
+      }
     } else {
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
@@ -2415,7 +2498,9 @@ TestLrf::testParallelLrResizeByArrayWithRszBuffering(sta::dbSta* sta,
       sta->delaysInvalid();
       sta->updateTiming(true);
       local_sta->taskArranger()->markDirty();
-      printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+      if (lrfVerbose()) {
+        printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+      }
     }
   }
 
@@ -2452,7 +2537,9 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
   IterationHelper helper(sta, block, local_sta, resizer);
   IterationHelper::Metrics best = helper.snapshot();
   incre_sta->recordMetrics(best.wns_ps, best.tns_ps, best.leakage);
-  printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
+  if (lrfVerbose()) {
+    printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
+  }
 
   float avg_delay = incre_sta->averageDelayOnCritPath();
   float avg_leakage = incre_sta->averageLeakage();
@@ -2512,14 +2599,18 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
       eco_iter = 0;
       in_eco = false;
       helper.recordRow(i+1, "combined", cur, best, "accept");
-      printf("Decision: accept\n");
+      if (lrfVerbose()) {
+        printf("Decision: accept\n");
+      }
     } else if (i < 3) {
       // First few iterations: always accept (early iterations often regress before converging)
       best = cur;
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::beginEco(block);
       helper.recordRow(i+1, "combined", cur, best, "accept(warmup)");
-      printf("Decision: accept(warmup, iter %zu < 3)\n", i+1);
+      if (lrfVerbose()) {
+        printf("Decision: accept(warmup, iter %zu < 3)\n", i+1);
+      }
     } else {
       // Regression or no improvement after warmup — revert + halve
       if (!in_eco) {
@@ -2549,7 +2640,9 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
       odb::dbDatabase::beginEco(block);
       eco_iter++;
       helper.recordRow(i+1, "combined", cur, best, "revert+halve");
-      printf("Decision: revert+halve (eco_iter=%zu)\n", eco_iter);
+      if (lrfVerbose()) {
+        printf("Decision: revert+halve (eco_iter=%zu)\n", eco_iter);
+      }
 
       if (eco_iter > 6) {
         printf("Too many ECO iterations (%zu), terminating.\n", eco_iter);
@@ -2563,7 +2656,9 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
   IterationHelper::Metrics final_m = helper.snapshot();
   if (final_m.wns_ps > best.wns_ps) {
     odb::dbDatabase::endEco(block);
-    printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
+    if (lrfVerbose()) {
+      printf("Final design accepted with WNS: %.3f ps\n", final_m.wns_ps);
+    }
   } else {
     odb::dbDatabase::endEco(block);
     odb::dbDatabase::undoEco(block);
@@ -2571,7 +2666,9 @@ TestLrf::testParallelLrCombinedResizeBuffering(sta::dbSta* sta,
     sta->delaysInvalid();
     sta->updateTiming(true);
     local_sta->taskArranger()->markDirty();
-    printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+    if (lrfVerbose()) {
+      printf("Reverted to best design with WNS: %.3f ps\n", best.wns_ps);
+    }
   }
 
   helper.printSummary(best);
@@ -2621,7 +2718,9 @@ TestLrf::testBufferOnly(sta::dbSta* sta,
   IterationHelper helper(sta, block, local_sta, resizer);
   IterationHelper::Metrics best = helper.snapshot();
   incre_sta->recordMetrics(best.wns_ps, best.tns_ps, best.leakage);
-  printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
+  if (lrfVerbose()) {
+    printf("Initial WNS: %.3f, TNS: %.3f\n", best.wns_ps, best.tns_ps);
+  }
 
   float avg_delay = incre_sta->averageDelayOnCritPath();
   float avg_leakage = incre_sta->averageLeakage();
@@ -2659,7 +2758,9 @@ TestLrf::testBufferOnly(sta::dbSta* sta,
       odb::dbDatabase::beginEco(block);
       eco_iter = 0;
       helper.recordRow(i+1, "buffer_only", cur, best, "accept");
-      printf("Decision: accept\n");
+      if (lrfVerbose()) {
+        printf("Decision: accept\n");
+      }
     } else {
       odb::dbDatabase::endEco(block);
       odb::dbDatabase::undoEco(block);
@@ -2669,7 +2770,9 @@ TestLrf::testBufferOnly(sta::dbSta* sta,
       odb::dbDatabase::beginEco(block);
       eco_iter++;
       helper.recordRow(i+1, "buffer_only", cur, best, "revert");
-      printf("Decision: revert (eco_iter=%zu)\n", eco_iter);
+      if (lrfVerbose()) {
+        printf("Decision: revert (eco_iter=%zu)\n", eco_iter);
+      }
 
       if (eco_iter > 3) {
         printf("Too many consecutive rejections (%zu), terminating.\n", eco_iter);
@@ -2781,7 +2884,9 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
   sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
   sta::Slack best_tns = sta->totalNegativeSlack(sta::MinMax::max());
   sta::Slack tns, wns;
-  printf("Initial WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  if (lrfVerbose()) {
+    printf("Initial WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  }
   float avg_delay = incre_sta->averageDelayOnCritPath();
   float avg_leakage = incre_sta->averageLeakage();
   local_sta->initParallel();
@@ -2795,8 +2900,10 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
     incre_sta->parallelResizeByArrayWithPrecheck(resizer, avg_delay, avg_leakage,
                                                     PT_tradeoff, top_ratio);
     auto end = std::chrono::high_resolution_clock::now();
-    printf("Iteration %zu took %f seconds\n", i+1,
-           std::chrono::duration<double>(end - start).count());
+    if (lrfVerbose()) {
+      printf("Iteration %zu took %f seconds\n", i+1,
+             std::chrono::duration<double>(end - start).count());
+    }
 
     local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
     sta->delaysInvalid();
@@ -2812,9 +2919,15 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
       leakage += power_result.leakage();
     }
 
-    printf("Worst Negative Slack: %f\n", wns * 1e12);
-    printf("Total Negative Slack: %f\n", tns * 1e12);
-    printf("Total Leakage Power: %f uW\n", leakage * 1e6);
+    if (lrfVerbose()) {
+      printf("Worst Negative Slack: %f\n", wns * 1e12);
+    }
+    if (lrfVerbose()) {
+      printf("Total Negative Slack: %f\n", tns * 1e12);
+    }
+    if (lrfVerbose()) {
+      printf("Total Leakage Power: %f uW\n", leakage * 1e6);
+    }
     fflush(stdout);
 
     // Adaptive instance filter: after iter > 3, always use adaptive topN.
@@ -2899,11 +3012,15 @@ TestLrf::testParallelLrResizeByArrayWithPrecheck(sta::dbSta* sta,
   wns = sta->worstSlack(sta::MinMax::max());
   if (wns > best_wns) {
     odb::dbDatabase::endEco(block);
-    printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
+    if (lrfVerbose()) {
+      printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
+    }
   } else {
     odb::dbDatabase::endEco(block);
     odb::dbDatabase::undoEco(block);
-    printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+    if (lrfVerbose()) {
+      printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+    }
   }
   delete incre_sta;
 }
@@ -2942,7 +3059,9 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBuffering(sta::dbSta* sta,
   sta::Slack best_wns = sta->worstSlack(sta::MinMax::max());
   sta::Slack best_tns = sta->totalNegativeSlack(sta::MinMax::max());
   sta::Slack tns, wns;
-  printf("Initial WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  if (lrfVerbose()) {
+    printf("Initial WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+  }
   float avg_delay = incre_sta->averageDelayOnCritPath();
   float avg_leakage = incre_sta->averageLeakage();
   local_sta->initParallel();
@@ -2956,8 +3075,10 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBuffering(sta::dbSta* sta,
     incre_sta->parallelResizeByArrayWithPrecheck(resizer, avg_delay, avg_leakage,
                                                     PT_tradeoff, top_ratio);
     auto end = std::chrono::high_resolution_clock::now();
-    printf("Iteration %zu took %f seconds\n", i+1,
-           std::chrono::duration<double>(end - start).count());
+    if (lrfVerbose()) {
+      printf("Iteration %zu took %f seconds\n", i+1,
+             std::chrono::duration<double>(end - start).count());
+    }
 
     local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
     sta->delaysInvalid();
@@ -2973,9 +3094,15 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBuffering(sta::dbSta* sta,
       leakage += power_result.leakage();
     }
 
-    printf("Worst Negative Slack after RSZ: %f\n", wns * 1e12);
-    printf("Total Negative Slack after RSZ: %f\n", tns * 1e12);
-    printf("Total Leakage Power after RSZ: %f uW\n", leakage * 1e6);
+    if (lrfVerbose()) {
+      printf("Worst Negative Slack after RSZ: %f\n", wns * 1e12);
+    }
+    if (lrfVerbose()) {
+      printf("Total Negative Slack after RSZ: %f\n", tns * 1e12);
+    }
+    if (lrfVerbose()) {
+      printf("Total Leakage Power after RSZ: %f uW\n", leakage * 1e6);
+    }
     fflush(stdout);
 
     // Post-convergence regression: immediate rollback + halve
@@ -3057,11 +3184,15 @@ TestLrf::testParallelLrResizeByArrayWithPrecheckBuffering(sta::dbSta* sta,
   wns = sta->worstSlack(sta::MinMax::max());
   if (wns > best_wns) {
     odb::dbDatabase::endEco(block);
-    printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
+    if (lrfVerbose()) {
+      printf("Final design accepted with WNS: %f, TNS: %f\n", wns * 1e12, tns * 1e12);
+    }
   } else {
     odb::dbDatabase::endEco(block);
     odb::dbDatabase::undoEco(block);
-    printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+    if (lrfVerbose()) {
+      printf("Reverted to best design with WNS: %f, TNS: %f\n", best_wns * 1e12, best_tns * 1e12);
+    }
   }
   delete incre_sta;
 }
@@ -5408,7 +5539,9 @@ TestLrf::debugPrecheckAccuracy(sta::dbSta* sta,
   std::vector<size_t> selected = incre_sta->precedingResizeCheck(
       resizer, avg_delay, avg_leakage, PT_tradeoff, top_ratio);
 
-  printf("\n--- Selected %zu instances for verification ---\n", selected.size());
+  if (lrfVerbose()) {
+    printf("\n--- Selected %zu instances for verification ---\n", selected.size());
+  }
   fflush(stdout);
 
   if (selected.empty()) {

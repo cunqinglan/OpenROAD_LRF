@@ -18,6 +18,7 @@
 #include "lrf/LrfClass.hh"
 #include "parasitics/ConcreteParasitics.hh"
 #include "TaskArranger.hh"
+#include "LrfUtil.hh"
 #include "NetlistTransformation.hh"
 #include "LrRebuffer.hh"
 #include "TestRebuffer.hh"
@@ -394,7 +395,7 @@ IncreSta::lmUpdate()
 
   double lm_total_s = std::chrono::duration<double>(
                         std::chrono::high_resolution_clock::now() - lm_t0).count();
-  printf("[LM_UPDATE] total=%.3f s  edge_lm=%.3f s  kkt_proj=%.3f s  "
+  if (lrfVerbose()) printf("[LM_UPDATE] total=%.3f s  edge_lm=%.3f s  kkt_proj=%.3f s  "
          "(parallel=%d, projected=%d)\n",
          lm_total_s, lm_edge_s, lm_kkt_s,
          use_parallel ? 1 : 0, projected_ ? 1 : 0);
@@ -548,8 +549,10 @@ IncreSta::updateErcNormalizers()
 {
   avg_out_slew_ = averageOutSlew();
   avg_load_cap_ = averageLoadCap();
-  printf("ERC normalizers: avg_slew=%.3e s, avg_cap=%.3e F\n",
-         avg_out_slew_, avg_load_cap_);
+  if (lrfVerbose()) {
+    printf("ERC normalizers: avg_slew=%.3e s, avg_cap=%.3e F\n",
+           avg_out_slew_, avg_load_cap_);
+  }
 }
 
 float
@@ -928,7 +931,7 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
 
   // Pruning: update iteration counter (K detection done in TaskArranger)
   pruning_control_.iteration++;
-  printf("Pruning: iteration %d, enabled=%d, K=%d\n",
+  if (lrfVerbose()) printf("Pruning: iteration %d, enabled=%d, K=%d\n",
          pruning_control_.iteration, pruning_control_.enabled, pruning_control_.K);
   fflush(stdout);
 
@@ -1294,7 +1297,7 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
                                  float avg_power, float PT_tradeoff,
                                  float top_ratio)
 {
-  printf("IncreSta::precedingResizeCheck start\n");
+  if (lrfVerbose()) printf("IncreSta::precedingResizeCheck start\n");
   auto start_total = std::chrono::high_resolution_clock::now();
 
   // Ensure prerequisites
@@ -1340,8 +1343,10 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
     if (r.cost_change > 0.0f)
       positive_count++;
   }
-  printf("Precheck: %zu/%zu instances have positive benefit\n",
-         positive_count, results.size());
+  if (lrfVerbose()) {
+    printf("Precheck: %zu/%zu instances have positive benefit\n",
+           positive_count, results.size());
+  }
 
   // Filter: keep top_ratio fraction, remove non-positive
   size_t top_n = static_cast<size_t>(results.size() * top_ratio);
@@ -1360,17 +1365,21 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
 
   // Print top results (cap at 20 for display)
   size_t print_n = std::min(results.size(), static_cast<size_t>(20));
-  printf("Selected %zu instances (top_ratio=%.2f), top %zu:\n",
-         results.size(), top_ratio, print_n);
+  if (lrfVerbose()) {
+    printf("Selected %zu instances (top_ratio=%.2f), top %zu:\n",
+           results.size(), top_ratio, print_n);
+  }
   for (size_t i = 0; i < results.size(); i++) {
     selected_ids.push_back(results[i].vertex_idx);
     if (i < print_n) {
-      printf("  [%zu] %s  cost_change=%.6f  vertex_idx=%zu\n", i,
-             network_->pathName(results[i].inst),
-             results[i].cost_change, results[i].vertex_idx);
+      if (lrfVerbose()) {
+        printf("  [%zu] %s  cost_change=%.6f  vertex_idx=%zu\n", i,
+               network_->pathName(results[i].inst),
+               results[i].cost_change, results[i].vertex_idx);
+      }
     }
   }
-  printf("precedingResizeCheck total time: %f s\n", diff_total.count());
+  if (lrfVerbose()) printf("precedingResizeCheck total time: %f s\n", diff_total.count());
   fflush(stdout);
 
   pruning_control_.last_selected_count = static_cast<int>(selected_ids.size());
@@ -1450,21 +1459,21 @@ IncreSta::parallelResizeByArrayWithPrecheck(
   sta_->findRequireds();
   double tns = sta_->totalNegativeSlack(MinMax::max());
   double wns_after = sta_->worstSlack(MinMax::max());
-  printf("After parallel LR resize with precheck, TNS: %e, WNS: %e\n", tns, wns_after);
-  printf("  precheck time: %.3f s, resize time: %.3f s, ratio: %.2f\n",
+  if (lrfVerbose()) printf("After parallel LR resize with precheck, TNS: %e, WNS: %e\n", tns, wns_after);
+  if (lrfVerbose()) printf("  precheck time: %.3f s, resize time: %.3f s, ratio: %.2f\n",
          precheck_sec, resize_sec,
          resize_sec > 0 ? precheck_sec / resize_sec : 0.0);
 
   // Pruning: update iteration counter and detect K
   pruning_control_.iteration++;
-  printf("Pruning: iteration %d, enabled=%d, K=%d\n",
+  if (lrfVerbose()) printf("Pruning: iteration %d, enabled=%d, K=%d\n",
          pruning_control_.iteration, pruning_control_.enabled, pruning_control_.K);
 
   // Adaptive instance filtering: store stats for caller to decide activation
   {
     TaskArranger *ta = local_sta_->taskArranger();
     pruning_control_.last_change_count = ta->lastChangeCount();
-    printf("InstanceFilter: selected=%d, changed=%d, total=%d, adaptive_ratio=%.4f\n",
+    if (lrfVerbose()) printf("InstanceFilter: selected=%d, changed=%d, total=%d, adaptive_ratio=%.4f\n",
            pruning_control_.last_selected_count,
            pruning_control_.last_change_count,
            static_cast<int>(ta->vertexCount()),
@@ -1507,7 +1516,7 @@ IncreSta::parallelResizeByArrayWithPrecheck(
   }
 
   auto end_total = std::chrono::high_resolution_clock::now();
-  printf("parallelResizeByArrayWithPrecheck total time %.3f s\n",
+  if (lrfVerbose()) printf("parallelResizeByArrayWithPrecheck total time %.3f s\n",
          std::chrono::duration<double>(end_total - start_total).count());
 }
 

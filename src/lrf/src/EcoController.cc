@@ -1,4 +1,5 @@
 #include "EcoController.hh"
+#include "LrfUtil.hh"
 
 #include <limits>
 
@@ -160,10 +161,10 @@ EcoController::updateRatio(EcoDecision decision)
   // HALVE_ON_CONSECUTIVE
   if (consecutive_reverts_ > 1) {
     float new_ratio = current_ratio * config_.halve_factor;
-    printf("Consecutive revert → halve ratio to %.4f\n", new_ratio);
+    if (lrfVerbose()) printf("Consecutive revert → halve ratio to %.4f\n", new_ratio);
     return new_ratio;
   } else {
-    printf("First revert after accept → keep ratio %.4f\n", current_ratio);
+    if (lrfVerbose()) printf("First revert after accept → keep ratio %.4f\n", current_ratio);
     return current_ratio;
   }
 }
@@ -250,7 +251,9 @@ EcoController::runIteration(size_t iter,
   bool use_precheck = in_eco_ && config_.use_precheck;
   if (use_precheck) {
     float ratio = incre_sta_->adaptiveTopRatio();
-    printf("----- ECO Iteration %zu (precheck, ratio=%.4f) -----\n", iter+1, ratio);
+    if (lrfVerbose()) {
+      printf("----- ECO Iteration %zu (precheck, ratio=%.4f) -----\n", iter+1, ratio);
+    }
     incre_sta_->parallelResizeByArrayWithPrecheck(
         resizer_, avg_delay, avg_leakage, PT_tradeoff, top_ratio_);
   } else {
@@ -298,7 +301,9 @@ EcoController::runIteration(size_t iter,
   // ⑧ Log
   helper.recordRow(iter+1, in_eco_ ? "eco" : "phase1", cur, best,
                    decisionStr(decision));
-  printf("Decision: %s\n", decisionStr(decision));
+  if (lrfVerbose()) {
+    printf("Decision: %s\n", decisionStr(decision));
+  }
   fflush(stdout);
 
   return decision;
