@@ -19,7 +19,6 @@
 namespace lrf {
 using namespace sta;
 
-static const ClockEdge *clk_edge_wildcard = reinterpret_cast<ClockEdge*>(1);
 static const LMValue MAX_LM_VALUE = 40.0;
 static const LMValue MIN_LM_VALUE = 1e-16;
 
@@ -567,8 +566,13 @@ LRHelper::updateArcLms(Edge *edge, TimingArc *arc, Sta *sta, Scene *scene, const
   RiseFall const *from_rf = arc->fromEdge()->asRiseFall();
   RiseFall  const *to_rf = arc->toEdge()->asRiseFall();
   MinMax const *delay_minmax = min_max;
-  Arrival from_aat = sta->arrival(from_vertex, from_rf, clk_edge_wildcard, sta->scenes(), delay_minmax);
-  Arrival to_aat = sta->arrival(to_vertex, to_rf, clk_edge_wildcard, sta->scenes(), delay_minmax);
+  // Wildcard over clock edges: master dropped the clk_edge_wildcard escape
+  // (Sta::arrival(...,clk_edge,...) now requires an exact clkEdge() match), so
+  // use the RiseFallBoth overload which has no clk_edge filter and excludes
+  // gen-clk source paths — identical to the old vertexArrival(clk_edge_wildcard)
+  // semantics and consistent with RapidLrHelper::updateArcLms.
+  Arrival from_aat = sta->arrival(from_vertex, from_rf->asRiseFallBoth(), sta->scenes(), delay_minmax);
+  Arrival to_aat = sta->arrival(to_vertex, to_rf->asRiseFallBoth(), sta->scenes(), delay_minmax);
   Delay delay = sta->arcDelay(edge, arc, ap_index);
   LMValue *lms = edge->arcLms();
   LMValue origin = lms[lm_idx];
