@@ -880,9 +880,6 @@ Timing::runInitialization(bool minimize_leakage) {
   rsz::Resizer* resizer = design_->getResizer();
   sta::dbSta* sta = getSta();
   lrf::TestLrf test_lrf;
-  printf("Starting optimization with %zu threads (resize_ff=%d)\n",
-         thread_num, resize_ff);
-  fflush(stdout);
   test_lrf.runInitializationStandalone(sta, resizer, design_->getBlock(),
                                        thread_num, minimize_leakage);
 }

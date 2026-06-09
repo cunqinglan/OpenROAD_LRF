@@ -357,7 +357,7 @@ void EstimateParasitics::resetBlock()
     db_cbk_->removeOwner();
   }
   block_ = nullptr;
-  parasitics_src_ = ParasiticsSrc::none;
+  parasitics_src_ = ParasiticsSrc::kNone;
   parasitics_invalid_.clear();
   incremental_parasitics_enabled_ = false;
 }
