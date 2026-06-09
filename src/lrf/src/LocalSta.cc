@@ -145,6 +145,28 @@ LocalSta::collectLocalVertices(Instance *inst, VertexSet &local_vertices)
     // Sequential cells are skipped (no resize candidate generation in this path).
     return false;
   }
+  // Skip clock-network cells: clock-tree buffers/inverters, and macros whose
+  // clock pin sits on the clock net (e.g. SRAMs, which hasSequentials() does NOT
+  // flag). These are not data-path resize candidates, and collecting their cone
+  // would expand the (possibly 45k-fanout) clock net into the local graph — a
+  // ~100k-vertex PtGraph blowup. ClkNetwork membership works for ideal AND
+  // propagated clocks. Returning before any insertion keeps local_vertices
+  // empty, so makeGraph stays trivial and visit() skips evaluate (usable=false).
+  // clk_network_ is pre-built by the enclosing findRequireds(); isClock() is a
+  // const read, safe under the parallel workers.
+  {
+    InstancePinIterator *clk_iter = network_->pinIterator(inst);
+    bool on_clock_network = false;
+    while (clk_iter->hasNext()) {
+      if (clk_network_->isClock(clk_iter->next())) {
+        on_clock_network = true;
+        break;
+      }
+    }
+    delete clk_iter;
+    if (on_clock_network)
+      return false;
+  }
   InstancePinIterator *pin_iter = network_->pinIterator(inst);
   bool has_usable_driver = false;
   while (pin_iter->hasNext()) {
