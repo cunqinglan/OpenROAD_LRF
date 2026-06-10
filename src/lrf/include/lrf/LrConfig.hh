@@ -11,8 +11,9 @@ enum class LrMode {
   RESIZE_BUFFER,    // Resize iterations + buffering phases
   PRECHECK,         // Precheck screening + resize
   PRECHECK_BUFFER,  // Precheck screening + resize + buffering
-  COMBINED,         // Single-pass combined resize+buffer visitor
-  RESIZE_RSZ_BUFFER // Resize iterations + RSZ-style rebuffering phases
+  COMBINED,          // Single-pass combined resize+buffer visitor
+  RESIZE_RSZ_BUFFER, // Resize iterations + RSZ-style rebuffering phases
+  RESIZE_BEST_ECO    // Pure resize, primitive ECO (keep/restore best-WNS solution)
 };
 
 // ── ECO Strategy ──────────────────────────────────────────

@@ -167,6 +167,23 @@ public:
                             float timing_margin = 0.01f,
                             bool resize_ff = false);
 
+  // Pure-resize loop with the most primitive ECO: every parallelResizeByArray
+  // pass runs straight through to `iterations` (free-running, no mid-run
+  // revert), but each new best-WNS iteration is committed as the baseline and
+  // the best-WNS solution is restored at the end.
+  void testParallelLrResizeByArrayBestEco(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            bool ratcons = false,
+                            float PT_tradeoff = 100.0,
+                            std::string lr_helper_method = "RapidLRHelper",
+                            float density_weight = 0.0f,
+                            float timing_margin = 0.01f,
+                            bool resize_ff = false);
+
   void testParallelLrResizeByArrayWithBuffering(sta::dbSta* sta,
                             rsz::Resizer *resizer,
                             odb::dbBlock *block,

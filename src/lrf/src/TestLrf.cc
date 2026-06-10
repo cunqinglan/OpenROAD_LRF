@@ -1474,6 +1474,161 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
 }
 
 // ═══════════════════════════════════════════════════════════
+// testParallelLrResizeByArrayBestEco — pure-resize loop with the most
+// primitive ECO possible: keep only the best-WNS solution.
+//
+// Like the plain no-ECO loop, every parallelResizeByArray pass runs straight
+// through to `iterations` and each iteration builds on the previous one — the
+// netlist is never reverted mid-run, so the search trajectory (regressions
+// included) is exactly the free-running one. The ONLY ECO behaviour is:
+//   • whenever an iteration reaches a new best WNS, commit everything so far
+//     with endEco()+beginEco() — that state becomes the locked-in baseline;
+//   • non-improving iterations just keep accumulating in the open ECO frame;
+//   • after the whole loop, undoEco() rolls the open frame back to the last
+//     committed best, so the design that survives is the best-WNS solution
+//     seen across all iterations.
+// ODB's ECO journal is linear/LIFO, so committing at each new best is what
+// lets the final undoEco land on the best (rather than the initial state).
+// ═══════════════════════════════════════════════════════════
+void
+TestLrf::testParallelLrResizeByArrayBestEco(sta::dbSta* sta,
+                            rsz::Resizer *resizer,
+                            odb::dbBlock *block,
+                            size_t thread_num,
+                            size_t max_resize_num,
+                            size_t iterations,
+                            bool ratcons,
+                            float PT_tradeoff,
+                            std::string lr_helper_method,
+                            float density_weight,
+                            float timing_margin,
+                            bool resize_ff)
+{
+  printf("----- Testing Parallel LR Resize By Array (BEST ECO, timing_margin=%.4f) -----\n",
+         timing_margin);
+
+  sta->findRequireds();
+  lrf::IncreSta *incre_sta = new IncreSta(sta, thread_num);
+
+  lrf::LocalSta *local_sta = incre_sta->localSta();
+
+  incre_sta->makeLRHelper(lr_helper_method);
+  lrf::LRHelper *lr_helper = incre_sta->lrHelper();
+  lr_helper->setRatcons(ratcons);
+  lr_helper->setTimingMargin(timing_margin);
+
+  incre_sta->setMaxResizeNum(max_resize_num);
+
+  // Open the first ECO frame. The committed baseline always equals the best
+  // WNS seen so far; the open frame holds the changes made since that best.
+  odb::dbDatabase::beginEco(block);
+  IterationHelper helper(sta, block, local_sta, resizer);
+  IterationHelper::Metrics best = helper.snapshot();
+  incre_sta->recordMetrics(best.wns_ps, best.tns_ps, best.leakage);
+  printf("Initial WNS: %.3f ps, TNS: %.3f ps\n", best.wns_ps, best.tns_ps);
+  float avg_delay = incre_sta->averageDelayOnCritPath();
+  float avg_leakage = incre_sta->averageLeakage();
+  local_sta->initParallel();
+
+  // Build placement density map for density-aware swap cost.
+  PlacementDensityMap density_map;
+  setupDensityMap(density_map, sta, block, incre_sta, density_weight);
+
+  // Enable incremental parasitic tracking via ODB callbacks.
+  est::EstimateParasitics *est_parasitics = resizer->getEstimateParasitics();
+  est_parasitics->setIncrementalParasiticsEnabled(true);
+  est_parasitics->setDbCbkOwner(block);
+
+  bool best_uncommitted = false;  // true once at least one new best was committed
+  for (size_t i = 0; i < iterations; ++i) {
+    incre_sta->lmUpdate();
+    sta->findRequireds();
+    auto start = std::chrono::high_resolution_clock::now();
+
+    if (resize_ff) {
+      printf("----- LR ResizeByArrayWithFF (BestEco) Iteration %zu -----\n", i+1);
+      incre_sta->parallelResizeByArrayWithFF(resizer, avg_delay, avg_leakage,
+                                             PT_tradeoff);
+    } else {
+      printf("----- LR ResizeByArray (BestEco) Iteration %zu -----\n", i+1);
+      incre_sta->parallelResizeByArray(resizer, avg_delay, avg_leakage, PT_tradeoff);
+    }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    printf("Iteration %zu took %f seconds\n", i+1,
+           std::chrono::duration<double>(end - start).count());
+
+    // Sync parasitics + timing so the WNS read below is current.
+    est_parasitics->updateWireParasiticsNoDeleteNetworkIncremental();
+    local_sta->syncParasiticMapFromGlobal();
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+    sta::Slack tns = sta->totalNegativeSlack(sta::MinMax::max());
+    sta::Slack wns = sta->worstSlack(sta::MinMax::max());
+    float leakage = incre_sta->totalLeakageFast();
+
+    printf("Worst Negative Slack: %f\n", wns * 1e12);
+    printf("Total Negative Slack: %f\n", tns * 1e12);
+    printf("Total Leakage Power: %f uW\n", leakage * 1e6);
+
+    {
+      char label[32];
+      snprintf(label, sizeof(label), "Iter %zu", i+1);
+      double viol_ns; size_t viol_cnt;
+      checkSlewViolations(sta, block, local_sta, label, viol_ns, viol_cnt);
+    }
+
+    IterationHelper::Metrics cur;
+    cur.wns_ps = wns * 1e12;
+    cur.tns_ps = tns * 1e12;
+    cur.leakage = leakage;
+    cur.runtime_s = std::chrono::duration<double>(end - start).count();
+    incre_sta->recordMetrics(cur.wns_ps, cur.tns_ps, cur.leakage);
+
+    // Primitive ECO: a new best WNS → commit everything so far as the new
+    // locked-in baseline. Iterations never revert here, so the next pass keeps
+    // building on this state regardless. Non-improving iterations leave the
+    // frame open to accumulate.
+    const char *action = "keep";
+    if (cur.wns_ps > best.wns_ps) {
+      best = cur;
+      odb::dbDatabase::endEco(block);   // commit current netlist (new best)
+      odb::dbDatabase::beginEco(block); // reopen frame for subsequent changes
+      best_uncommitted = false;
+      action = "commit(best)";
+    } else {
+      best_uncommitted = true;
+    }
+    helper.recordRow(i+1, "besteco", cur, best, action);
+    fflush(stdout);
+  }
+
+  // Disable incremental parasitic tracking before the final rollback.
+  est_parasitics->removeDbCbkOwner();
+  est_parasitics->setIncrementalParasiticsEnabled(false);
+
+  // Restore the best-WNS solution: close the currently-open frame and undo it,
+  // which rolls the netlist back to the last committed best. (If the final
+  // iteration WAS the best, the open frame is empty and this is a no-op undo.)
+  odb::dbDatabase::endEco(block);
+  if (best_uncommitted) {
+    odb::dbDatabase::undoEco(block);
+    local_sta->updateGlobalParasiticsAndSync(resizer->getEstimateParasitics());
+    sta->delaysInvalid();
+    sta->updateTiming(true);
+    local_sta->taskArranger()->markDirty();
+  }
+
+  IterationHelper::Metrics final_m = helper.snapshot();
+  printf("Restored best solution (BEST ECO) with WNS: %.3f ps, TNS: %.3f ps\n",
+         final_m.wns_ps, final_m.tns_ps);
+
+  printf("==============================\n");
+  helper.printSummary(best);
+  delete incre_sta;
+}
+
+// ═══════════════════════════════════════════════════════════
 // testEcoResizeNoHalve — ECO experiment:
 //   Phase1: full resize, accept until first regression
 //   Phase2 (ECO): precheck with adaptive ratio
@@ -1725,6 +1880,14 @@ TestLrf::runLr(sta::dbSta* sta, rsz::Resizer *resizer,
           cfg.num_no_improve_tolerance, cfg.ratcons,
           cfg.PT_tradeoff, cfg.lr_helper_method,
           cfg.density_weight, cfg.debug);
+      break;
+    case LrMode::RESIZE_BEST_ECO:
+      testParallelLrResizeByArrayBestEco(
+          sta, resizer, block, thread_num,
+          cfg.max_resize_num, cfg.iterations,
+          cfg.ratcons, cfg.PT_tradeoff, cfg.lr_helper_method,
+          cfg.density_weight, cfg.timing_margin,
+          cfg.resize_ff);
       break;
   }
 }
