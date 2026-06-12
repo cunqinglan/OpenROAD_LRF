@@ -3390,8 +3390,14 @@ LrRebuffer::buildSyntheticParasitics(VertexId drvr_vertex_id,
           continue;
         }
 
-        // Reduce Pi model
-        LocalReduceToPiElmore reducer(this, pt_graph);
+        // Reduce Pi model.
+        // NOTE: the reducer must be constructed from a StaState that
+        // dynamic_casts to sta::Parasitics (its parasitics_ member is
+        // `dynamic_cast<Parasitics*>(sta)`). `this` is an LrRebuffer
+        // (rsz::Rebuffer : dbStaState — NOT a Parasitics), so passing it
+        // yields a null parasitics_ and segfaults on first use. Pass the
+        // per-corner ConcreteParasitics already in scope instead.
+        LocalReduceToPiElmore reducer(parasitics, pt_graph);
         float c2, rpi, c1;
         reducer.reduceToPi(syn_net, nullptr, drvr_node, coupling_cap_factor,
                            rf, corner, min_max, c2, rpi, c1);
@@ -3463,7 +3469,9 @@ LrRebuffer::buildSyntheticParasitics(VertexId drvr_vertex_id,
         if (useElmoreCeff()) {
           PtElmoreCeff &pt_ec = pt_graph->makePtElmoreCeff(
               current_drvr_id, rf, dcalc_ap);
-          LocalReduceToPiElmore ec_reducer(this, pt_graph);
+          // Same parasitics_-must-be-non-null constraint as above: pass the
+          // per-corner ConcreteParasitics, not `this` (a non-Parasitics).
+          LocalReduceToPiElmore ec_reducer(parasitics, pt_graph);
           ec_reducer.makePtElmoreCeffOnly(syn_net, nullptr, drvr_node,
                                           coupling_cap_factor, rf,
                                           corner, min_max, pt_ec);
