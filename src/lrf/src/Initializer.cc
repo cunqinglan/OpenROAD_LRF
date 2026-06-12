@@ -559,7 +559,7 @@ Initializer::fixSlewViolations()
       printf("[Initializer] Step 3: UNRESOLVED pin %s, cell %s, "
              "slew=%.3fps limit=%.3fps load_cap=%.2ffF, "
              "largest_equiv=%s est_slew=%.3fps\n",
-             network_->pathName(pin), cur ? cur->name() : "?",
+             network_->pathName(pin).c_str(), cur ? cur->name() : "?",
              worst * 1e12, limit * 1e12, load_cap * 1e15,
              largest_name, largest_slew * 1e12);
     }
@@ -744,7 +744,7 @@ Initializer::fixCapByBuffering()
         printf("[Initializer] Step 4: UNRESOLVED pin %s, "
                "need buffer for group_cap=%.2f fF, "
                "but largest buffer %s has max_cap=%.2f fF (%zu loads in group)\n",
-               network_->pathName(drvr_pin),
+               network_->pathName(drvr_pin).c_str(),
                buf_group_cap * 1e15, max_buf_name, max_buf_cap * 1e15,
                buf_loads.size());
         break;
@@ -778,7 +778,7 @@ Initializer::fixCapByBuffering()
     if (inserted > 0) {
       printf("[Initializer] Step 4: pin %s — inserted %d buffer(s), "
              "remaining_cap=%.2f fF (limit=%.2f fF)\n",
-             network_->pathName(drvr_pin), inserted,
+             network_->pathName(drvr_pin).c_str(), inserted,
              remaining_cap * 1e15, max_cap * 1e15);
       total_buffers += inserted;
     }
@@ -786,7 +786,7 @@ Initializer::fixCapByBuffering()
       printf("[Initializer] Step 4: UNRESOLVED pin %s, "
              "remaining_cap=%.2f fF > limit=%.2f fF after %d buffer(s), "
              "%zu loads remaining\n",
-             network_->pathName(drvr_pin),
+             network_->pathName(drvr_pin).c_str(),
              remaining_cap * 1e15, max_cap * 1e15,
              inserted, loads.size());
     }

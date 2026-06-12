@@ -596,7 +596,7 @@ ResizeOperator::apply(const MoveOption &move, PtGraph *pt_graph,
         || !sta::equivCellFuncs(from_cell, move.target_cell)) {
       printf("ResizeOperator::apply skipping %s: "
              "port/function mismatch\n",
-             db_sta_->network()->pathName(pt_graph->refInstance()));
+             db_sta_->network()->pathName(pt_graph->refInstance()).c_str());
       fflush(stdout);
       return;
     }
@@ -980,7 +980,7 @@ BufferSensitivityOperator::skipInstance(sta::Instance *inst) const
   delete iter;
   if (local_sta_->debug()) {
     printf("[DBG-SKIP] inst=%s all_positive=%d\n",
-           db_sta_->network()->pathName(inst), all_positive);
+           db_sta_->network()->pathName(inst).c_str(), all_positive);
   }
   return all_positive;
 }
@@ -1256,7 +1256,7 @@ CombinedOperator::tryBufferingOnCandidates(
   if (!cached_bnet) {
     if (ctx.debug)
       printf("[DBG-BUF] %s: prepareBufferOptions returned null\n",
-             db_sta_->network()->pathName(inst));
+             db_sta_->network()->pathName(inst).c_str());
     return result;
   }
 
@@ -1288,7 +1288,7 @@ CombinedOperator::tryBufferingOnCandidates(
       float cost = rebuffer->bestCost();
       if (ctx.debug)
         printf("[DBG-BUF] %s: cell=%s is_orig=%d buf_cost=%.3e ori_cost=%.3e\n",
-               db_sta_->network()->pathName(inst), bc.cell->name(),
+               db_sta_->network()->pathName(inst).c_str(), bc.cell->name(),
                bc.is_original, cost, ori_cost);
       if (cost < best_buf_cost) {
         best_buf_cost = cost;
@@ -1298,7 +1298,7 @@ CombinedOperator::tryBufferingOnCandidates(
     } else {
       if (ctx.debug)
         printf("[DBG-BUF] %s: cell=%s evaluateBufferOnCandidate -> null bestBnet\n",
-               db_sta_->network()->pathName(inst), bc.cell->name());
+               db_sta_->network()->pathName(inst).c_str(), bc.cell->name());
     }
     rebuffer->cleanupVirtualBuffer();
   }
@@ -1501,7 +1501,7 @@ CombinedOperator::evaluate(PtGraph *pt_graph, sta::Instance *inst,
     printf("[DBG-COMBINED] %s ori_cell=%s delay_lm=%.3e leak=%.3e "
            "delay_part=%.3e leak_part=%.3e ratio=%.2f ori_cost=%.3e "
            "PT=%.1f avg_delay=%.3e avg_leak=%.3e\n",
-           db_sta_->network()->pathName(inst), ori_cell->name(),
+           db_sta_->network()->pathName(inst).c_str(), ori_cell->name(),
            ori_delay_lm_sum, ori_leakage,
            delay_part, leak_part,
            leak_part > 0 ? delay_part / leak_part : 0.0f,

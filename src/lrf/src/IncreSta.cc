@@ -1374,7 +1374,7 @@ IncreSta::precedingResizeCheck(rsz::Resizer *resizer, float avg_delay,
     if (i < print_n) {
       if (lrfVerbose()) {
         printf("  [%zu] %s  cost_change=%.6f  vertex_idx=%zu\n", i,
-               network_->pathName(results[i].inst),
+               network_->pathName(results[i].inst).c_str(),
                results[i].cost_change, results[i].vertex_idx);
       }
     }
@@ -1700,7 +1700,7 @@ IncreSta::bufferingVerticesCandidateBySensitivity(
     selected_ids.push_back(results[i].vertex_idx);
     if (i < print_n) {
       printf("  [%zu] %s  sensitivity=%.6e  vertex_idx=%zu\n", i,
-             network_->pathName(results[i].inst),
+             network_->pathName(results[i].inst).c_str(),
              results[i].cost_change, results[i].vertex_idx);
     }
   }

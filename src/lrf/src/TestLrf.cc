@@ -3877,7 +3877,7 @@ TestLrf::testLocalStaAccuracy(sta::dbSta* sta, rsz::Resizer *resizer,
           }
           if (std::abs(local_arr - global_arr) > 0.001)
             printf("[W-g16/A] ref=%s type=%s glb=%.3f → writing=%.3f (diff=%.3f)\n",
-                   sta->network()->pathName(ref_inst),
+                   sta->network()->pathName(ref_inst).c_str(),
                    ptVertexTypeName(type), global_arr, local_arr,
                    local_arr - global_arr);
         }
@@ -4518,7 +4518,7 @@ TestLrf::testSlewViolationFeasibility(sta::dbSta* sta,
     float drvr_res = drvr_port ? drvr_port->driveResistance() : 0;
     printf("  Driver cell: %s  inst: %s  R_drvr: %.2f ohm\n",
            drvr_cell ? drvr_cell->name() : "?",
-           sta->network()->pathName(drvr_inst), drvr_res);
+           sta->network()->pathName(drvr_inst).c_str(), drvr_res);
 
     // Build PtGraph and compute LM cost for this instance
     {
@@ -4772,7 +4772,7 @@ TestLrf::testRepairSlew(sta::dbSta* sta,
   for (size_t i = 0; i < std::min(violations.size(), size_t(20)); i++) {
     auto &v = violations[i];
     printf("  [%zu] %s: slew=%.3fps limit=%.3fps excess=%.3fps\n",
-           i, db_network->pathName(v.drvr_pin),
+           i, db_network->pathName(v.drvr_pin).c_str(),
            v.worst_slew * 1e12, v.limit * 1e12,
            (v.worst_slew - v.limit) * 1e12);
   }
@@ -4869,7 +4869,7 @@ TestLrf::testRepairSlew(sta::dbSta* sta,
 
       if (best) {
         printf("  [pass %d] %s: %s -> %s (load=%.2ffF, est_slew=%.1fps)\n",
-               pass, db_network->pathName(v.drvr_pin),
+               pass, db_network->pathName(v.drvr_pin).c_str(),
                cur_cell->name(), best->name(),
                load_cap * 1e15,
                estimateMaxSlew(best->findLibertyPort(drvr_port->name()), load_cap) * 1e12);
@@ -4902,11 +4902,11 @@ TestLrf::testRepairSlew(sta::dbSta* sta,
     if (worst > v.limit) {
       remaining++;
       printf("  Still violated: %s slew=%.3fps limit=%.3fps\n",
-             db_network->pathName(v.drvr_pin),
+             db_network->pathName(v.drvr_pin).c_str(),
              worst * 1e12, v.limit * 1e12);
     } else {
       printf("  Fixed: %s slew=%.3fps limit=%.3fps\n",
-             db_network->pathName(v.drvr_pin),
+             db_network->pathName(v.drvr_pin).c_str(),
              worst * 1e12, v.limit * 1e12);
     }
   }
@@ -5831,7 +5831,7 @@ TestLrf::debugPrecheckAccuracy(sta::dbSta* sta,
 
     printf("\n--- [%zu/%zu] %s (%s) ---\n",
            idx+1, test_count,
-           db_network->pathName(inst), orig_cell->name());
+           db_network->pathName(inst).c_str(), orig_cell->name());
 
     // Record before state
     sta::Slack wns_before = sta->worstSlack(sta::MinMax::max());

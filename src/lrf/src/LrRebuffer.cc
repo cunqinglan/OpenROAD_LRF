@@ -1026,11 +1026,11 @@ LrRebuffer::annotateLoadLMs(PtVertex &drvr_pt_vertex, const BnetPtr& tree)
                 float lm_sum = 0.0f;
                 for (float v : it->second) lm_sum += v;
                 printf("[DBG-LM-LEAF] load_pin=%s lm_sum=%.4e\n",
-                       network_->pathName(load_pin), lm_sum);
+                       network_->pathName(load_pin).c_str(), lm_sum);
               }
             } else {
               printf("LrRebuffer::annotateLoadLMs: Warning: no LM found for load pin %s\n",
-                     network_->pathName(load_pin));
+                     network_->pathName(load_pin).c_str());
               // Set zero LM vector as fallback
               int lmVecSize = sta::TimingArcSet::wireArcCount() * graph_->apCount();
               std::vector<float> zero_lm(lmVecSize, 0.0f);
@@ -4127,7 +4127,7 @@ LrRebuffer::repairCap(const sta::Pin *drvr_pin, float max_cap,
   if (!bnet)
     bnet = resizer->makeBufferedNetSteiner(drvr_pin, corner);
   if (!bnet) {
-    printf("repairCap: no BufferedNet for %s\n", network->pathName(drvr_pin));
+    printf("repairCap: no BufferedNet for %s\n", network->pathName(drvr_pin).c_str());
     return 0;
   }
 
@@ -4273,7 +4273,7 @@ LrRebuffer::repairCap(const sta::Pin *drvr_pin, float max_cap,
   if (inserted == 0) {
     printf("repairCap: pin %s — tree_cap=%.2f fF, max_cap=%.2f fF, "
            "loads=%zu, no buffer inserted\n",
-           network->pathName(drvr_pin), root.cap * 1e15, max_cap * 1e15,
+           network->pathName(drvr_pin).c_str(), root.cap * 1e15, max_cap * 1e15,
            root.load_pins.size());
   } else {
     est->updateParasitics();

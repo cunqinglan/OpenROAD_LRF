@@ -415,7 +415,7 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
   if (!net || !drvr_port_ || hasTopLevelOutputPort(net)) return;
 
   printf("\n  ══ probeAllOptions: %s (fanout=%d) ══\n",
-         network_->pathName(inst), Rebuffer::fanout(drvr_vertex));
+         network_->pathName(inst).c_str(), Rebuffer::fanout(drvr_vertex));
 
   // ── Step 1: Generate bnet candidates ──
   // LRF: makeBufferedNet → annotateLoadLMs → bufferForTiming ×3
@@ -521,7 +521,7 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
   }
   prune_debug_ = want_prune_debug;
   if (prune_debug_) {
-    printf("[DBG-PRUNE] enabled for pin %s\n", network_->pathName(drvr_pin));
+    printf("[DBG-PRUNE] enabled for pin %s\n", network_->pathName(drvr_pin).c_str());
   }
 
   // Experiment: use worst-slack gate (instead of sum-slack gate) in
@@ -885,7 +885,7 @@ TestRebuffer::probeAllOptions(const sta::Pin *drvr_pin, sta::Instance *inst,
                                  gc2, grpi, gc1, exists);
               if (exists) {
                 printf("        %-35s C2=%.4f Rpi=%.1f C1=%.4f total=%.4f  (%s)\n",
-                       network_->pathName(pin),
+                       network_->pathName(pin).c_str(),
                        gc2 * 1e15, grpi, gc1 * 1e15, (gc2 + gc1) * 1e15, desc);
               }
             };

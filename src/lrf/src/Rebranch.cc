@@ -429,14 +429,14 @@ computeSinkCriticality(const sta::Pin* drvr_pin,
   sta::Term* term = network->term(drvr_pin);
   if (term == nullptr) {
     printf("ERROR: Cannot find term for driver pin %s\n", 
-           network->pathName(drvr_pin));
+           network->pathName(drvr_pin).c_str());
     return sink_criticality;
   }
   
   sta::Net* net = network->net(term);
   if (net == nullptr) {
     printf("ERROR: Cannot find net for driver pin %s\n", 
-           network->pathName(drvr_pin));
+           network->pathName(drvr_pin).c_str());
     return sink_criticality;
   }
 
@@ -505,8 +505,8 @@ printSinkCriticality(const sta::Pin* drvr_pin,
   sta::Net* net = (term != nullptr) ? network->net(term) : nullptr;
   
   printf("\n=== Sink Criticality for net: %s (driver: %s) ===\n",
-         net ? network->pathName(net) : "unknown",
-         network->pathName(drvr_pin));
+         net ? network->pathName(net).c_str() : "unknown",
+         network->pathName(drvr_pin).c_str());
   printf("Total sink count: %zu\n", sink_criticality.size());
   
   if (sink_criticality.empty()) {
