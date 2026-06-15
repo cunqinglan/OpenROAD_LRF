@@ -994,8 +994,10 @@ void EstimateParasitics::parasiticNodeConnectPins(
       sta::ParasiticNode* pin_node
           = parasitics->ensureParasiticNode(parasitic, pin, network_);
       if (connected_pins.find(pin) == connected_pins.end()) {
-        if (tree_layer != nullptr && !layer_res_.empty()) {
-          odb::dbTechLayer* pin_layer = getPinLayer(pin);
+        odb::dbTechLayer* pin_layer
+            = (tree_layer != nullptr && !layer_res_.empty()) ? getPinLayer(pin)
+                                                             : nullptr;
+        if (pin_layer != nullptr) {
           insertViaResistances(pin_layer,
                                tree_layer,
                                parasitics,
@@ -1007,6 +1009,11 @@ void EstimateParasitics::parasiticNodeConnectPins(
                                net,
                                max_node_index);
         } else {
+          // pin 所属 instance 未放置(getGeometries 为空)→ getPinLayer 返回
+          // nullptr;或缺少 tree_layer / 层电阻表。回退到平均 cut 电阻,避免在
+          // insertViaResistances 中解引用空 pin_layer 段错误(与 fix_path_init
+          // 一致;floorplan / timing-driven 阶段 resizer 新插入的 cell 此刻可能
+          // 尚未落位)。
           double cut_res
               = std::max(computeAverageCutResistance(corner), 1.0e-3);
           parasitics->makeResistor(

@@ -4790,7 +4790,10 @@ void GlobalRouter::makeItermPins(Net* net,
 
       for (odb::dbBox* box : mterm->getGeometry()) {
         odb::dbTechLayer* tech_layer = box->getTechLayer();
-        if (tech_layer->getType() != odb::dbTechLayerType::ROUTING) {
+        // Pin geometry can include via/cut boxes whose box has no tech layer
+        // (getTechLayer() returns nullptr); skip them before dereferencing.
+        if (tech_layer == nullptr
+            || tech_layer->getType() != odb::dbTechLayerType::ROUTING) {
           continue;
         }
 
@@ -4854,7 +4857,10 @@ void GlobalRouter::makeBtermPins(Net* net,
 
       for (odb::dbBox* bpin_box : bterm_pin->getBoxes()) {
         odb::dbTechLayer* tech_layer = bpin_box->getTechLayer();
-        if (tech_layer->getType() != odb::dbTechLayerType::ROUTING) {
+        // Pin geometry can include via/cut boxes whose box has no tech layer
+        // (getTechLayer() returns nullptr); skip them before dereferencing.
+        if (tech_layer == nullptr
+            || tech_layer->getType() != odb::dbTechLayerType::ROUTING) {
           continue;
         }
 
