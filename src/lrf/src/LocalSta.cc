@@ -1142,6 +1142,18 @@ LocalSta::findDriverDelays1(PtVertex &drvr_pt_vertex,
     if (pt_edge.isSiblingSkipped() && !pt_graph->isFinalEvalMode())
       continue;
 
+    // Precheck: skip SiblingEdge gateDelay. Their delay change vs. base is
+    // recovered in delayLmSum via siblingDeltaDelayLmSum() as a first-order
+    // (d delay / d in_slew * delta in_slew) finite-difference correction.
+    // No final-eval guard needed: precheck and final-eval are separate,
+    // non-overlapping phases (precheck never swaps a gate, so it never enters
+    // the write-back path), so isPrecheckMode() is already false in final-eval.
+    if (pt_graph->isPrecheckMode()) {
+      if (pt_edge.type() == PtEdgeType::SiblingEdge) {
+        continue;
+      }
+    }
+
     // PtGraph edges already passed searchThru at construction time.
     // Avoid dereferencing pt_edge.edge() here because the underlying
     // sta::Edge* may have been invalidated by a concurrent replaceCell.
