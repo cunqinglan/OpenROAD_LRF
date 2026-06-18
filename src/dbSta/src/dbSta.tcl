@@ -197,5 +197,90 @@ proc check_ip { args } {
   return [sta::check_ip_cmd $master_name $check_all $max_polygons $verbose]
 }
 
+################################################################
+#
+# remove_from_collection
+#
+# Synopsys-compatible collection command. Returns a new collection that is
+# "collection" with the objects in "object_spec" removed (set difference), or
+# the intersection of the two when -intersect is given. Object names in
+# object_spec are looked up using the object class of the base collection
+# (exact names, not patterns), mirroring delete_from_list. Unlike
+# delete_from_list, names that cannot be resolved (or objects whose class does
+# not match the base collection) emit a warning, matching dc_shell behavior.
+#
+# Note: OpenSTA represents collections as plain Tcl lists of object handles, so
+# the result is a Tcl list (use llength / get_full_name), not an opaque
+# Synopsys collection object.
+
+define_cmd_args "remove_from_collection" {collection object_spec [-intersect]}
+
+proc remove_from_collection { args } {
+  parse_key_args "remove_from_collection" args keys {} flags {-intersect}
+  check_argc_eq2 "remove_from_collection" $args
+  set base [lindex $args 0]
+  set spec [lindex $args 1]
+
+  # Empty base: object class cannot be inferred, so the result is empty.
+  if { $base eq {} } {
+    return {}
+  }
+
+  set base0 [lindex $base 0]
+  set base_is_objects [is_object $base0]
+  set base_type [expr { $base_is_objects ? [object_type $base0] : "" }]
+
+  # Normalize object_spec to objects of the base collection's class, warning on
+  # names that do not resolve or objects whose class differs from the base.
+  set spec_objs {}
+  foreach obj $spec {
+    if { $base_is_objects && ![is_object $obj] } {
+      set resolved [remove_from_collection_resolve $base_type $obj]
+      if { $resolved eq {} || $resolved eq "NULL" } {
+        utl::warn STA 2066 "remove_from_collection: $base_type '$obj' not found."
+        continue
+      }
+      lappend spec_objs $resolved
+    } elseif { $base_is_objects && [is_object $obj] \
+               && [object_type $obj] ne $base_type } {
+      set obj_class [object_type $obj]
+      utl::warn STA 2067 \
+        "remove_from_collection: object class '$obj_class' does not match '$base_type'; ignored."
+      continue
+    } else {
+      lappend spec_objs $obj
+    }
+  }
+
+  # The set operation reuses delete_from_list. Elements of spec_objs are already
+  # objects, so delete_from_list removes them by identity without reconverting.
+  if { [info exists flags(-intersect)] } {
+    # Intersection: base & spec == base - (base - spec).
+    return [delete_from_list $base [delete_from_list $base $spec_objs]]
+  }
+  # Default: set difference base - spec.
+  return [delete_from_list $base $spec_objs]
+}
+
+# Resolve an object name to an object of the given class, mirroring the type
+# dispatch in delete_objects_from_list_cmd. Unknown types fall back to the raw
+# name (handled downstream) rather than warning.
+proc remove_from_collection_resolve { base_type name } {
+  switch -- $base_type {
+    Clock { return [find_clock $name] }
+    Port {
+      set top [top_instance]
+      return [[$top cell] find_port $name]
+    }
+    Pin { return [find_pin $name] }
+    Instance { return [find_instance $name] }
+    Net { return [find_net $name] }
+    LibertyLibrary { return [find_liberty $name] }
+    LibertyCell { return [find_liberty_cell $name] }
+    LibertyPort { return [get_lib_pins $name] }
+    default { return $name }
+  }
+}
+
 # namespace
 }

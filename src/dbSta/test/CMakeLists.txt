@@ -40,6 +40,7 @@ or_integration_tests(
     read_verilog10_no_prop
     read_verilog11
     readdb_hier
+    remove_from_collection1
     report_cell_usage
     report_cell_usage_file
     report_cell_usage_modinsts

@@ -1,0 +1,10 @@
+[INFO ODB-0227] LEF file: Nangate45/Nangate45.lef, created 22 layers, 27 vias, 135 library cells
+base: clk top_in_single top_out_single
+diff-by-object: top_in_single top_out_single
+diff-by-name: clk top_out_single
+diff-not-in-base: clk top_in_single
+intersect: clk top_out_single
+[WARNING STA-2066] remove_from_collection: Port 'no_such_port' not found.
+warn-missing: clk top_in_single top_out_single
+[WARNING STA-2067] remove_from_collection: object class 'Clock' does not match 'Port'; ignored.
+warn-mismatch: clk top_in_single top_out_single
