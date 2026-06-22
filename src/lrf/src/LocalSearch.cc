@@ -544,8 +544,12 @@ LocalPathVisitor::localVisitFromPath(const Pin *from_pin,
     }
   } 
   else if (role == TimingRole::latchDtoQ()) {
-    printf("ERROR: Local arrival analysis does not support latch clk to q paths yet.\n");
-    fflush(stdout);
+    // Local arrival analysis does not propagate through latch D->Q (time
+    // borrowing) yet; skip the path silently. The debug print + fflush here
+    // floods the log and serializes the parallel resize hot path on designs
+    // with latches, so it is disabled (matches develop_lr).
+    // printf("ERROR: Local arrival analysis does not support latch clk to q paths yet.\n");
+    // fflush(stdout);
     return true;
   } else if (from_tag->isClock()) {
     // clk to ff/dl/comb: replicate original STA logic to preserve tag group.
