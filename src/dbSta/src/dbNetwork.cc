@@ -1885,6 +1885,98 @@ std::string dbNetwork::name(const Net* net) const
   return "";
 }
 
+int dbNetwork::uniquifyHierNetNames()
+{
+  if (!hasHierarchy()) {
+    return 0;
+  }
+
+  // Collect the instances whose module bodies write_verilog emits: the top
+  // instance plus one representative instance per unique hierarchical cell.
+  // Mirrors VerilogWriter::writeModules() / findHierChildren() so we examine
+  // exactly the per-module net sets the writer will declare.
+  std::vector<const Instance*> module_insts;
+  module_insts.push_back(topInstance());
+  std::unordered_set<const Cell*> seen_cells;
+  std::vector<const Instance*> worklist;
+  worklist.push_back(topInstance());
+  while (!worklist.empty()) {
+    const Instance* inst = worklist.back();
+    worklist.pop_back();
+    InstanceChildIterator* child_iter = childIterator(inst);
+    while (child_iter->hasNext()) {
+      const Instance* child = child_iter->next();
+      const Cell* child_cell = cell(child);
+      if (isHierarchical(child)
+          && seen_cells.find(child_cell) == seen_cells.end()) {
+        seen_cells.insert(child_cell);
+        module_insts.push_back(child);
+        worklist.push_back(child);
+      }
+    }
+    delete child_iter;
+  }
+
+  int renamed = 0;
+  for (const Instance* inst : module_insts) {
+    // Names already emitted in this module body.
+    std::set<std::string> seen;
+    // Snapshot nets first; we rename underlying objects below.
+    std::vector<Net*> nets;
+    NetIterator* net_iter = netIterator(inst);
+    while (net_iter->hasNext()) {
+      nets.push_back(net_iter->next());
+    }
+    delete net_iter;
+
+    for (Net* net : nets) {
+      const std::string nm = name(net);
+      if (seen.find(nm) == seen.end()) {
+        seen.insert(nm);
+        continue;
+      }
+      // Collision: a distinct net already emits this name in this module.
+      // Rename this net's underlying object to a unique, special-char-free
+      // name. No '/' means dbNetwork::name() returns it verbatim; no '[' ']'
+      // means it is not parsed as a bus bit.
+      std::string base;
+      for (const char ch : nm) {
+        const bool ok = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
+                        || (ch >= '0' && ch <= '9') || ch == '_';
+        base += ok ? ch : '_';
+      }
+      std::string uniq;
+      int suffix = 0;
+      do {
+        ++suffix;
+        uniq = base + "_hu" + std::to_string(suffix);
+      } while (seen.find(uniq) != seen.end());
+
+      odb::dbNet* dnet = nullptr;
+      odb::dbModNet* modnet = nullptr;
+      staToDb(net, dnet, modnet);
+      if (modnet) {
+        modnet->rename(uniq.c_str());
+      } else if (dnet) {
+        dnet->rename(uniq.c_str());
+      } else {
+        continue;
+      }
+      seen.insert(uniq);
+      ++renamed;
+    }
+  }
+
+  if (renamed > 0) {
+    logger_->info(ORD,
+                  2057,
+                  "Renamed {} duplicate net name(s) to unique names for "
+                  "hierarchical Verilog write-out.",
+                  renamed);
+  }
+  return renamed;
+}
+
 Instance* dbNetwork::instance(const Net*) const
 {
   // modnets are in dbModInstance.

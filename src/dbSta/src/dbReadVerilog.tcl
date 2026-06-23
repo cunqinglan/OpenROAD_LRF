@@ -44,5 +44,11 @@ proc write_verilog { args } {
   set include_pwr_gnd [info exists flags(-include_pwr_gnd)]
   sta::check_argc_eq1 "write_verilog" $args
   set filename [file nativename [lindex $args 0]]
+  # Make per-module net names unique before emitting. Hierarchy edits (rsz
+  # buffering / clones) can leave distinct nets in one module that render to
+  # the same name, producing duplicate wire declarations that downstream tools
+  # reject (e.g. Innovus IMPVL-385). No-op for flat designs. See
+  # dbNetwork::uniquifyHierNetNames.
+  sta::uniquify_hier_net_names_cmd
   sta::write_verilog_cmd $filename $include_pwr_gnd $remove_cells
 }

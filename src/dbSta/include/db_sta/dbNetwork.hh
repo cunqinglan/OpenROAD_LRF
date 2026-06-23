@@ -204,6 +204,17 @@ class dbNetwork : public ConcreteNetwork
   void replaceHierModule(odb::dbModInst* mod_inst, odb::dbModule* module);
   void removeUnusedPortsAndPinsOnModuleInstances();
 
+  // Make per-module net names unique for hierarchical Verilog write-out.
+  // rsz/hierarchy edits can leave several distinct nets in one module that
+  // dbNetwork::name() renders to the same string (e.g. leaked nets collapsing
+  // to a bare leaf like "mem[0]"), which write_verilog then emits as duplicate
+  // wire declarations -- rejected downstream (e.g. Innovus IMPVL-385). This
+  // walks the same module set / net iteration write_verilog uses and renames
+  // the underlying dbNet/dbModNet of every colliding net to a unique, special-
+  // char-free name so declarations and all usages stay consistent. No-op when
+  // the design is flat. Returns the number of nets renamed.
+  int uniquifyHierNetNames();
+
   ////////////////////////////////////////////////////////////////
   //
   // Implement network API
