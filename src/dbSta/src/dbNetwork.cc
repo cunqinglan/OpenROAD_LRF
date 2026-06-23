@@ -1918,6 +1918,13 @@ int dbNetwork::uniquifyHierNetNames()
   }
 
   int renamed = 0;
+  // The unique suffix must be GLOBALLY monotonic, not reset per module: a flat
+  // dbNet's name lives in one block-wide namespace, so a per-module counter
+  // would regenerate the same "<base>_hu1" in different modules and
+  // dbNet::rename() would reject the cross-module duplicate, leaving the net
+  // unrenamed (a residual duplicate). A single counter across all modules makes
+  // every generated name globally unique.
+  int global_uniq = 0;
   for (const Instance* inst : module_insts) {
     // Names already emitted in this module body.
     std::set<std::string> seen;
@@ -1945,25 +1952,44 @@ int dbNetwork::uniquifyHierNetNames()
                         || (ch >= '0' && ch <= '9') || ch == '_';
         base += ok ? ch : '_';
       }
-      std::string uniq;
-      int suffix = 0;
-      do {
-        ++suffix;
-        uniq = base + "_hu" + std::to_string(suffix);
-      } while (seen.find(uniq) != seen.end());
+      if (base.empty()) {
+        base = "net";
+      }
 
       odb::dbNet* dnet = nullptr;
       odb::dbModNet* modnet = nullptr;
       staToDb(net, dnet, modnet);
-      if (modnet) {
-        modnet->rename(uniq.c_str());
-      } else if (dnet) {
-        dnet->rename(uniq.c_str());
-      } else {
-        continue;
+
+      bool done = false;
+      std::string uniq;
+      for (int tries = 0; tries < 1000000 && !done; ++tries) {
+        uniq = base + "_hu" + std::to_string(++global_uniq);
+        if (seen.find(uniq) != seen.end()) {
+          continue;  // already used in this module body
+        }
+        if (modnet) {
+          // dbModNet names are per-module; the global suffix guarantees
+          // module-uniqueness so rename cannot trip the ODB-0495 guard.
+          modnet->rename(uniq.c_str());
+          done = true;
+        } else if (dnet) {
+          // dbNet::rename() returns false if the block-global name is taken;
+          // a higher counter value resolves that on the next iteration.
+          done = dnet->rename(uniq.c_str());
+        } else {
+          break;  // nothing to rename
+        }
       }
-      seen.insert(uniq);
-      ++renamed;
+      if (done) {
+        seen.insert(uniq);
+        ++renamed;
+      } else if (dnet || modnet) {
+        logger_->warn(ORD,
+                      2058,
+                      "Could not assign a unique name to a duplicate net "
+                      "(base '{}') for hierarchical Verilog write-out.",
+                      base);
+      }
     }
   }
 
