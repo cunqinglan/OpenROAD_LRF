@@ -1401,7 +1401,7 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
       printf("Total Leakage Power: %f uW\n", leakage * 1e6);
     }
 
-    {
+    if (lrfVerbose()) {
       char label[32];
       snprintf(label, sizeof(label), "Iter %zu", i+1);
       double viol_ns; size_t viol_cnt;
@@ -1571,7 +1571,7 @@ TestLrf::testParallelLrResizeByArrayBestEco(sta::dbSta* sta,
     printf("Total Negative Slack: %f\n", tns * 1e12);
     printf("Total Leakage Power: %f uW\n", leakage * 1e6);
 
-    {
+    if (lrfVerbose()) {
       char label[32];
       snprintf(label, sizeof(label), "Iter %zu", i+1);
       double viol_ns; size_t viol_cnt;

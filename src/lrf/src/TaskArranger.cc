@@ -114,7 +114,12 @@ TaskArranger::reinit()
     rebuild();
   } else {
     initVertexRefCounts(false);
-    ensureGraphVertices();
+    // The graph structure is unchanged since the last warm-up (a pure resize
+    // swaps masters but never adds pins/vertices), so the OpenSTA vertex
+    // pre-warm from the initial init()/rebuild() still holds. Skipping the
+    // full-design re-scan here saves one serial sweep per iteration. Any
+    // topology change (buffer insertion, ECO revert) sets dirty_ → rebuild()
+    // → re-warm, so correctness is preserved.
   }
 }
 

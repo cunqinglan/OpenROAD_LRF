@@ -919,11 +919,22 @@ IncreSta::parallelResizeByArray(rsz::Resizer *resizer, float avg_delay,
   auto end_resize = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_resize = end_resize - start_resize;
 
-  sta_->updateTiming(true);
-  sta_->findRequireds();
-  double tns_after = sta_->totalNegativeSlack(sta::MinMax::max());
-  double wns_after = sta_->worstSlack(sta::MinMax::max());
-  printf("After parallel resize, TNS: %e, WNS: %e\n", tns_after, wns_after);
+  // This full updateTiming(true) runs on stale parasitics (the incremental
+  // parasitic update + the canonical updateTiming both happen back in the
+  // caller's loop), and its result is consumed only by the CPS branch below
+  // (wns_after) and the verbose diagnostic. On the common path — timing
+  // recovery, CPS not yet latched, non-verbose — skip it to save one
+  // full-design STA per iteration.
+  double wns_after = 0.0;
+  if (cps_enabled_ || lrfVerbose()) {
+    sta_->updateTiming(true);
+    sta_->findRequireds();
+    wns_after = sta_->worstSlack(sta::MinMax::max());
+    if (lrfVerbose()) {
+      double tns_after = sta_->totalNegativeSlack(sta::MinMax::max());
+      printf("After parallel resize, TNS: %e, WNS: %e\n", tns_after, wns_after);
+    }
+  }
   printf("parallel resize time: %f s\n", diff_resize.count());
 
   // Record change count for ECO adaptive ratio computation
