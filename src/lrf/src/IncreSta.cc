@@ -547,11 +547,27 @@ IncreSta::averageLoadCap()
 void
 IncreSta::updateErcNormalizers()
 {
+  // averageOutSlew()/averageLoadCap() are serial, full-design pin sweeps whose
+  // results are only slowly-varying penalty normalizers (scale factors in
+  // EvalContext::swapCost). Refresh them every erc_norm_interval_ calls instead
+  // of every call: this removes an O(pins) serial sweep from most iterations
+  // with no measurable trajectory change. The first call (counter 0) always
+  // recomputes, replacing the tiny sentinel defaults with real averages.
+  const bool due = (erc_norm_calls_++ % erc_norm_interval_) == 0;
+  if (!due) {
+    return;
+  }
+  auto erc_t0 = std::chrono::high_resolution_clock::now();
   avg_out_slew_ = averageOutSlew();
   avg_load_cap_ = averageLoadCap();
   if (lrfVerbose()) {
-    printf("ERC normalizers: avg_slew=%.3e s, avg_cap=%.3e F\n",
-           avg_out_slew_, avg_load_cap_);
+    double erc_s = std::chrono::duration<double>(
+                       std::chrono::high_resolution_clock::now() - erc_t0)
+                       .count();
+    printf("[ERC_NORM] recompute=%.3f s  avg_slew=%.3e s, avg_cap=%.3e F\n",
+           erc_s,
+           avg_out_slew_,
+           avg_load_cap_);
   }
 }
 

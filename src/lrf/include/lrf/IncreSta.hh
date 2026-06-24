@@ -242,6 +242,12 @@ protected:
   // ERC penalty normalizers — computed lazily via updateErcNormalizers()
   float avg_out_slew_ = 1e-10f;
   float avg_load_cap_ = 1e-15f;
+  // averageOutSlew()/averageLoadCap() are serial full-design pin sweeps, so
+  // updateErcNormalizers() refreshes the two normalizers above only once every
+  // erc_norm_interval_ calls (the first call always computes) and reuses the
+  // cache otherwise — they are slowly-varying scale factors, not constraints.
+  int erc_norm_interval_ = 4;
+  int erc_norm_calls_ = 0;
   bool buffer_only_mode_ = false;
   float bakoglu_k_ = 2.5f;
   bool debug_ = false;
