@@ -1713,9 +1713,15 @@ ParallelVisitor::visit(sta::Instance *inst, sta::VertexId vid)
     eval_ctx_.allow_buffer = true;
   }
 
-  // Evaluate via operator
+  // Evaluate via operator (per-candidate cell solve — typically the dominant
+  // cost; timed separately to size where Tier-3 effort should go).
+  auto start_eval = std::chrono::high_resolution_clock::now();
   if (operator_)
     best_move_ = operator_->evaluate(pt_graph_.get(), inst, eval_ctx_);
+  runtime_map_["evaluate"]
+      += std::chrono::duration<double>(std::chrono::high_resolution_clock::now()
+                                       - start_eval)
+             .count();
 
   // Precheck mode: store cost in results vector, don't apply to DB
   if (precheck_results_ && vid != sta::object_id_null) {
@@ -1739,12 +1745,17 @@ ParallelVisitor::visit(sta::Instance *inst, sta::VertexId vid)
   // zeroSlewAndWireDelays), gateDelay extrapolates that into ~ -4e29 garbage
   // arc delays, and writePathsToGraph propagates the garbage arrival/required
   // into the global graph as -4.67e26-scale TNS/WNS.
+  auto start_final = std::chrono::high_resolution_clock::now();
   {
     FinalEvalModeGuard final_eval_guard(pt_graph_.get());
     local_sta_->findLocalDelays(pt_graph_.get(), eval_ctx_.arc_delay_calc);
     local_sta_->findLocalArrivals(pt_graph_.get());
     local_sta_->findLocalRequireds(pt_graph_.get());
   }
+  runtime_map_["final_solve"]
+      += std::chrono::duration<double>(std::chrono::high_resolution_clock::now()
+                                       - start_final)
+             .count();
   auto start_wb = std::chrono::high_resolution_clock::now();
   updateTimingFromPtGraph(pt_graph_.get());
   auto end_wb = std::chrono::high_resolution_clock::now();
