@@ -1,14 +1,15 @@
 #include "EcoController.hh"
-#include "LrfUtil.hh"
 
+#include <cmath>
 #include <limits>
 
-#include "db_sta/dbSta.hh"
-#include "rsz/Resizer.hh"
-#include "lrf/IncreSta.hh"
 #include "LocalSta.hh"
+#include "LrfUtil.hh"
 #include "TaskArranger.hh"
+#include "db_sta/dbSta.hh"
 #include "est/EstimateParasitics.h"
+#include "lrf/IncreSta.hh"
+#include "rsz/Resizer.hh"
 
 namespace lrf {
 
@@ -50,7 +51,26 @@ EcoController::decide(size_t iter,
   if (best_wns >= 0.0)
     reached_positive_wns_ = true;
 
-  bool improved = (cur_wns > best_wns && cur_wns < 0)
+  // Accept criterion. The old test scored only WNS while timing was unmet (and
+  // ignored TNS entirely), so a recovery iteration that held WNS but improved
+  // TNS — or held timing and improved power — was reverted. Enrich only the
+  // not-yet-met branch; the timing-met branch keeps its original power-recovery
+  // behaviour (downsizing that trades WNS margin for leakage while staying
+  // met). kMetricTolPs treats sub-femtosecond wobble as "flat" so a genuine
+  // lower-priority gain is not masked by floating-point rounding.
+  constexpr double kMetricTolPs = 1e-3;
+  const double dwns = cur.wns_ps - best.wns_ps;  // ps
+  const double dtns = cur.tns_ps - best.tns_ps;  // ps
+  const bool wns_flat = std::fabs(dwns) <= kMetricTolPs;
+  const bool tns_flat = std::fabs(dtns) <= kMetricTolPs;
+  bool improved =
+      // Timing not yet met: WNS is primary; when WNS is flat a TNS gain still
+      // counts; when both are flat a leakage gain at zero timing cost counts.
+      (cur_wns < 0.0
+       && ((dwns > kMetricTolPs) || (wns_flat && dtns > kMetricTolPs)
+           || (wns_flat && tns_flat && cur.leakage < best.leakage)))
+      // Timing met (TNS is 0 here): accept more WNS margin or any leakage
+      // reduction while timing stays met — the original power-recovery rule.
       || (cur_wns >= 0.0 && (cur_wns > best_wns || cur.leakage < best.leakage));
 
   // A strict improvement always wins — never let plateau / closure-protection
