@@ -1613,9 +1613,15 @@ LocalSta::makeLoadPinIndexMap(Vertex *drvr_vertex)
   return load_pin_index_map;
 }
 
+// [PROFILING] per-thread accumulator for LoadPinIndexMap construction time;
+// snapshotted per candidate in increAndGetLocalTimingCost to size this
+// per-driver-per-candidate map allocation in the evaluate hot path.
+static thread_local double g_lpim_seconds_ = 0.0;
+
 LoadPinIndexMap
 LocalSta::makeLoadPinIndexMap(PtVertex &drvr_pt_vertex, PtGraph *pt_graph)
 {
+  auto lpim_t0 = std::chrono::high_resolution_clock::now();
   LoadPinIndexMap load_pin_index_map(network_);
   size_t load_idx = 0;
   PtVertexOutEdgeIterator edge_iter(drvr_pt_vertex.objectIdx(), pt_graph);
@@ -1638,6 +1644,9 @@ LocalSta::makeLoadPinIndexMap(PtVertex &drvr_pt_vertex, PtGraph *pt_graph)
       load_idx++;
     }
   }
+  g_lpim_seconds_ += std::chrono::duration<double>(
+                         std::chrono::high_resolution_clock::now() - lpim_t0)
+                         .count();
   return load_pin_index_map;
 }
 
@@ -1826,6 +1835,7 @@ LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph,
                                      std::map<std::string, double> *runtime_map)
 {
   auto t0 = std::chrono::high_resolution_clock::now();
+  const double lpim0 = g_lpim_seconds_;
 
   double recompute_time = 0.0;
   if (!virtualReplaceCellSelective(pt_graph, equiv_cell, &recompute_time)) {
@@ -1866,6 +1876,7 @@ LocalSta::increAndGetLocalTimingCost(PtGraph *pt_graph,
         std::chrono::duration<double>(t4 - t3).count();
     (*runtime_map)["delayLmSum"] +=
         std::chrono::duration<double>(t5 - t4).count();
+    (*runtime_map)["loadPinIndexMap"] += g_lpim_seconds_ - lpim0;
   }
   return result;
 }

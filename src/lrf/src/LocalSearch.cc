@@ -803,7 +803,7 @@ LocalRequiredVisitor::~LocalRequiredVisitor()
 void 
 LocalRequiredVisitor::findLocalRequireds()
 {
-  std::vector<size_t> vertex_ids = pt_graph_->sortedVertexIds();
+  const std::vector<size_t>& vertex_ids = pt_graph_->sortedVertexIds();
   for (size_t i = vertex_ids.size(); i > 0; --i) {
     findVertexRequired(vertex_ids[i - 1]);
   }
