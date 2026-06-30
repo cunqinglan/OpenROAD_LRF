@@ -351,16 +351,25 @@ protected:
                           DcalcAPIndex dcalc_ap,
                           ArcDelayCalc *arc_delay_calc,
                           PtGraph *pt_graph);
+  void seedDrvrCellSlew(PtVertex &pt_drvr_vertex,
+                        const Pin *drvr_pin,
+                        const RiseFall *rf,
+                        const LibertyCell *drvr_cell,
+                        const LibertyPort *from_port,
+                        const DriveCellSlews *from_slews,
+                        const LibertyPort *to_port,
+                        DcalcAPIndex dcalc_ap,
+                        ArcDelayCalc *arc_delay_calc,
+                        PtGraph *pt_graph);
+  void findInputArcDelayLocal(PtVertex &pt_drvr_vertex,
+                              const Pin *drvr_pin,
+                              const TimingArc *arc,
+                              float from_slew,
+                              DcalcAPIndex dcalc_ap,
+                              ArcDelayCalc *arc_delay_calc,
+                              PtGraph *pt_graph);
   int findPortIndex(const LibertyCell *cell,
                     const LibertyPort *port);
-  void findInputDriverDelay(const LibertyCell *drvr_cell,
-                            const Pin *drvr_pin,
-                            Vertex *drvr_vertex,
-                            const RiseFall *rf,
-                            const LibertyPort *from_port,
-                            float *from_slews,
-                            const LibertyPort *to_port,
-                            DcalcAPIndex dcalc_ap);
   LoadPinIndexMap makeLoadPinIndexMap(Vertex *drvr_vertex);
   LoadPinIndexMap makeLoadPinIndexMap(PtVertex &drvr_pt_vertex, PtGraph *pt_graph);
   MultiDrvrNet *findMultiDrvrNet(Vertex *drvr_vertex);

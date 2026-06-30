@@ -891,7 +891,18 @@ LocalSta::seedDrvrSlew(PtVertex &pt_drvr_vertex, PtGraph *pt_graph,
       drive->driveCell(rf, cnst_min_max, drvr_cell, from_port,
                        from_slews, to_port);
       if (drvr_cell) {
-        printf("Warning: LocalSta::seedDrvrSlew: Input drive seeding not implemented yet\n");
+        // Input port driven by an SDC -driving_cell. The driver slew is
+        // load-dependent, so it must be computed from the drive cell's timing
+        // arc against the *current* local load (mirrors
+        // GraphDelayCalc::findInputDriverDelay). Previously this branch only
+        // printed a warning and never seeded the slew, leaving the PtGraph
+        // driver slew uninitialized -- that garbage/NaN slew flowed into the
+        // liberty table lookup (Table::findValueOrder2) and aborted on an
+        // out-of-range axis index.
+        if (from_port == nullptr)
+          from_port = driveCellDefaultFromPort(drvr_cell, to_port);
+        seedDrvrCellSlew(pt_drvr_vertex, drvr_pin, rf, drvr_cell, from_port,
+                         from_slews, to_port, dcalc_ap, arc_delay_calc, pt_graph);
       } else
         seedNoDrvrCellSlew(pt_drvr_vertex, drvr_pin, rf, drive,
                            dcalc_ap, arc_delay_calc, pt_graph);
@@ -947,6 +958,79 @@ LocalSta::seedNoDrvrCellSlew(PtVertex &pt_drvr_vertex,
                                    load_pin_index_map, pt_graph->scene(), pt_graph->minMax());
   annotateLoadDelays(pt_drvr_vertex, rf, dcalc_result, load_pin_index_map,
                      drive_delay, false, dcalc_ap, pt_graph);
+  arc_delay_calc->finishDrvrPin();
+}
+
+// Seed the slew of a top-level input port driven by an SDC -driving_cell.
+// PtGraph-local analogue of GraphDelayCalc::findInputDriverDelay: for each
+// timing arc of the drive cell that produces edge `rf`, compute the
+// load-dependent delay/slew against the current local load.
+void
+LocalSta::seedDrvrCellSlew(PtVertex &pt_drvr_vertex,
+                           const Pin *drvr_pin,
+                           const RiseFall *rf,
+                           const LibertyCell *drvr_cell,
+                           const LibertyPort *from_port,
+                           const sta::DriveCellSlews *from_slews,
+                           const LibertyPort *to_port,
+                           DcalcAPIndex dcalc_ap,
+                           ArcDelayCalc *arc_delay_calc,
+                           PtGraph *pt_graph)
+{
+  for (TimingArcSet *arc_set : drvr_cell->timingArcSets(from_port, to_port)) {
+    for (TimingArc *arc : arc_set->arcs()) {
+      if (arc->toEdge()->asRiseFall() == rf) {
+        float from_slew = (*from_slews)[arc->fromEdge()->index()];
+        findInputArcDelayLocal(pt_drvr_vertex, drvr_pin, arc, from_slew,
+                               dcalc_ap, arc_delay_calc, pt_graph);
+      }
+    }
+  }
+}
+
+// Driving-cell delay is the load-dependent delay (gate delay minus the
+// intrinsic, zero-load delay), annotated onto the wire arcs from the input
+// port pin to its load pins. The driver slew is the gate's output slew at the
+// current load. PtGraph-local analogue of GraphDelayCalc::findInputArcDelay.
+void
+LocalSta::findInputArcDelayLocal(PtVertex &pt_drvr_vertex,
+                                 const Pin *drvr_pin,
+                                 const TimingArc *arc,
+                                 float from_slew,
+                                 DcalcAPIndex dcalc_ap,
+                                 ArcDelayCalc *arc_delay_calc,
+                                 PtGraph *pt_graph)
+{
+  const RiseFall *drvr_rf = arc->toEdge()->asRiseFall();
+  if (drvr_rf == nullptr)
+    return;
+  DcalcAPIndex ap_index = dcalc_ap;
+  const Parasitic *parasitic = nullptr;
+  float load_cap = 0.0f;
+  localParasiticLoad(pt_drvr_vertex, drvr_rf, dcalc_ap, nullptr,
+                     load_cap, parasitic, pt_graph);
+  LoadPinIndexMap load_pin_index_map =
+      makeLoadPinIndexMap(pt_drvr_vertex, pt_graph);
+
+  // Intrinsic (zero-load) delay, used to isolate the load-dependent portion.
+  ArcDcalcResult intrinsic_result =
+      arc_delay_calc->gateDelay(drvr_pin, arc, Slew(from_slew), 0.0f, nullptr,
+                                load_pin_index_map, pt_graph->scene(),
+                                pt_graph->minMax());
+  const ArcDelay &intrinsic_delay = intrinsic_result.gateDelay();
+
+  // Load-dependent gate delay and output slew at the current local load.
+  ArcDcalcResult gate_result =
+      arc_delay_calc->gateDelay(drvr_pin, arc, Slew(from_slew), load_cap,
+                                parasitic, load_pin_index_map,
+                                pt_graph->scene(), pt_graph->minMax());
+  const Slew &gate_slew = gate_result.drvrSlew();
+  const ArcDelay load_delay =
+      delayDiff(gate_result.gateDelay(), intrinsic_delay, this);
+
+  pt_graph->setSlew(pt_drvr_vertex, drvr_rf, ap_index, gate_slew);
+  annotateLoadDelays(pt_drvr_vertex, drvr_rf, gate_result, load_pin_index_map,
+                     load_delay, false, dcalc_ap, pt_graph);
   arc_delay_calc->finishDrvrPin();
 }
 
@@ -1026,33 +1110,7 @@ LocalSta::loadSlewFromGraph(PtVertex &root_pt_vertex, PtGraph *pt_graph)
   }
 }
 
-void 
-LocalSta::findInputDriverDelay(const LibertyCell *drvr_cell,
-                              const Pin *drvr_pin,
-                              Vertex *drvr_vertex,
-                              const RiseFall *rf,
-                              const LibertyPort *from_port,
-                              float *from_slews,
-                              const LibertyPort *to_port,
-                              DcalcAPIndex dcalc_ap)
-{
-  for (TimingArcSet *arc_set : drvr_cell->timingArcSets(from_port, to_port)) {
-    for (TimingArc *arc : arc_set->arcs()) {
-      if (arc->toEdge()->asRiseFall() == rf) {
-        float from_slew = from_slews[arc->fromEdge()->index()];
-        // TODO(LRF-migration): findInputDriverDelay has no callers (dead). Base
-        // GraphDelayCalc::findInputArcDelay now takes (scene, min_max, arc_dcalc);
-        // pass the single default-scene max AP consistent with carrier invariant.
-        (void) dcalc_ap;
-        findInputArcDelay(drvr_pin, drvr_vertex, arc, from_slew,
-                          scenes()[0], MinMax::max(), arc_delay_calc_);
-      }
-    }
-  }
-  arc_delay_calc_->finishDrvrPin();
-}
-
-int 
+int
 LocalSta::findPortIndex(const LibertyCell *cell,
                         const LibertyPort *port)
 {
