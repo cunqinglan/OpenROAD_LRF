@@ -56,9 +56,10 @@ EcoController::decide(size_t iter,
   // TNS — or held timing and improved power — was reverted. Enrich only the
   // not-yet-met branch; the timing-met branch keeps its original power-recovery
   // behaviour (downsizing that trades WNS margin for leakage while staying
-  // met). kMetricTolPs treats sub-femtosecond wobble as "flat" so a genuine
-  // lower-priority gain is not masked by floating-point rounding.
-  constexpr double kMetricTolPs = 1e-3;
+  // met). kMetricTolPs treats sub-0.1ps wobble as "flat" so a genuine
+  // lower-priority gain is not masked by STA noise (a resize elsewhere in the
+  // design routinely moves WNS by ~0.05-0.3ps).
+  constexpr double kMetricTolPs = 0.1;
   const double dwns = cur.wns_ps - best.wns_ps;  // ps
   const double dtns = cur.tns_ps - best.tns_ps;  // ps
   const bool wns_flat = std::fabs(dwns) <= kMetricTolPs;

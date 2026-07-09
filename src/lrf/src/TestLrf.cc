@@ -1338,7 +1338,9 @@ TestLrf::testParallelLrResizeByArray(sta::dbSta* sta,
   // ECO controller — uses best experimentally-verified strategy.
   EcoConfig eco_cfg = EcoConfig::make(EcoStrategy::HALVE_ON_CONSECUTIVE);
   eco_cfg.max_eco_reverts = num_no_improve_tolerance;
-  eco_cfg.warmup_iters = 0;  // EXPERIMENT: match develop_lr (no warmup) to test TNS regression hypothesis
+  eco_cfg.warmup_iters = 3;  // absorb early LM oscillation in phase1 instead of
+                             // entering throttled ECO on iter 1 (matches Phase A
+                             // of testInitResizeThenSdpBuffering)
   EcoController eco(eco_cfg, incre_sta, sta, block, resizer);
 
   // Enable incremental parasitic tracking via ODB callbacks.
