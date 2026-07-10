@@ -98,19 +98,19 @@ EcoController::decide(size_t iter,
 
   // Not improved.
   if (iter < config_.warmup_iters) {
-    // Warmup: only revert when both WNS and TNS regressed.
-    // If only one metric worsened, accept and keep going — the netlist may
-    // still be making useful progress along the other dimension.
-    bool wns_worse = (cur.wns_ps < best.wns_ps);
-    bool tns_worse = (cur.tns_ps < best.tns_ps);
-    if (wns_worse && tns_worse) {
-      total_reverts_++;
-      return EcoDecision::REVERT_WARMUP;
+    // Warmup: tolerate early-LM oscillation only when the iteration actually
+    // advanced a metric. The only such case reaching here is a TNS gain paid
+    // with WNS (a WNS gain is already accepted by `improved` above). The old
+    // both-regressed revert rule was a loophole on designs with a pinned WNS
+    // (an unfixable port path): wns_worse never fired, so warmup accepted
+    // arbitrary TNS damage from the fresh-LM first passes into `best`.
+    if (dtns > kMetricTolPs) {
+      consecutive_reverts_ = 0;
+      total_accepts_++;
+      return EcoDecision::ACCEPT;
     }
-    // Partial regression — treat as accept during warmup.
-    consecutive_reverts_ = 0;
-    total_accepts_++;
-    return EcoDecision::ACCEPT;
+    total_reverts_++;
+    return EcoDecision::REVERT_WARMUP;
   }
 
   if (!in_eco_) {
