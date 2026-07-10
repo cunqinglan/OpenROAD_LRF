@@ -96,6 +96,22 @@ EcoController::decide(size_t iter,
   if (detectLeakagePlateau(iter, cur))
     return EcoDecision::TERMINATE;
 
+  // Futility bail-out: nothing accepted since entry and this would be the
+  // 5th straight revert — the fresh-LM resize is not converging on this
+  // netlist state (observed on agent-loop re-invocations of LR sizing where
+  // all 8 iterations reverted, ~200s wasted per call). Terminating here is
+  // QoR-safe: with zero accepts the rollback lands exactly on the entry
+  // state. Threshold 5 leaves margin over the longest observed
+  // revert-prefix of a productive run (3 warmup reverts, first accept at
+  // iter 4 on ac97/dynamic_node).
+  if (total_accepts_ == 0 && total_reverts_ >= 4) {
+    printf("ECO: futility — 0 accepts after %zu straight reverts, "
+           "terminating at iter %zu.\n", total_reverts_ + 1, iter + 1);
+    fflush(stdout);
+    total_reverts_++;
+    return EcoDecision::TERMINATE;
+  }
+
   // Not improved.
   if (iter < config_.warmup_iters) {
     // Warmup: tolerate early-LM oscillation only when the iteration actually
