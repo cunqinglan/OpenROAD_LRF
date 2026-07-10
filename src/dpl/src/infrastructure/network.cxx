@@ -90,7 +90,9 @@ Pin* Network::addPin(odb::dbITerm* term)
     for (auto pin : term->getMTerm()->getMPins()) {
       for (auto box : pin->getGeometry()) {
         auto layer = box->getTechLayer();
-        if (layer->getType() != odb::dbTechLayerType::Value::ROUTING) {
+        // Skip via geometry (LEF PIN PORT VIA statements have no tech layer)
+        if (layer == nullptr
+            || layer->getType() != odb::dbTechLayerType::Value::ROUTING) {
           continue;
         }
         if (layer->getRoutingLevel() > 3) {
